@@ -2715,6 +2715,49 @@ test("runEvalWith aborts when maxCostUsd is exceeded", async () => {
   assert.ok(Math.abs(report.totalCostUsd - 0.2) < 1e-9);
 });
 
+// vigiles#527: when one trial fails, the pool stops starting new ones, but a run
+// already in flight was never told to stop — its agent kept spending until its
+// own timeout, for a result nobody reads.
+test("runEvalWith signals an in-flight run to stop when another trial fails (#527)", async () => {
+  const stream = JSON.stringify({ type: "result", num_turns: 1, result: "ok" });
+  let inFlight: AgentRunArgs | undefined;
+  const runner = (
+    a: AgentRunArgs,
+  ): Promise<{ code: number; stdout: string }> => {
+    if (inFlight === undefined) {
+      inFlight = a;
+      // Hangs like a long agent run, and ends early only when told to stop.
+      return new Promise((resolveRun) => {
+        const done = setTimeout(
+          () => resolveRun({ code: 0, stdout: stream }),
+          500,
+        );
+        a.signal?.addEventListener("abort", () => {
+          clearTimeout(done);
+          resolveRun({ code: 1, stdout: "" });
+        });
+      });
+    }
+    return Promise.reject(new Error("the other trial failed"));
+  };
+  await assert.rejects(
+    runEvalWith(
+      {
+        env: INHERIT,
+        arms: { a: {}, b: {} },
+        task: "t",
+        trials: 1,
+        spacingSec: 0,
+        concurrency: 2,
+        measure: () => ({ ok: true }),
+      },
+      runner,
+    ),
+    /the other trial failed/,
+  );
+  assert.equal(inFlight?.signal?.aborted, true);
+});
+
 // vigiles#416 (the timeout-cost note): a run the timeout killed has no `result`
 // event, so it read as $0 — a stuck case never moved the ceiling and every trial
 // launched — and `code ?? 0` turned the SIGKILL into a clean exit.
