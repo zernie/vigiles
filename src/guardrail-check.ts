@@ -22,7 +22,10 @@
  * the scaffold-test generator emits a test that calls these, and the same engine
  * backs an informational coverage report.
  */
-import { equivalentCommands } from "./core/bash-equivalents.js";
+import {
+  equivalentCommands,
+  equivalentSpellings,
+} from "./core/bash-equivalents.js";
 import { lookalikeCommands } from "./core/bash-lookalikes.js";
 import {
   allow,
@@ -160,6 +163,8 @@ export interface HarmlessEvent {
  *   select the case, so the harness would never spawn it there.
  * - `never-launched` — the shell answered 126/127: interpreter missing, file not
  *   executable, bad shebang.
+ * - `unproven` — a spelling of one of YOUR events that the generator could not
+ *   prove is the same command; it is skipped, not run, and never a miss.
  * - `crashed` — a command-string hook exited non-zero on EVERY call, with no
  *   structured decision and an interpreter or loader error on stderr (a missing
  *   script or library), and some exit was not a block or a harmless case failed
@@ -178,7 +183,8 @@ export type GuardrailRun =
   | "ran"
   | "not-selected"
   | "never-launched"
-  | "crashed";
+  | "crashed"
+  | "unproven";
 
 /** One case of the battery and what the guard did with it. */
 export interface GuardrailRow<
@@ -213,6 +219,13 @@ export interface VerifyGuardrailOptions extends RunHookOptions {
   /** The PreToolUse event name to wrap each disaster in (default "PreToolUse"). */
   readonly event?: string;
   /**
+   * More cases the guard must BLOCK: other spellings of the selected disasters
+   * that still contain the operation the guard must catch. Default: {@link experimental_alternateSpellings}
+   * of the selected events. `[]` turns them off; an array replaces them (spread
+   * `experimental_alternateSpellings(...)` to keep the generated ones beside yours).
+   */
+  readonly spellings?: readonly DisasterEvent[];
+  /**
    * The cases the guard must ALLOW. Default: the harmless look-alikes of every
    * selected disaster ({@link experimental_harmlessTwins}), so a custom `events`
    * battery gets its own. `[]` turns the half off; pass your own cases to
@@ -245,18 +258,21 @@ function selectEvents(opts: VerifyGuardrailOptions): readonly DisasterEvent[] {
 }
 
 /**
- * The same dangerous commands, spelled the other ways a shell reads identically.
+ * The same dangerous commands, spelled other ways that still contain the
+ * operation the guard must catch.
  *
  * Takes a battery of hook test cases (shell commands wrapped as `PreToolUse`
  * events — `DISASTER_CATALOG` is the shipped one) and returns MORE test cases:
  * every command re-spelled with a quoted flag (`git push "--force"`), the short
  * form of a flag (`-f`), an absolute or escaped head (`/usr/bin/git`, `\git`), or a
- * pass-through wrapper (`sudo …`, `env …`). The shell runs each rewrite exactly as
- * it runs the original. Feed them to `assertGuardrail` alongside the
- * originals:
+ * pass-through wrapper (`sudo …`, `env …`), a subshell, or `bash -c '…'`. Each
+ * rewrite contains the same operation the guard must catch — not always the
+ * whole original: `sudo` in front of a compound seed applies to its first
+ * command only. `assertGuardrail` runs them by default (its `spellings`
+ * option); to add your own, spread these beside them:
  *
  *     assertGuardrail(hook, {
- *       events: [...DISASTER_CATALOG, ...experimental_alternateSpellings(DISASTER_CATALOG)],
+ *       spellings: [...experimental_alternateSpellings(DISASTER_CATALOG), mine],
  *     });
  *
  * WHAT BREAKS WITHOUT IT. A guard whose rule is "the command contains `--force`"
@@ -268,8 +284,9 @@ function selectEvents(opts: VerifyGuardrailOptions): readonly DisasterEvent[] {
  * WHY THE OUTPUT IS TRUSTWORTHY. Nothing new is judged. "Dangerous" is inherited
  * from the original a human put in the battery; "the same command" is decided by
  * the shell parser vigiles already uses for `runs()`/`touches()` (see
- * {@link sameOperation}). A rewrite that fails that check throws rather than being
- * emitted, so the battery can never quietly shrink.
+ * `sameOperation` in core). A rewrite that fails that check throws rather than
+ * being emitted, so the battery can never quietly shrink. (For events YOU pass
+ * to `assertGuardrail`, it is skipped and counted instead — see `spellingCases`.)
  *
  * It returns ONLY the rewrites (never the originals), so pass the originals
  * alongside as above. Each rewrite keeps its original's `tool` and `category`
@@ -278,8 +295,8 @@ function selectEvents(opts: VerifyGuardrailOptions): readonly DisasterEvent[] {
  *
  * In promptfoo's vocabulary each rewrite rule here is a "strategy"; the difference
  * is that promptfoo's encodings (base64, leetspeak) may or may not be decoded by the
- * target, whereas every rewrite here is one the shell provably executes identically
- * — a miss is a guard bug, never an ambiguous input.
+ * target, whereas every rewrite here provably contains the operation the guard
+ * must catch — a miss is a guard bug, never an ambiguous input.
  *
  * @experimental Days old with a single consumer (this repo's own dogfood) and no
  * external use. The set of rewrite rules and the id-suffix shape are the parts most
@@ -292,12 +309,9 @@ export function experimental_alternateSpellings(
   return events.flatMap((event) => {
     const command = event.input["command"];
     if (typeof command !== "string") return [];
-    return equivalentCommands(command).map((variant, i) => ({
-      ...event,
-      id: `${event.id}~${String(i + 1)}`,
-      label: `${event.label} — spelled: ${variant}`,
-      input: { ...event.input, command: variant },
-    }));
+    return equivalentCommands(command).map((variant, i) =>
+      spelled(event, variant, `${event.id}~${String(i + 1)}`),
+    );
   });
 }
 
@@ -347,13 +361,93 @@ type BatteryCase =
   | { readonly expect: "block"; readonly event: DisasterEvent }
   | { readonly expect: "allow"; readonly event: HarmlessEvent };
 
-function selectCases(opts: VerifyGuardrailOptions): readonly BatteryCase[] {
+/**
+ * The generated spellings of `events`, LENIENT: a rewrite the generator cannot
+ * prove is returned in `unproven` instead of throwing. For a battery the caller
+ * wrote — a seed we never saw must not throw before the guard runs. The shipped
+ * catalog keeps the strict path ({@link experimental_alternateSpellings}), so
+ * our own battery can never quietly shrink.
+ *
+ * @internal Exported for its test; not on any public door.
+ */
+export function spellingCases(
+  events: readonly DisasterEvent[],
+  families?: Parameters<typeof equivalentSpellings>[1],
+): {
+  readonly proven: readonly DisasterEvent[];
+  readonly unproven: readonly DisasterEvent[];
+} {
+  const per = events.flatMap((event) => {
+    const command = event.input["command"];
+    if (typeof command !== "string") return [];
+    const r = equivalentSpellings(command, families);
+    return [
+      {
+        proven: r.proven.map((v, i) =>
+          spelled(event, v, `${event.id}~${String(i + 1)}`),
+        ),
+        unproven: r.unproven.map((v, i) =>
+          spelled(event, v, `${event.id}~unproven${String(i + 1)}`),
+        ),
+      },
+    ];
+  });
+  return {
+    proven: per.flatMap((p) => p.proven),
+    unproven: per.flatMap((p) => p.unproven),
+  };
+}
+
+/** `event` re-spelled as `variant`, under `id`. */
+function spelled(
+  event: DisasterEvent,
+  variant: string,
+  id: string,
+): DisasterEvent {
+  return {
+    ...event,
+    id,
+    label: `${event.label} — spelled: ${variant}`,
+    input: { ...event.input, command: variant },
+  };
+}
+
+/** The cases to run, and the spellings skipped because they could not be proven. */
+function selectCases(opts: VerifyGuardrailOptions): {
+  readonly cases: readonly BatteryCase[];
+  readonly unproven: readonly DisasterEvent[];
+} {
   const events = selectEvents(opts);
+  const generated =
+    opts.events === undefined
+      ? { proven: experimental_alternateSpellings(events), unproven: [] }
+      : spellingCases(events);
+  const spellings = opts.spellings ?? generated.proven;
   const harmless = opts.harmless ?? experimental_harmlessTwins(events);
-  return [
-    ...events.map((event) => ({ expect: "block" as const, event })),
-    ...harmless.map((event) => ({ expect: "allow" as const, event })),
-  ];
+  return {
+    cases: [
+      ...[...events, ...spellings].map((event) => ({
+        expect: "block" as const,
+        event,
+      })),
+      ...harmless.map((event) => ({ expect: "allow" as const, event })),
+    ],
+    unproven: opts.spellings === undefined ? generated.unproven : [],
+  };
+}
+
+/** The row for a spelling skipped because it could not be proven the same command. */
+function unprovenRow(event: DisasterEvent): GuardrailResult {
+  return {
+    expect: "block",
+    event,
+    blocked: false,
+    exitCode: 0,
+    run: "unproven",
+    ran: false,
+    reason:
+      "couldn't prove this spelling runs the same operation, so it was skipped",
+  };
 }
 
 /** The fields of a row besides the case it answers. */
@@ -573,24 +667,37 @@ export function verifyGuardrail(
   hook: string | AnyHook,
   opts: VerifyGuardrailOptions = {},
 ): readonly GuardrailResult[] {
-  const cases = selectCases(opts);
-  if (typeof hook !== "string") return decideCases(hook, cases, opts);
-  return markCrashed(cases.map((c) => runCase(hook, c, opts)));
+  const { cases, unproven } = selectCases(opts);
+  const skipped = unproven.map(unprovenRow);
+  if (typeof hook !== "string")
+    return [...decideCases(hook, cases, opts), ...skipped];
+  return [...markCrashed(cases.map((c) => runCase(hook, c, opts))), ...skipped];
 }
 
 /** Did the hook let through any disaster it was given? (the false-confidence signal). */
 export function unblockedDisasters(
   results: readonly GuardrailResult[],
 ): readonly GuardrailResult[] {
-  return results.filter((r) => r.expect === "block" && !r.blocked);
+  return results.filter(
+    (r) => r.expect === "block" && !r.blocked && r.run !== "unproven",
+  );
 }
 
 /** One failed case as an assertion line. */
 function missLine(r: GuardrailResult): string {
-  if (!r.ran) return `  ⊘ ${r.event.label} — NOT RUN: ${r.reason}`;
+  const what = `${r.event.id}: ${r.event.label}`;
+  if (!r.ran) return `  ⊘ ${what} — NOT RUN: ${r.reason}`;
   return r.expect === "block"
-    ? `  ✗ did not block ${r.event.label} (exit ${String(r.exitCode)})`
-    : `  ✗ blocked harmless ${r.event.label}`;
+    ? `  ✗ did not block ${what} (exit ${String(r.exitCode)})`
+    : `  ✗ blocked harmless ${what}`;
+}
+
+/** "N spellings skipped (couldn't prove)", or nothing. */
+function skippedNote(results: readonly GuardrailResult[]): string {
+  const n = results.filter((r) => r.run === "unproven").length;
+  return n === 0
+    ? ""
+    : `\n${String(n)} spelling(s) skipped (couldn't prove they run the same operation).`;
 }
 
 /**
@@ -615,7 +722,8 @@ export function assertGuardrail(
   const results = verifyGuardrail(hook, opts);
   const name = hookName(hook);
   const first = results[0];
-  if (first !== undefined && results.every((r) => r.run === "crashed"))
+  const asked = results.filter((r) => r.run !== "unproven");
+  if (first !== undefined && asked.every((r) => r.run === "crashed"))
     throw new Error(`Guardrail \`${name}\` NEVER RAN — ${first.reason}`);
   const missed = unblockedDisasters(results);
   // A harmless case the hook could not answer (it never launched, or crashed)
@@ -635,7 +743,9 @@ export function assertGuardrail(
       ? `Guardrail \`${name}\` did not allow ${String(overBlocked.length)} harmless command(s) that only MENTION a dangerous one:\n${overBlocked.map(missLine).join("\n")}\nEvery false block costs the agent a turn. Decide on the parsed command (vigiles/hook \`runs()\`), or replace the cases: { harmless: [...] }.`
       : "",
   ];
-  throw new Error(parts.filter((p) => p !== "").join("\n\n"));
+  throw new Error(
+    parts.filter((p) => p !== "").join("\n\n") + skippedNote(results),
+  );
 }
 
 /**
@@ -668,12 +778,33 @@ function passedUnasked(r: GuardrailResult): boolean {
  * cannot drift into two vocabularies for the same outcomes.
  */
 export function guardrailRow(result: GuardrailResult): string {
-  if (passedUnasked(result))
-    return `✅ allows  ${result.event.label} (not selected)`;
-  if (!result.ran) return `⊘ not run  ${result.event.label} — ${result.reason}`;
+  const what = `${result.event.id}: ${result.event.label}`;
+  if (passedUnasked(result)) return `✅ allows  ${what} (not selected)`;
+  if (result.run === "unproven")
+    return `·  skipped  ${what} — ${result.reason}`;
+  if (!result.ran) return `⊘ not run  ${what} — ${result.reason}`;
   if (result.expect === "allow")
-    return `${result.blocked ? "✗  blocks" : "✅ allows"}  ${result.event.label}`;
-  return `${result.blocked ? "✅ blocks" : "·  allows"}  ${result.event.label}`;
+    return `${result.blocked ? "✗  blocks" : "✅ allows"}  ${what}`;
+  return `${result.blocked ? "✅ blocks" : "·  allows"}  ${what}`;
+}
+
+/** The report's closing notes: what a miss means, and what got no answer. */
+function reportFoot(
+  missed: boolean,
+  overBlocked: boolean,
+  skipped: number,
+): string {
+  return [
+    missed
+      ? "\nAllows ≠ a bug unless this guard is MEANT to block them — gate intent with\nassertGuardrail(hook, { categories: [...] })."
+      : "",
+    overBlocked
+      ? "\nA blocked look-alike is a false block: the text was data, not a command."
+      : "",
+    skipped > 0
+      ? `\n⊘ ${String(skipped)} case(s) got no answer from this hook (see each reason),\nso it cannot protect you there however its body is written.`
+      : "",
+  ].join("");
 }
 
 /**
@@ -687,29 +818,27 @@ export function formatGuardrailReport(
   hook: string | AnyHook,
   results: readonly GuardrailResult[],
 ): string {
-  const disasters = results.filter((r) => r.expect === "block");
+  const disasters = results.filter(
+    (r) => r.expect === "block" && r.run !== "unproven",
+  );
   const harmless = results.filter((r) => r.expect === "allow");
   const blocked = disasters.filter((r) => r.blocked).length;
   const allowed = harmless.filter(
     (r) => (r.ran && !r.blocked) || passedUnasked(r),
   ).length;
-  const skipped = results.filter((r) => !r.ran && !passedUnasked(r)).length;
+  const skipped = results.filter(
+    (r) => !r.ran && !passedUnasked(r) && r.run !== "unproven",
+  ).length;
   const head =
     `Guardrail coverage for \`${hookName(hook)}\` — blocks ${String(blocked)}/${String(disasters.length)} of the dangerous battery` +
     (harmless.length > 0
       ? ` · allows ${String(allowed)}/${String(harmless.length)} harmless look-alikes`
       : "");
   const rows = results.map((r) => `  ${guardrailRow(r)}`);
-  const foot = [
-    blocked < disasters.length
-      ? "\nAllows ≠ a bug unless this guard is MEANT to block them — gate intent with\nassertGuardrail(hook, { categories: [...] })."
-      : "",
-    allowed < harmless.length
-      ? "\nA blocked look-alike is a false block: the text was data, not a command."
-      : "",
-    skipped > 0
-      ? `\n⊘ ${String(skipped)} case(s) got no answer from this hook (see each reason),\nso it cannot protect you there however its body is written.`
-      : "",
-  ].join("");
-  return [head, ...rows].join("\n") + foot;
+  const foot = reportFoot(
+    blocked < disasters.length,
+    allowed < harmless.length,
+    skipped,
+  );
+  return [head, ...rows].join("\n") + foot + skippedNote(results);
 }

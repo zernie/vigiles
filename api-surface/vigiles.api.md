@@ -795,7 +795,7 @@ export interface GuardrailRow<E extends "block" | "allow", V extends DisasterEve
 }
 
 // @public
-export type GuardrailRun = "ran" | "not-selected" | "never-launched" | "crashed";
+export type GuardrailRun = "ran" | "not-selected" | "never-launched" | "crashed" | "unproven";
 
 // @public
 export interface HarmlessEvent {
@@ -1683,6 +1683,7 @@ export interface VerifyGuardrailOptions extends RunHookOptions {
     readonly event?: string;
     readonly events?: readonly DisasterEvent[];
     readonly harmless?: readonly HarmlessEvent[];
+    readonly spellings?: readonly DisasterEvent[];
 }
 
 // @public

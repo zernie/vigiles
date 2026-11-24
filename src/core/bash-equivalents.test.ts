@@ -12,7 +12,11 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import { equivalentCommands, sameOperation } from "./bash-equivalents.js";
+import {
+  equivalentCommands,
+  equivalentSpellings,
+  sameOperation,
+} from "./bash-equivalents.js";
 
 const SEED = "git push --force origin main";
 
@@ -59,6 +63,10 @@ test("every family fires on the force-push seed and every output is equivalent",
     "g\\it push --force origin main",
     "git   push   --force   origin   main",
     "git\tpush\t--force\torigin\tmain",
+    "( git push --force origin main )",
+    "bash -c 'git push --force origin main'",
+    "sh -c 'git push --force origin main'",
+    "eval 'git push --force origin main'",
   ])
     assert.ok(out.includes(must), `missing spelling: ${JSON.stringify(must)}`);
 });
@@ -81,4 +89,91 @@ test("a family that does not apply yields nothing rather than something wrong", 
     !out.some((v) => v.startsWith("w\\")),
     "no escaped letter inside a 1-letter head",
   );
+});
+
+test("sameOperation reads inside bash -c, sh -c and eval as the gate does", () => {
+  for (const v of [
+    "bash -c 'git push --force origin main'",
+    "sh -c 'git push --force origin main'",
+    "eval 'git push --force origin main'",
+    `bash -c "git commit --no-verify -m 'skip hooks'"`,
+  ])
+    assert.ok(
+      sameOperation(
+        v.includes("commit") ? "git commit --no-verify -m 'skip hooks'" : SEED,
+        v,
+      ),
+      v,
+    );
+});
+
+test("a handed-on command the gate cannot read is never the same operation", () => {
+  for (const v of [
+    'bash -c "$X"',
+    'sh -c "$CMD"',
+    'eval "$X"',
+    'bash -c "$(echo git push --force origin main)"',
+  ])
+    assert.equal(sameOperation(SEED, v), false, v);
+});
+
+test("git -C . stays out of the generator: the check reads . as an argument", () => {
+  const form = "git -C . push --force origin main";
+  assert.equal(sameOperation(SEED, form), false);
+  assert.ok(!equivalentCommands(SEED).includes(form));
+});
+
+test("flag aliases are scoped by program and subcommand, never global", () => {
+  const out = (seed: string) => equivalentCommands(seed);
+  // git push -n is --dry-run, not --no-verify.
+  assert.ok(
+    !out("git push --no-verify origin main").includes(
+      "git push -n origin main",
+    ),
+  );
+  // kubectl -f is a file, sed -n is quiet: no table, so no alias spellings.
+  assert.ok(
+    !out("kubectl delete -f prod.yaml").some((v) => v.includes("--force")),
+  );
+  assert.ok(!out("sed -n p f").some((v) => v.includes("--no-verify")));
+  // Where the man page says so, the alias is emitted.
+  assert.ok(out("git commit --no-verify -m x").includes("git commit -n -m x"));
+  assert.ok(
+    out("git push --force origin main").includes("git push -f origin main"),
+  );
+  assert.ok(out("rm -r build").includes("rm --recursive build"));
+});
+
+test("seeds a user might write never break the generator", () => {
+  for (const seed of [
+    "git push --force-with-lease origin main",
+    "rm -rf / # cleanup",
+    "cat > f <<'EOF'\nrm -rf /\nEOF",
+    "[[ -d .git ]] && git push --force",
+    "DROP=1 psql -c 'drop table users'",
+  ]) {
+    const out = equivalentCommands(seed);
+    for (const v of out) assert.ok(sameOperation(seed, v), `${seed} → ${v}`);
+    assert.ok(!out.some((v) => v.includes("-f-with-lease")), seed);
+    assert.ok(
+      !out.some((v) =>
+        /^(\/usr\/bin\/|\/bin\/|\\|sudo |\$')(DROP=|\[\[)/.test(v),
+      ),
+      seed,
+    );
+  }
+  assert.ok(
+    equivalentCommands("rm -rf / # cleanup").includes(
+      "( rm -rf / # cleanup\n)",
+    ),
+  );
+  assert.deepEqual(equivalentCommands(""), []);
+});
+
+test("a family that cannot prove a rewrite throws by default and is counted when lenient", () => {
+  const bogus = [{ name: "bogus", rewrite: () => ["git push origin main"] }];
+  assert.throws(() => equivalentCommands(SEED, { families: bogus }));
+  const lenient = equivalentSpellings(SEED, { families: bogus });
+  assert.deepEqual(lenient.proven, []);
+  assert.deepEqual(lenient.unproven, ["git push origin main"]);
 });

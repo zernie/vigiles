@@ -647,8 +647,8 @@ describe("experimental_formatPluginGuardReport", () => {
     expect(out.match(/blocks \d+\/\d+/g)).toHaveLength(2);
 
     // …and their rows are the same vocabulary formatGuardrailReport prints.
-    expect(out).toContain("✅ blocks  git push --force to a protected branch");
-    expect(out).toContain("⊘ not run  rm -rf of a broad path");
+    expect(out).toContain("✅ blocks  force-push: git push --force to a");
+    expect(out).toContain("⊘ not run  rm-rf: rm -rf of a broad path");
 
     // The unmeasured half names each hook and its reason, and never a count.
     expect(out).toContain("⊘ unresolved — 1 hook");

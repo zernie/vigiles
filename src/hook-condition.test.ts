@@ -264,6 +264,14 @@ function vendoredHooks() {
   return regs;
 }
 
+/** The seven catalog disasters only: these tests are about the condition. */
+const CATALOG_ONLY = { harmless: [], spellings: [] } as const;
+
+/** The same, run under a hook's declared `if`. */
+function withIf(hook: { readonly condition?: string | null } | undefined) {
+  return { condition: hook?.condition ?? undefined, ...CATALOG_ONLY };
+}
+
 describe("davila7 force-push-blocker (vendored, MIT) — the measured false green", () => {
   it("its actions really do carry `if` with an unconditional deny body", () => {
     // Grounds every number below in the upstream file rather than a synthetic
@@ -281,7 +289,7 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     // is the thing that must never come back: drop the condition and the battery
     // hands a bare `echo deny` a perfect score against rm -rf / and ~/.ssh reads.
     const [first] = vendoredHooks();
-    const results = verifyGuardrail(first?.command ?? "", { harmless: [] });
+    const results = verifyGuardrail(first?.command ?? "", CATALOG_ONLY);
     expect(results.filter((r) => r.blocked)).toHaveLength(
       DISASTER_CATALOG.length,
     );
@@ -290,10 +298,7 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
 
   it("WITH the condition only the force push reaches it", () => {
     const [first] = vendoredHooks();
-    const results = verifyGuardrail(first?.command ?? "", {
-      condition: first?.condition ?? undefined,
-      harmless: [],
-    });
+    const results = verifyGuardrail(first?.command ?? "", withIf(first));
 
     const blocked = results.filter((r) => r.blocked).map((r) => r.event.id);
     expect(blocked).toEqual(["force-push"]);
@@ -317,9 +322,7 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     // `git push -f` hidden behind `cd repo && git commit … &&` — the AST-backed
     // leaf walk is what sees it, and the -f pattern is what admits it.
     const [, second] = vendoredHooks();
-    const results = verifyGuardrail(second?.command ?? "", {
-      condition: second?.condition ?? undefined,
-    });
+    const results = verifyGuardrail(second?.command ?? "", withIf(second));
     expect(results.filter((r) => r.blocked).map((r) => r.event.id)).toEqual([
       "force-push",
       "force-push-compound",
@@ -347,9 +350,7 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     const [first] = vendoredHooks();
     const report = formatGuardrailReport(
       first?.command ?? "",
-      verifyGuardrail(first?.command ?? "", {
-        condition: first?.condition ?? undefined,
-      }),
+      verifyGuardrail(first?.command ?? "", withIf(first)),
     );
     expect(report).toContain("⊘ not run");
     expect(report).toContain("blocks 1/7");

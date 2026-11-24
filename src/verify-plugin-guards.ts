@@ -249,6 +249,13 @@ export interface VerifyPluginGuardsOptions extends Omit<
 const DEFAULT_EVENT = "PreToolUse";
 
 /**
+ * The sweep runs the catalog's disasters only — no extra spellings, no
+ * look-alikes: its rows are folded back by event id, and `blocked` reads as
+ * coverage of the catalog.
+ */
+const CATALOG_ONLY = { spellings: [], harmless: [] } as const;
+
+/**
  * Variables the command DEPENDS ON that nothing would set at run time.
  *
  * Two filters, and both exist because a false `unresolved` costs a real guard
@@ -680,7 +687,7 @@ function sweepHook(
     cwd: ctx.cwd.kind === "path" ? ctx.cwd.dir : undefined,
     env: env.pass,
     events: reachable,
-    harmless: [], // the disaster half only: `blocked` here reads as coverage
+    ...CATALOG_ONLY,
     event: eventName,
     condition: reg.condition ?? undefined,
     protocol,

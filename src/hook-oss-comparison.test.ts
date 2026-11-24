@@ -55,7 +55,7 @@ function shellGuard(dir: string, name: string, body: string): string {
 
 const blockedIds = (cmd: string, opts = {}): Set<string> =>
   new Set(
-    verifyGuardrail(cmd, { harmless: [], ...opts })
+    verifyGuardrail(cmd, { harmless: [], spellings: [], ...opts })
       .filter((r) => r.blocked)
       .map((r) => r.event.id),
   );
@@ -189,4 +189,5 @@ exit 0
   } finally {
     cleanupTmpDir(dir);
   }
-});
+  // ~175 CLI launches with the spellings on by default (measured 26s alone).
+}, 240_000);
