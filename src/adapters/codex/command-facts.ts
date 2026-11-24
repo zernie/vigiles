@@ -87,16 +87,28 @@ function skillOfPath(path: string): readonly string[] {
  * redirect that WRITES the file (`>`, `>>`) is authoring, and is never read
  * here: only an input redirect (`<`) is taken, and only on a printer.
  */
-function skillsReadBy(command: string): readonly string[] {
-  return readShell(command).effects.flatMap((e) => {
-    if (e.kind !== "leaf" || !FILE_PRINTERS.has(e.leaf.head)) return [];
+function skillsReadBy(command: string): SkillReads {
+  const leaves = readShell(command).effects.flatMap((e) =>
+    e.kind === "leaf" ? [e.leaf] : [],
+  );
+  const names = leaves.flatMap((leaf) => {
+    if (!FILE_PRINTERS.has(leaf.head)) return [];
     // `sed -i` edits the file in place: authoring the skill, not reading it.
-    if (e.leaf.head === "sed" && e.leaf.hasFlag("i", "in-place")) return [];
-    const stdin = e.leaf.redirects.flatMap((r) =>
+    if (leaf.head === "sed" && leaf.hasFlag("i", "in-place")) return [];
+    const stdin = leaf.redirects.flatMap((r) =>
       r.op === "<" && r.target !== null ? [r.target] : [],
     );
-    return [...e.leaf.args, ...stdin].flatMap(skillOfPath);
+    return [...leaf.args, ...stdin].flatMap(skillOfPath);
   });
+  // The exit status is the LAST statement's, so it speaks for the read only
+  // when the read is the whole command.
+  return { names, alone: leaves.length === 1 };
+}
+
+/** The skills a command reads, and whether the read is all the command ran. */
+interface SkillReads {
+  readonly names: readonly string[];
+  readonly alone: boolean;
 }
 
 /**
@@ -113,11 +125,16 @@ export function codexSkillFires(
 ): readonly SkillFire[] {
   // `name` IS the command for a command_execution, so a call recorded before
   // `shell` existed still reads; a function-style name parses to nothing.
-  return calls.flatMap((c) =>
-    skillsReadBy(c.shell ?? codexShell(c.name)).map((id) => ({
+  return calls.flatMap((c) => {
+    const reads = skillsReadBy(c.shell ?? codexShell(c.name));
+    // A failed command marks the read failed only when the read was all it
+    // ran: in `cat …/SKILL.md; false` the skill was printed, and `false` set
+    // the status. Otherwise the read counts, as the substring test did.
+    const isError = c.isError && reads.alone;
+    return reads.names.map((id) => ({
       id,
-      isError: c.isError,
+      isError,
       resultText: c.resultText,
-    })),
-  );
+    }));
+  });
 }

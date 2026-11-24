@@ -137,7 +137,9 @@ describe("Trace.skills — a SKILL.md read is an activation", () => {
       assert.equal(r.pass, false);
       assert.match(r.message, /expected skill "x" to resolve/);
     });
+});
 
+describe("Trace.skills — whether the read itself failed", () => {
   test("a later, unrelated failure in the same command does not error the read", () => {
     // The command's exit status is the LAST statement's; the old codexSkillFired
     // ignored it, and a read that printed the skill did happen.
@@ -169,7 +171,9 @@ describe("Trace.skills — a SKILL.md read is an activation", () => {
       /invoked but errored: cat: skills\/x\/SKILL.md: No such file/,
     );
   });
+});
 
+describe("Trace.skills — what no parser can see", () => {
   test("a skill that left only its effects is a miss no parser can recover", () => {
     // Documented, not fixed: nothing in `node verify-cites.mjs` names the skill.
     assert.equal(
