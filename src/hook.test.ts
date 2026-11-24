@@ -301,9 +301,9 @@ test("compile (hook): recompiling is idempotent, whatever the path spelling", ()
 // The BOOTSTRAP DEADLOCK (observed 2026-08-03). A stamped PreToolUse Bash gate
 // wired into the same repo fails on a stale stamp, and its `onFailure: block`
 // refuses the call — so editing the hook makes it refuse EVERY Bash command,
-// `vigiles compile` included. The way out is the tool the gate does not gate: a
-// file write that clears the stamp. There is no escape inside the runtime any
-// more: a stale gate refuses only the tool it gates.
+// `vigiles compile` included. The way out is a FILE WRITE that clears the stamp:
+// a Bash gate never sees it, and a stale gate's own repair write is let through
+// by the runtime, loudly, so a file gate cannot shut that door either.
 test("compile (hook): a stale stamp does NOT wedge the repo — the recompile gets through", () => {
   const dir = makeTmpDir();
   try {
@@ -356,9 +356,8 @@ test("compile (hook): a stale stamp does NOT wedge the repo — the recompile ge
       assert.equal(runBash(cmd).exitCode, 1, cmd);
     }
 
-    // Fired on a file tool (as a FILE gate would be), a stale stamp is the same
-    // failure: no repair escape. A stale file gate's way out is the Bash
-    // recompile, which it never sees.
+    // Fired on a file tool (as a FILE gate would be): the two writes that ARE
+    // the repair pass, announced LOUDLY; every other call stays a failure.
     const editHook = runHook(
       `node ${CLI} hook-runtime run-program guard.hook.mjs`,
       {
@@ -368,8 +367,9 @@ test("compile (hook): a stale stamp does NOT wedge the repo — the recompile ge
       },
       { cwd: dir },
     );
-    assert.equal(editHook.exitCode, 1);
-    assert.doesNotMatch(editHook.stderr, /PASSING this one call/);
+    assert.equal(editHook.exitCode, 0);
+    assert.match(editHook.stderr, /PASSING this one call/);
+    assert.match(editHook.stderr, /every OTHER call to this hook fails/);
     const clearStamp = runHook(
       `node ${CLI} hook-runtime run-program guard.hook.mjs`,
       {
@@ -379,7 +379,7 @@ test("compile (hook): a stale stamp does NOT wedge the repo — the recompile ge
       },
       { cwd: dir },
     );
-    assert.equal(clearStamp.exitCode, 1, clearStamp.stderr);
+    assert.equal(clearStamp.exitCode, 0, clearStamp.stderr);
 
     // Recompiling restores normal enforcement — nothing is permanently loosened.
     const again = spawnSync("node", [CLI, "compile", "guard.hook.mjs"], {

@@ -410,6 +410,60 @@ test("the runtime module itself missing (a broken install) is a failure (1), in 
   }
 });
 
+const CONFINE_GATE = `import { experimental_defineFileGate, deny, allow, tools } from "${HOOK_DIST}";
+export default experimental_defineFileGate({
+  on: "PreToolUse",
+  match: tools("Write"),
+  decide: (e) => (e.path.under(["src"]) ? deny("NO-SRC-WRITES") : allow()),
+});`;
+
+const writeEvent = (dir: string, path: string) => ({
+  hook_event_name: "PreToolUse",
+  tool_name: "Write",
+  tool_input: { file_path: join(dir, path), content: "{}" },
+});
+
+for (const h of HARNESSES) {
+  test(`${h.adapter.name}: a Bash gate AND a file gate stale at once — each gate's own repair write passes, nothing else does`, () => {
+    const dir = makeTmpDir();
+    try {
+      plantHarness(dir, h);
+      const bash = plantHook(dir, "bash.hook.mjs", BASH_GATE, "stale");
+      const files = plantHook(dir, "files.hook.mjs", CONFINE_GATE, "stale");
+      const bashSidecar = ".vigiles/hooks/bash.hook.mjs.json";
+      const filesSidecar = ".vigiles/hooks/files.hook.mjs.json";
+      // Both ways out are shut by a failure: the recompile in Bash, and a
+      // write that is not the file gate's own repair.
+      const compile = fire(h, dir, bash, {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: `vigiles compile ${files}` },
+      });
+      expect(compile.exitCode).toBe(1);
+      expect(fire(h, dir, files, writeEvent(dir, "src/a.ts")).exitCode).toBe(1);
+      expect(fire(h, dir, files, writeEvent(dir, bashSidecar)).exitCode).toBe(
+        1,
+      );
+      // …except the file gate's OWN repair write, announced loudly.
+      const repair = fire(h, dir, files, writeEvent(dir, filesSidecar));
+      expect(repair.exitCode, repair.stderr).toBe(0);
+      expect(repair.stderr).toMatch(/PASSING this one call/);
+      // Make that write: the file gate is back, unstamped and ENFORCING…
+      writeFileSync(join(dir, filesSidecar), "{}");
+      expect(fire(h, dir, files, writeEvent(dir, "src/a.ts")).exitCode).toBe(2);
+      // …and now lets the Bash gate's repair through on its own merits.
+      expect(fire(h, dir, files, writeEvent(dir, bashSidecar)).exitCode).toBe(
+        0,
+      );
+      writeFileSync(join(dir, bashSidecar), "{}");
+      const bashPayload = ROLE_FIXTURES["bash-gate"].payload;
+      expect(fire(h, dir, bash, bashPayload).exitCode).toBe(2);
+    } finally {
+      cleanupTmpDir(dir);
+    }
+  });
+}
+
 /** A compiled hook may import only `vigiles/hook`, which the link below resolves. */
 const asConsumer = (source: string): string =>
   source.replaceAll(`"${HOOK_DIST}"`, '"vigiles/hook"');

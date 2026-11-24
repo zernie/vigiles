@@ -54,6 +54,7 @@ import {
   hookNeeds,
   gateAction,
   noticeDelivery,
+  isStampRepairEvent,
   isLoadPathRepairEvent,
   resolveHookEvent,
   undecidablePathWarning,
@@ -436,7 +437,8 @@ function conflictedLoadPathFiles(
 
 /**
  * Print the loud stderr banner that accompanies a REPAIR-only pass-through on a
- * hook that cannot load. The caller then passes exactly this one tool call.
+ * hook that cannot load or whose stamp is stale. The caller then passes exactly
+ * this one tool call.
  */
 function announceRepairEscape(file: string, why: string): void {
   console.error(
@@ -446,7 +448,7 @@ function announceRepairEscape(file: string, why: string): void {
       `${HARNESS_CONFIG_FILES.join(", ")}) ` +
       `— a gate's wiring refuses a failed hook's call, and without this it would ` +
       `refuse the only actions that can fix it.\n` +
-      `vigiles: every OTHER call to this hook fails until it loads again.`,
+      `vigiles: every OTHER call to this hook fails until it is repaired.`,
   );
 }
 
@@ -463,10 +465,11 @@ function announceRepairEscape(file: string, why: string): void {
  * else. Observed 2026-11: an `inject` hook on `UserPromptSubmit`, edited and not
  * recompiled, exited 2 on every prompt — the human could not type their way out.
  *
- * No repair escape here, deliberately. A stale tool gate refuses only the tool
- * it gates, so the way out is always through the other one: a stale Bash gate
- * does not see the file write that clears its stamp, and a stale file gate does
- * not see `vigiles compile` run in Bash.
+ * ONE escape, the same one a load failure has: the author's own REPAIR write
+ * ({@link isStampRepairEvent} — a write to the hook or its sidecar) passes,
+ * loudly. Without it a stale Bash gate AND a stale file gate together refuse
+ * both ways out — the recompile in Bash and the write that clears the stamp —
+ * and the session is wedged.
  */
 function verifyStamp(file: string, event: HookEvent): HookRunOutcome | "run" {
   const { root } = event;
@@ -477,6 +480,10 @@ function verifyStamp(file: string, event: HookEvent): HookRunOutcome | "run" {
     stampHook,
   );
   if (check.kind !== "stale") return "run";
+  if (isStampRepairEvent(event, file, root)) {
+    announceRepairEscape(file, "does not match its compiled stamp");
+    return PASSED;
+  }
   return failed(
     `it does not match its compiled stamp (edited after \`vigiles compile\`), ` +
       `so its body did not run`,

@@ -594,7 +594,7 @@ For a tool gate the refusal is the point — but it also applies while **you** a
 npx vigiles compile .vigiles/hooks/guard.hook.mjs
 ```
 
-A stale **file** gate is the mirror image: it refuses the writes it matches, and `vigiles compile` in Bash goes straight past it. Only a Bash gate and a file gate stale at the same time leave nothing inside the session; recompile from a terminal then.
+A stale **file** gate would refuse those same writes, so the runtime lets exactly one kind of call through a stale gate: **a write to that hook's own source or its stamp sidecar** (`Write`, `Edit` or `MultiEdit`), announced on stderr. Every other call stays a failure. So even a Bash gate and a file gate stale at once never wedge the session: clear the file gate's stamp first (its own repair write passes), and it is back to enforcing, deciding on your next write — the Bash gate's sidecar — like any other.
 
 The line names the exact sidecar path, so you don't have to work it out:
 
