@@ -42,13 +42,13 @@ Each promptfoo `assert` entry maps to a vigiles check (from `vigiles` — except
 
 | promptfoo `assert.type` | vigiles check                  | Notes                                                                         |
 | ----------------------- | ------------------------------ | ----------------------------------------------------------------------------- |
-| `contains`              | `output("substring")`          | A string matcher is a substring test.                                         |
-| `icontains`             | `output(/substring/i)`         | Case-insensitive → a regex.                                                   |
-| `regex`                 | `output(/pattern/)`            |                                                                               |
-| `equals`                | `output(/^exact$/)`            | Anchor the regex.                                                             |
+| `contains`              | `check.output("substring")`    | A string matcher is a substring test.                                         |
+| `icontains`             | `check.output(/substring/i)`   | Case-insensitive → a regex.                                                   |
+| `regex`                 | `check.output(/pattern/)`      |                                                                               |
+| `equals`                | `check.output(/^exact$/)`      | Anchor the regex.                                                             |
 | `llm-rubric`            | `paid_judged("rubric", …)`     | Model-graded, on the sub. `threshold` → `min`.                                |
-| `cost`                  | `cost({ maxUsd })`             | vigiles reads the real `total_cost_usd`.                                      |
-| `latency`               | `latency({ maxMs })`           |                                                                               |
+| `cost`                  | `check.cost({ maxUsd })`       | vigiles reads the real `total_cost_usd`.                                      |
+| `latency`               | `check.latency({ maxMs })`     |                                                                               |
 | `javascript` / `python` | a custom `measure((ctx) => …)` | Not auto-portable — read `ctx.file()`/`ctx.output` and return `1/0` yourself. |
 | `similar` (embeddings)  | —                              | No direct equivalent; use `paid_judged` or a custom check.                    |
 
@@ -79,8 +79,9 @@ tests:
 [`examples/harness/from-promptfoo.eval.mjs`](../examples/harness/from-promptfoo.eval.mjs)):
 
 ```javascript
-import { defineEval, output, cost, assertRates } from "vigiles"; // free: a description cannot spend
-import { paid_judged } from "vigiles/eval"; // a Check whose default judge calls a model
+import { defineEval, check } from "vigiles"; // free: a description cannot spend
+// paid_judged: a Check whose default judge calls a model; assertRates reads the report (free)
+import { paid_judged, assertRates } from "vigiles/eval";
 
 export default defineEval({
   measure: {
@@ -89,9 +90,9 @@ export default defineEval({
     model: "sonnet",
     trials: 5,
     checks: [
-      output(/invoice/i), // icontains
+      check.output(/invoice/i), // icontains
       paid_judged("A single, accurate one-sentence summary", { min: 0.7 }), // llm-rubric
-      cost({ maxUsd: 0.01 }), // cost
+      check.cost({ maxUsd: 0.01 }), // cost
     ],
   },
   assert: (report) => assertRates(report, { min: 0.8 }), // each check ≥80% of trials

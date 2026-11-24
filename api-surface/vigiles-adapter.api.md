@@ -12,49 +12,35 @@ export interface AdapterCapabilities {
 }
 
 // @public
-export const ADAPTERS: readonly [{
-    readonly name: "claude-code";
-    readonly harnessTesting: true;
-    readonly shellHooks: true;
-    readonly subagents: true;
-    readonly dialect: HarnessDialect;
-    readonly layout: PluginLayout;
-    readonly runtime: HarnessRuntime;
-    readonly hookProtocol: HookProtocol;
-    readonly modelMock: ModelMock;
-    readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
-    readonly liveDriver: () => Promise<HarnessLiveDriver>;
-    readonly claims: (path: string) => boolean;
-    readonly detect: (exists: (repoRelative: string) => boolean) => DetectSignal;
-    readonly advisories: (read: InstallReader) => readonly string[];
-}, {
-    readonly name: "codex";
-    readonly harnessTesting: true;
-    readonly shellHooks: true;
-    readonly subagents: false;
-    readonly dialect: HarnessDialect;
-    readonly layout: PluginLayout;
-    readonly runtime: HarnessRuntime;
-    readonly hookProtocol: HookProtocol;
-    readonly modelMock: ModelMock;
-    readonly harnessTestDriver: () => Promise<HarnessTestDriver>;
-    readonly liveDriver: () => Promise<HarnessLiveDriver>;
-    readonly claims: (path: string) => boolean;
-    readonly detect: (exists: (repoRelative: string) => boolean) => DetectSignal;
-    readonly advisories: () => readonly string[];
-}];
+export interface AgentRunArgs {
+    // (undocumented)
+    readonly cwd: string;
+    readonly effort?: string | number;
+    readonly env?: Record<string, string>;
+    // (undocumented)
+    readonly hasSettings: boolean;
+    readonly maxBudgetUsd?: number;
+    // (undocumented)
+    readonly model: string;
+    // (undocumented)
+    readonly pluginDir: string | undefined;
+    readonly replaceEnv?: boolean;
+    // (undocumented)
+    readonly task: string;
+    // (undocumented)
+    readonly timeoutMs: number;
+    // (undocumented)
+    readonly tools: readonly string[];
+}
+
+// @public
+export type AgentRunner = (args: AgentRunArgs) => Promise<RunOut>;
 
 // @public
 export function assertAdapterConformance(adapter: HarnessAdapter): void;
 
 // @public
 export function assertAdapterLoadsHooks(adapter: HarnessAdapter): void;
-
-// @public
-export function assertHarnessTestable(adapter: HarnessAdapter): {
-    runtime: NonNullable<HarnessAdapter["runtime"]>;
-    modelMock: NonNullable<HarnessAdapter["modelMock"]>;
-};
 
 // @public
 export function checkAdapterConformance(adapter: HarnessAdapter): ConformanceResult;
@@ -68,30 +54,19 @@ export interface ConformanceResult {
 }
 
 // @public
-export const defaultAdapter: HarnessAdapter;
-
-// @public
-export function detectAdapter(root: string): HarnessAdapter;
-
-// @public
-export function detectAdapterResult(root: string): DetectResult;
-
-// @public
-export interface DetectResult {
+export interface EvalDriver {
+    readonly experimental?: string;
+    readonly harness?: string;
     // (undocumented)
-    readonly adapter: HarnessAdapter;
-    readonly ambiguousWith: readonly string[];
-    readonly fallback: boolean;
+    readonly parse: ModelOutputParser;
+    // (undocumented)
+    readonly runError?: (out: RunOut) => string | null;
+    // (undocumented)
+    readonly runner: AgentRunner;
 }
 
 // @public
-export const EMPTY_CHAIN: InstructionChain;
-
-// @public
 export function executableSourceDirs(layout: PluginLayout): readonly string[];
-
-// @public
-export function getAdapter(name: string): HarnessAdapter | undefined;
 
 // @public
 export type HarnessAdapter = AdapterBase & TestingPorts & ShellHookPorts;
@@ -120,9 +95,6 @@ export interface HarnessDialect {
 }
 
 // @public
-export type HarnessName = (typeof ADAPTERS)[number]["name"];
-
-// @public
 export interface HarnessRuntime {
     readonly agentBinary: string;
     readonly mockApiKey: string;
@@ -136,6 +108,15 @@ export interface HarnessRuntime {
         readonly args: readonly string[];
         readonly env: Record<string, string>;
     };
+}
+
+// @public
+export interface HarnessTestDriver {
+    available(): boolean;
+    buildArgs(ctx: HarnessDriverContext): readonly string[];
+    parseRun(stdout: string): ParsedRun;
+    readonly runtime: HarnessRuntime;
+    startMock(script: readonly ModelTurn[]): Promise<HarnessMockHandle>;
 }
 
 // @public (undocumented)
@@ -222,9 +203,6 @@ export interface LoadedInstruction {
 }
 
 // @public
-export function materializePrefix(layout: PluginLayout): string;
-
-// @public
 export interface ModelMock {
     readonly countTokensEndpoint?: string;
     readonly modelEndpoint: string;
@@ -232,15 +210,8 @@ export interface ModelMock {
     readonly wireApi: string;
 }
 
-// @public
-export interface ModelRequest {
-    readonly messages: readonly {
-        readonly role: string;
-        readonly text: string;
-    }[];
-    readonly sideChannel?: boolean;
-    readonly system: string;
-}
+// @public (undocumented)
+export type ModelOutputParser = (out: RunOut) => ParsedModelRun;
 
 // @public
 export interface NamedImport {
@@ -335,6 +306,25 @@ export interface OutputStyleRules {
 }
 
 // @public
+export interface ParsedModelRun {
+    readonly costObserved?: boolean;
+    // (undocumented)
+    readonly hooks: HookFire[];
+    // (undocumented)
+    readonly output: string;
+    readonly replies?: readonly string[];
+    readonly skills?: SkillFacts;
+    // (undocumented)
+    readonly subagents: SubagentTrace[];
+    // (undocumented)
+    readonly toolCalls: ToolCall[];
+    // (undocumented)
+    readonly turns: number;
+    // (undocumented)
+    readonly usage: EvalUsage;
+}
+
+// @public
 export interface PatternFrom {
     // (undocumented)
     readonly from: string;
@@ -380,13 +370,20 @@ export interface RequestChannel {
 }
 
 // @public
-export function resolveAdapter(root: string, harness?: string): HarnessAdapter;
-
-// @public
 export interface RunEnvPolicy {
     readonly keep: readonly string[];
     readonly keepHomeFiles: readonly string[];
     readonly sessionIdentity: readonly string[];
+}
+
+// @public
+export interface RunOut {
+    code: number;
+    signal?: string;
+    stderr?: string;
+    // (undocumented)
+    stdout: string;
+    timedOut?: boolean;
 }
 
 // @public (undocumented)

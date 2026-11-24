@@ -1,8 +1,7 @@
-// 🔴 PUBLIC ENTRY POINT `vigiles/spec` — every export here is a promise to users. The default for a
-// symbol is INTERNAL. It is exported only if (a) a NAMED external consumer uses it, or (b) it is
-// a deliberate extension point listed in STABILITY.md (the adapter kit is the example). "Might
-// be useful" is neither. Review point: the diff of `api-surface/vigiles-spec.api.md`, which
-// `npm run api:check` fails on.
+// The spec builders and their types. NOT itself a package entry: the
+// `vigiles/spec` door is `src/entries/spec.ts`, which re-exports a curated list
+// from here (so an `export` in this file is not, by itself, public). Review
+// point for what IS public: the diff of `api-surface/vigiles-spec.api.md`.
 /**
  * vigiles v2 — Executable specification system.
  *
@@ -843,7 +842,7 @@ export interface SkillSpec {
    * call→return boundary a typed outcome needs (compile errors if `output` is set
    * without `context: "fork"`). When valid, compiles to a `## Output contract`
    * with a `vigiles:ok` / `vigiles:err` block — parseable (`parseAgentResult`) and
-   * testable (`assertAgentOk`) via the existing subagent rail. An INLINE skill has
+   * testable (`experimental_assertAgentOk`) via the existing subagent rail. An INLINE skill has
    * no return, so a typed outcome there is a category error — hence the gate. See
    * `research/spec-syntax-and-railway-scope.md`.
    */
@@ -982,7 +981,7 @@ export interface AgentSpec {
    * The typed result contract — what this worker returns on success/error. When
    * set, compiles to an `## Output contract` section instructing the worker to
    * end with a `vigiles:ok` / `vigiles:err` block, so its outcome is parseable
-   * and testable (see `result()`, `parseAgentResult`, `assertAgentOk`).
+   * and testable (see `result()`, `parseAgentResult`, `experimental_assertAgentOk`).
    */
   readonly output?: OutputContract;
   /**
@@ -1149,7 +1148,7 @@ export type Shape = Readonly<Record<string, OutputFieldType>>;
  * (`ok`) and on failure (`err`). Rich on both tracks — an error is structured
  * detail, not a bare pass/fail bit. Compiles into the worker's system prompt
  * (the `vigiles:ok` / `vigiles:err` block it must emit) and is the schema the
- * `parseAgentResult` parser + the `assertAgentOk/Err` test helpers validate.
+ * `parseAgentResult` parser + the `experimental_assertAgentOk/Err` test helpers validate.
  *
  * Generic over its `ok`/`err` field shapes so a typed value REMEMBERS them at
  * the type level (the basis of typed composition — see `pipe`). The default
@@ -1710,20 +1709,6 @@ export function defineConfig(config: VigilesV2Config): VigilesV2Config {
 // воспроизвёлся бы дословно, при живом абзаце, который его запрещает.
 
 /**
- * @deprecated Renamed to {@link instructionFile}. The builder compiles to
- * `CLAUDE.md` **and** `AGENTS.md` (see `InstructionTarget`), so a name taken from
- * one of the two harnesses was never right. Removed one major AFTER the one that introduces it.
- */
-export const claude = instructionFile;
-
-/**
- * @deprecated Renamed to {@link prose}. It builds a prose FRAGMENT with typed
- * refs; the plural read as "the instruction file", which is what
- * {@link instructionFile} builds. Removed one major AFTER the one that introduces it.
- */
-export const instructions = prose;
-
-/**
  * Define a subagent — and the ROOT of the subagent vocabulary.
  *
  * Everything that only makes sense for subagents hangs off this one symbol:
@@ -1755,15 +1740,3 @@ export const experimental_agent = Object.assign(agentSpec, {
   andThen: experimental_andThen,
   pipe: experimental_pipe,
 });
-
-/**
- * @deprecated Renamed to {@link experimental_agent} — the shape is not settled.
- * Removed one major AFTER the one that introduces it.
- *
- * @experimental
- * vigiles:experimental-name-ok this IS the old spelling — prefixing a deprecated
- * alias would defeat the alias, which exists precisely so code written against
- * the unprefixed name keeps compiling for one major. It carries the tag because
- * it is the same function, and the tag is what the deprecation notice points at.
- */
-export const agent = experimental_agent;

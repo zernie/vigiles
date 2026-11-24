@@ -23,7 +23,8 @@
  *
  *   npx vigiles eval examples/harness/from-promptfoo.eval.mjs
  */
-import { defineEval, output, cost, assertRates } from "../../dist/test.js";
+import { defineEval, check } from "../../dist/test.js";
+import { assertRates } from "../../dist/eval-surface.js";
 import { judged } from "../../dist/check.js";
 
 // The vigiles counterpart of a promptfooconfig.yaml: this file DESCRIBES the
@@ -43,9 +44,9 @@ export default defineEval({
     model: "sonnet",
     trials: 5,
     checks: [
-      output(/invoice/i), // promptfoo: icontains "invoice"
+      check.output(/invoice/i), // promptfoo: icontains "invoice"
       judged("A single, accurate one-sentence summary", { min: 0.7 }), // promptfoo: llm-rubric
-      cost({ maxUsd: 0.01 }), // promptfoo: cost threshold
+      check.cost({ maxUsd: 0.01 }), // promptfoo: cost threshold
     ],
   },
   // promptfoo passes/fails a run; vigiles reports a RATE ± se across trials.

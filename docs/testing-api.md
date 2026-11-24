@@ -1,7 +1,7 @@
 # Testing API reference
 
 The complete surface behind [Testing your harness](harness-testing.md) — every
-predicate, assertion, check, matcher, and option. The guide has the task-first
+assertion, check, matcher, and option. The guide has the task-first
 how-to; this is the reference you reach for when you need the exact name or knob.
 
 ## Contents
@@ -9,7 +9,6 @@ how-to; this is the reference you reach for when you need the exact name or knob
 - [Picking a runner](#picking-a-runner)
 - [And one that asks about the tests themselves](#and-one-that-asks-about-the-tests-themselves)
 - [The `Trace` model](#the-trace-model)
-- [Predicates](#predicates)
 - [Assertions](#assertions)
 - [The `check` vocabulary](#the-check-vocabulary)
 - [vitest / jest matchers](#vitest--jest-matchers)
@@ -47,8 +46,8 @@ alone on success) silently deletes it and reports a healthy react hook as dead.
 
 **`filesWritten` is `undefined` until something records it.** Writes are captured
 by diffing the work dir, which only a confined run does. `undefined` means
-"nobody looked"; `[]` means "looked, wrote nothing" — `assertNoWrite` /
-`assertWroteOnly` throw on the former instead of passing vacuously.
+"nobody looked"; `[]` means "looked, wrote nothing" — `check.noWrite` /
+`check.wroteOnly` fail on the former instead of passing vacuously.
 
 ## The `Trace` model
 
@@ -72,82 +71,84 @@ stream events, so a test asserts a hook _actually_ fired and blocked — no mark
 file the hook had to write. Capture it with `transcript: true` on the harness tier
 (always on at the eval tier).
 
-## Predicates
-
-Pure functions over a `Trace` — **no `assert` prefix, no throw**. Use them in a
-`measure` as metrics, or wherever you want a boolean.
-
-```ts
-import {
-  usedTool,
-  toolCount,
-  skillResolved,
-  toolUsedWith,
-  outputContains,
-  hookBlocked,
-  check, // the check vocabulary; a check's verdict is .eval(trace).pass
-} from "vigiles";
-
-usedTool(trace, "Skill"); // boolean
-usedTool(trace, /^mcp__github__merge/); // boolean (regex)
-toolCount(trace, "Write"); // number
-skillResolved(trace, "demo:greet"); // boolean
-toolUsedWith(trace, "Edit", (i) => isRightFile(i)); // boolean (tool argument)
-outputContains(trace, /done/i); // boolean (the final answer)
-check.hookFired("PreToolUse").eval(trace).pass; // boolean (recorded from the stream)
-hookBlocked(trace, "PreToolUse"); // boolean (fired AND exit ≠ 0)
-```
-
 ## Assertions
 
-Each `assert*` is a predicate wrapped in a throw (`assertToolUsed` is `usedTool`
-then throw; `assertSkillResolved` is `skillResolved` then throw). They're plain
-functions, so they work in `node:test`, vitest, jest, or any runner. Beyond a
-single tool you can assert on sequence and budget:
+**One form.** Everything you assert about a run is a **check** — a value that
+evaluates to pass/fail with an actionable message — and `assertChecks` throws,
+listing every check that failed. It works in `node:test`, vitest, jest, or any
+runner. Beyond a single tool you can assert on sequence, budget and arguments,
+and `check(name, fn)` names anything else:
 
 ```ts
-assertToolSequence(r, ["Read", "Edit"]); // ordering — Read before Edit
-assertToolCount(r, "Write", { max: 1 }); // budget — no runaway writes
-assertToolUsedWith(r, "Edit", (i) => i.file_path === "src/billing.ts"); // argument
-assertToolCalls(r, (calls) => /* any custom rule over the list */ true);
+import { runHarnessTest, check, assertChecks } from "vigiles";
 
-assertHookBlocked(r); // exit 2 / decision:"block" / permissionDecision:"deny"
-assertDelivered(r); // a runHook result's text REACHED the model (not just stderr) — see harness-testing.md
-assertGuardrail("bash hooks/guard.sh"); // denies every disaster, allows the same text as data
-assertHookFired(r, "UserPromptSubmit");
-assertOutputContains(r, /on it/);
-assertCreated(r, "DONE"); // a file was created
+assertChecks(r, [
+  check.toolSequence(["Read", "Edit"]), // ordering — Read before Edit
+  check.tool("Write", { max: 1 }), // budget — no runaway writes
+  check.toolWith("Edit", { file_path: "src/billing.ts" }), // argument
+  check.hookFired("UserPromptSubmit"),
+  check.output(/on it/),
+  check.wrote("DONE"), // a file was created
+  check(
+    "every Edit follows a Read",
+    (t) => /* any rule over t.toolCalls */ true,
+  ),
+]);
+
+assertChecks(hookResult, [check.blocked()]); // exit 2 / decision:"block" / permissionDecision:"deny"
 ```
 
-`withHarness(spec, fn)` wraps a deterministic run with try/finally cleanup so a
-test doesn't leak temp dirs.
+Want a boolean instead of a throw — in a `measure`, say? A check's verdict is
+`check.skill("demo:greet").eval(trace).pass`; `fired:` takes the check itself.
+
+What a hook or script run did beyond its decision is a check too:
+`check.delivered()` (its text REACHED the model, not just stderr — see
+[harness-testing.md](harness-testing.md#assert-a-nudge-reaches-the-model-checkdelivered)),
+and `check.egressOnly([...])` / `check.noWrite(p)` / `check.wroteOnly([...])` over a
+confined run's egress and file writes.
+
+The flat check functions (`tool`, `skill`, `wrote`, …), the `assertToolUsed`-style
+functions and the boolean predicates (`usedTool`, `skillResolved`, …) were removed
+in v50 — each is one `check.*` member; the
+[migration table](#migrating-to-the-v50-assertion-form) lists them.
+
+A `runHarnessTest` result owns its temp directory. Remove it in a `finally` with
+`r.cleanup()`, or let TypeScript (5.2+) or Node 24+ do it for you:
+`await using r = await runHarnessTest(spec)` disposes the result when it leaves
+scope, even when an assertion throws.
+
+To prove a guard blocks every disaster and allows the same text as data, use the
+battery on [`vigiles/battery`](harness-testing.md#prove-a-guard-actually-blocks-the-disaster-battery):
+`assertGuardrail("bash hooks/guard.sh")`.
 
 ### Test a compiled hook in-process (no subprocess)
 
 A [compiled hook](compiled-hooks.md) (a `vigiles/hook` program) has a **pure**
 decision, so you can test it without spawning the CLI at all — pass the hook's
-default export and a raw event:
+default export and a raw event. The test functions live on `vigiles/hook-test`,
+not on `vigiles/hook`: a compiled hook may import only `vigiles/hook`, so a
+loader there would be callable from inside every hook.
 
 ```ts
 import {
-  loadHook,
-  assertHookDenies,
-  assertHookAllows,
-  assertHookNotices,
-  assertHookSilent,
-} from "vigiles";
-import { runHookProgram } from "vigiles/hook";
+  experimental_loadHook,
+  experimental_assertHookDenies,
+  experimental_assertHookAllows,
+  experimental_assertHookNotices,
+  experimental_assertHookSilent,
+  runHookProgram,
+} from "vigiles/hook-test";
 
-// loadHook takes the hook's PATH — what a .harness.mjs file actually has. It is
+// experimental_loadHook takes the hook's PATH — what a .harness.mjs file actually has. It is
 // the same loader the runtime uses, and it handles a .hook.ts under tsx / Node
 // >= 23.6. Already holding the object (a static import)? Pass it directly.
-const guard = await loadHook(".vigiles/hooks/guard.hook.mjs");
+const guard = await experimental_loadHook(".vigiles/hooks/guard.hook.mjs");
 
-assertHookDenies(guard, {
+experimental_assertHookDenies(guard, {
   tool_name: "Bash",
   tool_input: { command: "git push -f" },
 });
-assertHookAllows(guard, {
+experimental_assertHookAllows(guard, {
   tool_name: "Bash",
   tool_input: { command: "git status" },
 });
@@ -155,9 +156,11 @@ assertHookAllows(guard, {
 // A REACT hook can't block, so it gets its own pair. Which STREAM carries a
 // `notice()` depends on the event (additionalContext on stdout where the event
 // injects, stderr only where it cannot), so these read the reaction itself.
-const warn = await loadHook(".vigiles/hooks/warn-on-failure.hook.mjs");
-assertHookNotices(warn, failedBashEvent, /read the error/); // message matcher optional
-assertHookSilent(warn, successfulBashEvent);
+const warn = await experimental_loadHook(
+  ".vigiles/hooks/warn-on-failure.hook.mjs",
+);
+experimental_assertHookNotices(warn, failedBashEvent, /read the error/); // message matcher optional
+experimental_assertHookSilent(warn, successfulBashEvent);
 // A react declared for Bash alone (`match: tools("Bash")`) also reads the
 // command: its event is a `BashReactEvent`, so feed it a Bash payload, and
 // add a non-Bash event to show it stays quiet there.
@@ -166,36 +169,41 @@ assertHookSilent(warn, successfulBashEvent);
 runHookProgram(guard, event); // → { kind: "decision" | "injection" | "reaction", … }
 ```
 
-`assertHookBlocked` / `assertHookAllowed` (above) are the sibling assertions over
-a `runHook` **result** (the hook run as a real subprocess); `assertHookDenies` /
-`assertHookAllows` evaluate the typed program **directly** — cheaper, and they
+`check.blocked()` / `check.allowed()` (above) are the sibling checks over a
+`runHook` **result** (the hook run as a real subprocess); `experimental_assertHookDenies` /
+`experimental_assertHookAllows` evaluate the typed program **directly** — cheaper, and they
 work for inject/react hooks too via `runHookProgram`. Which reacts see
 `e.command` (a `BashReactEvent`) and which do not (a `ToolReactEvent`):
 [A react that reads the command](compiled-hooks.md#a-react-that-reads-the-command).
 
 ### Assert a subagent's typed outcome
 
-For the railway/result subagent contract, `assertAgentOk` / `assertAgentErr` /
-`assertAgentResult` test a subagent's outcome via `parseAgentResult` — a
+For the railway/result subagent contract, `experimental_assertAgentOk` / `experimental_assertAgentErr` /
+`experimental_assertAgentResult` test a subagent's outcome via `parseAgentResult` — a
 **deterministic assert that replaces an LLM judge**. A subagent with a `result()`
 contract ends its turn with a `vigiles:ok` / `vigiles:err` block; these helpers
-parse it and validate it against the declared shape:
+parse it and validate it against the declared shape. They live on `vigiles/spec`,
+beside the `experimental_agent` contract they read:
 
 ```ts
-import { experimental_agent } from "vigiles/spec";
+import {
+  experimental_agent,
+  experimental_assertAgentOk,
+  experimental_assertAgentErr,
+  experimental_assertAgentResult,
+} from "vigiles/spec";
 const { result } = experimental_agent;
-import { assertAgentOk, assertAgentErr, assertAgentResult } from "vigiles";
 
 const contract = result(
   { files: "string[]", summary: "string" }, // the ok track
   { reason: "string", step: "string" }, // the err track
 );
 
-const value = assertAgentOk(r.output, contract); // returns the validated `value`
-const error = assertAgentErr(r.output, contract); // returns the validated `error`
+const value = experimental_assertAgentOk(r.output, contract); // returns the validated `value`
+const error = experimental_assertAgentErr(r.output, contract); // returns the validated `error`
 
 // The general predicate form, for rich detail:
-assertAgentResult(
+experimental_assertAgentResult(
   r.output,
   (res) => res.kind === "ok" && res.value.files.length > 0,
   contract,
@@ -209,65 +217,71 @@ well-formed JSON block is accepted. Output that isn't a valid block is `malforme
 
 ## The `check` vocabulary
 
-A **check** is data, not a throwing assert: `tool("Bash")` is an object that knows
+A **check** is data, not a throwing assert: `check.tool("Bash")` is an object that knows
 how to `eval` itself against a `Trace` (or a hook decision) and `toJSON`. The same
 check is evaluated two ways — write the assertion once:
 
 ```ts
-import { tool, skill, output, hookFired, blocked, assertChecks } from "vigiles";
+import { assertChecks, check } from "vigiles";
 
 // STRICT (deterministic tiers): throws, collecting ALL failures with messages.
-assertChecks(await runHarness(spec), [tool("Bash"), output(/done/)]);
-assertChecks(runHook(cmd, event), [blocked()]);
+assertChecks(await runHarnessTest(spec), [
+  check.tool("Bash"),
+  check.output(/done/),
+]);
+assertChecks(runHook(cmd, event), [check.blocked()]);
 
 // SCORED (eval): the SAME checks, as a rate ± se across trials.
-import { paid_measure } from "vigiles/eval"; // the `paid_` prefix = it calls a model
-import { assertRates, checkReportToJUnit } from "vigiles"; // reading the report is free
+// the `paid_` prefix = it calls a model; reading the report (assertRates) is free
+import { paid_measure, assertRates } from "vigiles/eval";
 const report = await paid_measure({
   pluginDir: "./my-plugin", // or skillsDir: ".claude/skills" (loose, auto-packaged)
   task: "…",
-  checks: [skill("vigiles:test-harness")],
+  checks: [check.skill("vigiles:test-harness")],
   stubSkillBodies: true, // firing check: stub bodies → a fraction of the tokens
   trials: 10,
   model: "sonnet",
 });
 assertRates(report, { min: 0.8 }); // gate the rate, not one noisy run
-writeFileSync("checks.junit.xml", checkReportToJUnit(report, { min: 0.8 }));
+assertRates(report, { passK: 1 }); // or: every check passed on EVERY trial
 ```
 
 A check's **failure message is the product** (`expected the agent to use tool
 "Bash", but it used [Read, Edit]`), and because it serializes, CI reports and
 regression baselines fall out for free.
 
-**The vocabulary** (from `vigiles` — except `paid_judged`, which calls a model and
-so lives on `vigiles/eval`):
+**The vocabulary** — every check is a member of the one callable `check` object
+from `vigiles` (type `check.` and the editor lists them), and `check(name, fn)`
+names your own. The exception is `paid_judged`, which calls a model and so lives
+on `vigiles/eval`.
 
-Every check is also a member of the one callable `check` object — `check.tool`,
-`check.output`, `check.blocked()`, … — and `check(name, fn)` names your own.
-
-| Check                                          | Holds when…                                                                    | Over             |
-| ---------------------------------------------- | ------------------------------------------------------------------------------ | ---------------- |
-| `tool(name)`                                   | the agent used that tool                                                       | Trace            |
-| `check.tool(name, { min, max })`               | that tool was used a number of times in bounds                                 | Trace            |
-| `check.toolSequence([a, b])`                   | those tools ran in that order (gaps allowed)                                   | Trace            |
-| `check.runs(program, { force? })`              | a shell command ran `program` — read by the compiled-hook parser, any spelling | Trace            |
-| `check(name, fn)`                              | your own predicate holds — named, serialized and scored like the rest          | anything         |
-| `check.skill(id)`                              | the skill `id` resolved (no error), as the harness's adapter reports it        | Trace            |
-| `mcp(server, tool)`                            | the agent used `mcp__server__tool`                                             | Trace            |
-| `subagent(name, [checks])`                     | the `Task` subagent ran + passed nested checks                                 | Trace (nested)   |
-| `output(str \| /re/)`                          | the final answer contains/matches                                              | Trace            |
-| `received(str \| /re/)`                        | text reached the model (slash-command / injected)                              | Trace (mock)     |
-| `check.hookFired(event \| /re/, { blocked? })` | a hook fired for that event or label (and blocked)                             | Trace            |
-| `turns({ min, max })`                          | the agent took N turns (multi-turn)                                            | Trace            |
-| `wrote(path)`                                  | a file was created                                                             | Trace            |
-| `paid_judged(rubric, {…})`                     | a model grades the output ≥ `min` (LLM rubric)                                 | Trace (eval)     |
-| `cost/latency/tokens({…})`                     | the run stayed under budget                                                    | run usage (eval) |
-| `blocked()` / `allowed()`                      | the hook blocked / allowed                                                     | `runHook` result |
+| Check                                                  | Holds when…                                                                            | Over             |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------- | ---------------- |
+| `check.tool(name)`                                     | the agent used that tool                                                               | Trace            |
+| `check.tool(name, { min, max })`                       | that tool was used a number of times in bounds                                         | Trace            |
+| `check.toolSequence([a, b])`                           | those tools ran in that order (gaps allowed)                                           | Trace            |
+| `check.runs(program, { force? })`                      | a shell command ran `program` — read by the compiled-hook parser, any spelling         | Trace            |
+| `check(name, fn)`                                      | your own predicate holds — named, serialized and scored like the rest                  | anything         |
+| `check.skill(id)`                                      | the skill `id` resolved (no error), as the harness's adapter reports it                | Trace            |
+| `check.mcp(server, tool)`                              | the agent used `mcp__server__tool`                                                     | Trace            |
+| `check.subagent(name, [checks])`                       | the `Task` subagent ran + passed nested checks                                         | Trace (nested)   |
+| `check.output(str \| /re/)`                            | the final answer contains/matches                                                      | Trace            |
+| `check.received(str \| /re/)`                          | text reached the model (slash-command / injected)                                      | Trace (mock)     |
+| `check.hookFired(event \| /re/, { blocked? })`         | a hook fired for that event or label (and blocked)                                     | Trace            |
+| `check.turns({ min, max })`                            | the agent took N turns (multi-turn)                                                    | Trace            |
+| `check.wrote(path)`                                    | a file was created                                                                     | Trace            |
+| `paid_judged(rubric, {…})`                             | a model grades the output ≥ `min` (LLM rubric)                                         | Trace (eval)     |
+| `check.cost({ maxUsd })` / `check.latency({ maxMs })`  | the run stayed under budget                                                            | run usage (eval) |
+| `check.tokens({ max, maxInput, maxOutput, maxCache })` | each given token class stayed under its cap (total, fresh input, output, prompt cache) | run usage (eval) |
+| `check.blocked()` / `check.allowed()`                  | the hook blocked / allowed                                                             | `runHook` result |
+| `check.delivered()`                                    | the hook's text reached the model (not just stderr)                                    | `runHook` result |
+| `check.egressOnly([...])`                              | every egress attempt went to an allowed host (`[]` = none at all)                      | confined run     |
+| `check.noWrite(p)` / `check.wroteOnly([...])`          | no write matches `p` / every write matches the list (fails if unrecorded)              | confined run     |
+| `check.skillContract(dir)`                             | builds `activation` + `surface` checks from a SKILL.md's `allowed-tools:`              | (a builder)      |
 
 `paid_measureArms({ arms, checks })` scores the same checks per arm (a hook/skill/rule
-**on vs off**); `compareCheck(report, baseline, arm, i)` returns a Welch verdict.
-It takes `stubSkillBodies` too. `propertyHook({ seed, mutate, decide, invariants })`
-fuzzes a hook's `(event) → decision` and shrinks any counterexample.
+**on vs off**): `report.arms[name].perCheck[i]` lines up across arms. It takes
+`stubSkillBodies` too.
 
 ## vitest / jest matchers
 
@@ -306,8 +320,8 @@ shorthands.
 | `expect(r).toBlock()`                    | the hook blocked                         | `runHook` result |
 | `expect(report).toBeatBaseline(b, a, m)` | arm `a` beats baseline `b` on metric `m` | eval report      |
 
-So `toPass(tool("Bash"))`, `toPass(skill("x:y"))`, `toPass(blocked())`,
-`toPass(cost({ maxUsd: 0.05 }))` all work with one matcher. vitest and jest are
+So `toPass(check.tool("Bash"))`, `toPass(check.skill("x:y"))`, `toPass(check.blocked())`,
+`toPass(check.cost({ maxUsd: 0.05 }))` all work with one matcher. vitest and jest are
 **optional peer dependencies** — only the entry you import pulls one in; the seam
 is tested under both runners in [`test/runners/`](../test/runners/).
 
@@ -319,7 +333,7 @@ const report = await paid_measureTriggerRate({
   pluginDir: "./my-plugin", //    already-packaged plugin. XOR skillsDir.
   prompts: [...], //              recall set (≥ minPrompts, NCD-diverse)
   irrelevantPrompts: [...], //    precision set (→ falsePositiveRate / precision)
-  fired: (t) => skillResolved(t, "my-plugin:greet"),
+  fired: check.skill("my-plugin:greet"),
   stubSkillBodies: true, //       stop at SELECTION (frontmatter decides firing)
   fixture: { "path": "contents" }, // seed repo STATE a skill triggers on
   installSet: [otherPluginsOrDirs], // co-install the rest of the harness (release gate)
@@ -336,7 +350,7 @@ assertTriggerRate(report, { min: 0.8, maxFalsePositive: 0.1 });
   `.claude/skills` into a throwaway plugin for you.
 - **`fired`** — a check or a predicate over the run's trace.
   `check.skill("my-plugin:greet")` asks the harness's adapter, so it works on
-  every harness; `(t) => skillResolved(t, …)` still works. Switching between the
+  every harness; a function `(t) => boolean` still works. Switching between the
   two does not make a recorded lock stale: the lock pins what the model sees, not
   how the script reads the run.
 - **`stubSkillBodies`** — triggering is decided by frontmatter _before_ the body
@@ -472,7 +486,7 @@ The `measure` ctx is a full `Trace`, so a metric reads the agent's **actions**
   - `assertRates({ min })`. The oracle promptfoo/DeepEval lead with.
 - **Relative — "does this change _move_ behaviour vs off?"** The lift a change buys
   (regression gating, proving a gap isn't noise): `runEval` with `off`/`on` arms +
-  `assertSignificant`.
+  `assertImproves({ significant: true })`.
 
 **Cost / caching / concurrency:**
 
@@ -522,38 +536,50 @@ platform.
 
 ## Significance &amp; regression gating
 
-**Significance.** `se` gives the spread; `assertSignificant` throws unless the
-arm beats the baseline by a margin the trials can actually show — the noise floor
-is **computed**, not hand-fed. The test depends on the metric:
+The report readers live on `vigiles/eval`, beside the runners that produce the
+report. None of them calls a model, so none is named `paid_`.
+
+**Significance.** `se` gives the spread; `compare` says, metric by metric, how far
+apart two arms are and whether the gap clears a noise floor the trials can
+actually show — the floor is **computed**, not hand-fed. The test depends on the
+metric:
 
 - **A 0/1 metric** (pass/fail, `true`/`false`): each arm gets a 95% Wilson
-  interval, and the arm wins only when the two intervals do not overlap. A
-  metric counts as 0/1 when every trial reported 0 or 1; the report records the
-  tally as `stats[metric].successes`. A report saved before that field existed
-  has no tally, so it is judged by Welch's test.
+  interval, and the gap is significant only when the two intervals do not
+  overlap. A metric counts as 0/1 when every trial reported 0 or 1; the report
+  records the tally as `stats[metric].successes`. A report saved before that
+  field existed has no tally, so it is judged by Welch's test.
 - **Any other metric**: Welch's t-test at `alpha` (default 0.05).
 
 ```ts
-import {
-  assertSignificant,
-  significantlyBeats,
-  compareArms,
-  experimental_verdict,
-} from "vigiles";
+import { compare, assertImproves } from "vigiles/eval";
 
-assertSignificant(report, {
+const c = compare(report, "vanilla", "gated"); // one entry per metric both arms report
+c.marked; // → { gap, significant, verdict }
+// verdict: { kind: "better" | "worse" | "no-signal", test: "wilson", arm, baseline }
+//       or { kind, test: "welch", delta, pValue } · { kind: "unmeasured", why }
+
+assertImproves(report, {
   baseline: "vanilla",
   arm: "gated",
   metric: "marked",
+  significant: true, // the verdict must be `better`, not just a positive gap
 });
-significantlyBeats(report, "vanilla", "gated", "marked"); // bare predicate
-experimental_verdict(report, "vanilla", "gated", "marked");
-// → { kind: "better" | "worse" | "no-signal", test: "wilson", arm, baseline }
-//   or { kind, test: "welch", delta, pValue } · { kind: "unmeasured", why }
-const c = compareArms(report, "vanilla", "gated", "marked");
-// → { delta, seDelta, t, df, pValue, significant }  (Welch's numbers;
-//   `significant` is the verdict above, so it is false on 3/3 vs 0/3)
 ```
+
+A significant LOSS is `significant` with a negative `gap`. An arm name the report
+does not have throws (a typo is not an arm that scored nothing).
+
+Hand `compare` two **trigger-rate** reports instead and it diffs them prompt by
+prompt — which prompts a description edit (or a different model) gained and lost:
+
+```ts
+const { gained, lost, both, neither } = compare(before, after);
+```
+
+A prompt only one run measured is left out. Where firing is inferred rather than
+observed (Codex), a `gained`/`lost` entry can be inference noise; see
+[Is a cheaper model a valid floor?](harness-testing.md#is-a-cheaper-model-a-valid-floor-comparebefore-after).
 
 **Why 0/1 metrics are not t-tested.** When every trial agrees — 3 of 3 against
 0 of 3 — both arms have zero spread, and a t-test has nothing to divide by. Read
@@ -565,22 +591,16 @@ interval never shrinks to a point at 0 or 1, so 3/3 still admits a true rate nea
 intervals is stricter than a two-proportion test at the same level: a cautious
 verdict costs a re-run, an eager one costs a shipped regression.
 
-`formatEvalReport(report, { baseline: "vanilla" })` prints the same verdict, one
-line per other arm and metric. `improvement` throws when an arm never reported the
-metric, instead of reading it as 0. `assertReliable(report, { arm, metric })` is the
-stricter bar: the metric succeeded on **every** trial (pass^k = 1).
+`vigiles eval` prints the same verdict, one line per other arm and metric.
+`assertImproves` throws when an arm never reported the metric, instead of reading
+it as 0. `assertRates(report, { arm, metric, passK: 1 })` is the stricter bar: the
+metric succeeded on **every** trial (pass^k = 1).
 
 **Regression gating** compares one run against a **committed baseline** — "jest
 snapshots for agent behaviour, with a real noise floor":
 
 ```ts
-import {
-  writeBaseline,
-  readBaseline,
-  assertNoRegression,
-  diffToJUnit,
-  diffReports,
-} from "vigiles";
+import { writeBaseline, readBaseline, assertNoRegression } from "vigiles/eval";
 
 // Record once (commit .vigiles/eval-baseline.json):
 writeBaseline(".vigiles/eval-baseline.json", [report]);
@@ -589,7 +609,6 @@ writeBaseline(".vigiles/eval-baseline.json", [report]);
 const baseline = readBaseline(".vigiles/eval-baseline.json");
 if (baseline) {
   assertNoRegression(report, baseline, { lowerIsBetter: ["cost"] });
-  // or emit JUnit: diffToJUnit(diffReports(baseline, [report]))
 }
 ```
 
@@ -598,29 +617,30 @@ them. A new arm/metric absent from the baseline is skipped (not a regression).
 
 ## Imports &amp; harness selection
 
-**One canonical entry point per layer** — import from these:
+**One door per reader** — every name lives behind exactly one of these:
 
-| Layer                  | Canonical import  | What it re-exports                                                                                                                        |
-| ---------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Test your harness      | `vigiles`         | every check, assertion, matcher, hook/harness runner and tool stub — everything that costs nothing to run                                 |
-| Measure with a model   | `vigiles/eval`    | `paid_runEval` · `paid_measure` · `paid_measureArms` · `paid_measureTriggerRate` · `paid_judge` · `paid_judged` · `paid_claudeEvalDriver` |
-| Declare an eval file   | `vigiles`         | `defineEval` (free — a description cannot spend; see [eval files](harness-testing.md#eval-files-describe-their-eval))                     |
-| Lint instruction files | `vigiles/linting` | the spec builders and their types (compiling is `vigiles compile` / `vigiles lint`)                                                       |
+| Reader                | Import              | What it holds                                                                                                                                                                            |
+| --------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Test your harness     | `vigiles`           | the runners, every check and assertion over a run, the matchers, tool stubs, `defineEval`, and the report types — everything that costs nothing to run                                   |
+| Measure with a model  | `vigiles/eval`      | the `paid_*` runners, and the free readers of their report: `compare`, `assertRates`, `assertTriggerRate`, `assertImproves`, `assertNoRegression`, baselines                             |
+| Prove a guard blocks  | `vigiles/battery`   | `assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState`                                                                    |
+| Write a compiled hook | `vigiles/hook`      | the hook vocabulary — the only import a compiled hook may have                                                                                                                           |
+| Test a compiled hook  | `vigiles/hook-test` | `experimental_loadHook`, `runHookProgram`, `experimental_assertHookDenies` / `experimental_assertHookAllows` / `experimental_assertHookNotices` / `experimental_assertHookSilent`        |
+| Author a spec         | `vigiles/spec`      | the spec builders and their types, and `experimental_assertAgentOk` / `experimental_assertAgentErr` / `experimental_assertAgentResult` (compiling is `vigiles compile` / `vigiles lint`) |
 
 **In a `*.eval.mjs` file the runners below are DECLARED, not called** —
 `export default defineEval({ measure: spec })` — because importing a file that
 calls one spends real money. See
 [eval files describe their eval](harness-testing.md#eval-files-describe-their-eval).
 
-**The testing surface splits on COST, not on test tier.** Free is the package
-root; anything that can call a model is `vigiles/eval`. There is no
-`vigiles/test` — the bare package name _is_ the testing surface — and the old
-`vigiles/unit` / `vigiles/integration` / `vigiles/e2e` / `vigiles/testing`
-barrels are gone. Tiers were never a property of the module graph: express them
-where they belong, in test-file naming and runner config (`vitest --project
-integration`), the way `@playwright/test` does.
+**The testing surface splits by reader, not by test tier.** The package root is
+the free testing surface; there is no `vigiles/test` — the bare package name _is_
+the testing surface — and the old `vigiles/unit` / `vigiles/integration` /
+`vigiles/e2e` / `vigiles/testing` barrels are gone. Tiers were never a property
+of the module graph: express them where they belong, in test-file naming and
+runner config (`vitest --project integration`), the way `@playwright/test` does.
 
-**Every runtime export on `vigiles/eval` is also named `paid_`.** The import path
+**Every runtime export on `vigiles/eval` that can call a model is named `paid_`.** The import path
 warns once, at the top of the file; the name warns at every call site, which is
 where the money is spent. Same device the package already uses for
 `experimental_` on every call site. ⚠️ The prefix overstates slightly —
@@ -635,17 +655,21 @@ Two consequences worth stating plainly:
 - **Free is not fast.** `runHarnessTest` spawns a real `claude` under bubblewrap
   and can take ~40 seconds. It bills nothing, so it is on the free root, and the
   import no longer warns you about the wall clock.
-- **The eval-analysis helpers stay free and unprefixed.** `assertSignificant`,
-  `assertNoRegression`, `diffReports`, `cost` / `latency` / `tokens` and friends
-  read a report without running anything, so they are on `vigiles`. Their argument
-  TYPES (`EvalReport`, `CheckReport`, …) are re-exported from both barrels, so you
-  never import `vigiles/eval` for a type alone.
+- **The report readers are free and unprefixed, on `vigiles/eval`.** `compare`,
+  `assertRates`, `assertNoRegression` and friends read a report without running
+  anything; their only reader just ran an eval, so they sit beside the runners.
+  To forbid spending in CI, match the `paid_*` names, not the door. The report
+  TYPES (`EvalReport`, `CheckReport`, …) are on `vigiles`, since `defineEval`
+  speaks them too.
 
 The remaining entry points are deliberate surfaces, not aliases:
 
 - **Authoring** — `vigiles/spec`: the spec builders for `.spec.ts` files.
-- **CC-specific transport** — `scriptModel`, `loadPlugin`, `resolveHarness`,
-  `LoadedPlugin` live in `vigiles/claude-code`, not on the root surface.
+- **CC-specific transport** — `scriptModel`, `loadPlugin`, `LoadedPlugin`,
+  `startMock` and the stream-json parsers `parseToolCalls` / `parseClaudeRun` live
+  in `vigiles/claude-code`, not on the root surface. Its ports (`layout`,
+  `dialect`, `harnessTestDriver()`, …) and tool catalog (`builtinAgentTools`,
+  `sideEffectingTools`) are fields of `claudeCodeAdapter`.
 - **CC-only measurement** — `measureSelectionMatrix` / `assertNoCollision` live in
   `vigiles/claude-code` too. They read which skill the selector chose (Codex has no
   such event), so they can't sit on the agnostic surface. Everything else measured
@@ -668,6 +692,39 @@ when the harness changes; unused adapters tree-shake out. The CLI can't take an
 import, so it **auto-detects** the harness from the repo. For the full
 adapter/import model and the capability matrix, see
 [`docs/harnesses.md`](harnesses.md).
+
+## Migrating to the v50 assertion form
+
+| Removed in v50                                                                                                                                                                                                  | Write instead                                                                |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `assertToolUsed(r, n)` / `usedTool(t, n)`                                                                                                                                                                       | `check.tool(n)`                                                              |
+| `assertToolNotUsed(r, n)`                                                                                                                                                                                       | `check.notTool(n)`                                                           |
+| `assertToolCount(r, n, b)` / `toolCount(t, n)`                                                                                                                                                                  | `check.tool(n, { min, max })`                                                |
+| `assertToolSequence(r, [a, b])`                                                                                                                                                                                 | `check.toolSequence([a, b])`                                                 |
+| `assertToolUsedWith(r, n, fn)` / `toolUsedWith`                                                                                                                                                                 | `check.toolWith(n, args)`, or `check(name, fn)`                              |
+| `assertToolCalls(r, fn, msg)`                                                                                                                                                                                   | `check(msg, (t) => fn(t.toolCalls))`                                         |
+| `assertSkillResolved(r, id)` / `skillResolved`                                                                                                                                                                  | `check.skill(id)` — and `fired: check.skill(id)`                             |
+| `assertOutputContains(r, x)` / `outputContains`                                                                                                                                                                 | `check.output(x)`                                                            |
+| `assertRequestContains(r, x)` / `requestContains`                                                                                                                                                               | `check.received(x)`                                                          |
+| `assertHookFired(r, e, { blocked })` / `hookBlocked`                                                                                                                                                            | `check.hookFired(e, { blocked })`                                            |
+| `assertCreated(r, p)` / `assertNotCreated(r, p)`                                                                                                                                                                | `check.wrote(p)` / `check.didNotWrite(p)`                                    |
+| `assertHookBlocked(r)` / `assertHookAllowed(r)`                                                                                                                                                                 | `check.blocked()` / `check.allowed()`                                        |
+| `assertDelivered(r)`                                                                                                                                                                                            | `check.delivered()`                                                          |
+| `assertEgressOnly(r, list)`                                                                                                                                                                                     | `check.egressOnly(list)` (`[]` = no egress)                                  |
+| `assertNoWrite(r, p)` / `assertWroteOnly(r, list)`                                                                                                                                                              | `check.noWrite(p)` / `check.wroteOnly(list)`                                 |
+| a flat check — `tool(…)`, `toolWith`, `notTool`, `onlyTools`, `skill`, `output`, `received`, `hookFired`, `blocked`, `allowed`, `wrote`, `didNotWrite`, `mcp`, `subagent`, `turns`, `cost`, `latency`, `tokens` | the same name on `check`: `check.tool(…)`                                    |
+| `inputTokens({ max })` / `outputTokens({ max })`                                                                                                                                                                | `check.tokens({ maxInput })` / `check.tokens({ maxOutput })`                 |
+| `cacheTokens({ maxCreation, maxRead })`                                                                                                                                                                         | `check.tokens({ maxCache })` (written + served)                              |
+| `skillContract(dir)`                                                                                                                                                                                            | `check.skillContract(dir)`                                                   |
+| `fileToolEvents(path)` from `vigiles`                                                                                                                                                                           | `fileToolEvents(path)` from `vigiles/claude-code`                            |
+| `experimental_stub` from `vigiles`                                                                                                                                                                              | `experimental_stub` from `vigiles/fixtures`                                  |
+| `experimental_startServices`, `experimental_dockerRuntime` from `vigiles`                                                                                                                                       | the same names from `vigiles/fixtures`                                       |
+| `experimental_outputStyleArms` from `vigiles`                                                                                                                                                                   | `experimental_outputStyleArms` from `vigiles/eval`                           |
+| `loadHook`, `assertHookDenies/Allows/Notices/Silent` from `vigiles`                                                                                                                                             | `experimental_loadHook`, `experimental_assertHook*` from `vigiles/hook-test` |
+| `runHookProgram`, `RawHookEvent`, `HookProgramOutcome` from `vigiles/hook`                                                                                                                                      | the same names from `vigiles/hook-test`                                      |
+
+Each goes in `assertChecks(r, [ … ])`, `expect(r).toPass(…)`, or a `measure`'s
+`checks` / a trigger-rate `fired:`.
 
 ## See also
 

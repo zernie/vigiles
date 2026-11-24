@@ -274,8 +274,8 @@ export function ranAsEntryRefusal(argv1: string): string {
  * nothing, spends nothing, and touches no filesystem.
  *
  * ```js
- * import { defineEval, assertRates } from "vigiles";
- * import { skill } from "vigiles";
+ * import { defineEval, skill } from "vigiles";
+ * import { assertRates } from "vigiles/eval";
  *
  * export default defineEval({
  *   measure: { pluginDir, task: "…", checks: [skill("my:skill")], trials: 3 },

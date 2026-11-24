@@ -6,53 +6,21 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
+import { vigilesMatchers } from "./harness-assert.js";
+import { check, assertChecks } from "./check.js";
 import {
-  improvement,
-  compareArms,
-  assertImproves,
-  significantlyBeats,
-  assertSignificant,
-  reliable,
-  assertReliable,
-  assertNoRegression,
-  toBaselineFile,
-  assertCreated,
-  assertNotCreated,
-  assertServedTurns,
-  assertHookBlocked,
-  assertHookAllowed,
-  assertDelivered,
-  assertHookDenies,
-  assertHookAllows,
-  assertHookNotices,
-  assertHookSilent,
-  assertNoEgress,
-  assertEgressOnly,
-  egressHosts,
-  assertNoWrite,
-  assertWroteOnly,
-  assertAgentOk,
-  assertAgentErr,
-  assertAgentResult,
-  usedTool,
-  toolCount,
-  skillResolved,
-  toolUsedWith,
-  outputContains,
-  requestContains,
-  assertRequestContains,
-  hookBlocked,
-  assertToolUsed,
-  assertToolNotUsed,
-  assertSkillResolved,
-  assertToolUsedWith,
-  assertOutputContains,
-  assertHookFired,
-  assertToolCount,
-  assertToolSequence,
-  assertToolCalls,
-  vigilesMatchers,
-} from "./harness-assert.js";
+  experimental_assertHookDenies as assertHookDenies,
+  experimental_assertHookAllows as assertHookAllows,
+  experimental_assertHookNotices as assertHookNotices,
+  experimental_assertHookSilent as assertHookSilent,
+} from "./hook-assertions.js";
+import {
+  experimental_assertAgentOk as assertAgentOk,
+  experimental_assertAgentErr as assertAgentErr,
+  experimental_assertAgentResult as assertAgentResult,
+} from "./entries/spec.js";
+import { assertNoRegression } from "./eval-readers.js";
+import { toBaselineFile } from "./eval-baseline.js";
 import { experimental_agent } from "./core/spec.js";
 const { result } = experimental_agent;
 import { experimental_defineHook, deny, allow } from "./core/hook-program.js";
@@ -66,9 +34,35 @@ import {
   tools,
 } from "./core/hook-program.js";
 import type { Check } from "./check.js";
-import { aggregateStats, type EvalReport } from "./eval.js";
+import type { EvalReport } from "./eval.js";
 import type { HarnessTestResult, HookFire } from "./harness-test.js";
 import type { HookRunResult } from "./run-hook.js";
+
+// The v50 throwing forms, as the checks that replaced them (src/effect-checks.ts):
+// these tests keep pinning the same messages through `assertChecks`.
+type RunOf<C extends (...a: never[]) => { eval: (t: never) => unknown }> =
+  Parameters<ReturnType<C>["eval"]>[0];
+const assertDelivered = (r: RunOf<typeof check.delivered>): void => {
+  assertChecks(r, [check.delivered()]);
+};
+const assertEgressOnly = (
+  r: RunOf<typeof check.egressOnly>,
+  allowed: ReadonlyArray<string | RegExp>,
+): void => {
+  assertChecks(r, [check.egressOnly(allowed)]);
+};
+const assertNoWrite = (
+  r: RunOf<typeof check.noWrite>,
+  pattern: string | RegExp,
+): void => {
+  assertChecks(r, [check.noWrite(pattern)]);
+};
+const assertWroteOnly = (
+  r: RunOf<typeof check.wroteOnly>,
+  allowed: ReadonlyArray<string | RegExp>,
+): void => {
+  assertChecks(r, [check.wroteOnly(allowed)]);
+};
 
 /** Minimal HookRunResult stand-in for the run-hook-tier assertions/matcher. */
 function fakeHook(blocked: boolean): HookRunResult {
@@ -145,245 +139,9 @@ function fakeResult(
     modelRequests: extra.modelRequests ?? [],
     file: (p: string) => (present.includes(p) ? "content" : null),
     cleanup: () => undefined,
+    [Symbol.asyncDispose]: () => Promise.resolve(),
   };
 }
-
-test("improvement returns the arm − baseline gap", () => {
-  assert.equal(improvement(report, "vanilla", "gated", "caught"), 0.5);
-  assert.equal(improvement(report, "gated", "vanilla", "caught"), -0.5);
-});
-
-test("improvement throws on a metric an arm never reported, never reads it as 0", () => {
-  assert.throws(
-    () => improvement(report, "vanilla", "gated", "missing"),
-    /no data to compare/,
-  );
-  assert.throws(
-    () => improvement(report, "nobody", "gated", "caught"),
-    /no data to compare/,
-  );
-});
-
-/** A two-arm report whose 0/1 metric `pass` went `k` of `n` per arm. */
-function passReport(kArm: number, kBase: number, n: number): EvalReport {
-  const arm = (k: number) => {
-    const stats = aggregateStats(
-      Array.from({ length: n }, (_, i) => ({ pass: i < k })),
-    );
-    return {
-      runs: n,
-      metrics: { pass: k / n },
-      stats,
-      ...NO_MISSES,
-    };
-  };
-  return {
-    name: "p10",
-    trials: n,
-    totalCostUsd: 0,
-    aborted: false,
-    arms: { base: arm(kBase), skill: arm(kArm) },
-  };
-}
-
-// vigiles#416 point 3: every trial agreeing gave both arms se = 0, and the
-// t-test read it as p = 0 — 1/1 against 0/1 passed assertSignificant.
-test("assertSignificant on a 0/1 metric needs disjoint Wilson intervals (P10)", () => {
-  const sig = (r: EvalReport) => () => {
-    assertSignificant(r, { baseline: "base", arm: "skill", metric: "pass" });
-  };
-  assert.throws(sig(passReport(1, 0, 1)), /NO SIGNAL/);
-  assert.throws(sig(passReport(3, 0, 3)), /NO SIGNAL/);
-  assert.doesNotThrow(sig(passReport(10, 0, 10)));
-  assert.equal(
-    significantlyBeats(passReport(3, 0, 3), "base", "skill", "pass"),
-    false,
-  );
-  assert.equal(
-    significantlyBeats(passReport(10, 0, 10), "base", "skill", "pass"),
-    true,
-  );
-});
-
-test("compareArms agrees with the verdict on a 0/1 metric", () => {
-  const sig = (r: EvalReport) =>
-    compareArms(r, "base", "skill", "pass")?.significant;
-  assert.equal(sig(passReport(3, 0, 3)), false);
-  assert.equal(sig(passReport(10, 0, 10)), true);
-});
-
-test("assertImproves passes on a positive gap and throws otherwise", () => {
-  assert.doesNotThrow(() => {
-    assertImproves(report, {
-      baseline: "vanilla",
-      arm: "gated",
-      metric: "caught",
-    });
-  });
-  assert.throws(() => {
-    assertImproves(report, {
-      baseline: "vanilla",
-      arm: "gated",
-      metric: "caught",
-      by: 0.9,
-    });
-  });
-});
-
-test("significantlyBeats / assertSignificant use a computed noise floor", () => {
-  const stat = (mean: number, se: number, n: number) => ({
-    mean,
-    se,
-    n,
-    std: se * Math.sqrt(n),
-    passK: 0,
-  });
-  const sigReport: EvalReport = {
-    name: "sig",
-    trials: 20,
-    totalCostUsd: 0,
-    aborted: false,
-    arms: {
-      base: {
-        runs: 20,
-        metrics: { caught: 0.1 },
-        stats: { caught: stat(0.1, 0.05, 20) },
-        ...NO_MISSES,
-      },
-      // a real, tight separation → significant
-      good: {
-        runs: 20,
-        metrics: { caught: 0.6 },
-        stats: { caught: stat(0.6, 0.05, 20) },
-        ...NO_MISSES,
-      },
-      // a small gap drowned in wide se → not significant
-      noisy: {
-        runs: 5,
-        metrics: { caught: 0.2 },
-        stats: { caught: stat(0.2, 0.2, 5) },
-        ...NO_MISSES,
-      },
-    },
-  };
-
-  assert.equal(significantlyBeats(sigReport, "base", "good", "caught"), true);
-  assert.equal(significantlyBeats(sigReport, "base", "noisy", "caught"), false);
-  assert.equal(significantlyBeats(sigReport, "base", "good", "missing"), false);
-
-  assert.doesNotThrow(() => {
-    assertSignificant(sigReport, {
-      baseline: "base",
-      arm: "good",
-      metric: "caught",
-    });
-  });
-  // a real but not-significant gap throws
-  assert.throws(() => {
-    assertSignificant(sigReport, {
-      baseline: "base",
-      arm: "noisy",
-      metric: "caught",
-    });
-  });
-  // missing data throws with the no-data message
-  assert.throws(() => {
-    assertSignificant(sigReport, {
-      baseline: "base",
-      arm: "good",
-      metric: "missing",
-    });
-  }, /no data to compare/);
-  // assertImproves delegates to the significance test when asked
-  assert.doesNotThrow(() => {
-    assertImproves(sigReport, {
-      baseline: "base",
-      arm: "good",
-      metric: "caught",
-      significant: true,
-    });
-  });
-  assert.throws(() => {
-    assertImproves(sigReport, {
-      baseline: "base",
-      arm: "noisy",
-      metric: "caught",
-      significant: true,
-    });
-  });
-});
-
-test("reliable / assertReliable gate on pass^k (succeeded every trial)", () => {
-  const rep: EvalReport = {
-    name: "rel",
-    trials: 4,
-    totalCostUsd: 0,
-    aborted: false,
-    arms: {
-      flaky: {
-        runs: 4,
-        metrics: { safe: 0.75 },
-        stats: { safe: { mean: 0.75, std: 0.5, se: 0.25, n: 4, passK: 0 } },
-        ...NO_MISSES,
-      },
-      solid: {
-        runs: 4,
-        metrics: { safe: 1 },
-        stats: { safe: { mean: 1, std: 0, se: 0, n: 4, passK: 1 } },
-        ...NO_MISSES,
-      },
-    },
-  };
-  assert.equal(reliable(rep, "solid", "safe"), true);
-  assert.equal(reliable(rep, "flaky", "safe"), false);
-  assert.doesNotThrow(() => {
-    assertReliable(rep, { arm: "solid", metric: "safe" });
-  });
-  assert.throws(() => {
-    assertReliable(rep, { arm: "flaky", metric: "safe" });
-  });
-});
-
-test("assertCreated / assertNotCreated check the sandbox", () => {
-  const r = fakeResult(["RESULT"]);
-  assert.doesNotThrow(() => {
-    assertCreated(r, "RESULT");
-  });
-  assert.throws(() => {
-    assertCreated(r, "MISSING");
-  });
-  assert.doesNotThrow(() => {
-    assertNotCreated(r, "MISSING");
-  });
-  assert.throws(() => {
-    assertNotCreated(r, "RESULT");
-  });
-});
-
-test("assertServedTurns checks the mock turn count", () => {
-  const r = fakeResult([]); // fakeResult sets turns: 2
-  assert.doesNotThrow(() => {
-    assertServedTurns(r, 2);
-  });
-  assert.throws(() => {
-    assertServedTurns(r, 3);
-  });
-});
-
-test("assertHookBlocked / assertHookAllowed (run-hook results)", () => {
-  assert.doesNotThrow(() => {
-    assertHookBlocked(fakeHook(true));
-  });
-  assert.throws(() => {
-    assertHookBlocked(fakeHook(false));
-  });
-  assert.doesNotThrow(() => {
-    assertHookAllowed(fakeHook(false));
-  });
-  assert.throws(() => {
-    assertHookAllowed(fakeHook(true));
-  });
-});
 
 test("assertDelivered: passes only on delivered, and names the cause of every other verdict", () => {
   const withDelivery = (delivery: HookRunResult["delivery"], ran = true) => ({
@@ -417,7 +175,7 @@ test("assertDelivered: passes only on delivered, and names the cause of every ot
   }, /never ran: the if did not match/);
   assert.throws(() => {
     assertDelivered(withDelivery({ kind: "blocked", stranded: [] }));
-  }, /assertHookBlocked/);
+  }, /check\.blocked\(\)/);
   assert.throws(() => {
     assertDelivered(
       withDelivery({ kind: "unknown", event: "X", why: "no row" }),
@@ -425,12 +183,11 @@ test("assertDelivered: passes only on delivered, and names the cause of every ot
   }, /cannot be judged: no row/);
 });
 
-test("assertNoEgress / assertEgressOnly / egressHosts (recordEgress results)", () => {
+test('assertEgressOnly (recordEgress results); [] is "no egress at all"', () => {
   const clean = { egress: [] };
   assert.doesNotThrow(() => {
-    assertNoEgress(clean);
+    assertEgressOnly(clean, []);
   });
-  assert.deepEqual(egressHosts(clean), []);
 
   const reached = {
     egress: [
@@ -438,14 +195,10 @@ test("assertNoEgress / assertEgressOnly / egressHosts (recordEgress results)", (
       { host: "evil.example", port: 80, ts: 2 },
     ],
   };
-  assert.deepEqual(egressHosts(reached), [
-    "registry.npmjs.org:443",
-    "evil.example:80",
-  ]);
-  // no-egress assertion names the offenders
+  // an empty allowlist names every offender as host:port
   assert.throws(() => {
-    assertNoEgress(reached);
-  }, /evil\.example/);
+    assertEgressOnly(reached, []);
+  }, /registry\.npmjs\.org:443, evil\.example:80/);
   // allowlist by host string leaves the non-allowlisted one as a failure
   assert.throws(() => {
     assertEgressOnly(reached, ["registry.npmjs.org"]);
@@ -581,250 +334,11 @@ test("vigilesMatchers.toBeatBaseline respects the `by` threshold", () => {
     vigilesMatchers.toBeatBaseline(report, "vanilla", "gated", "caught", 0.9)
       .pass,
     false,
+  ); // an arm that never reported the metric is not an arm that scored 0
+  assert.throws(
+    () => vigilesMatchers.toBeatBaseline(report, "vanilla", "gated", "missing"),
+    /no data to compare gated vs vanilla on missing/,
   );
-});
-
-// --- tool-call assertions (action invariants) ------------------------------
-
-const skillCall = {
-  name: "Skill",
-  input: { skill: "demo:greet" },
-  resultText: "Launching skill: demo:greet",
-  isError: false,
-};
-const bashCall = {
-  name: "Bash",
-  input: { command: "ls" },
-  resultText: "",
-  isError: false,
-};
-
-test("assertToolUsed: matches by exact name and by regex", () => {
-  const r = fakeResult([], [skillCall, bashCall]);
-  assertToolUsed(r, "Skill"); // exact
-  assertToolUsed(r, /^Bash$/); // regex
-  assert.throws(() => {
-    assertToolUsed(r, "Task");
-  });
-  assert.throws(() => {
-    assertToolUsed(r, /^mcp__/);
-  });
-});
-
-test("assertToolNotUsed: the safety negative", () => {
-  const r = fakeResult([], [skillCall, bashCall]);
-  assertToolNotUsed(r, /^mcp__github__merge/); // never invoked → ok
-  assert.throws(() => {
-    assertToolNotUsed(r, "Bash"); // was invoked → throws
-  });
-});
-
-test("assertSkillResolved: needs a non-error Skill tool_use with that name", () => {
-  assertSkillResolved(fakeResult([], [skillCall]), "demo:greet");
-  assert.throws(() => {
-    assertSkillResolved(fakeResult([], [skillCall]), "demo:other"); // wrong name
-  });
-  const errored = { ...skillCall, isError: true, resultText: "No such skill" };
-  assert.throws(() => {
-    assertSkillResolved(fakeResult([], [errored]), "demo:greet"); // errored
-  });
-});
-
-// --- bare predicates (the shared vocabulary) -------------------------------
-
-test("usedTool / toolCount: bare predicates return values, don't throw", () => {
-  const r = fakeResult([], [skillCall, bashCall, bashCall]);
-  assert.equal(usedTool(r, "Skill"), true);
-  assert.equal(usedTool(r, /^Bash$/), true);
-  assert.equal(usedTool(r, "Task"), false);
-  assert.equal(toolCount(r, "Bash"), 2);
-  assert.equal(toolCount(r, /^mcp__/), 0);
-});
-
-test("skillResolved: true only for a non-error Skill call by that name", () => {
-  assert.equal(skillResolved(fakeResult([], [skillCall]), "demo:greet"), true);
-  assert.equal(skillResolved(fakeResult([], [skillCall]), "demo:other"), false);
-  const errored = { ...skillCall, isError: true, resultText: "No such skill" };
-  assert.equal(skillResolved(fakeResult([], [errored]), "demo:greet"), false);
-});
-
-test("toolUsedWith: matches a tool by name AND its input", () => {
-  const editCall = {
-    name: "Edit",
-    input: { file_path: "src/x.ts", old_string: "a", new_string: "b" },
-    resultText: "",
-    isError: false,
-  };
-  const r = fakeResult([], [editCall]);
-  const targets = (p: string) => (i: unknown) =>
-    (i as { file_path?: string }).file_path === p;
-  assert.equal(toolUsedWith(r, "Edit", targets("src/x.ts")), true);
-  assert.equal(toolUsedWith(r, "Edit", targets("src/other.ts")), false);
-  assert.equal(toolUsedWith(r, "Write", targets("src/x.ts")), false);
-});
-
-test("assertToolUsedWith: tool-argument assertion (asserts on input, not name)", () => {
-  const editCall = {
-    name: "Edit",
-    input: { file_path: "note.txt" },
-    resultText: "",
-    isError: false,
-  };
-  const r = fakeResult([], [editCall]);
-  const targets = (p: string) => (i: unknown) =>
-    (i as { file_path?: string }).file_path === p;
-  assertToolUsedWith(r, "Edit", targets("note.txt"));
-  assert.throws(() => {
-    assertToolUsedWith(r, "Edit", targets("WRONG.txt"));
-  });
-});
-
-// --- output predicate (DeepEval-style "what did the agent say") ------------
-
-test("outputContains / assertOutputContains check trace.output", () => {
-  const r = fakeResult([], [], { output: "All done: created RESULT.md" });
-  assert.equal(outputContains(r, "RESULT.md"), true);
-  assert.equal(outputContains(r, /created \w+/), true);
-  assert.equal(outputContains(r, "missing"), false);
-  assertOutputContains(r, "All done");
-  assert.throws(() => {
-    assertOutputContains(r, "nope");
-  });
-});
-
-// --- model-request predicate (did the injected context reach the model) ----
-
-test("requestContains / assertRequestContains search system + messages", () => {
-  const r = fakeResult([], [], {
-    modelRequests: [
-      {
-        system: "You have superpowers. Use the using-superpowers skill.",
-        messages: [{ role: "user", text: "go" }],
-      },
-      {
-        system: "",
-        messages: [
-          { role: "user", text: "/review the repo" },
-          { role: "assistant", text: "on it" },
-        ],
-      },
-    ],
-  });
-  // hits in the system prompt (SessionStart additionalContext shape)
-  assert.equal(requestContains(r, "You have superpowers"), true);
-  assert.equal(requestContains(r, /super\w+/), true);
-  // hits in a message (slash-command expansion shape)
-  assert.equal(requestContains(r, "/review the repo"), true);
-  assert.equal(requestContains(r, "never sent"), false);
-  assertRequestContains(r, "superpowers");
-  assert.throws(() => {
-    assertRequestContains(r, "never sent");
-  });
-});
-
-test("assertRequestContains hints when no requests were captured (eval tier)", () => {
-  const r = fakeResult([], [], { modelRequests: [] });
-  assert.equal(requestContains(r, "anything"), false);
-  assert.throws(() => {
-    assertRequestContains(r, "anything");
-  }, /harness-tier only/);
-});
-
-// --- hook predicates (recorded from the stream, not marker files) ----------
-
-const hookFires: readonly HookFire[] = [
-  {
-    name: "PreToolUse:Edit",
-    event: "PreToolUse",
-    exitCode: 2,
-    blocked: true,
-    output: "BLOCKED",
-  },
-  {
-    name: "PostToolUse:Bash",
-    event: "PostToolUse",
-    exitCode: 0,
-    blocked: false,
-    output: "ok",
-  },
-];
-
-test("assertHookFired / hookBlocked: match by label and by bare event", () => {
-  const r = fakeResult([], [], { hooks: hookFires });
-  // The boolean predicate behind assertHookFired is internal (#502): it shared
-  // the name `hookFired` with the check, and the check shadowed it.
-  assertHookFired(r, "PreToolUse:Edit"); // full label
-  assertHookFired(r, "PostToolUse"); // bare event
-  assertHookFired(r, /^PreToolUse/); // regex
-  assert.throws(() => {
-    assertHookFired(r, "SessionStart");
-  }, /SessionStart/);
-  assert.equal(hookBlocked(r, "PreToolUse"), true); // the Edit hook blocked
-  assert.equal(hookBlocked(r, "PostToolUse"), false); // the Bash hook didn't
-});
-
-test("assertHookFired: fires, and { blocked: true } demands a block", () => {
-  const r = fakeResult([], [], { hooks: hookFires });
-  assertHookFired(r, "PreToolUse:Edit");
-  assertHookFired(r, "PreToolUse", { blocked: true });
-  assert.throws(() => {
-    assertHookFired(r, "SessionStart"); // never fired
-  });
-  assert.throws(() => {
-    assertHookFired(r, "PostToolUse", { blocked: true }); // fired but didn't block
-  });
-});
-
-// --- sequence / budget invariants (idea 1) ---------------------------------
-
-const call = (name: string) => ({
-  name,
-  input: {},
-  resultText: "",
-  isError: false,
-});
-
-test("assertToolCount: min / max / exactly bounds", () => {
-  const r = fakeResult([], [call("Read"), call("Write"), call("Write")]);
-  assertToolCount(r, "Write", { max: 2 });
-  assertToolCount(r, "Read", { exactly: 1 });
-  assertToolCount(r, /^mcp__/, { exactly: 0 });
-  assert.throws(() => {
-    assertToolCount(r, "Write", { max: 1 }); // 2 > 1
-  });
-  assert.throws(() => {
-    assertToolCount(r, "Read", { min: 2 }); // only 1
-  });
-});
-
-test("assertToolSequence: in-order subsequence (gaps allowed)", () => {
-  const r = fakeResult([], [call("Read"), call("Bash"), call("Edit")]);
-  assertToolSequence(r, ["Read", "Edit"]); // Read before Edit (Bash between is fine)
-  assertToolSequence(r, [/^Read$/, /^Edit$/]); // regex form
-  assert.throws(() => {
-    assertToolSequence(r, ["Edit", "Read"]); // wrong order
-  });
-  assert.throws(() => {
-    assertToolSequence(r, ["Read", "Read"]); // only one Read
-  });
-});
-
-test("assertToolCalls: custom invariant — every Edit preceded by a Read", () => {
-  const everyEditAfterRead = (calls: readonly { name: string }[]) => {
-    let read = false;
-    for (const c of calls) {
-      if (c.name === "Read") read = true;
-      if (c.name === "Edit" && !read) return false;
-    }
-    return true;
-  };
-  assertToolCalls(
-    fakeResult([], [call("Read"), call("Edit")]),
-    everyEditAfterRead,
-  );
-  assert.throws(() => {
-    assertToolCalls(fakeResult([], [call("Edit")]), everyEditAfterRead);
-  });
 });
 
 test("assertNoRegression gates on a significant drop vs baseline", () => {

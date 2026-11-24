@@ -30,7 +30,7 @@ export interface ContractField {
 
 /**
  * A subagent's typed `result(ok, err)` outcome contract — the typed-spec payoff
- * the generator turns into a real `assertAgentOk` test (no LLM judge). Parsed from
+ * the generator turns into a real `experimental_assertAgentOk` test (no LLM judge). Parsed from
  * the `vigiles:ok` / `vigiles:err` blocks the compiler emits into the agent `.md`.
  */
 export interface ResultContract {
@@ -63,7 +63,7 @@ export interface ScaffoldInput {
   readonly sideEffectingTools?: readonly string[];
   /**
    * The subagent's `result()` contract parsed from its compiled `.md`. Present →
-   * the generator emits a deterministic `assertAgentOk` outcome test (no LLM judge);
+   * the generator emits a deterministic `experimental_assertAgentOk` outcome test (no LLM judge);
    * the single most-concrete "the typed spec wrote your test" payoff.
    */
   readonly resultContract?: ResultContract | null;
@@ -116,13 +116,8 @@ function hookScaffold(input: ScaffoldInput): string {
     `Starter unit test for the \`${input.name}\` hook.`,
     `npx vigiles test ${suggestedPath(input)}`,
   )}
-import {
-  runHook,
-  assertHookAllowed,
-  verifyGuardrail,
-  formatGuardrailReport,
-  // assertGuardrail, // uncomment to gate CI on the battery (see below)
-} from "vigiles";
+import { runHook, assertChecks, check } from "vigiles";
+import { assertGuardrail } from "vigiles/battery";
 
 const cmd = ${JSON.stringify(cmd)};
 
@@ -133,15 +128,20 @@ const benign = {
   tool_name: "Bash",
   tool_input: { command: "echo hello" },
 };
-assertHookAllowed(runHook(cmd, benign));
+assertChecks(runHook(cmd, benign), [check.allowed()]);
 console.log("✓ ${input.name}: allowed the benign event");
 
 // 2) SAFETY: if this is a guard, PROVE it blocks the dangerous battery (the #1 hook
 //    pain is a guard that silently doesn't — exit 1 instead of 2, wrong jq path, …)
 //    and lets the same text through when it is only data (a commit message, …).
-//    This prints a coverage map; it does NOT fail by default (your hook may not be
+//    This prints what it misses; it does NOT fail by default (your hook may not be
 //    meant to block all of these).
-console.log(formatGuardrailReport(cmd, verifyGuardrail(cmd)));
+try {
+  assertGuardrail(cmd);
+  console.log("✓ ${input.name}: blocks the whole battery, allows its harmless twins");
+} catch (e) {
+  console.log(String(e instanceof Error ? e.message : e));
+}
 
 // 3) To GATE CI: declare what this guard MUST block, then assert it. Uncomment +
 //    pick the categories your hook is responsible for:
@@ -159,8 +159,8 @@ function skillScaffold(input: ScaffoldInput): string {
     `Starter trigger-rate eval for the \`${id}\` skill (recall + precision).`,
     `npx vigiles eval ${suggestedPath(input)}   # real model, on your subscription`,
   )}
-import { paid_measureTriggerRate } from "vigiles/eval"; // paid_ = a real model runs
-import { formatTriggerRateReport, assertTriggerRate, skillResolved } from "vigiles";
+import { paid_measureTriggerRate, assertTriggerRate } from "vigiles/eval"; // paid_ = a real model runs
+import { check } from "vigiles";
 import { fileURLToPath } from "node:url";
 ${note}
 // TODO: point at the plugin root (the dir holding .claude-plugin/ or skills/).
@@ -178,11 +178,11 @@ const report = await paid_measureTriggerRate({
     // TODO: >=5 unrelated prompts that should NOT fire it (precision).
     "TODO: an unrelated coding task",
   ],
-  fired: (t) => skillResolved(t, skill),
+  fired: check.skill(skill),
   trials: Number(process.env.VIGILES_TRIALS || 1),
 });
 
-console.log(formatTriggerRateReport(report));
+console.log(\`fired \${report.rate.toFixed(2)} on relevant prompts, \${(report.falsePositiveRate ?? 0).toFixed(2)} on irrelevant ones\`);
 assertTriggerRate(report, { min: 0.8, maxFalsePositive: 0.3 });
 `;
 }
@@ -213,7 +213,7 @@ function renderContractBuilder(contract: ResultContract): string {
 
 /**
  * The OUTCOME test, GENERATED FROM the subagent's `result()` contract: reconstruct
- * the contract, build a matching `vigiles:ok` block, and `assertAgentOk` it —
+ * the contract, build a matching `vigiles:ok` block, and `experimental_assertAgentOk` it —
  * deterministic, no LLM judge. This is the typed-spec payoff a markdown
  * `description:` cannot give you: a parseable, typed outcome a test reads directly.
  */
@@ -229,12 +229,11 @@ function outcomeSection(
     ? `// TODO: assert the VALUES you expect (the shape is already validated above), e.g.:\n//   assert.ok(value.${firstField}, "expected a ${firstField}");`
     : "";
   return `import assert from "node:assert/strict";
-import { experimental_agent } from "vigiles/spec";\nconst { result } = experimental_agent;
-import { assertAgentOk } from "vigiles";
+import { experimental_agent, experimental_assertAgentOk } from "vigiles/spec";\nconst { result } = experimental_agent;
 
 // Reconstructed from ${input.name}'s ## Output contract (its compiled .md) — the
-// typed result() the spec wrote. assertAgentOk parses + validates the outcome
-// with NO model judge; swap \`okOutput\` for a real \`runHarness\` turn (Part B in
+// typed result() the spec wrote. experimental_assertAgentOk parses + validates the outcome
+// with NO model judge; swap \`okOutput\` for a real \`runHarnessTest\` turn (Part B in
 // examples/harness/railway-result.harness.mjs) to assert REAL behaviour.
 const contract = ${renderContractBuilder(contract)};
 
@@ -245,7 +244,7 @@ const okOutput = [
   "\`\`\`",
 ].join("\\n");
 
-const value = assertAgentOk(okOutput, contract); // deterministic — no LLM judge
+const value = experimental_assertAgentOk(okOutput, contract); // deterministic — no LLM judge
 ${fieldAssertion}
 console.log("✓ ${input.name}: result() outcome parses + validates against its typed contract");
 `;
@@ -255,11 +254,9 @@ console.log("✓ ${input.name}: result() outcome parses + validates against its 
 function fallbackSection(input: ScaffoldInput): string {
   const toolHint =
     input.tools && input.tools.length > 0
-      ? `assertToolUsed(r, ${JSON.stringify(input.tools[0])}); // its declared contract: ${input.tools.join(", ")}`
-      : `assertToolUsed(r, "Task"); // TODO: assert what the subagent should do`;
-  return `import { runHarnessTest, assertToolUsed } from "vigiles";
-
-// ${input.name} has no result() contract, so its outcome can't be asserted
+      ? `assertChecks(r, [check.tool(${JSON.stringify(input.tools[0])})]); // its declared contract: ${input.tools.join(", ")}`
+      : `assertChecks(r, [check.tool("Task")]); // TODO: assert what the subagent should do`;
+  return `// ${input.name} has no result() contract, so its outcome can't be asserted
 // deterministically — add one (result() on its experimental_agent() spec) for a no-judge
 // outcome test. For now, assert it reaches for the right tool.
 const r = await runHarnessTest({
@@ -288,22 +285,22 @@ function safetySection(
   const checks: string[] = [];
   if (sideEffecting.includes("Bash")) {
     checks.push(
-      `  notTool("Bash", { command: /git push|rm -rf/ }), // never a destructive op`,
+      `  check.notTool("Bash", { command: /git push|rm -rf/ }), // never a destructive op`,
     );
   }
   if (sideEffecting.some((t) => t === "Write" || t === "Edit")) {
     checks.push(
-      `  didNotWrite("secrets.env"), // TODO: the path(s) it must NOT write outside its surface`,
+      `  check.didNotWrite("secrets.env"), // TODO: the path(s) it must NOT write outside its surface`,
     );
   }
   if (checks.length === 0) {
     checks.push(
-      `  // TODO: a notTool()/didNotWrite() per side-effecting tool: ${sideEffecting.join(", ")}`,
+      `  // TODO: a check.notTool()/check.didNotWrite() per side-effecting tool: ${sideEffecting.join(", ")}`,
     );
   }
   return `
 // --- Safety (deterministic) — generated from ${input.name}'s side-effecting tools: ${sideEffecting.join(", ")} ---
-// In a real run, replace this constructed Trace with a real \`runHarness\` /
+// In a real run, replace this constructed Trace with a real \`runHarnessTest\` /
 // \`measure\` turn (use interceptTools so a real model's attempt is DENIED, never
 // executed — see research/eval-architecture.md). The checks below are derived from the
 // declared tools contract — the agent's "hole" asserted to stay in its lane.
@@ -332,9 +329,17 @@ function agentScaffold(input: ScaffoldInput): string {
     `Starter harness test for the \`${input.name}\` subagent.`,
     `npx vigiles test ${suggestedPath(input)}`,
   );
+  const hasSafety = (input.sideEffectingTools?.length ?? 0) > 0;
+  // ONE import line from the root, whichever sections need it: the fallback and
+  // the safety block both assert with checks, and a binding imported twice is a
+  // SyntaxError in the generated module.
+  const rootNames = [
+    ...(input.resultContract ? [] : ["runHarnessTest"]),
+    ...(hasSafety || !input.resultContract ? ["assertChecks", "check"] : []),
+  ];
   const safetyImport =
-    input.sideEffectingTools && input.sideEffectingTools.length > 0
-      ? `import { notTool, didNotWrite, assertChecks } from "vigiles";\n`
+    rootNames.length > 0
+      ? `import { ${rootNames.join(", ")} } from "vigiles";\n`
       : "";
   const body = input.resultContract
     ? outcomeSection(input, input.resultContract)

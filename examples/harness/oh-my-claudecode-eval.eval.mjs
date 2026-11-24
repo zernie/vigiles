@@ -20,7 +20,7 @@
 import { fileURLToPath } from "node:url";
 
 import { defineEval } from "../../dist/test.js";
-import { skillResolved } from "../../dist/harness-assert.js";
+import { check } from "../../dist/check.js";
 
 const pluginDir = fileURLToPath(
   new URL("../../test/dogfood/oh-my-claudecode@deee3a4", import.meta.url),
@@ -39,7 +39,7 @@ export default defineEval({
       "Double-check that my refactor didn't break anything; I want evidence, not vibes.",
     ],
     // Reuse a bare predicate: did the real model activate the skill (no error)?
-    fired: (t) => skillResolved(t, skill),
+    fired: check.skill(skill),
     trials: 1,
   },
   assert: (report) => {

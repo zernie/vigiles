@@ -8,21 +8,21 @@ mistake that silently swallows failures.
 **Unit (`runHook`)** — hand a hook a synthesized event, assert the decision:
 
 ```ts
-import { runHook, assertHookBlocked } from "vigiles";
+import { runHook, check, assertChecks } from "vigiles";
 
 const r = runHook(hookCommand, {
   hook_event_name: "PreToolUse",
   tool_name: "Bash",
   tool_input: { command: "git commit --no-verify" },
 });
-assertHookBlocked(r); // exit 2 / decision:"block" / permissionDecision:"deny"
+assertChecks(r, [check.blocked()]); // exit 2 / decision:"block" / permissionDecision:"deny"
 ```
 
 Testing a hook you didn't write (a vendored third-party script)? Mark it
 `{ trusted: false }` and it runs confined under bubblewrap by default (read-only
 host, cleared env, no network egress). Add `{ recordEgress: true }` to also
-**record** what it tries to reach — `r.egress` plus `assertNoEgress(r)` /
-`assertEgressOnly(r, [...])` — the supply-chain check for "what does this skill
+**record** what it tries to reach — `r.egress` plus `check.egressOnly([])`
+(nothing at all) / `check.egressOnly([...])` — the supply-chain check for "what does this skill
 phone home to / install from?". When the hook's setup needs a _real_ install,
 `{ egress: { allow: ["registry.npmjs.org"] } }` lets it reach only that
 allowlist (a packet-layer `nft` wall, so a raw socket off-list is dropped too) →
@@ -35,11 +35,7 @@ egress, but does NOT isolate reads of host files, and only under bwrap).
 mock model, assert the hook fired (or the context landed):
 
 ```ts
-import {
-  runHarnessTest,
-  assertHookFired,
-  assertRequestContains,
-} from "vigiles";
+import { runHarnessTest, check, assertChecks } from "vigiles";
 // `scriptModel` is the Claude-Code TRANSPORT, deliberately not re-exported from
 // the harness-agnostic root surface — import it from the harness package:
 import { scriptModel } from "vigiles/claude-code";
@@ -49,8 +45,10 @@ const r = await runHarnessTest({
   transcript: true,
   model: scriptModel([{ text: "ok" }]),
 });
-assertHookFired(r, "SessionStart");
-assertRequestContains(r, "expected injected text"); // did it actually land?
+assertChecks(r, [
+  check.hookFired("SessionStart"),
+  check.received("expected injected text"), // did it actually land?
+]);
 ```
 
 **Eval — absolute (`paid_measure` + `paid_judged`)** — testing _one_ skill, the usual case:
@@ -62,15 +60,16 @@ An eval file **describes** its eval — it must never run one at the top level,
 because importing such a file spends real money. Write `<name>.eval.mjs`:
 
 ```ts
-import { defineEval, skill, assertRates } from "vigiles";
-import { paid_judged } from "vigiles/eval"; // a Check whose default judge bills
+import { defineEval, check } from "vigiles";
+// paid_judged is a Check whose default judge bills; assertRates reads the report (free)
+import { paid_judged, assertRates } from "vigiles/eval";
 
 export default defineEval({
   measure: {
     pluginDir: "./",
     task: "…a task the skill should handle…",
     checks: [
-      skill("my-plugin:my-skill"), // it fired
+      check.skill("my-plugin:my-skill"), // it fired
       paid_judged("the answer correctly does X and avoids Y"), // …and the output is good
     ],
     trials: 6,
@@ -81,12 +80,13 @@ export default defineEval({
 
 Run it with `npx vigiles eval <file>` — never `node <file>`, which refuses.
 
-**Eval — relative (`paid_runEval` + `assertSignificant`)** — when the question is
+**Eval — relative (`paid_runEval` + `assertImproves({ significant: true })`)** — when the question is
 _lift over no-skill_ (regression, or proving a change isn't noise): A/B the
 change on vs off and gate on significance, not eyeballing:
 
 ```ts
-import { defineEval, assertSignificant } from "vigiles";
+import { defineEval } from "vigiles";
+import { assertImproves } from "vigiles/eval";
 
 export default defineEval({
   runEval: {
@@ -98,7 +98,12 @@ export default defineEval({
     cache: "readwrite",
   },
   assert: (report) =>
-    assertSignificant(report, { baseline: "off", arm: "on", metric: "ok" }),
+    assertImproves(report, {
+      baseline: "off",
+      arm: "on",
+      metric: "ok",
+      significant: true,
+    }),
 });
 ```
 
@@ -139,6 +144,6 @@ a field that is always meaningless is worse than no field.
 ⚠️ **Asserting what a script wrote requires confinement.** `filesWritten` is
 recorded by diffing the work dir, which only a confined run does — so it is
 `undefined` after a plain run. That is deliberately _not_ the same as `[]`
-("recorded, wrote nothing"): `assertNoWrite` / `assertWroteOnly` **throw** on an
+("recorded, wrote nothing"): `check.noWrite` / `check.wroteOnly` **fail** on an
 unrecorded result rather than pass having inspected nothing. Pass
 `{ sandbox: "auto" }` (Linux + bubblewrap) to actually record writes.

@@ -4,16 +4,18 @@
 // be useful" is neither. Review point: the diff of `api-surface/vigiles-eval.api.md`, which
 // `npm run api:check` fails on.
 /**
- * `vigiles/eval` — the **paid** surface: every runtime export here can call a
- * model, and therefore can spend money.
+ * `vigiles/eval` — the door of the moment you MEASURE: the runners that drive a
+ * real model (every one named `paid_`, because it can spend money) and the
+ * readers of the report they produce (which spend nothing).
  *
- * That single property is the whole reason this subpath exists. The package used
- * to split its testing API by TEST TIER (`vigiles/unit`, `vigiles/integration`,
- * `vigiles/e2e`, `vigiles/testing`); it now splits on COST. Everything free is on
- * the package root, [`vigiles`](./test.ts). Everything that bills is here. The
- * name rhymes with the `vigiles eval` CLI verb.
+ * The package root, [`vigiles`](./test.ts), is the free testing surface. A
+ * report reader is free too, but its only reader is someone who just ran an
+ * eval, so it lives here beside the runner (v50) rather than on the root.
+ * "Can this call bill me?" is answered by the NAME — `paid_*` — not by the
+ * door: a CI rule that forbids spending matches `paid_*`, not `vigiles/eval`.
+ * The name rhymes with the `vigiles eval` CLI verb.
  *
- * ## Why every runtime export is also named `paid_`
+ * ## Why every runner is also named `paid_`
  *
  * The import path warns ONCE, at the top of the file. The name warns EVERY time,
  * at the call site. Reading `await judged(trace, "did it refuse?")` on line 140,
@@ -44,33 +46,28 @@
  * test importing only from that barrel could still spend money, and the one line
  * a reader would have relied on to know otherwise was the false one. `judged`
  * moved HERE and became `paid_judged`, which makes that class of defect
- * unrepresentable rather than apologised for: on this path, billing is the
- * advertised property, in the subpath and in every name.
+ * unrepresentable rather than apologised for: billing is advertised in every
+ * name that can do it. The readers below share the door and carry no prefix —
+ * a closed list in `scripts/check-export-prefixes.mjs`, so a new unprefixed
+ * export here still fails until someone decides it is free.
  *
- * ## What is NOT here, and why
+ * ## The readers, and why they are few
  *
- * The ~two dozen helpers that read an eval RESULT — `assertImproves`,
- * `assertNoRegression`, `assertReliable`, `assertSignificant`, `assertTriggerRate`,
- * `reliable`, `improvement`, `significantlyBeats`, `compareArms`, `diffReports`,
- * `diffToJUnit`, `formatBaselineDiff`, `parseBaselineFile`, `readBaseline`,
- * `toBaselineFile`, `writeBaseline`, `cost`, `latency`, `tokens`, `inputTokens`,
- * `outputTokens`, `cacheTokens`, `formatEvalReport`, `formatCheckReport`,
- * `formatTriggerRateReport`, `checkReportToJUnit`, `assertRates` — spend nothing,
- * so they live on the free root barrel, unprefixed, even though their subject
- * matter is evals.
+ * `compare(report, baseline, arm)` answers "how far apart, and is it beyond the
+ * noise" per metric, and `compare(before, after)` on two trigger-rate reports
+ * which prompts a change gained and lost; `assertImproves` gates on it (`significant: true` for the
+ * computed noise floor); `assertRates` gates a check report or an arm × metric
+ * on a rate (`min`) or on every trial (`passK: 1`); `assertTriggerRate` gates a
+ * skill's firing; `assertNoRegression` + `readBaseline`/`writeBaseline` gate
+ * against a committed baseline. They replaced eleven narrower helpers.
  *
- * That is the one seam the split cannot make clean: the free helpers are typed
- * over report shapes DEFINED here. The coupling is real and irreducible, so both
- * barrels re-export the same report types. **The types are NOT prefixed** — the
- * prefix is a warning about calling something, and a type is never called;
- * `paid_EvalReport` would be noise on a symbol that cannot bill. Importing
- * `vigiles/eval` for a type alone should never be necessary; importing it for a
- * FUNCTION means you accepted a bill.
+ * The report TYPES are not here: they are declared in core and exported from
+ * the root, because `defineEval` and `vigilesMatchers` speak them too, and one
+ * name has one door. Import `type { EvalReport } from "vigiles"`.
  *
- * Harness-specific eval drivers are not here either — `codexEvalDriver` /
- * `codexEvalRunner` / `codexEvalAgentRunner` live on `vigiles/codex`, and
- * `measureSelectionMatrix` / `assertNoCollision` on `vigiles/claude-code`, because
- * those surfaces are chosen by harness, not by cost.
+ * Harness-specific eval drivers are not here either — `codexEvalDriver` lives
+ * on `vigiles/codex`, and `measureSelectionMatrix` / `assertNoCollision` on
+ * `vigiles/claude-code`, because those surfaces are chosen by harness.
  */
 
 // --- the runners: each one drives a real model ---
@@ -136,46 +133,30 @@ export { judged as paid_judged } from "./check.js";
  */
 export { claudeEvalDriver as paid_claudeEvalDriver } from "./eval.js";
 
-// --- types: deliberately NOT prefixed (a type cannot be called, so it cannot bill) ---
-export type { Check, CheckResult, JudgeFn } from "./check.js";
-export type { Trace } from "./harness-test.js";
-// The field types of `EvalSpec.env` / `EvalSpec.stubs` / `ArmReport.unansweredStubCalls`,
-// so a spec typed against this door needs no second import for them.
-export type { HomeFiles, HomeSeed, RunEnv } from "./core/run-env.js";
-export type { StubCall, StubOutcome, ToolStub } from "./core/stub-rules.js";
-// The element type of `ArmReport.context` (vigiles#416).
+// --- reading the report: free, so unprefixed ---
+export {
+  compare,
+  assertImproves,
+  assertNoRegression,
+  assertTriggerRate,
+} from "./eval-readers.js";
 export type {
-  ContextEvidence,
-  UnobservableWhy,
-} from "./core/context-evidence.js";
+  ArmComparison,
+  TriggerDiff,
+  ImprovesGate,
+  TriggerRateGate,
+} from "./eval-readers.js";
+export { assertRates } from "./eval.js";
+export type { RateGate, CheckRateGate, ArmRateGate } from "./eval.js";
+export { readBaseline, writeBaseline } from "./eval-baseline.js";
+export type { BaselineFile, DiffOptions } from "./eval-baseline.js";
+// `compare`'s verdict and the interval a 0/1 metric is judged by.
+export type { Verdict, Interval } from "./core/evidence.js";
 
-// Report shapes, deliberately re-exported from BOTH barrels (see the module doc):
-// the free analysis helpers on `vigiles` are typed over these, and a caller of
-// those helpers must not be forced onto the paid import path for a type alone.
-export type {
-  EvalArm,
-  EvalDriver,
-  EvalSpec,
-  EvalReport,
-  EvalUsage,
-  MeasureSpec,
-  ArmsMeasureSpec,
-  ArmReport,
-  ArmUsage,
-  ArmsCheckReport,
-  CheckRate,
-  CheckReport,
-  MetricStat,
-  Metrics,
-  ModelOutputParser,
-  ParsedModelRun,
-  PromptDiversityIssue,
-  PromptTriggerStat,
-  RunContext,
-  RunOut,
-  SelectionTrialResult,
-  TriggerRateReport,
-  TriggerRateSpec,
-  AgentRunArgs,
-  AgentRunner,
-} from "./eval.js";
+// --- building the arms: free, so unprefixed ---
+// The with/without arms of an output-style eval, for `paid_measureArms`. Free:
+// the one run it makes to prove the style reaches the model uses the scripted
+// model. Its only reader is someone about to run that eval, so it shares this
+// door with the runner it feeds.
+export { experimental_outputStyleArms } from "./output-style-arms.js";
+export type { OutputStyleArms } from "./output-style-arms.js";

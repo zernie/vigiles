@@ -365,7 +365,7 @@ import { parse as parseToml } from "@iarna/toml";
 // The named-state STORE. Lifted out of this file so a TEST can seed a fact
 // through the SAME writer the runtime uses (`experimental_hookState`) — the
 // private path a stateful hook's test used to hard-code is what kept the hook
-// vocabulary experimental. Same move as `loadHook`, for the same reason.
+// vocabulary experimental. Same move as `experimental_loadHook`, for the same reason.
 import {
   evaluatePreToolUse,
   readActiveAgent,

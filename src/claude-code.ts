@@ -10,55 +10,46 @@
  * the `vigiles` root on purpose — the test API above is the stable surface; this
  * is the adapter, so a future `vigiles/<other-harness>` can sit beside it.
  */
-export * from "./adapters/claude-code/plugin-loader.js";
-export * from "./mock-model.js";
-// The Claude-Code harness-test transport — the default driver + its argv/parse
-// helpers + the `claude` capability probe. Agnostic users never need these
-// (`runHarnessTest` defaults to the CC driver), but they're exposed here — beside
-// the Codex driver in `vigiles/codex` — for CC-specific tests/tooling. They are
-// deliberately NOT on the agnostic `vigiles` surface.
+// The adapter object is the door: its ports (`claudeCodeAdapter.layout`,
+// `.dialect`, `.runtime`, `.hookProtocol`, `.modelMock`,
+// `.harnessTestDriver()`) and Claude Code's tool catalog
+// (`.builtinAgentTools`, `.sideEffectingTools`) are reached through it.
+export { claudeCodeAdapter } from "./adapters/claude-code/adapter.js";
 export {
-  claudeCodeDriver,
-  buildClaudeArgs,
-  parseClaudeRun,
-  claudeAvailable,
-} from "./harness-test.js";
-export * from "./adapters/claude-code/dialect.js";
-// The typed Claude Code authoring surface: `experimental_agent` / `experimental_skill` with
-// the `purity` floor enforced AT COMPILE TIME against the CC tool catalog (a
-// `tsc` error for e.g. `purity: "pure"` + `"Bash"`). A strict addition to the
-// runtime/compile purity checks; the bare core `experimental_agent()`/`experimental_skill()`
-// (`vigiles/spec`) stay open.
-//
-// NOTE the collision this rename also resolves: `vigiles/testing` exports a
-// `skill()` too, and it is a DIFFERENT function — a `Check<Trace>` asking "did
-// this skill fire?", taking an id string. One word, two concepts, told apart
-// only by which door you imported from. Only the authoring builder is prefixed.
+  loadPlugin,
+  type LoadedPlugin,
+} from "./adapters/claude-code/plugin-loader.js";
+export {
+  scriptModel,
+  startMock,
+  type TurnInfo,
+  type MockHandle,
+} from "./mock-model.js";
+// Claude Code's stream-json, parsed: the tool calls of a `transcript: true`
+// run, and a real-model run's whole result.
+export { parseToolCalls, claudeAvailable } from "./harness-test.js";
+export { parseClaudeRun } from "./eval.js";
+// Both spellings (relative and absolute `file_path`) of a Claude Code file-tool
+// hook event, to feed `runHook` — the absolute one is what Claude Code sends.
+export { fileToolEvents, type FileToolEventOptions } from "./run-hook.js";
+// The tool catalog as TYPES (the values are adapter fields).
+export type {
+  ClaudeCodeBuiltinTool,
+  ClaudeCodeSideEffectingTool,
+  ClaudeCodeReadOnlyTool,
+  ClaudeCodeBoundedTool,
+} from "./adapters/claude-code/dialect.js";
+// The typed builders: the same `experimental_agent` / `experimental_skill` as
+// `vigiles/spec`, plus a `purity` check against Claude Code's tool catalog.
 export {
   experimental_agent,
   experimental_skill,
   type ClaudeCodeToolVocabulary,
 } from "./adapters/claude-code/typed-spec.js";
-// ─── ОКНО АЛИАСА (один мажор) ──────────────────────────────────────────────────
-// Та же политика, что в `core/spec.ts`: старое имя живёт ровно один мажор. Эта
-// дверь обязана иметь окно ОТДЕЛЬНО — потребитель, импортировавший `agent` из
-// `vigiles/claude-code`, никогда не видел `vigiles/spec`, и окно на той стороне
-// его не спасает.
-export {
-  /**
-   * @deprecated Renamed to `experimental_agent` — the shape is not settled.
-   * Removed one major AFTER the one that introduces it.
-   */
-  experimental_agent as agent,
-} from "./adapters/claude-code/typed-spec.js";
-// Selection-collision — a Claude-Code-ONLY behavioral measurement (Codex has no
-// skill-selection event to read), so it lives on this surface, not the agnostic
-// `vigiles`. `measureSelectionMatrix` builds the N×N "which skill fired?"
-// matrix (diagonal = recall, off-diagonal = collision); `assertNoCollision` gates it.
+// The skill-selection matrix: which of your skills a real model picks.
 export {
   measureSelectionMatrix,
   assertNoCollision,
-  formatSelectionReport,
 } from "./scan-behavioral.js";
 export type {
   SelectionReport,
@@ -66,8 +57,3 @@ export type {
   SelectionOptions,
   SelectionMatrixOptions,
 } from "./scan-behavioral.js";
-export * from "./adapters/claude-code/layout.js";
-export * from "./adapters/claude-code/runtime.js";
-export * from "./adapters/claude-code/hook-protocol.js";
-export * from "./adapters/claude-code/model-mock.js";
-export * from "./adapters/claude-code/adapter.js";

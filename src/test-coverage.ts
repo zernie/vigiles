@@ -1081,7 +1081,7 @@ export function skillTestNudge(
  * The real predicate is a CAPABILITY — "can the trigger tier install and observe
  * this surface?" — and today that is a total function of `kind`, because the
  * tier's installer is `<name>/SKILL.md`-shaped and its `fired` predicate is skill
- * SELECTION (`skillResolved`). So the capability is stated once per kind here,
+ * SELECTION (`check.skill`). So the capability is stated once per kind here,
  * rather than inferred from a name at the call site.
  *
  * The switch is exhaustive over {@link SurfaceKind} with `assertNever`: a fourth
@@ -1133,8 +1133,8 @@ export function evalTierQuestion(kind: SurfaceKind): string | null {
         `competitors instead of failing (measured).\n` +
         `See the \`test-harness\` skill: run the real-model tier (\`runEval\` / ` +
         `\`measure\`) and keep the assertions your deterministic test already ` +
-        `makes — \`subagent(name, [...])\` for the nested trace, \`notTool\` for ` +
-        `the tool contract, \`assertAgentOk\` for the typed result. Those two ` +
+        `makes — \`check.subagent(name, [...])\` for the nested trace, \`check.notTool\` for ` +
+        `the tool contract, \`experimental_assertAgentOk\` for the typed result. Those two ` +
         `calls drive Claude Code and take no \`evalDriver\`, so on another ` +
         `harness this tier has no public dispatch yet.`
       );

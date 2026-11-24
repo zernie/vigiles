@@ -17,10 +17,6 @@ import {
   deny,
   ask,
   parseShellCommand,
-  commandView,
-  pathView,
-  type CommandView,
-  type PathView,
   decideProgram,
   decisionExitCode,
   compileHookProgram,
@@ -151,6 +147,37 @@ export default experimental_defineHook({ on: "PreToolUse",  decide: () => { cp.e
   assert.deepEqual(
     checkHookImports(`import { experimental_defineHook } from "vigiles/hook";`),
     [],
+  );
+});
+
+// 4b) THE ONLY ENTRY IS vigiles/hook — not another vigiles door. The hook-test
+// door carries a loader (`experimental_loadHook`) that imports an arbitrary
+// module with no capability check and no stamp, so a hook that reached it could
+// run anything (Codex P1 on #510). Every other entry is refused the same way.
+test("claim 4b: a hook importing any vigiles entry but vigiles/hook does not compile", () => {
+  for (const door of [
+    "vigiles/hook-test",
+    "vigiles",
+    "vigiles/fixtures",
+    "vigiles/battery",
+    "vigiles/eval",
+    "vigiles/spec",
+  ]) {
+    const src = `import { experimental_defineHook, allow } from "vigiles/hook";
+import * as other from ${JSON.stringify(door)};
+export default experimental_defineHook({ on: "PreToolUse", decide: () => allow() });`;
+    assert.deepEqual(checkHookImports(src), [door], door);
+    assert.throws(
+      () => compileHookProgram(src, forcePushGuard),
+      HookCompileError,
+      door,
+    );
+  }
+  // A dynamic import of the test door is refused too, whatever the specifier.
+  assert.ok(
+    checkHookImports(`const t = await import("vigiles/hook-test");`).includes(
+      "dynamic-eval",
+    ),
   );
 });
 
@@ -2862,16 +2889,4 @@ test("#396a: only a react declared for Bash ALONE gets e.command — in the type
       // with another tool has no overlap: the dead branch is a type error.
       e.tool === "Edit" ? notice("never") : nothing(),
   });
-});
-
-test("the names before #465 are the same functions, not copies", () => {
-  /* eslint-disable @typescript-eslint/no-deprecated -- this test exists to call the deprecated aliases */
-  assert.equal(commandView, parseShellCommand);
-  assert.equal(pathView, parseFilePath);
-  // A hook still written against the old names keeps working.
-  const old: CommandView = commandView("echo x > papers/a.tex", MINE_ROOT);
-  const oldPath: PathView = pathView(`${MINE_ROOT}/papers/a.tex`, MINE_ROOT);
-  /* eslint-enable @typescript-eslint/no-deprecated */
-  assert.equal(old.writesTo(["papers"]), true);
-  assert.equal(oldPath.under(["papers"]), true);
 });

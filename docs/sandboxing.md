@@ -49,12 +49,14 @@ kernel.apparmor_restrict_unprivileged_userns=0` (see `.github/workflows/ci.yml`)
 **Record what it wrote.** A confined `runHook` / `runScript` also reports the files it touched in its work dir (`r.filesWritten`, relative paths) — so you can assert it stayed in its lane:
 
 ```ts
-import { assertWroteOnly, assertNoWrite } from "vigiles";
+import { check, assertChecks } from "vigiles";
 
 const r = runHook(thirdPartyHookCmd, event, { trusted: false });
 // r.filesWritten → [".omc/state/ultrawork-state.json"]
-assertWroteOnly(r, [/^\.omc\//]); // only its own state cache
-assertNoWrite(r, /\.(env|pem|key)$/); // never a secret-shaped file
+assertChecks(r, [
+  check.wroteOnly([/^\.omc\//]), // only its own state cache
+  check.noWrite(/\.(env|pem|key)$/), // never a secret-shaped file
+]);
 ```
 
 🔴 **Recording requires confinement, and an unrecorded run refuses.** The write list comes from diffing the work dir before and after, which only happens under confinement. An **unconfined** run therefore leaves `filesWritten` as **`undefined`** — which is deliberately _not_ `[]`:
@@ -64,7 +66,7 @@ assertNoWrite(r, /\.(env|pem|key)$/); // never a secret-shaped file
 | `undefined` | nobody looked — writes were never recorded |
 | `[]`        | looked, and it wrote nothing               |
 
-`assertNoWrite` / `assertWroteOnly` **throw** on `undefined` rather than return green, and the message tells you to pass `{ sandbox: "auto" }`. Collapsing the two would let a write assertion report success having inspected no evidence — a checker that passes while doing nothing is precisely what vigiles exists to catch elsewhere, so it must not be the default here.
+`check.noWrite` / `check.wroteOnly` **fail** on `undefined` rather than pass, and the message tells you to pass `{ sandbox: "auto" }`. Collapsing the two would let a write assertion report success having inspected no evidence — a checker that passes while doing nothing is precisely what vigiles exists to catch elsewhere, so it must not be the default here.
 
 Dogfood: `src/run-hook.test.ts` confines oh-my-claudecode's `keyword-detector` and asserts it writes **only** under `.omc/` — its keyword-state cache, nothing else.
 
@@ -75,12 +77,12 @@ Dogfood: `src/run-hook.test.ts` confines oh-my-claudecode's `keyword-detector` a
 **`recordEgress` — record what it tried to reach, while still blocking it.** A deny-all wall tells you nothing about _what_ a hook wanted. For the supply-chain question — "what does this skill phone home to / which registry would its install hit?" — turn on recording:
 
 ```ts
-import { runHook, assertNoEgress, assertEgressOnly } from "vigiles";
+import { runHook, check, assertChecks } from "vigiles";
 
 const r = runHook(thirdPartyHookCmd, event, { recordEgress: true });
 // r.egress → [{ host: "registry.npmjs.org", port: 443, ts }]   (recorded)
-assertNoEgress(r); // a hook that should phone home to nothing
-// or: assertEgressOnly(r, ["registry.npmjs.org", /\.pypi\.org$/]);
+assertChecks(r, [check.egressOnly([])]); // a hook that should phone home to nothing
+// or: check.egressOnly(["registry.npmjs.org", /\.pypi\.org$/])
 ```
 
 `recordEgress` confines the hook (it needs the namespace) and runs a recording proxy on the sandbox loopback. `HTTP(S)_PROXY` points proxy-honoring tools (npm, pip, curl, fetch) at it. The proxy **records each `host:port` and refuses it** — so the attempt is captured and nothing leaves.
@@ -123,8 +125,8 @@ rest; the per-rule `counter`s read back what was reached and what was dropped.
 
 The egress recorder runs against the **real, vendored** `oh-my-claudecode` plugin in the gate (`src/run-hook.test.ts`, skips where bwrap can't confine):
 
-- **`keyword-detector` (UserPromptSubmit)** → `assertNoEgress` confirms it phones home to nothing, while still doing its job.
-- **`session-start` (SessionStart)** → it `fetch()`es `registry.npmjs.org` for an **update check on every session start**. The recorder captures it (Node `fetch` via `NODE_USE_ENV_PROXY`), blocks it, and `assertEgressOnly(r, ["registry.npmjs.org"])` proves it phones the npm registry **and nowhere else**.
+- **`keyword-detector` (UserPromptSubmit)** → `check.egressOnly([])` confirms it phones home to nothing, while still doing its job.
+- **`session-start` (SessionStart)** → it `fetch()`es `registry.npmjs.org` for an **update check on every session start**. The recorder captures it (Node `fetch` via `NODE_USE_ENV_PROXY`), blocks it, and `check.egressOnly(["registry.npmjs.org"])` proves it phones the npm registry **and nowhere else**.
 
 That second one isn't a toy curl — it's a genuine supply-chain/privacy property of a popular plugin, asserted from its actual code.
 

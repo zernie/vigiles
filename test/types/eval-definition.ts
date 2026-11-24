@@ -7,7 +7,8 @@
  * the thing that spends money. `// @ts-expect-error` marks must-NOT-compile
  * cases; a line that starts compiling turns the gate red.
  */
-import { defineEval, experimental_stub } from "../../dist/test.js";
+import { defineEval } from "../../dist/test.js";
+import { experimental_stub } from "../../dist/fixtures.js";
 import type {
   ArmsCheckReport,
   CheckReport,

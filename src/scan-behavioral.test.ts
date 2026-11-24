@@ -31,7 +31,7 @@ import {
 import { parseClaudeRun, type AgentRunArgs, type EvalDriver } from "./eval.js";
 import type { EventFiringDriver, ModelAccess } from "./core/live-driver.js";
 import type { Trace } from "./core/eval-driver.js";
-import { skillResolved } from "./harness-assert.js";
+import { check } from "./check.js";
 import { claudeCodeAdapter } from "./adapters/claude-code/adapter.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
@@ -100,7 +100,7 @@ const fakeLiveBase = {
   firedFor:
     (skill: string, plugin: { readonly name: string | null }) =>
     (t: Trace): boolean =>
-      skillResolved(t, plugin.name ? `${plugin.name}:${skill}` : skill),
+      check.skill(plugin.name ? `${plugin.name}:${skill}` : skill).eval(t).pass,
   access: (): ModelAccess => ({ kind: "subscription" }),
   firing: { kind: "event" },
 } as const;

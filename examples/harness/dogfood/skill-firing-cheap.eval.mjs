@@ -11,7 +11,7 @@
  *
  * Measured on this repo's real skill: firing is identical (rate 1 either way),
  * but the stubbed run finished in ~49s vs ~889s full-body — an ~18x saving for
- * the SAME verdict. Stub when you're checking `skill()`/firing; DON'T stub when a
+ * the SAME verdict. Stub when you're checking `check.skill()`/firing; DON'T stub when a
  * `judged`/quality check needs the body (there'd be nothing to grade).
  *
  *   npx vigiles eval examples/harness/dogfood/skill-firing-cheap.eval.mjs
@@ -19,8 +19,9 @@
  * Real model → real cost. Needs the `claude` CLI + model auth + a built dist/.
  * Write-don't-run in a keyless env; this is the artifact that runs where a key is.
  */
-import { assertRates, defineEval } from "../../../dist/test.js";
-import { skill, latency } from "../../../dist/check.js";
+import { defineEval } from "../../../dist/test.js";
+import { assertRates } from "../../../dist/eval-surface.js";
+import { check } from "../../../dist/check.js";
 import { fileURLToPath } from "node:url";
 
 // The vigiles plugin root (holds .claude-plugin/) — its skills activate natively.
@@ -34,8 +35,8 @@ export default defineEval({
     model: "sonnet", // measure on the model your users actually run
     trials: 5,
     checks: [
-      skill("vigiles:strengthen"), // the right skill fired
-      latency({ maxMs: 180000 }), // a stubbed firing run is fast — no procedure runs
+      check.skill("vigiles:strengthen"), // the right skill fired
+      check.latency({ maxMs: 180000 }), // a stubbed firing run is fast — no procedure runs
     ],
   },
   assert: (report) => {

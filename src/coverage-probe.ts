@@ -54,9 +54,9 @@
  *    used to read *"`harness-assert.ts` / `load-hook.ts` contain ZERO
  *    `recordSurfaceProbe` calls — the tier where attribution needs no parsing at
  *    all is the tier that attributes nothing"*, and that is no longer true:
- *    `runCountedHookProgram` in harness-assert.ts records a `command` probe for a
- *    hook it is about to evaluate, when `loadHook` knew the file. Verified by
- *    count, not by memory — `harness-assert.ts` has the call, `load-hook.ts`
+ *    `runCountedHookProgram` in hook-assertions.ts records a `command` probe for a
+ *    hook it is about to evaluate, when `experimental_loadHook` knew the file. Verified by
+ *    count, not by memory — `hook-assertions.ts` has the call, `load-hook.ts`
  *    still does not, and deliberately so (loading a hook is not running it; see
  *    that function's note). Left corrected rather than deleted because a header
  *    that advertises a gap somebody already closed sends the next reader to build
@@ -673,7 +673,7 @@ export interface ProbeableTrace {
  * The surfaces a run's transcript shows ACTIVATING — resolved `Skill` calls and
  * reporting hooks.
  *
- * An errored `Skill` call is excluded, matching `skillResolved`/`whichSkillsFired`:
+ * An errored `Skill` call is excluded, matching `check.skill`/`whichSkillsFired`:
  * the tool was reached and the skill was not. Counting it would make "the skill
  * is broken" indistinguishable from "the skill ran".
  */

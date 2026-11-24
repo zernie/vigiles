@@ -5,7 +5,8 @@
  *
  * ONE quarantine subpath in this package pairs a path with a name prefix:
  *
- *   ./eval          →  every runtime export starts with `paid_`
+ *   ./eval          →  every runtime export starts with `paid_`, except the
+ *                      free report readers SURFACES names one by one
  *
  * There were two. `./experimental` was deleted 2026-08-21 on the argument this
  * header already made — that of the pair, only the NAME is present where the
@@ -37,9 +38,8 @@
  * TYPES ARE EXEMPT, BY DESIGN, NOT BY OVERSIGHT. The prefix warns about calling
  * something. A type is never called and can never bill or misbehave, so
  * `paid_EvalReport` would be noise on a symbol that cannot do the thing being
- * warned about — and the report types are deliberately re-exported from BOTH
- * `vigiles` and `vigiles/eval`, so prefixing them would make the free barrel
- * carry `paid_` names. This script reads the built `.d.ts` with the TypeScript
+ * warned about — and the report types live on the free root `vigiles`, where a
+ * `paid_` name would be false. This script reads the built `.d.ts` with the TypeScript
  * compiler rather than grepping the source precisely so that it can tell a value
  * from a type instead of guessing.
  *
@@ -54,7 +54,26 @@ import { createRequire } from "node:module";
 
 /** The contract: one built type-entry, one required prefix on every VALUE export. */
 export const SURFACES = [
-  { subpath: "./eval", dts: "dist/eval-surface.d.ts", prefix: "paid_" },
+  {
+    subpath: "./eval",
+    dts: "dist/eval-surface.d.ts",
+    prefix: "paid_",
+    // The report READERS share this door with the runners (v50): their only
+    // reader is someone who just ran an eval. They spend nothing, so they carry
+    // no `paid_` — and they are a CLOSED list here, so a new unprefixed export
+    // still fails until someone decides it is free and names it.
+    free: [
+      "compare",
+      "assertImproves",
+      "assertNoRegression",
+      "assertTriggerRate",
+      "assertRates",
+      "readBaseline",
+      "writeBaseline",
+      // Builds the arms a paid eval runs; its one proving run uses the scripted model.
+      "experimental_outputStyleArms",
+    ],
+  },
 ];
 
 /**
@@ -110,6 +129,7 @@ export function findPrefixViolations(root, surfaces = SURFACES) {
       const name = sym.getName();
       if (!isValueExport(ts, checker, sym)) continue; // types are exempt — see header
       if (name.startsWith(s.prefix)) continue;
+      if (s.free?.includes(name)) continue; // a declared free reader — see SURFACES
       out.push({
         subpath: s.subpath,
         symbol: name,

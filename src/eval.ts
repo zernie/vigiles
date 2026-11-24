@@ -85,6 +85,25 @@ export type {
   ParsedModelRun,
   RunOut,
 } from "./core/eval-driver.js";
+// The report shapes moved to core so every entry that speaks them imports them
+// from one module and none imports another entry's barrel. Re-exported here so
+// existing `from "./eval.js"` imports resolve as before.
+import type {
+  ArmReport,
+  ArmUsage,
+  EvalReport,
+  MetricStat,
+  PromptTriggerStat,
+  TriggerRateReport,
+} from "./core/eval-report.js";
+export type {
+  ArmReport,
+  ArmUsage,
+  EvalReport,
+  MetricStat,
+  PromptTriggerStat,
+  TriggerRateReport,
+} from "./core/eval-report.js";
 import {
   parseToolCalls,
   parseResultEvent,
@@ -191,7 +210,7 @@ export interface EvalArm {
    * throwaway `--plugin-dir` (manifest + `skills/<name>/`, each skill dir copied
    * whole) for the run and removes it afterward — the one-liner for repo-local
    * skills that aren't a published plugin. The skills install under the
-   * namespace `vigiles-loose-skills`, so a `skill()` check / `skillResolved`
+   * namespace `vigiles-loose-skills`, so a `skill()` check / `check.skill`
    * matches `vigiles-loose-skills:<name>` (the report's `namespace` says so).
    * Provide this OR {@link pluginDir}, not both.
    */
@@ -228,8 +247,8 @@ export interface EvalArm {
 
 /**
  * Context handed to `measure` after a run, to compute that run's metrics. It is
- * a `Trace` (so the bare predicates `usedTool` / `skillResolved` / `toolCount` /
- * `toolUsedWith` from `harness-assert.ts` run over it, the same as over a
+ * a `Trace` (so every check — `check.tool`, `check.skill`, a custom
+ * `check(name, fn)` — evaluates over it, the same as over a
  * `runHarnessTest` result) plus the eval-only `sh` end-state probe and `usage`.
  */
 export interface RunContext extends Trace {
@@ -379,93 +398,6 @@ export interface EvalSpec<M extends Metrics> {
    * @experimental
    */
   readonly experimental_contextCheck?: false;
-}
-
-/** Per-metric summary statistics across an arm's runs. */
-export interface MetricStat {
-  /** Mean (numbers) / fraction-true (booleans). */
-  readonly mean: number;
-  /** Sample standard deviation (0 when n < 2). */
-  readonly std: number;
-  /** Standard error of the mean (std / √n). */
-  readonly se: number;
-  /** Number of runs the metric was observed in. */
-  readonly n: number;
-  /**
-   * How many trials scored 1 — set only when EVERY observed value was 0 or 1
-   * (a boolean counts as 0/1). Its presence is what makes the metric a pass/fail
-   * tally, judged by Wilson intervals (`experimental_verdict`). Absent for any
-   * other metric, and in reports written before this field existed: those are
-   * judged by Welch's test.
-   */
-  readonly successes?: number;
-  /**
-   * pass^k (τ-bench): 1 if the metric succeeded on EVERY trial, else 0. The
-   * reliability question a non-deterministic harness needs — "worked every time"
-   * is not "worked on average". A trial counts as a success when its value is
-   * truthy (booleans true, counts > 0), so model your metric as success/fail.
-   */
-  readonly passK: number;
-}
-
-/** Aggregated cost / latency / tokens across an arm's runs. */
-export interface ArmUsage {
-  readonly totalCostUsd: number;
-  readonly meanCostUsd: number;
-  readonly meanDurationMs: number;
-  readonly totalInputTokens: number;
-  readonly totalOutputTokens: number;
-  readonly totalCacheCreationTokens: number;
-  readonly totalCacheReadTokens: number;
-}
-
-export interface ArmReport {
-  readonly runs: number;
-  /** Aggregated metrics: mean for numbers, fraction-true (0..1) for booleans. */
-  readonly metrics: Record<string, number>;
-  /** Per-metric mean / std / se / n, so an A/B gap can be read for significance. */
-  readonly stats: Record<string, MetricStat>;
-  /** Cost / latency / token totals + means for this arm. */
-  readonly usage: ArmUsage;
-  /**
-   * Stub invocations no rule answered, across this arm's trials. Non-empty means
-   * the arm measured at least one answer nobody wrote: `vigiles eval` exits 2 on
-   * it and `--update` refuses to record the lock. Empty when the eval has no stubs.
-   */
-  readonly unansweredStubCalls: readonly StubCall[];
-  /**
-   * One entry per trial run: did the instruction files reach the model? A
-   * `missing` trial is not in `runs`/`metrics`/`stats` (its cost still is in
-   * `usage`). Absent on a report recorded before the check existed.
-   */
-  readonly context?: readonly ContextEvidence[];
-}
-
-export interface EvalReport {
-  readonly name: string;
-  readonly trials: number;
-  readonly arms: Record<string, ArmReport>;
-  /** Total measured cost across every arm × trial (0 when usage wasn't reported). */
-  readonly totalCostUsd: number;
-  /**
-   * What the run counted against `maxCostUsd`: every reported cost, plus, for a
-   * run that reported none (killed by the timeout), the per-run cap it was given
-   * — nothing proves it spent less. At least `totalCostUsd`. Absent on a report
-   * recorded before this field existed.
-   */
-  readonly chargedUsd?: number;
-  /** Runs that reported no cost, so `totalCostUsd` is a floor. Absent on older reports. */
-  readonly unknownCostRuns?: number;
-  /** True if a `maxCostUsd` budget cap stopped the run before all trials ran. */
-  readonly aborted: boolean;
-  /**
-   * The run environment the trials used, without seeded file contents — so an
-   * `inherit` run's reason travels with the report and is printed with it.
-   * Absent on a report built before `env` existed.
-   */
-  readonly env?:
-    | { readonly kind: "ephemeral" }
-    | { readonly kind: "inherit"; readonly reason: string };
 }
 
 function writeFiles(cwd: string, files: Record<string, string>): void {
@@ -908,7 +840,7 @@ export async function measureWith(
     spec.checks.some((c) => c.toJSON().kind === "judged")
   )
     throw new Error(
-      "measure: `stubSkillBodies` is for firing/`skill()` checks only — it stubs " +
+      "measure: `stubSkillBodies` is for firing/`check.skill()` checks only — it stubs " +
         "the skill body, so there's no output for a `judged` check to grade. Drop " +
         "`stubSkillBodies`, or remove the `judged` check.",
     );
@@ -1189,10 +1121,10 @@ function formatChecks(report: CheckReport): string {
     lines.push(
       "⚠ nothing resolved for ANY skill() check. That is usually SETUP, not the skill — check, in order:\n" +
         (report.namespace !== undefined
-          ? "  1. the id in `skill()` — your skills installed under " +
-            `\`${report.namespace}\`, so \`skill()\` matches ` +
+          ? "  1. the id in `check.skill()` — your skills installed under " +
+            `\`${report.namespace}\`, so \`check.skill()\` matches ` +
             `\`${report.namespace}:<skill>\`; a bare name silently never matches;\n`
-          : "  1. the id in `skill()` — it matches the NAMESPACED id " +
+          : "  1. the id in `check.skill()` — it matches the NAMESPACED id " +
             "(`<plugin>:<skill>`); a bare name silently never matches;\n") +
         "  2. the install field — a loose `.claude/skills` dir needs `skillsDir`, " +
         "not `pluginDir` (which wants a full plugin manifest);\n" +
@@ -1205,8 +1137,7 @@ function formatChecks(report: CheckReport): string {
 
 /**
  * The min rate a check must clear: its per-KIND override in `per`, else the
- * default `min`. Shared by `assertRates` (the throwing gate) and
- * `checkReportToJUnit` (the XML report) so the two never diverge on thresholds.
+ * default `min`.
  */
 function checkRateThreshold(
   check: CheckJSON,
@@ -1217,20 +1148,54 @@ function checkRateThreshold(
 }
 
 /**
- * The scored gate (Phase 4): throw if any check's measured rate is below its
- * threshold — the `measure` counterpart to `assertChecks` (strict). Reads the
- * rate, not a single run, so it never trips on one noisy trial.
- *
- * `min` is the default threshold for every check. `per` overrides it for a check
- * KIND (e.g. `{ min: 0.8, per: { skill: 1.0 } }` — "every check ≥ 80%, but the
- * skill must FIRE on every trial"), so a strict firing/safety check and a
- * lenient quality check gate in one call — the single-skill absolute oracle
- * (`measure({ checks: [skill(), judged()] }) + assertRates`) needs exactly this.
+ * The threshold half of an {@link assertRates} gate: an average floor (`min`),
+ * the every-trial floor (`passK: 1`, τ-bench pass^k), or both. At least one —
+ * a gate with neither would pass anything.
  */
+export type RateGate =
+  | { readonly min: number; readonly passK?: 1 }
+  | { readonly min?: number; readonly passK: 1 };
+
+/** {@link assertRates} over a check report: every check, `per` overriding `min` by check kind. */
+export type CheckRateGate = RateGate & {
+  readonly per?: Readonly<Record<string, number>>;
+};
+
+/** {@link assertRates} over one arm × metric of an eval report. */
+export type ArmRateGate = RateGate & {
+  readonly arm: string;
+  readonly metric: string;
+};
+
+/**
+ * The scored gate: throw if a measured rate is below its threshold — the
+ * `paid_measure` counterpart to `assertChecks` (strict). Reads the rate, not a
+ * single run, so it never trips on one noisy trial.
+ *
+ * Over a {@link CheckReport}: `min` is the default threshold for every check,
+ * and `per` overrides it for a check KIND (e.g. `{ min: 0.8, per: { skill: 1.0 } }`
+ * — "every check ≥ 80%, but the skill must FIRE on every trial"). `passK: 1`
+ * demands every check passed on EVERY trial — "worked every time", not "on
+ * average".
+ *
+ * Over an {@link EvalReport}: name the `arm` and `metric`; `min` gates the
+ * metric's mean, `passK: 1` that it succeeded on every trial.
+ */
+/* eslint-disable no-redeclare -- TypeScript function overloads (the base
+   no-redeclare rule, unlike @typescript-eslint/no-redeclare, flags them) */
+export function assertRates(report: CheckReport, opts: CheckRateGate): void;
+export function assertRates(report: EvalReport, opts: ArmRateGate): void;
 export function assertRates(
-  report: CheckReport,
-  opts: { min: number; per?: Readonly<Record<string, number>> },
+  report: CheckReport | EvalReport,
+  opts: CheckRateGate | ArmRateGate,
 ): void {
+  if ("perCheck" in report) assertCheckRates(report, opts);
+  else if ("arm" in opts) assertArmRate(report, opts);
+  else throw new Error("assertRates: an eval report needs `arm` and `metric`");
+}
+/* eslint-enable no-redeclare */
+
+function assertCheckRates(report: CheckReport, opts: CheckRateGate): void {
   // An empty report gates nothing — a green that tested NOTHING (the silent-pass
   // the no-silent-skips rule forbids). Fail loudly instead of vacuously passing.
   if (report.perCheck.length === 0) {
@@ -1240,7 +1205,7 @@ export function assertRates(
     );
   }
   const thresholdFor = (c: CheckRate): number =>
-    checkRateThreshold(c.check, opts.min, opts.per);
+    checkRateThreshold(c.check, opts.min ?? 0, opts.per);
   const below = report.perCheck.filter((c) => c.rate < thresholdFor(c));
   if (below.length > 0) {
     throw new Error(
@@ -1253,51 +1218,39 @@ export function assertRates(
           .join("\n"),
     );
   }
+  if (opts.passK !== 1) return;
+  const flaky = report.perCheck.filter((c) => c.passK !== 1);
+  if (flaky.length > 0) {
+    throw new Error(
+      `${String(flaky.length)} check(s) did not pass on every trial (pass^k = 1 required):\n` +
+        flaky
+          .map(
+            (c) =>
+              `  ✗ ${checkLabel(c.check)}: passed ${(c.rate * 100).toFixed(0)}% of ${String(c.n)} trials`,
+          )
+          .join("\n"),
+    );
+  }
 }
 
-function escapeXml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-/**
- * Serialize a {@link CheckReport} to JUnit XML (Phase 4) — each check a
- * `<testcase>`, failing when its rate is below its threshold. `min` is the
- * default; `per` overrides it by check KIND, matching `assertRates` exactly (one
- * shared threshold helper) so the gate and the report can never disagree about
- * which checks failed. Because a check is *data*, this falls out for free: CI
- * test reporters, regression baselines, and a promptfoo bridge all consume it.
- */
-export function checkReportToJUnit(
-  report: CheckReport,
-  opts: {
-    min?: number;
-    per?: Readonly<Record<string, number>>;
-    name?: string;
-  } = {},
-): string {
-  const min = opts.min ?? 0;
-  const thr = (c: CheckRate): number =>
-    checkRateThreshold(c.check, min, opts.per);
-  const failures = report.perCheck.filter((c) => c.rate < thr(c)).length;
-  const cases = report.perCheck
-    .map((c) => {
-      const name = escapeXml(checkLabel(c.check));
-      const body =
-        c.rate < thr(c)
-          ? `\n    <failure message="rate ${(c.rate * 100).toFixed(0)}% below min ${(thr(c) * 100).toFixed(0)}% (n=${String(c.n)})"/>\n  `
-          : "";
-      return `  <testcase classname="vigiles.checks" name="${name}">${body}</testcase>`;
-    })
-    .join("\n");
-  return (
-    `<?xml version="1.0" encoding="UTF-8"?>\n` +
-    `<testsuite name="${escapeXml(opts.name ?? "vigiles measure")}" tests="${String(report.perCheck.length)}" failures="${String(failures)}">\n` +
-    `${cases}\n</testsuite>\n`
-  );
+function assertArmRate(report: EvalReport, opts: ArmRateGate): void {
+  const stat = report.arms[opts.arm]?.stats[opts.metric];
+  const mean = report.arms[opts.arm]?.metrics[opts.metric];
+  if (stat === undefined || mean === undefined) {
+    throw new Error(
+      `assertRates: no data for ${opts.arm} on ${opts.metric} in report "${report.name}"`,
+    );
+  }
+  if (opts.min !== undefined && mean < opts.min) {
+    throw new Error(
+      `expected ${opts.arm} ≥ ${String(opts.min)} on ${opts.metric}, got ${String(mean)}`,
+    );
+  }
+  if (opts.passK === 1 && stat.passK !== 1) {
+    throw new Error(
+      `expected ${opts.arm} to pass ${opts.metric} on every trial (pass^k=1), got pass^k=${String(stat.passK)}`,
+    );
+  }
 }
 
 const sleep = (ms: number): Promise<void> =>
@@ -1448,12 +1401,12 @@ function makeTrialContext(
 /**
  * The set of skills that RESOLVED (the `Skill` tool fired without error) in a run,
  * by their namespaced id (e.g. `superpowers:test-driven-development`). The
- * multi-skill generalization of {@link skillResolved}: where a trigger-rate run
+ * multi-skill generalization of {@link check.skill}: where a trigger-rate run
  * asks "did skill X fire?", a SELECTION-collision run asks "which skills fired?" —
  * so a single pass over the plugin's prompts reveals whether one skill's prompt
  * wrongly activates a SIBLING (the behavioral confirmation of the deterministic
  * `description-overlap` proxy). Errored Skill calls are excluded, like
- * `skillResolved`.
+ * `check.skill`.
  */
 export function whichSkillsFired(trace: Trace): string[] {
   const ids = new Set<string>();
@@ -2656,7 +2609,7 @@ export function contextInReport(
  * a test's fake share one path. Besides the run it prints, to stderr, what the
  * caller must not miss: a skill arm that never activates, a stub call no rule
  * answered (the same text `vigiles eval` fails with — a script that calls
- * `runEval` itself, as the `withServices` examples do, gets the report back and
+ * `runEval` itself, as the `experimental_startServices` examples do, gets the report back and
  * nothing else, so the library is not silent about it either), and what the
  * run spent.
  */
@@ -2890,7 +2843,7 @@ function verdictLines(
 /**
  * Format an eval report as a compact table for the console (mean ± se, pass^k).
  * Name the `baseline` arm to add one verdict line per other arm and metric —
- * `BETTER` / `WORSE` / `NO SIGNAL`, the same verdict `assertSignificant` reads.
+ * `BETTER` / `WORSE` / `NO SIGNAL`, the same verdict `compare` reads.
  */
 /**
  * The header's cost: the reported total, and — when a run reported none (killed
@@ -2951,7 +2904,7 @@ export function formatEvalReport(
  * and that's a property of the real model, not the wiring (which the
  * deterministic tier already proves). Install the plugin natively (`pluginDir`),
  * give a set of varied `prompts`, and a `fired` predicate over the run's `Trace`
- * (reuse the bare predicates, e.g. `(t) => skillResolved(t, "x:y")`).
+ * (reuse the bare predicates, e.g. `(t) => check.skill(t, "x:y")`).
  */
 export interface TriggerRateSpec {
   /**
@@ -2993,7 +2946,7 @@ export interface TriggerRateSpec {
   /**
    * Did the behaviour fire on this run? A check — `fired: skill("x:y")`, which
    * asks the harness's adapter and so works on every harness — or a predicate
-   * over the trace, `(t) => skillResolved(t, "x:y")`. Either form scores a trial
+   * over the trace, `(t) => check.skill(t, "x:y")`. Either form scores a trial
    * the same way, and neither is part of the eval lock's hash: the lock pins
    * what the MODEL sees, not how the script reads the run.
    */
@@ -3085,71 +3038,6 @@ export interface TriggerRateSpec {
    * run, so it stays best-effort polite. Mirrors `EvalSpec.concurrency`.
    */
   readonly concurrency?: number;
-}
-
-/** Per-prompt trigger result: how many of its trials fired. */
-export interface PromptTriggerStat {
-  readonly prompt: string;
-  readonly fired: number;
-  readonly trials: number;
-  /** `fired / trials` (0 when no trials). */
-  readonly rate: number;
-}
-
-export interface TriggerRateReport {
-  /** Overall fraction of relevant runs in which the behaviour fired (recall, 0..1). */
-  readonly rate: number;
-  /** Total relevant runs (prompts × trials). */
-  readonly n: number;
-  readonly perPrompt: readonly PromptTriggerStat[];
-  /**
-   * Fraction of *irrelevant* runs that wrongly fired (lower is better). Present
-   * only when {@link TriggerRateSpec.irrelevantPrompts} was given.
-   */
-  readonly falsePositiveRate?: number;
-  /**
-   * `relevantFired / (relevantFired + irrelevantFired)` — of all firings, the
-   * share on the right prompts. Present only when irrelevant prompts were given
-   * AND something fired (undefined when nothing fired at all). Pairs with `rate`
-   * (recall) to catch a skill that fires on everything _or_ nothing.
-   */
-  readonly precision?: number;
-  /** Per-prompt stats for the irrelevant set. Present with irrelevant prompts. */
-  readonly perIrrelevant?: readonly PromptTriggerStat[];
-  /**
-   * Competitor skills co-installed via {@link TriggerRateSpec.installSet}. `0`
-   * (the default) means the skill was measured **ISOLATED** — so `rate` is an
-   * UPPER bound on real recall and `falsePositiveRate` a LOWER bound, because
-   * selection is competitive (a populated harness can evict or out-compete the
-   * description). A non-zero count is the whole-harness measurement.
-   */
-  readonly competitors: number;
-  /**
-   * The plugin namespace the skills actually installed under — the `<plugin>`
-   * half of the `<plugin>:<skill>` id `skillResolved` matches.
-   *
-   * Reported because with `skillsDir` the name is chosen by the packager, not by
-   * the caller, so the single most common cause of a 0% run was a value the
-   * caller had no way to know. Optional so a report recorded before this field
-   * still parses.
-   */
-  readonly namespace?: string;
-  /**
-   * Runs EXCLUDED because the turn errored / was rate-limited (detected by the
-   * driver's `runError`), present only when > 0. These are NOT counted in `n` or
-   * as misses — so `rate` reflects only valid runs. A large `errored` relative to
-   * `n` means the measurement is thin (e.g. a Codex usage limit was hit); re-run.
-   */
-  readonly errored?: number;
-  /** Cost / tokens SPENT across all runs (relevant + irrelevant) — feeds the cost summary. */
-  readonly usage: ArmUsage;
-  /**
-   * Present when the driver's harness measures trigger-rate on an EXPERIMENTAL
-   * basis (copied from {@link EvalDriver.experimental}) — the number is not
-   * validated and can be wrong. `formatTriggerRateReport` prints it as a loud
-   * caveat. Absent = a supported, trustworthy measurement (Claude Code).
-   */
-  readonly experimental?: string;
 }
 
 /**
@@ -3554,7 +3442,7 @@ interface ResolvedInstall {
 
 /**
  * The plugin namespace a source's skills install under — the `<plugin>` half of
- * the `<plugin>:<skill>` id `skill()` / `skillResolved` match. A loose dir gets
+ * the `<plugin>:<skill>` id `skill()` / `check.skill` match. A loose dir gets
  * the packager's name; a plugin its declared name, falling back to the same
  * synthetic one when its manifest has none. Pure (reads the manifest only).
  */
@@ -4034,9 +3922,9 @@ export function formatTriggerRateReport(report: TriggerRateReport): string {
         // value they had never seen.
         (report.namespace !== undefined
           ? "  1. the id in `fired` — your skills installed under " +
-            `\`${report.namespace}\`, so \`skillResolved\` matches ` +
+            `\`${report.namespace}\`, so \`check.skill\` matches ` +
             `\`${report.namespace}:<skill>\`; a bare name silently never matches;\n`
-          : "  1. the id in `fired` — `skillResolved` matches the NAMESPACED id " +
+          : "  1. the id in `fired` — `check.skill` matches the NAMESPACED id " +
             "(`<plugin>:<skill>`); a bare name silently never matches;\n") +
         "  2. the install field — a loose `.claude/skills` dir needs `skillsDir`, " +
         "not `pluginDir` (which wants a full plugin manifest);\n" +

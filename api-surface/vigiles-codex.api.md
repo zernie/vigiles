@@ -4,12 +4,6 @@
 
 ```ts
 
-// @public
-export function buildCodexArgs(ctx: HarnessDriverContext): string[];
-
-// @public
-export const CODEX_TRIGGER_RATE_EXPERIMENTAL: string;
-
 // @public (undocumented)
 export const codexAdapter: {
     readonly name: "codex";
@@ -28,42 +22,11 @@ export const codexAdapter: {
     readonly advisories: () => readonly string[];
 };
 
-// @public (undocumented)
-export const codexDialect: HarnessDialect;
-
-// @public (undocumented)
-export const codexDriver: HarnessTestDriver;
-
-// @public
-export function codexEvalAgentRunner(args: AgentRunArgs): Promise<RunOut>;
-
 // @public
 export const codexEvalDriver: EvalDriver;
 
 // @public
-export function codexEvalRunner(args: {
-    task: string;
-    cwd: string;
-    timeoutMs: number;
-}): {
-    code: number;
-    stdout: string;
-};
-
-// @public (undocumented)
-export const codexHookProtocol: HookProtocol;
-
-// @public (undocumented)
-export const codexLayout: PluginLayout;
-
-// @public
 export const codexLiveDriver: HarnessLiveDriver;
-
-// @public
-export function codexMockArgs(baseUrl: string): string[];
-
-// @public
-export function codexMockEnv(): Record<string, string>;
 
 // @public (undocumented)
 export interface CodexMockHandle {
@@ -76,9 +39,6 @@ export interface CodexMockHandle {
     readonly url: string;
 }
 
-// @public (undocumented)
-export const codexModelMock: ModelMock;
-
 // @public
 export interface CodexRequest {
     // (undocumented)
@@ -90,48 +50,12 @@ export interface CodexRequest {
 }
 
 // @public
-export function codexRunError(out: {
-    stdout: string;
-}): string | null;
-
-// @public (undocumented)
-export const codexRuntime: HarnessRuntime;
-
-// @public
-export function codexSkillFired(run: {
-    toolCalls: readonly ToolCall[];
-}, name: string): boolean;
-
-// @public
 export interface CodexTurn {
     readonly text: string;
 }
 
 // @public
-export function installCodexSkills(pluginDir: string, cwd: string): number;
-
-// @public
-export function parseCodexEvalRun(out: {
-    stdout: string;
-}): ParsedModelRun;
-
-// @public
 export function parseCodexRun(stdout: string): ParsedRun;
-
-// @public
-export function parseResponsesRequest(body: string): {
-    prompt: string;
-    model: string;
-    toolNames: string[];
-};
-
-// @public
-export function refuseCodexEffort(effort: string | number | undefined): void;
-
-// @public
-export function renderResponsesSSE(text: string, opts?: {
-    model?: string;
-}): string;
 
 // @public
 export function startCodexMock(script: readonly CodexTurn[], opts?: {

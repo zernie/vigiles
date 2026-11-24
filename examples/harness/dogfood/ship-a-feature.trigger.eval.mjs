@@ -15,10 +15,8 @@
  * Write-don't-run in a keyless env; runs where a key is.
  */
 import { defineEval } from "../../../dist/test.js";
-import {
-  skillResolved,
-  assertTriggerRate,
-} from "../../../dist/harness-assert.js";
+import { check } from "../../../dist/check.js";
+import { assertTriggerRate } from "../../../dist/eval-surface.js";
 import { fileURLToPath } from "node:url";
 
 const skillsDir = fileURLToPath(
@@ -56,7 +54,7 @@ export default defineEval({
       "Run the dogfood harness and tell me which tests are red.",
       "Remove the dead `dev/` folder reference from the CLAUDE.md layout section.",
     ],
-    fired: (t) => skillResolved(t, skill),
+    fired: check.skill(skill),
     trials: 1,
   },
   assert: (report) => {
