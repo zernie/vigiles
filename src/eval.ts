@@ -1608,11 +1608,15 @@ interface TrialOutcome<M extends Metrics> {
 async function executeTrial<M extends Metrics>(
   spec: ParsedEvalSpec<M>,
   arm: EvalArm,
-  trial: { readonly index: number; readonly maxBudgetUsd?: number },
+  trial: {
+    readonly index: number;
+    readonly maxBudgetUsd?: number;
+    readonly signal?: AbortSignal;
+  },
   retrying: RetryingRunner,
   cfg: RunConfig,
 ): Promise<TrialOutcome<M>> {
-  const { index: trialIndex, maxBudgetUsd } = trial;
+  const { index: trialIndex, maxBudgetUsd, signal } = trial;
   // Resolved before any temp dir exists, so a bad plugin leaves nothing behind.
   const resolved = resolveHarness({
     plugin: arm.plugin,
@@ -1665,6 +1669,7 @@ async function executeTrial<M extends Metrics>(
         pluginDir: arm.pluginDir,
         timeoutMs: cfg.timeoutMs,
         ...(maxBudgetUsd === undefined ? {} : { maxBudgetUsd }),
+        ...(signal === undefined ? {} : { signal }),
         // The request-body channel is added here, not in `run`: it is an
         // observation, not an input, so it stays out of the cache key.
         env:
@@ -1780,34 +1785,37 @@ async function runWithRetry(
   }
 }
 
-/** Map `worker` over `items` with at most `concurrency` in flight, order preserved. */
+/**
+ * Map `worker` over `items` with at most `concurrency` in flight, order
+ * preserved. When one worker fails, the others are interrupted: the `signal`
+ * each received fires, so a run in flight can stop instead of spending until
+ * its own timeout (#527). A worker that ignores the signal runs to its end.
+ */
 export async function runPool<T, R>(
   items: readonly T[],
   concurrency: number,
-  worker: (item: T) => Promise<R>,
+  worker: (item: T, signal: Readonly<AbortSignal>) => Promise<R>,
 ): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  // A worker that throws rejects the whole pool; the others must stop taking
-  // items then, or they keep starting (and paying for) work nobody will read.
-  const stop = new AbortController();
-  let next = 0;
-  const drain = async (): Promise<void> => {
-    for (;;) {
-      if (stop.signal.aborted) return;
-      const i = next++;
-      const item = items[i];
-      if (i >= items.length || item === undefined) return;
-      try {
-        results[i] = await worker(item);
-      } catch (e) {
-        stop.abort();
-        throw e;
-      }
-    }
-  };
-  const workers = Math.max(1, Math.min(concurrency, items.length || 1));
-  await Promise.all(Array.from({ length: workers }, drain));
-  return results;
+  // A dynamic import: `effect` is ESM-only and this package is CommonJS, and a
+  // static `require` of ESM needs Node 20.19+. Loading it here also keeps it out
+  // of every command that never runs an eval pool.
+  const { Cause, Effect, Exit } = await import("effect");
+  const exit = await Effect.runPromiseExit(
+    Effect.forEach(
+      items,
+      // The thunk must NAME its parameter: Effect passes the AbortSignal only
+      // to a callback that declares one.
+      (item) =>
+        Effect.tryPromise({
+          try: (signal) => worker(item, signal),
+          catch: (error) => error,
+        }),
+      { concurrency: Math.max(1, concurrency) },
+    ),
+  );
+  if (Exit.isSuccess(exit)) return exit.value;
+  // The worker's own error, not Effect's wrapper: callers match on it.
+  throw Cause.squash(exit.cause);
 }
 
 /** One unit of work: a single trial of a single arm. */
@@ -2312,7 +2320,10 @@ async function runResolvedEval<M extends Metrics>(
   // `concurrency` caps. Reserving each cap at start would hold the line but
   // serialize the pool behind the first trial; needs its own design.
   let stopped: "budget" | "unanswered" | undefined;
-  const worker = async (unit: Unit): Promise<UnitResult<M>> => {
+  const worker = async (
+    unit: Unit,
+    signal: Readonly<AbortSignal>,
+  ): Promise<UnitResult<M>> => {
     if (stopped !== undefined) return { armName: unit.armName, skipped: true };
     // The run's own cap: the budget not yet charged. Past it the CLI ends the
     // turn and reports its cost; a run killed first is charged the cap.
@@ -2324,6 +2335,7 @@ async function runResolvedEval<M extends Metrics>(
         unit.arm,
         {
           index: unit.trialIndex,
+          signal,
           ...(cap === undefined ? {} : { maxBudgetUsd: cap }),
         },
         retrying,
