@@ -15,6 +15,7 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
+import { spawnSync } from "node:child_process";
 import ts from "typescript";
 
 import * as root from "./entries/index.js";
@@ -64,6 +65,49 @@ test("package.json exports: every entry module mirrors its export path under src
     Object.keys(map).every((k) => k.split("/").length <= 3),
     "at most two path levels",
   );
+});
+
+// The CommonJS door must not be a second copy of vigiles under Node. A copy
+// carries its own module state, and the eval-load guard (core/eval-load-phase.ts)
+// is module state: a `.eval.cjs` file that `require`s `vigiles/eval` would see a
+// guard the runner never armed, and a leftover top-level paid call would spend
+// (Codex P1 on #534). Checked in a plain `node`, as a user's code runs: vitest's
+// own loader would make a second instance of anything it imports. Needs the
+// build (`npm test` builds first).
+const SAME_INSTANCE = `
+import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { pathToFileURL } from "node:url";
+const root = process.argv[1];
+const load = createRequire(join(root, "package.json"));
+const map = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).exports;
+const checked = [];
+const different = [];
+for (const [key, v] of Object.entries(map)) {
+  if (typeof v !== "object" || !v.require || !v.import || key === "./jest") continue;
+  checked.push(key);
+  const esm = await import(pathToFileURL(join(root, v.import)).href);
+  if (load(join(root, v.require)) !== esm) different.push(key);
+}
+console.log(JSON.stringify({ checked, different }));
+`;
+
+test("under Node, each CommonJS door IS its ES module: one instance, one guard", () => {
+  const r = spawnSync(
+    process.execPath,
+    ["--input-type=module", "-e", SAME_INSTANCE, ROOT],
+    { encoding: "utf8" },
+  );
+  assert.equal(r.status, 0, r.stderr);
+  const out: unknown = JSON.parse(r.stdout);
+  assert.ok(typeof out === "object" && out !== null);
+  assert.ok("checked" in out && Array.isArray(out.checked));
+  assert.ok(
+    out.checked.length >= 10,
+    `checked only ${String(out.checked.length)}`,
+  );
+  assert.deepEqual("different" in out ? out.different : null, []);
 });
 
 test("the guard battery lives on vigiles/hook/testing, not the root", () => {
