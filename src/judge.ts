@@ -58,7 +58,11 @@ function firstJsonObject(s: string): unknown {
 }
 
 /* v8 ignore start -- spawns the real claude CLI; parseJudgeOutput holds the logic */
-/** Grade `output` against `rubric` with a model. Synchronous (for `measure`). */
+/**
+ * Grade `output` against `rubric` with a model. Synchronous (for `measure`).
+ *
+ * @public
+ */
 export function judge(opts: JudgeOptions): JudgeResult {
   // BEFORE the `try` below: it catches everything and returns `score: 0`, so a
   // refusal thrown inside would be downgraded to a silent failing grade.

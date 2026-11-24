@@ -63,7 +63,11 @@
 import type { PluginLayout } from "./layout.js";
 import { ruleFileRe } from "./layout.js";
 
-/** What a file IS to the harness that loads it. */
+/**
+ * What a file IS to the harness that loads it.
+ *
+ * @public
+ */
 export type InstructionRole =
   /** The committed team file at a directory's root (`CLAUDE.md`, `AGENTS.md`). */
   | "root"
@@ -91,10 +95,16 @@ export type InstructionRole =
  * teammates. So the weight carries TWO numbers — `committedTotal` (what a
  * teammate or CI sees) and `effectiveTotal` (what this working copy actually
  * loads) — and only the first is judged against the budget.
+ *
+ * @public
  */
 export type InstructionScope = "repo" | "local";
 
-/** One file the harness loads, and what it is to it. */
+/**
+ * One file the harness loads, and what it is to it.
+ *
+ * @public
+ */
 export interface LoadedInstruction {
   /** Repo-relative POSIX path — always a key of the map that was handed in. */
   readonly path: string;
@@ -124,6 +134,8 @@ export interface LoadedInstruction {
  * APPENDS `CLAUDE.local.md` after `CLAUDE.md` (both are in context), Codex takes
  * `AGENTS.override.md` INSTEAD OF `AGENTS.md`. The ordered `loaded` list already
  * expresses the first; `{kind:"replaced"}` expresses the second.
+ *
+ * @public
  */
 export type NotLoadedReason =
   /** Another file took this directory's one slot — Codex reads at most one. */
@@ -189,11 +201,16 @@ export type NotLoadedReason =
       readonly byScope: InstructionScope;
     };
 
+/** @public */
 export interface UnloadedInstruction extends LoadedInstruction {
   readonly reason: NotLoadedReason;
 }
 
-/** A path a loaded file NAMES, the text that names it, and the file it is in. */
+/**
+ * A path a loaded file NAMES, the text that names it, and the file it is in.
+ *
+ * @public
+ */
 export interface NamedImport {
   /** The repo-relative path the token resolves to. */
   readonly path: string;
@@ -227,12 +244,17 @@ export interface NamedImport {
   readonly line: number;
 }
 
-/** A glob or URL a loaded file names, and the file that names it. */
+/**
+ * A glob or URL a loaded file names, and the file that names it.
+ *
+ * @public
+ */
 export interface PatternFrom {
   readonly pattern: string;
   readonly from: string;
 }
 
+/** @public */
 export interface InstructionChain {
   /** Loaded at a repo-root session, in the order the harness concatenates them. */
   readonly loaded: readonly LoadedInstruction[];

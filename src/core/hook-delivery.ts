@@ -39,7 +39,11 @@
 import type { EventCapabilityTable, HookChannel } from "./event-capability.js";
 import { capabilityOf } from "./event-capability.js";
 
-/** A route by which hook text reached the model. */
+/**
+ * A route by which hook text reached the model.
+ *
+ * @public
+ */
 export type DeliveryChannel =
   /** `hookSpecificOutput.additionalContext` on an event honouring `inject`. */
   | "additional-context"
@@ -50,7 +54,11 @@ export type DeliveryChannel =
   /** JSON `decision: "block"` + `reason`, on an event honouring `feedback`. */
   | "decision-reason";
 
-/** Text the hook printed that reached NO channel the model reads. */
+/**
+ * Text the hook printed that reached NO channel the model reads.
+ *
+ * @public
+ */
 export interface StrandedOutput {
   readonly stream: "stdout" | "stderr";
   readonly bytes: number;
@@ -63,6 +71,8 @@ export interface StrandedOutput {
  * causes and a test failure must name the right one (`make-the-distinction-a-type`):
  * the hook said nothing, it said something on a dead stream, it blocked
  * instead, or we do not know this event.
+ *
+ * @public
  */
 export type HookDelivery =
   | {

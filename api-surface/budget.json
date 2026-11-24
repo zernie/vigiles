@@ -1,0 +1,80 @@
+{
+  "$comment": "Plan for each grandfathered name: zernie/vigiles#518. Function budget per public entry: a ceiling on RUNTIME function/const exports (the members of the root's `check` count, spelled `check.tool`). `grandfathered` names sit above the ceiling today and may only be REMOVED from this list, never added; scripts/export-gates.test.ts enforces it. See STABILITY.md and the `public-exports-are-opt-in` rule.",
+  "entries": {
+    ".": {
+      "ceiling": 33,
+      "grandfathered": [
+        "check.allowed",
+        "check.blocked",
+        "check.didNotWrite",
+        "check.noWrite",
+        "check.notTool",
+        "check.toolWith",
+        "check.wroteOnly",
+        "experimental_replyCount"
+      ]
+    },
+    "./spec": {
+      "ceiling": 16,
+      "grandfathered": [
+        "experimental_assertAgentErr",
+        "experimental_assertAgentResult"
+      ]
+    },
+    "./eval": {
+      "ceiling": 12,
+      "grandfathered": [
+        "assertTriggerRate",
+        "readBaseline",
+        "writeBaseline"
+      ]
+    },
+    "./rule-proof": {
+      "ceiling": 1,
+      "grandfathered": []
+    },
+    "./hook": {
+      "ceiling": 21,
+      "grandfathered": [
+        "leafCommandsNormalized",
+        "parseFilePath",
+        "parseShellCommand"
+      ]
+    },
+    "./hook-test": {
+      "ceiling": 6,
+      "grandfathered": []
+    },
+    "./battery": {
+      "ceiling": 7,
+      "grandfathered": []
+    },
+    "./fixtures": {
+      "ceiling": 3,
+      "grandfathered": []
+    },
+    "./claude-code": {
+      "ceiling": 10,
+      "grandfathered": [
+        "experimental_agent",
+        "experimental_skill"
+      ]
+    },
+    "./codex": {
+      "ceiling": 5,
+      "grandfathered": []
+    },
+    "./adapter": {
+      "ceiling": 8,
+      "grandfathered": []
+    },
+    "./vitest": {
+      "ceiling": 0,
+      "grandfathered": []
+    },
+    "./jest": {
+      "ceiling": 0,
+      "grandfathered": []
+    }
+  }
+}

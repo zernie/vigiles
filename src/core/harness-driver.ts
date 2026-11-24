@@ -22,6 +22,8 @@ import type { HarnessRuntime } from "./runtime.js";
  * shape both harness mocks consume — the Anthropic Messages mock
  * (`src/mock-model.ts`) and the OpenAI Responses mock
  * (`src/adapters/codex/mock-model.ts`, which uses only `text`).
+ *
+ * @public
  */
 export interface ModelTurn {
   /** Final text answer (stops the turn). */
@@ -37,6 +39,8 @@ export interface ModelTurn {
  * assertions — the seam that lets a harness test prove what reached the model
  * (a SessionStart hook's injected context, a slash command's expansion), not
  * just that a hook fired.
+ *
+ * @public
  */
 export interface ModelRequest {
   /** The system prompt, flattened to text (string or text-block array). */
@@ -58,7 +62,11 @@ export interface ModelRequest {
   readonly sideChannel?: boolean;
 }
 
-/** A tool the agent invoked, paired with its result (transcript mode only). */
+/**
+ * A tool the agent invoked, paired with its result (transcript mode only).
+ *
+ * @public
+ */
 export interface ToolCall {
   readonly name: string;
   readonly input: unknown;
@@ -124,6 +132,8 @@ export type SkillFacts =
  * A hook invocation observed during the run, recorded (not inferred) from the
  * harness's stream events — so a test can assert which hook fired and whether
  * it blocked.
+ *
+ * @public
  */
 export interface HookFire {
   /** The hook label, e.g. `"PreToolUse:Edit"` (`Event:Matcher`). */
@@ -209,6 +219,8 @@ export interface ParsedRun {
  * What a harness brings so `runHarnessTest` can drive it. Implemented in each
  * adapter (`claudeCodeDriver`, `codexDriver`) and carried on the
  * `HarnessAdapter` as `harnessTestDriver`.
+ *
+ * @public
  */
 export interface HarnessTestDriver {
   /** The transport (binary to spawn + how to reach the mock via `wireMock`). */

@@ -32,6 +32,8 @@ function fail(message: string): never {
  *
  * For standalone CLI-fallback scripts only — inside a runner (vitest / jest /
  * node:test) use that runner's own skip, not a process exit.
+ *
+ * @public
  */
 /* v8 ignore start -- process.exit can't be exercised in-process (tested via a child in cli.test.ts / run-scripts.test.ts) */
 export function skip(reason?: string): never {
@@ -56,6 +58,8 @@ interface MatcherOutput {
  *
  *   expect(result).toHaveCreated("RESULT");
  *   expect(report).toBeatBaseline("vanilla", "gated", "caught");
+ *
+ * @public
  */
 export const vigilesMatchers = {
   toHaveCreated(received: HarnessTestResult, path: string): MatcherOutput {

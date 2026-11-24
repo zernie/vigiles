@@ -87,6 +87,8 @@ function runCountedHookProgram(
  *
  * @experimental Tests the experimental compiled-hook vocabulary
  * (`experimental_define*`), so it moves with it.
+ *
+ * @beta
  */
 export function experimental_assertHookDenies(
   hook: AnyHook,
@@ -101,6 +103,8 @@ export function experimental_assertHookDenies(
 /** Assert a COMPILED hook allows an event (in-process). The twin of {@link experimental_assertHookDenies}. *
  * @experimental Tests the experimental compiled-hook vocabulary
  * (`experimental_define*`), so it moves with it.
+ *
+ * @beta
  */
 export function experimental_assertHookAllows(
   hook: AnyHook,
@@ -128,6 +132,8 @@ export function experimental_assertHookAllows(
  *
  * @experimental Tests the experimental compiled-hook vocabulary
  * (`experimental_define*`), so it moves with it.
+ *
+ * @beta
  */
 export function experimental_assertHookNotices(
   hook: AnyHook,
@@ -161,6 +167,8 @@ export function experimental_assertHookNotices(
  *
  * @experimental Tests the experimental compiled-hook vocabulary
  * (`experimental_define*`), so it moves with it.
+ *
+ * @beta
  */
 export function experimental_assertHookSilent(
   hook: AnyHook,

@@ -57,22 +57,22 @@ export const deny: (reason: string) => Decision;
 // @public
 export type Duration = `${number}${"s" | "m" | "h" | "d"}`;
 
-// @public
+// @beta
 export function experimental_defineFileGate<const N extends readonly NeedSpec[] = readonly []>(p: Omit<FileGateHook<N>, "role">): FileGateHook<N>;
 
-// @public
+// @beta
 export function experimental_defineHook<const N extends readonly NeedSpec[] = readonly []>(p: HookProgram<N>): HookProgram<N>;
 
-// @public
+// @beta
 export function experimental_defineInject<const N extends readonly NeedSpec[] = readonly []>(p: Omit<InjectHook<N>, "role">): InjectHook<N>;
 
-// @public
+// @beta
 export function experimental_definePromptGate<const N extends readonly NeedSpec[] = readonly []>(p: Omit<PromptGateHook<N>, "role">): PromptGateHook<N>;
 
-// @public
+// @beta
 export function experimental_defineReact<const N extends readonly NeedSpec[] = readonly [], const T extends readonly string[] = readonly []>(p: Omit<ReactHook<N, T>, "role">): ReactHook<N, T>;
 
-// @public
+// @beta
 export function experimental_defineStopGate<const N extends readonly NeedSpec[] = readonly []>(p: Omit<StopGateHook<N>, "role">): StopGateHook<N>;
 
 // @public (undocumented)

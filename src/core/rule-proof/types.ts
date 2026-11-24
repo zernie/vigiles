@@ -9,13 +9,21 @@
  * did not parse is not a clean file, so a per-file report has three kinds.
  */
 
-/** Where a reading applies, as patterns relative to the repository root. */
+/**
+ * Where a reading applies, as patterns relative to the repository root.
+ *
+ * @public
+ */
 export interface ReadingScope {
   readonly files: readonly string[];
   readonly ignores: readonly string[];
 }
 
-/** What every reading has. A kit's reading adds the linter's own options. */
+/**
+ * What every reading has. A kit's reading adds the linter's own options.
+ *
+ * @public
+ */
 export interface BaseReading {
   /** The kit's name, as the kit set is keyed. */
   readonly linter: string;
@@ -39,7 +47,11 @@ export type LintParse =
   | { readonly kind: "parsed"; readonly files: readonly FileReport[] }
   | { readonly kind: "unreadable"; readonly reason: string };
 
-/** Why a reading or a run produced no verdict. */
+/**
+ * Why a reading or a run produced no verdict.
+ *
+ * @public
+ */
 export type NotRunStage =
   | "pair-outside-scope"
   | "pair-path-taken"
@@ -49,7 +61,11 @@ export type NotRunStage =
   | "config-load"
   | "timeout";
 
-/** No verdict, and why. */
+/**
+ * No verdict, and why.
+ *
+ * @public
+ */
 export interface NotRun {
   readonly kind: "not-run";
   readonly stage: NotRunStage;
@@ -66,7 +82,11 @@ export type PairVerdict =
     }
   | NotRun;
 
-/** Why there is no pinned linter. */
+/**
+ * Why there is no pinned linter.
+ *
+ * @public
+ */
 export interface NotInstalled {
   readonly kind: "not-installed";
   readonly stage:
@@ -78,19 +98,31 @@ export interface NotInstalled {
   readonly reason: string;
 }
 
-/** A file planted for the proof: a path relative to the repository and its text. */
+/**
+ * A file planted for the proof: a path relative to the repository and its text.
+ *
+ * @public
+ */
 export interface PlantedFile {
   readonly path: string;
   readonly text: string;
 }
 
-/** The violation and its twin. Both are required: one direction proves nothing. */
+/**
+ * The violation and its twin. Both are required: one direction proves nothing.
+ *
+ * @public
+ */
 export interface PlantedPair {
   readonly bad: PlantedFile;
   readonly good: PlantedFile;
 }
 
-/** The repository files a proved reading flags, and the ones it could not judge. */
+/**
+ * The repository files a proved reading flags, and the ones it could not judge.
+ *
+ * @public
+ */
 export interface Flagged {
   /** Files the linter parsed, flagged or not. */
   readonly linted: number;
@@ -99,10 +131,18 @@ export interface Flagged {
   readonly ignored: readonly string[];
 }
 
-/** What a proved reading flags in the repository. */
+/**
+ * What a proved reading flags in the repository.
+ *
+ * @public
+ */
 export type FlaggedRun = ({ readonly kind: "ran" } & Flagged) | NotRun;
 
-/** Where install keeps every cache, and how long each step may take. */
+/**
+ * Where install keeps every cache, and how long each step may take.
+ *
+ * @public
+ */
 export interface InstallOptions {
   /** A directory the caller owns; HOME and every package-manager cache go here. */
   readonly cacheDir: string;

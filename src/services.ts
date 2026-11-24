@@ -53,6 +53,8 @@
  * consumer never races a half-booted service.
  *
  * @experimental
+ *
+ * @beta
  */
 export type ServiceReady =
   | { readonly tcp: number } // a port accepts a TCP connection
@@ -67,6 +69,8 @@ export type ServiceReady =
  * when the task is idempotent or reads only.
  *
  * @experimental
+ *
+ * @beta
  */
 export type ServiceReset = "per-trial" | "per-arm";
 
@@ -75,6 +79,8 @@ export type ServiceReset = "per-trial" | "per-arm";
  * on the (future) `services` eval option.
  *
  * @experimental
+ *
+ * @beta
  */
 export interface ServiceSpec {
   /** Container image, e.g. `"postgres:16"` or `"redis:7"`. */
@@ -111,6 +117,8 @@ export interface ServiceSpec {
  * a per-service client dependency.
  *
  * @experimental
+ *
+ * @beta
  */
 export interface ServiceHandle {
   /** Host the agent reaches the service on (from inside the run environment). */
@@ -136,6 +144,8 @@ export interface ServiceHandle {
  * egress allowlist and maps `handles` into the agent's env / into `measure`.
  *
  * @experimental
+ *
+ * @beta
  */
 export interface ServiceSession {
   /** The started services, keyed by the name declared in the `services` map. */
@@ -164,6 +174,8 @@ export interface ServiceSession {
  * {@link ServiceSpec.seed}, so it resolves only with a ready, seeded service.
  *
  * @experimental
+ *
+ * @beta
  */
 export interface ContainerRuntime {
   /** Backend name for diagnostics, e.g. `"docker"`. */
@@ -190,6 +202,8 @@ export interface ContainerRuntime {
  * `measure` → `await session.teardown()`.
  *
  * @experimental — surface may change without a major-version bump.
+ *
+ * @beta
  */
 export async function experimental_startServices(
   services: Readonly<Record<string, ServiceSpec>>,

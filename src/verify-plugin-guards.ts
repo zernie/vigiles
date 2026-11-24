@@ -120,7 +120,11 @@ import {
 } from "./guardrail-check.js";
 import type { RunHookOptions } from "./run-hook.js";
 
-/** The hook a sweep looked at, as its config declares it. */
+/**
+ * The hook a sweep looked at, as its config declares it.
+ *
+ * @public
+ */
 export interface SweptHook {
   /** The event it registers under, e.g. `"PreToolUse"`. */
   readonly event: string;
@@ -143,6 +147,8 @@ export interface SweptHook {
  * nullable fields: `results` exists on exactly the outcome that has them, so
  * "read the score of a hook that was never run" is a type error rather than a
  * `0/7` someone quotes.
+ *
+ * @public
  */
 export type SweptHookOutcome =
   | {
@@ -180,7 +186,11 @@ export type SweptHookOutcome =
       readonly reason: string;
     };
 
-/** The whole sweep. */
+/**
+ * The whole sweep.
+ *
+ * @public
+ */
 export interface PluginGuardReport {
   /** The directory swept, resolved to an absolute path. */
   readonly dir: string;
@@ -222,7 +232,11 @@ export interface PluginGuardReport {
   readonly notes: readonly string[];
 }
 
-/** Options for {@link experimental_verifyPluginGuards}. */
+/**
+ * Options for {@link experimental_verifyPluginGuards}.
+ *
+ * @public
+ */
 export interface VerifyPluginGuardsOptions extends Omit<
   RunHookOptions,
   "condition" | "protocol"
@@ -836,6 +850,8 @@ function sweepNotes(
  * third-party repos unchanged; see docs/experimental.md.
  *
  * @param dir - the plugin or repo root to read hooks from.
+ *
+ * @beta
  */
 export function experimental_verifyPluginGuards(
   dir: string,

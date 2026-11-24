@@ -94,6 +94,8 @@ const claudeCodePorts = {
  * The Claude Code `HarnessAdapter` — the five ports above, plus the Claude
  * Code tool catalog as data. The catalog sits outside `satisfies HarnessAdapter`
  * because it is not a port: no other harness has to supply it.
+ *
+ * @public
  */
 export const claudeCodeAdapter = {
   ...claudeCodePorts,

@@ -45,12 +45,18 @@ import { tmpdir } from "node:os";
  * `mkdtempSync`, because the directory has to exist before it can be resolved.
  *
  * @param suffix distinguishes roots in a listing; the name is `vigiles-<suffix>-*`
+ *
+ * @public
  */
 export function makeTmpDir(suffix: string = "test"): string {
   return realpathSync(mkdtempSync(join(tmpdir(), `vigiles-${suffix}-`)));
 }
 
-/** Remove a root made by {@link makeTmpDir}. Safe on a path that is already gone. */
+/**
+ * Remove a root made by {@link makeTmpDir}. Safe on a path that is already gone.
+ *
+ * @public
+ */
 export function cleanupTmpDir(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
 }

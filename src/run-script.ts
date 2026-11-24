@@ -61,6 +61,7 @@ import { makeTmpDir } from "./core/tmp-root.js";
 
 export type { EgressAttempt };
 
+/** @public */
 export interface RunScriptOptions {
   /**
    * Text piped to the program's stdin. Default: nothing. A program that ignores
@@ -133,7 +134,11 @@ export interface RunScriptOptions {
   readonly egress?: { readonly allow: readonly string[] };
 }
 
-/** What a program did: its exit, its output, and (when confined) its effects. */
+/**
+ * What a program did: its exit, its output, and (when confined) its effects.
+ *
+ * @public
+ */
 export interface ScriptRunResult {
   /** Exit code. A signal-killed run reports 1. */
   readonly exitCode: number;
@@ -745,6 +750,8 @@ export function egressRoutes(): boolean {
  *
  * Running something you didn't write? Pass `trusted: false` (or `sandbox:
  * "auto"`) to confine it — which is also what records `filesWritten`.
+ *
+ * @public
  */
 export function runScript(
   command: string,

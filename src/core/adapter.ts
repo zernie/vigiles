@@ -35,6 +35,8 @@ import type { HarnessLiveDriver } from "./live-driver.js";
  * `referenceVerification` is gone. It was `true` on every adapter and its type
  * was the literal `true` — a field that can hold one value carries no
  * information, and the conformance check for it could not fail.
+ *
+ * @public
  */
 export interface AdapterCapabilities {
   /**
@@ -303,5 +305,7 @@ type ShellHookPorts =
  * badly — it will list both arms of each union rather than say "you declared
  * harnessTesting and gave me no driver". That is why the conformance kit keeps
  * its per-flag messages: the TYPE is the gate, the KIT is the explanation.
+ *
+ * @public
  */
 export type HarnessAdapter = AdapterBase & TestingPorts & ShellHookPorts;

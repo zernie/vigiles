@@ -11,6 +11,8 @@ import type { PluginLayout } from "./layout.js";
  *
  * The Claude Code implementation is `claudeCodeRuntime` in
  * `src/adapters/claude-code/runtime.ts`.
+ *
+ * @public
  */
 export interface HarnessRuntime {
   /** Stable identifier, e.g. "claude-code". */
@@ -73,6 +75,8 @@ export interface HarnessRuntime {
 /**
  * A harness's request-body channel: make a run write its model requests
  * somewhere WITHOUT exporting anything, then read the first agent-loop request.
+ *
+ * @public
  */
 export interface RequestCapture {
   /** The layout whose instruction chain says what the first request must carry. */
@@ -81,7 +85,11 @@ export interface RequestCapture {
   open(): RequestChannel;
 }
 
-/** One run's request-body channel. */
+/**
+ * One run's request-body channel.
+ *
+ * @public
+ */
 export interface RequestChannel {
   /** Env that makes the run write its request bodies here, and export nothing. */
   readonly env: Readonly<Record<string, string>>;
@@ -108,6 +116,8 @@ export interface RequestChannel {
  * Optional, so an adapter written before this field still type-checks. An
  * adapter without one gets the strict reading: a scrubbed run inherits no
  * harness variable at all, and an inherited one has nothing removed.
+ *
+ * @public
  */
 export interface RunEnvPolicy {
   /**

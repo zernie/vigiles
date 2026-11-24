@@ -77,6 +77,7 @@ interface MaterializedSurfaces {
   readonly scopes: readonly SurfaceScope[];
 }
 
+/** @public */
 export interface LoadedPlugin {
   /** A `.claude/settings.json`-shaped object with hooks resolved. */
   readonly settings: { hooks?: unknown };

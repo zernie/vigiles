@@ -214,10 +214,13 @@ BUILD + TOOLING + GENERATED:
       { render: "line" },
     ),
 
-    "public-exports-are-opt-in": guidance("Public exports are opt-in.", {
-      details: file("docs/contributing/rules.md"),
-      anchor: "public-exports-are-opt-in",
-    }),
+    "public-exports-are-opt-in": guidance(
+      "Public exports are opt-in and gated: a new export lives in ONE entry (`package.json` `exports`), carries a release tag, fits `api-surface/budget.json`, and a new entry gets a `STABILITY.md` row; `vigiles/hook` stays effect-free.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "public-exports-are-opt-in",
+      },
+    ),
 
     "dogfood-vendoring-policy": guidance(
       "The dogfood corpus follows one policy: SHA-pinned, MIT-only, vendored under `test/dogfood/<name>@<sha>/`.",

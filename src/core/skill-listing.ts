@@ -19,7 +19,11 @@
  * the two apart.
  */
 
-/** One skill as the harness would list it, read once by the core. */
+/**
+ * One skill as the harness would list it, read once by the core.
+ *
+ * @public
+ */
 export interface ListedSkill {
   /** The SKILL.md path, relative to the scanned directory, `/`-separated. */
   readonly path: string;
@@ -35,7 +39,11 @@ export interface ListedSkill {
   readonly body: string;
 }
 
-/** How one harness renders a skill into its session-start listing. */
+/**
+ * How one harness renders a skill into its session-start listing.
+ *
+ * @public
+ */
 export interface SkillListingRules {
   /**
    * The entry exactly as the harness renders it, its own per-entry cap
@@ -58,7 +66,11 @@ export interface SkillListingRules {
   readonly budget?: SkillListingBudget;
 }
 
-/** The listing's budget for one commit: the harness default, or a committed setting. */
+/**
+ * The listing's budget for one commit: the harness default, or a committed setting.
+ *
+ * @public
+ */
 export interface ListingLimit {
   /** In the harness's unit (the instruction budget's `unit`). */
   readonly limit: number;
@@ -66,7 +78,11 @@ export interface ListingLimit {
   readonly setBy?: string;
 }
 
-/** How a harness sizes its whole skill listing. */
+/**
+ * How a harness sizes its whole skill listing.
+ *
+ * @public
+ */
 export interface SkillListingBudget {
   /**
    * The limit a session on this commit gets, from the COMMITTED settings

@@ -23,6 +23,7 @@ import type { HookConditionSupport } from "./hook-condition.js";
  */
 export type HookFailurePolicy = "block" | "continue";
 
+/** @public */
 export interface HookProtocol {
   /** Stable identifier, e.g. "claude-code". */
   readonly name: string;

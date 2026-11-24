@@ -43,7 +43,11 @@ export type { ArgMatcher };
 // Core types
 // ---------------------------------------------------------------------------
 
-/** The outcome of evaluating one check against one result. */
+/**
+ * The outcome of evaluating one check against one result.
+ *
+ * @public
+ */
 export interface CheckResult {
   /** Did the check hold? */
   readonly pass: boolean;
@@ -53,13 +57,21 @@ export interface CheckResult {
   readonly message: string;
 }
 
-/** A check's serialized form (for JSON/JUnit output and the promptfoo bridge). */
+/**
+ * A check's serialized form (for JSON/JUnit output and the promptfoo bridge).
+ *
+ * @public
+ */
 export interface CheckJSON {
   readonly kind: string;
   readonly [field: string]: unknown;
 }
 
-/** A declarative check over a result of type `T` ({@link Trace} or {@link HookRunResult}). */
+/**
+ * A declarative check over a result of type `T` ({@link Trace} or {@link HookRunResult}).
+ *
+ * @public
+ */
 export interface Check<T> {
   /** Discriminator, e.g. `"tool"`, `"skill"`, `"blocked"`. */
   readonly kind: string;
@@ -84,6 +96,8 @@ export function evalChecks<T>(
  * short-circuit). The deterministic-tier verdict — use it in `node:test`, or any
  * runner, over a `runHook` / `runHarness` result. `measure` (Phase 3) is the
  * scored counterpart over trials.
+ *
+ * @public
  */
 export function assertChecks<T>(target: T, checks: readonly Check<T>[]): void {
   const failures = evalChecks(target, checks).filter((r) => !r.pass);
@@ -544,6 +558,8 @@ export function output(matcher: string | RegExp): Check<Trace> {
  *
  * @experimental The matcher may grow a function form, and a check may come to
  * be attached to a spec rule (vigiles#323).
+ *
+ * @beta
  */
 export function experimental_eachReply(
   matcher: string | Readonly<RegExp>,
@@ -574,6 +590,8 @@ export function experimental_eachReply(
  * agent reply again can break while `output` still shows one.
  *
  * @experimental See {@link experimental_eachReply}.
+ *
+ * @beta
  */
 export function experimental_replyCount(
   matcher: string | Readonly<RegExp>,
@@ -947,7 +965,11 @@ export function mcp(server: string, toolName: string): Check<Trace> {
 // fits the same interface; the `judge` fn is injectable for testing.
 // ---------------------------------------------------------------------------
 
-/** A model-graded judge: grades `output` against a `rubric` → score in [0,1]. */
+/**
+ * A model-graded judge: grades `output` against a `rubric` → score in [0,1].
+ *
+ * @public
+ */
 export type JudgeFn = (opts: {
   output: string;
   rubric: string;
@@ -959,6 +981,8 @@ export type JudgeFn = (opts: {
  * judged by a model. Unlike the deterministic checks this one calls a model
  * (cost), so it's for the scored `measure` tier; the `judge` fn is injectable
  * (default: the real `judge()`), so the logic is unit-testable with a fake.
+ *
+ * @public
  */
 export function judged(
   rubric: string,
@@ -1042,6 +1066,8 @@ export function latency(opts: { maxMs: number }): Check<UsageTrace> {
  *   "compression" win on output can be erased here);
  * - `maxOutput` — output tokens, the generation side;
  * - `maxCache` — prompt-cache tokens, written plus served.
+ *
+ * @public
  */
 export type TokenBudget =
   | {

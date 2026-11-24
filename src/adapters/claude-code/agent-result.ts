@@ -20,7 +20,11 @@
 
 import type { OutputContract, OutputFieldType } from "../../core/spec.js";
 
-/** The outcome of parsing a worker's result block. */
+/**
+ * The outcome of parsing a worker's result block.
+ *
+ * @public
+ */
 export type ParsedAgentResult<
   S = Record<string, unknown>,
   E = Record<string, unknown>,

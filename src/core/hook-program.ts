@@ -164,13 +164,17 @@ export function invalidToolPatterns(tools: readonly string[]): string[] {
 // The closed vocabulary (this is the entire surface a hook author may touch)
 // ---------------------------------------------------------------------------
 
+/** @public */
 export type Decision =
   | { readonly kind: "allow" }
   | { readonly kind: "deny"; readonly reason: string }
   | { readonly kind: "ask"; readonly reason: string };
 
+/** @public */
 export const allow = (): Decision => ({ kind: "allow" });
+/** @public */
 export const deny = (reason: string): Decision => ({ kind: "deny", reason });
+/** @public */
 export const ask = (reason: string): Decision => ({ kind: "ask", reason });
 
 /**
@@ -181,6 +185,8 @@ export const ask = (reason: string): Decision => ({ kind: "ask", reason });
  * record) — not a vocabulary of on-fail actions. HARNESS-NEUTRAL by construction:
  * observe just exits 0 and writes a local record, so it behaves identically on
  * Claude Code and Codex (no harness-specific field names involved).
+ *
+ * @public
  */
 export type HookMode = "enforce" | "observe";
 
@@ -291,6 +297,8 @@ export function noticeDelivery(
  * were typed — and a Bash gate's `allow` becomes an `ask` when the command
  * hands a command to a program it cannot read into (`find -exec`, `bash -c
  * "$X"`, …). See {@link decideProgram} and vigiles#460.
+ *
+ * @public
  */
 export interface ShellCommand {
   /** The command line exactly as the tool event carried it, before parsing. */
@@ -892,6 +900,8 @@ function mayMeanAskedFlag(
  *   placeable, and {@link ShellCommand.touches} treats that as a match. It does
  *   cost precision: with a root, `/somewhere-else/notes/x` is provably not this
  *   repo's `notes`; without one it can only be over-blocked.
+ *
+ * @public
  */
 export function parseShellCommand(raw: string, root?: string): ShellCommand {
   return inspectShellCommand(raw, root).view;
@@ -1164,6 +1174,8 @@ function shellCommandOf(raw: {
  * `needs` (`N`) so `e.ctx` exposes ONLY the facts the hook declared — reading an
  * undeclared one is a `tsc` error. The default is the erased (all-providers)
  * shape used by the runtime/`AnyHook`.
+ *
+ * @public
  */
 export interface BashToolEvent<
   N extends readonly NeedSpec[] = readonly ProviderName[],
@@ -1175,7 +1187,11 @@ export interface BashToolEvent<
   readonly ctx: HookCtx<N>;
 }
 
-/** A hook program: where it fires + the pure decision. */
+/**
+ * A hook program: where it fires + the pure decision.
+ *
+ * @public
+ */
 export interface HookProgram<
   N extends readonly NeedSpec[] = readonly ProviderName[],
 > {
@@ -1193,6 +1209,8 @@ export interface HookProgram<
  * the import. Measured 2026-08-21: with the alias in place the marker survived
  * at 0 of 5 call sites in the only user-facing example, because a reader 200
  * lines down sees `defineHook` without it and cannot tell it is provisional.
+ *
+ * @beta
  */
 export function experimental_defineHook<
   const N extends readonly NeedSpec[] = readonly [],
@@ -1388,6 +1406,7 @@ type ErasedTools = readonly any[];
    authored `N`, which the default (`readonly ProviderName[]`) cannot, because a
    gate's `decide` is contravariant in `N`. `any` makes the instantiation
    bivariant so a built-in-needs and an inline-needs hook both assign. */
+/** @public */
 export type AnyHook =
   | HookProgram<ErasedNeeds>
   | FileGateHook<ErasedNeeds>
@@ -1921,7 +1940,11 @@ export function verifyHookStamp(source: string, stamp: SHA256Hash): boolean {
 
 // --- A second GATE shape: Edit/Write path confinement (a different tool/field/matcher) ---
 
-/** An AST-free view of a file path — the matching primitive for file tools. */
+/**
+ * An AST-free view of a file path — the matching primitive for file tools.
+ *
+ * @public
+ */
 export interface FilePath {
   /** The path exactly as the tool event carried it, in any spelling. */
   readonly raw: string;
@@ -1989,6 +2012,8 @@ export interface FilePath {
  *   `process.cwd()` — under a git worktree the process's cwd is a DIFFERENT
  *   checkout from the one the harness resolved the hook out of, and that exact
  *   mismatch already wedged a repo once.
+ *
+ * @public
  */
 export function parseFilePath(raw: string, root?: string): FilePath {
   const slashed = raw.replace(/\\/g, "/");
@@ -2137,7 +2162,11 @@ export function undecidablePathWarning(
   );
 }
 
-/** The event a file-tool gate decides over (Edit/Write/Read carry `file_path`). */
+/**
+ * The event a file-tool gate decides over (Edit/Write/Read carry `file_path`).
+ *
+ * @public
+ */
 export interface FileToolEvent<
   N extends readonly NeedSpec[] = readonly ProviderName[],
 > {
@@ -2148,6 +2177,7 @@ export interface FileToolEvent<
   readonly ctx: HookCtx<N>;
 }
 
+/** @public */
 export interface FileGateHook<
   N extends readonly NeedSpec[] = readonly ProviderName[],
 > {
@@ -2165,6 +2195,8 @@ export interface FileGateHook<
  * Declare the tools a hook matches: `match: tools("Edit", "Write")`. The names
  * keep their LITERAL types, which is how a react declared with `tools("Bash")`
  * alone is known to carry `e.command`.
+ *
+ * @public
  */
 export const tools = <const T extends readonly string[]>(
   ...names: T
@@ -2177,6 +2209,8 @@ export const tools = <const T extends readonly string[]>(
  * the import. Measured 2026-08-21: with the alias in place the marker survived
  * at 0 of 5 call sites in the only user-facing example, because a reader 200
  * lines down sees `defineFileGate` without it and cannot tell it is provisional.
+ *
+ * @beta
  */
 export function experimental_defineFileGate<
   const N extends readonly NeedSpec[] = readonly [],
@@ -2232,7 +2266,11 @@ export function decideFileGate<N extends readonly NeedSpec[]>(
 // work on every harness whose gate vetoes via exit 2 (Claude Code + Codex).
 // ===========================================================================
 
-/** The event a UserPromptSubmit gate decides over — it sees the prompt TEXT. */
+/**
+ * The event a UserPromptSubmit gate decides over — it sees the prompt TEXT.
+ *
+ * @public
+ */
 export interface PromptEvent<
   N extends readonly NeedSpec[] = readonly ProviderName[],
 > {
@@ -2243,6 +2281,7 @@ export interface PromptEvent<
   readonly ctx: HookCtx<N>;
 }
 
+/** @public */
 export interface PromptGateHook<
   N extends readonly NeedSpec[] = readonly ProviderName[],
 > {
@@ -2262,6 +2301,8 @@ export interface PromptGateHook<
  * the import. Measured 2026-08-21: with the alias in place the marker survived
  * at 0 of 5 call sites in the only user-facing example, because a reader 200
  * lines down sees `definePromptGate` without it and cannot tell it is provisional.
+ *
+ * @beta
  */
 export function experimental_definePromptGate<
   const N extends readonly NeedSpec[] = readonly [],
@@ -2286,6 +2327,8 @@ export function decidePromptGate<N extends readonly NeedSpec[]>(
 /**
  * The event a Stop gate decides over. `deny` BLOCKS the agent from ending its
  * turn (the reason is surfaced to the agent — e.g. "tests are red, keep going").
+ *
+ * @public
  */
 export interface StopEvent<
   N extends readonly NeedSpec[] = readonly ProviderName[],
@@ -2301,6 +2344,7 @@ export interface StopEvent<
   readonly ctx: HookCtx<N>;
 }
 
+/** @public */
 export interface StopGateHook<
   N extends readonly NeedSpec[] = readonly ProviderName[],
 > {
@@ -2320,6 +2364,8 @@ export interface StopGateHook<
  * the import. Measured 2026-08-21: with the alias in place the marker survived
  * at 0 of 5 call sites in the only user-facing example, because a reader 200
  * lines down sees `defineStopGate` without it and cannot tell it is provisional.
+ *
+ * @beta
  */
 export function experimental_defineStopGate<
   const N extends readonly NeedSpec[] = readonly [],
@@ -2342,7 +2388,11 @@ export function decideStopGate<N extends readonly NeedSpec[]>(
 
 // --- A non-gate shape: context INJECTION (SessionStart) — a different OUTPUT ---
 
-/** The output of an inject hook — text to add to context. NO allow/deny exists here. */
+/**
+ * The output of an inject hook — text to add to context. NO allow/deny exists here.
+ *
+ * @public
+ */
 export interface Injection {
   readonly kind: "inject";
   readonly context: string;
@@ -2356,6 +2406,8 @@ export interface Injection {
  * The writes are trailing arguments on every output builder, so there is one rule
  * to learn rather than a per-role spelling — and a hook that records nothing is
  * written exactly as it was before.
+ *
+ * @public
  */
 export const inject = (
   context: string,
@@ -2369,6 +2421,8 @@ export const inject = (
 /**
  * The event an inject hook produces from (no tool — SessionStart/UserPromptSubmit).
  * Generic over its declared `needs`, exactly like the gate events.
+ *
+ * @public
  */
 export interface SessionEvent<
   N extends readonly NeedSpec[] = readonly ProviderName[],
@@ -2379,6 +2433,7 @@ export interface SessionEvent<
   readonly ctx: HookCtx<N>;
 }
 
+/** @public */
 export interface InjectHook<
   N extends readonly NeedSpec[] = readonly ProviderName[],
 > {
@@ -2401,6 +2456,8 @@ export interface InjectHook<
  * the import. Measured 2026-08-21: with the alias in place the marker survived
  * at 0 of 5 call sites in the only user-facing example, because a reader 200
  * lines down sees `defineInject` without it and cannot tell it is provisional.
+ *
+ * @beta
  */
 export function experimental_defineInject<
   const N extends readonly NeedSpec[] = readonly [],
@@ -2457,6 +2514,8 @@ export function injectionOf<N extends readonly NeedSpec[]>(
  * A view of a tool's RESPONSE (PostToolUse) — the matching primitive a react hook
  * reasons over (e.g. capture/notify only when a command FAILED). The author never
  * parses the raw payload shape.
+ *
+ * @public
  */
 export interface ResponseView {
   /** The response as text (an object payload is JSON-stringified). */
@@ -2477,6 +2536,7 @@ function responseText(raw: unknown): string {
   return JSON.stringify(raw);
 }
 
+/** @public */
 export function responseView(raw: unknown): ResponseView {
   const text = responseText(raw);
   const flagged =
@@ -2496,6 +2556,8 @@ export function responseView(raw: unknown): ResponseView {
  * tools, a mixed list, a pattern, or a tool-less event. It has NO `command`
  * property at all (not an optional one), so `e.command?.runs(…)`, which would be
  * silently false forever, cannot be written either.
+ *
+ * @public
  */
 export interface ToolReactEvent<
   N extends readonly NeedSpec[] = readonly ProviderName[],
@@ -2515,6 +2577,8 @@ export interface ToolReactEvent<
 /**
  * The event of a react declared for the shell tool ALONE (`match: tools("Bash")`):
  * everything a {@link ToolReactEvent} carries, plus the command it reacts to.
+ *
+ * @public
  */
 export interface BashReactEvent<
   N extends readonly NeedSpec[] = readonly ProviderName[],
@@ -2548,18 +2612,22 @@ type DeclaresOnlyShell<T extends readonly string[]> = [T[number]] extends [
  * and, for a react declared for Bash alone, the command. `T` is the declared
  * `match.tools`; the default (`readonly string[]`) is the shape every react had
  * before the command existed, so `ReactEvent<N>` keeps meaning what it meant.
+ *
+ * @public
  */
 export type ReactEvent<
   N extends readonly NeedSpec[] = readonly ProviderName[],
   T extends readonly string[] = readonly string[],
 > = DeclaresOnlyShell<T> extends true ? BashReactEvent<N> : ToolReactEvent<N>;
 
+/** @public */
 export interface RunReaction {
   readonly kind: "run";
   readonly command: string;
   readonly effect: BashEffect;
   readonly records: readonly StateWrite[];
 }
+/** @public */
 export type Reaction =
   | RunReaction
   | {
@@ -2577,6 +2645,8 @@ export type Reaction =
  * (`run("date +%s > .claude/.stamp")`) was the only way to remember anything
  * before `record()` existed; it is now the wrong tool — it spends a subprocess
  * and a shell on a variable assignment, and it classifies as side-effecting.
+ *
+ * @public
  */
 export const run = (
   command: string,
@@ -2587,7 +2657,11 @@ export const run = (
   effect: classifyBashCommand(command),
   records,
 });
-/** Surface a non-blocking note (no execution). Trailing arguments record facts. */
+/**
+ * Surface a non-blocking note (no execution). Trailing arguments record facts.
+ *
+ * @public
+ */
 export const notice = (
   message: string,
   ...records: readonly StateWrite[]
@@ -2600,12 +2674,15 @@ export const notice = (
  * Take no action. Trailing arguments still record facts — `nothing(record("x"))`
  * is the shape of a hook whose entire job is to WITNESS that something happened
  * (an MCP call, a deploy) so a different hook can read it later.
+ *
+ * @public
  */
 export const nothing = (...records: readonly StateWrite[]): Reaction => ({
   kind: "none",
   records,
 });
 
+/** @public */
 export interface ReactHook<
   N extends readonly NeedSpec[] = readonly ProviderName[],
   T extends readonly string[] = readonly string[],
@@ -2640,6 +2717,8 @@ export interface ReactHook<
  * the import. Measured 2026-08-21: with the alias in place the marker survived
  * at 0 of 5 call sites in the only user-facing example, because a reader 200
  * lines down sees `defineReact` without it and cannot tell it is provisional.
+ *
+ * @beta
  */
 export function experimental_defineReact<
   const N extends readonly NeedSpec[] = readonly [],
@@ -2713,7 +2792,11 @@ export function runReact<
 // in-process twin of the `vigiles hook-runtime run-program` CLI.
 // ---------------------------------------------------------------------------
 
-/** The raw event fields the decode functions read (the union across roles). */
+/**
+ * The raw event fields the decode functions read (the union across roles).
+ *
+ * @public
+ */
 export interface RawHookEvent {
   readonly tool_name?: string;
   readonly tool_input?: {
@@ -2792,7 +2875,11 @@ export function resolveHookEvent(
   };
 }
 
-/** The normalized outcome of running a hook program — discriminated by role. */
+/**
+ * The normalized outcome of running a hook program — discriminated by role.
+ *
+ * @public
+ */
 export type HookProgramOutcome =
   | { readonly kind: "decision"; readonly decision: Decision }
   | {
@@ -2858,6 +2945,8 @@ export function hookSource(hook: AnyHook): string | undefined {
  * a gate → its `Decision`, an inject → the injected context text, a react → its
  * (effect-classified) `Reaction`. Pure — no subprocess, no model. The ergonomic
  * base for testing a compiled hook (see `experimental_assertHookDenies` / `experimental_assertHookAllows`).
+ *
+ * @public
  */
 export function runHookProgram(
   hook: AnyHook,

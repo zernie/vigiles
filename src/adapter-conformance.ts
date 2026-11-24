@@ -21,6 +21,7 @@ import { RENDERABLE_SKILL_FRONTMATTER_KEYS } from "./core/dialect.js";
 import { surfaceDirs } from "./core/layout.js";
 import { makeTmpDir } from "./core/tmp-root.js";
 
+/** @public */
 export interface ConformanceResult {
   readonly ok: boolean;
   readonly failures: readonly string[];
@@ -42,7 +43,11 @@ function optionalPaths(
   ];
 }
 
-/** Check an adapter against the port contracts; returns the (possibly empty) failure list. */
+/**
+ * Check an adapter against the port contracts; returns the (possibly empty) failure list.
+ *
+ * @public
+ */
 export function checkAdapterConformance(
   adapter: HarnessAdapter,
 ): ConformanceResult {
@@ -313,7 +318,11 @@ export function checkAdapterConformance(
   return { ok: failures.length === 0, failures };
 }
 
-/** Throw if the adapter fails conformance — drop this in an adapter's test suite. */
+/**
+ * Throw if the adapter fails conformance — drop this in an adapter's test suite.
+ *
+ * @public
+ */
 export function assertAdapterConformance(adapter: HarnessAdapter): void {
   const r = checkAdapterConformance(adapter);
   if (!r.ok) {
@@ -349,6 +358,8 @@ export function assertHarnessTestable(adapter: HarnessAdapter): {
  * catches a layout that points at the right file but in the wrong format (the
  * JSON-vs-TOML trap) — the pure checker would pass it, the agent would silently
  * run with zero hooks. Does filesystem IO, so it's a separate opt-in assert.
+ *
+ * @public
  */
 export function assertAdapterLoadsHooks(adapter: HarnessAdapter): void {
   // Only a shell-hook harness has a hooks file to round-trip; the caller

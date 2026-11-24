@@ -18,6 +18,7 @@ import { codexRuntime } from "./runtime.js";
 import { codexHookProtocol } from "./hook-protocol.js";
 import { codexModelMock } from "./model-mock.js";
 
+/** @public */
 export const codexAdapter = {
   name: "codex",
   // Full convergence with Claude Code: mockable (Responses SSE) + shell hooks

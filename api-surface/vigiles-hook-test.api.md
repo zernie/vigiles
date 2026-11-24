@@ -4,19 +4,19 @@
 
 ```ts
 
-// @public
+// @beta
 export function experimental_assertHookAllows(hook: AnyHook, event: RawHookEvent): void;
 
-// @public
+// @beta
 export function experimental_assertHookDenies(hook: AnyHook, event: RawHookEvent): void;
 
-// @public
+// @beta
 export function experimental_assertHookNotices(hook: AnyHook, event: RawHookEvent, matcher?: string | RegExp): void;
 
-// @public
+// @beta
 export function experimental_assertHookSilent(hook: AnyHook, event: RawHookEvent): void;
 
-// @public
+// @beta
 export function experimental_loadHook(file: string, root?: string): Promise<AnyHook>;
 
 // @public

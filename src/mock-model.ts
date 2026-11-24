@@ -32,17 +32,23 @@ import type { ModelTurn, ModelRequest } from "./core/harness-driver.js";
 import { scriptOverrunMessage } from "./core/script-overrun.js";
 export type { ModelTurn, ModelRequest } from "./core/harness-driver.js";
 
-/** Build a scripted model from an ordered list of turns. */
+/**
+ * Build a scripted model from an ordered list of turns.
+ *
+ * @public
+ */
 export function scriptModel(turns: readonly ModelTurn[]): ModelTurn[] {
   return [...turns];
 }
 
+/** @public */
 export interface TurnInfo {
   readonly n: number;
   readonly stream: boolean;
   readonly hasToolResult: boolean;
 }
 
+/** @public */
 export interface MockHandle {
   readonly url: string;
   close(): void;
@@ -483,6 +489,8 @@ function parseReqBody(body: string): Readonly<ReqBody> {
  * a SIDE-CHANNEL POST — the CLI's own bookkeeping calls, see
  * {@link isMainLoopRequest} — is answered from outside the script and consumes
  * nothing. Resolves to a handle with the base `url` and a `close()`.
+ *
+ * @public
  */
 export function startMock(
   script: readonly ModelTurn[],
