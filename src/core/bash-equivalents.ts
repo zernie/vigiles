@@ -36,9 +36,8 @@
  * is not emitted only because this self-check compares one level.
  */
 import {
+  leafCommandsNormalized,
   readShell,
-  SHORT_TO_LONG,
-  LONG_TO_SHORT,
   WRAPPER_HEADS,
   type NormalizedLeaf,
 } from "./bash-effects.js";
@@ -119,32 +118,31 @@ const FAMILIES: readonly Family[] = [
     name: "quoted flag",
     // `getLiteral` returns null for a quoted word and `leafCommands` filters
     // nulls, so this is the family that made a flag VANISH from argv.
-    rewrite: (c) =>
-      [...c.matchAll(/(?<=\s)(--?[A-Za-z][\w-]*)(?=\s|$)/g)].flatMap((m) => [
-        c.replace(m[1], `"${m[1]}"`),
-        c.replace(m[1], `'${m[1]}'`),
-      ]),
+    // Only a flag some command receives: inside `[[ … ]]` a quoted `-d` is a
+    // string, not the operator.
+    rewrite: (c) => {
+      const argv = new Set(leafCommandsNormalized(c).flatMap((l) => l.argv));
+      return [...c.matchAll(/(?<=\s)(--?[A-Za-z][\w-]*)(?=\s|$)/g)]
+        .filter((m) => argv.has(m[0]))
+        .flatMap((m) => [
+          spliceToken(c, m.index, m[0], `"${m[0]}"`),
+          spliceToken(c, m.index, m[0], `'${m[0]}'`),
+        ]);
+    },
   },
   {
     name: "flag alias",
-    rewrite: (c) => {
-      const out: string[] = [];
-      for (const [long, short] of Object.entries(LONG_TO_SHORT))
-        if (c.includes(`--${long}`))
-          out.push(c.replace(`--${long}`, `-${short}`));
-      for (const [short, long] of Object.entries(SHORT_TO_LONG)) {
-        const re = new RegExp(`(?<=\\s)-${short}(?=\\s|$)`);
-        if (re.test(c)) out.push(c.replace(re, `--${long}`));
-      }
-      return out;
-    },
+    // Scoped by program and subcommand ({@link FLAG_ALIASES}): `-n` is
+    // `--no-verify` to `git commit` and `--dry-run` to `git push`. The
+    // self-check cannot catch a wrong alias — the normalizer folds flags with
+    // one table for every program — so the scope is the evidence.
+    rewrite: (c) => scopedAliases(c),
   },
   {
     name: "absolute or escaped head",
     rewrite: (c) => {
-      const head = c.trimStart().split(/\s+/)[0];
-      if (!head || head.includes("/") || head.startsWith("\\")) return [];
-      const rest = c.trimStart().slice(head.length);
+      const { head, rest } = splitHead(c);
+      if (!rewritableHead(c)) return [];
       return [
         `/usr/bin/${head}${rest}`,
         `/bin/${head}${rest}`,
@@ -154,7 +152,10 @@ const FAMILIES: readonly Family[] = [
   },
   {
     name: "wrapper prefix",
-    rewrite: (c) => WRAPPER_PREFIXES.map((w) => `${w} ${c.trimStart()}`),
+    rewrite: (c) =>
+      rewritableHead(c)
+        ? WRAPPER_PREFIXES.map((w) => `${w} ${c.trimStart()}`)
+        : [],
   },
   // The four families below are the shell's OWN obfuscations — what promptfoo's
   // base64/leetspeak strategies are for a model, these are for `sh`: the shell
@@ -166,7 +167,7 @@ const FAMILIES: readonly Family[] = [
     name: "quoted head",
     rewrite: (c) => {
       const { head, rest } = splitHead(c);
-      if (!head || !/^[A-Za-z][\w.-]*$/.test(head)) return [];
+      if (!rewritableHead(c) || !/^[A-Za-z][\w.-]*$/.test(head)) return [];
       return [
         `${head.slice(0, 1)}""${head.slice(1)}${rest}`,
         `"${head}"${rest}`,
@@ -179,7 +180,7 @@ const FAMILIES: readonly Family[] = [
     name: "ansi-c quoted head",
     rewrite: (c) => {
       const { head, rest } = splitHead(c);
-      if (!head || !/^[A-Za-z][\w.-]*$/.test(head)) return [];
+      if (!rewritableHead(c) || !/^[A-Za-z][\w.-]*$/.test(head)) return [];
       return [`$'${head}'${rest}`];
     },
   },
@@ -191,7 +192,7 @@ const FAMILIES: readonly Family[] = [
     name: "escaped character in head",
     rewrite: (c) => {
       const { head, rest } = splitHead(c);
-      if (!head || !/^[A-Za-z]{2,}[\w.-]*$/.test(head)) return [];
+      if (!rewritableHead(c) || !/^[A-Za-z]{2,}[\w.-]*$/.test(head)) return [];
       return [`${head.slice(0, 1)}\\${head.slice(1)}${rest}`];
     },
   },
@@ -213,6 +214,8 @@ const FAMILIES: readonly Family[] = [
     name: "env assignment prefix",
     rewrite: (c) => {
       const cmd = c.trimStart();
+      const { head } = splitHead(c);
+      if (!rewritableHead(c) && !ASSIGNMENT.test(head)) return [];
       return [`FOO=1 ${cmd}`, `GIT_TERMINAL_PROMPT=0 LC_ALL=C ${cmd}`];
     },
   },
@@ -221,7 +224,12 @@ const FAMILIES: readonly Family[] = [
     // shell. A guard anchored at the start of the string (`case "$cmd" in
     // "git push"*`) sees `(` first.
     name: "subshell",
-    rewrite: (c) => [`( ${c.trim()} )`],
+    // A seed with a comment or a newline (a heredoc) closes on its own line,
+    // or the `)` would land inside the comment or the heredoc body.
+    rewrite: (c) => {
+      const cmd = c.trim();
+      return [/[#\n]/.test(cmd) ? `( ${cmd}\n)` : `( ${cmd} )`];
+    },
   },
   {
     // `bash -c '…'`, `sh -c '…'`, `eval '…'` — the command handed on as one
@@ -238,6 +246,97 @@ const FAMILIES: readonly Family[] = [
   },
 ];
 
+/** A command word a head rewrite may touch: no assignment, no `[[`, no path. */
+const PLAIN_HEAD = /^[A-Za-z][\w.-]*$/;
+
+/**
+ * Whether a head rewrite may touch `cmd`'s first word: a plain command word
+ * that IS the first command the parser reads — not `if`, `for`, `time`, `[[`
+ * or an assignment, whose rewrite would be a different command or none.
+ */
+function rewritableHead(cmd: string): boolean {
+  const { head } = splitHead(cmd);
+  return PLAIN_HEAD.test(head) && leafCommandsNormalized(cmd)[0]?.head === head;
+}
+
+/** A leading `NAME=value` assignment word. */
+const ASSIGNMENT = /^[A-Za-z_]\w*=/;
+
+/**
+ * Flag aliases per program and subcommand, long → short, each from that
+ * command's manual: git-push(1) `-f, --force` (its `-n` is `--dry-run`),
+ * git-commit(1) `-n, --[no-]verify`, git-clean(1) / git-checkout(1) /
+ * git-branch(1) `-f, --force`, rm(1) `-f, --force` and `-r, --recursive`,
+ * pip install `-i, --index-url`. A command with no row gets no alias spellings.
+ */
+const FLAG_ALIASES: Readonly<Record<string, Readonly<Record<string, string>>>> =
+  {
+    "git push": { force: "f" },
+    "git commit": { "no-verify": "n" },
+    "git clean": { force: "f" },
+    "git checkout": { force: "f" },
+    "git branch": { force: "f" },
+    rm: { force: "f", recursive: "r" },
+    "pip install": { "index-url": "i" },
+  };
+
+/** The alias table for a leaf: its program and subcommand's, else its program's. */
+function aliasTable(leaf: NormalizedLeaf): Readonly<Record<string, string>> {
+  return (
+    FLAG_ALIASES[`${leaf.head} ${leaf.args[0] ?? ""}`] ??
+    FLAG_ALIASES[leaf.head] ??
+    {}
+  );
+}
+
+/** `cmd` with the whole token `from` at `index` replaced by `to`. */
+function spliceToken(
+  cmd: string,
+  index: number,
+  from: string,
+  to: string,
+): string {
+  return cmd.slice(0, index) + to + cmd.slice(index + from.length);
+}
+
+/**
+ * The alias spellings of `cmd`: each flag swapped for its other form, as a
+ * whole token, only when the token occurs ONCE (so the right one is changed)
+ * and every leaf that carries it has that alias in its own table.
+ */
+function scopedAliases(cmd: string): readonly string[] {
+  const leaves = leafCommandsNormalized(cmd);
+  const pairs = leaves.flatMap((leaf) =>
+    Object.entries(aliasTable(leaf)).flatMap(([long, short]) => [
+      [`--${long}`, `-${short}`],
+      [`-${short}`, `--${long}`],
+    ]),
+  );
+  return pairs.flatMap(([from = "", to = ""]) => {
+    const hits = tokenHits(cmd, from);
+    const carriers = leaves.filter((l) => l.argv.includes(from));
+    const scoped = carriers.every((l) =>
+      Object.entries(aliasTable(l)).some(
+        ([long, short]) => from === `--${long}` || from === `-${short}`,
+      ),
+    );
+    const hit = hits[0];
+    return hits.length === 1 && hit && carriers.length > 0 && scoped
+      ? [spliceToken(cmd, hit.index, from, to)]
+      : [];
+  });
+}
+
+/** Where `token` stands alone, between shell word boundaries, in `cmd`. */
+function tokenHits(cmd: string, token: string): readonly RegExpExecArray[] {
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return [
+    ...cmd.matchAll(
+      new RegExp(`(?<=^|[\\s;&|(])${escaped}(?=$|[\\s;&|)])`, "g"),
+    ),
+  ];
+}
+
 /**
  * `cmd` as ONE shell word that expands to exactly `cmd`: single quotes when it
  * has none, else double quotes when nothing inside would expand, else null.
@@ -248,7 +347,10 @@ function literalWord(cmd: string): string | null {
 }
 
 /** The first word of a command and everything after it, leading blanks dropped. */
-function splitHead(cmd: string): { head: string; rest: string } {
+function splitHead(cmd: string): {
+  readonly head: string;
+  readonly rest: string;
+} {
   const trimmed = cmd.trimStart();
   const head = trimmed.split(/\s+/)[0] ?? "";
   return { head, rest: trimmed.slice(head.length) };
@@ -294,20 +396,47 @@ function joinWords(cmd: string, sep: string): string {
  * A family that does not APPLY (no flag to quote) yields nothing, which is
  * different from producing something wrong.
  */
-export function equivalentCommands(seed: string): readonly string[] {
-  const out = new Set<string>();
-  for (const family of FAMILIES) {
-    for (const candidate of family.rewrite(seed)) {
-      if (candidate === seed) continue;
-      if (!sameOperation(seed, candidate)) {
-        throw new Error(
-          `bash-equivalents: family "${family.name}" produced a NON-equivalent ` +
-            `rewrite of ${JSON.stringify(seed)}: ${JSON.stringify(candidate)}. ` +
-            `A variant that changes the operation would blame a correct guard.`,
-        );
-      }
-      out.add(candidate);
-    }
-  }
-  return [...out];
+export function equivalentCommands(
+  seed: string,
+  opts: { readonly families?: readonly Family[] } = {},
+): readonly string[] {
+  const { proven, unproven, family } = equivalentSpellings(seed, opts);
+  const first = unproven[0];
+  if (first !== undefined)
+    throw new Error(
+      `bash-equivalents: family "${family[0] ?? ""}" produced a NON-equivalent ` +
+        `rewrite of ${JSON.stringify(seed)}: ${JSON.stringify(first)}. ` +
+        `A variant that changes the operation would blame a correct guard.`,
+    );
+  return proven;
+}
+
+/**
+ * The same rewrites, LENIENT: a candidate the self-check cannot prove is
+ * returned in `unproven` (with the family that made it) instead of throwing —
+ * for a battery the CALLER wrote, where a seed we never saw must not make the
+ * check throw before the guard runs. A seed the parser reads no command in
+ * gets nothing at all: there is nothing to prove against.
+ */
+export function equivalentSpellings(
+  seed: string,
+  opts: { readonly families?: readonly Family[] } = {},
+): {
+  readonly proven: readonly string[];
+  readonly unproven: readonly string[];
+  readonly family: readonly string[];
+} {
+  if (gateReading(seed).leaves.length === 0)
+    return { proven: [], unproven: [], family: [] };
+  // First family to produce a candidate names it; the seed itself is not one.
+  const made = (opts.families ?? FAMILIES)
+    .flatMap((f) => f.rewrite(seed).map((c) => [c, f.name] as const))
+    .filter(([c]) => c !== seed);
+  const all = made.filter(([c], i) => made.findIndex(([d]) => d === c) === i);
+  const bad = all.filter(([c]) => !sameOperation(seed, c));
+  return {
+    proven: all.filter(([c]) => sameOperation(seed, c)).map(([c]) => c),
+    unproven: bad.map(([c]) => c),
+    family: bad.map(([, f]) => f),
+  };
 }

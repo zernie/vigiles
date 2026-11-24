@@ -977,16 +977,10 @@
     }
   },
   "src/core/bash-equivalents.ts": {
-    "functional/immutable-data": {
-      "count": 3
-    },
     "functional/no-let": {
       "count": 3
     },
     "functional/no-loop-statements": {
-      "count": 6
-    },
-    "functional/prefer-immutable-types": {
       "count": 2
     },
     "sonarjs/no-nested-conditional": {

@@ -236,11 +236,21 @@ For each one, `assertGuardrail` sends your hook three kinds of `PreToolUse`
 event, and throws, naming every case that went the wrong way:
 
 1. **the disaster** — it must block;
-2. **other spellings** the shell runs the same way — `git push "--force"`,
+2. **other spellings** that contain the same operation — `git push "--force"`,
    `sudo git push --force`, `( git push --force origin main )`,
    `bash -c 'git push --force origin main'` — it must block;
 3. **harmless look-alikes** — the same text as data: a commit message, a heredoc
    body, an `echo` argument, a `grep` pattern — it must allow.
+
+Each failure names the case by its id — `force-push~12` is the twelfth spelling
+of `force-push`. A spelling of one of **your** events that the generator cannot
+prove is skipped and counted ("N spelling(s) skipped"), never run and never a miss.
+
+⏱ **Cost.** That is 199 cases by default. A **command-string** hook is started
+once per case: a small `node guard.js` took about 8 s here (4 cores), so give
+that test a 30–60 s timeout (`test(name, fn, 60_000)`). A **compiled** hook is
+decided in-process: about 1.3 s for the same 199 cases, most of it spent
+generating them.
 
 ### The battery functions
 

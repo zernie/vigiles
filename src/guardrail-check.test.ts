@@ -20,6 +20,7 @@ import {
   experimental_alternateSpellings,
   experimental_harmlessTwins,
   formatGuardrailReport,
+  spellingCases,
 } from "./guardrail-check.js";
 import {
   allow,
@@ -767,4 +768,25 @@ test("user events the spelling generator chokes on never throw at the user", () 
     decide: () => deny("everything"),
   });
   assert.doesNotThrow(() => verifyGuardrail(guard, { events, harmless: [] }));
+});
+
+test("a spelling of a user event that cannot be proven is skipped and counted, never a miss", () => {
+  const bogus = { families: [{ name: "bogus", rewrite: () => ["ls"] }] };
+  const { proven, unproven } = spellingCases(FORCE_PUSH, bogus);
+  assert.deepEqual(proven, []);
+  assert.deepEqual(
+    unproven.map((e) => e.id),
+    ["force-push~unproven1"],
+  );
+  const skipped = unproven.map((event) => ({
+    expect: "block" as const,
+    event,
+    blocked: false,
+    exitCode: 0,
+    run: "unproven" as const,
+    ran: false,
+    reason: "couldn't prove",
+  }));
+  assert.deepEqual(unblockedDisasters(skipped), []);
+  assert.match(formatGuardrailReport("x", skipped), /1 spelling\(s\) skipped/);
 });

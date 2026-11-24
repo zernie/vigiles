@@ -720,7 +720,7 @@ We pointed the [`DISASTER_CATALOG`](harness-testing.md#prove-a-guard-actually-bl
 
 ### One command, many spellings — `experimental_alternateSpellings()`
 
-`experimental_alternateSpellings(events)` takes a list of hook test cases (shell commands wrapped as `PreToolUse` events — the battery above) and returns **more test cases**: the same commands re-spelled every way the shell runs identically. It is a test-input generator for a safety hook. It does not check anything and it does not touch your hook.
+`experimental_alternateSpellings(events)` takes a list of hook test cases (shell commands wrapped as `PreToolUse` events — the battery above) and returns **more test cases**: the same commands re-spelled in other ways that still contain the operation the guard must catch. It is a test-input generator for a safety hook. It does not check anything and it does not touch your hook.
 
 **What breaks without it.** Your guard's rule says "block a command containing `--force`". The seven battery commands are each written one way, so the battery is green. Someone types `git push "--force" origin main`. The shell strips the quotes and force-pushes; your guard sees a different string and allows it. Nothing fails, so nothing tells you.
 
@@ -734,7 +734,7 @@ sudo git push --force origin main        # a wrapper in front
 
 None of these is an evasion trick. Quoting a flag is ordinary typing. The "7 of 7" was true, and it had been measured on the only seven spellings anyone had written down. (8 of 30 is the **before** number — the shipped guard now blocks every generated spelling, see below.)
 
-**What it generates.** For each command, the rewrites the shell reads identically:
+**What it generates.** For each command, rewrites that contain the same operation (a wrapper in front of a compound command applies to its first part only):
 
 - the flag in quotes: `"--force"`, `'--force'`
 - the short and long form of a flag: `-f` / `--force`, `-n` / `--no-verify`
@@ -793,7 +793,7 @@ If a rewrite fails the second check, the generator throws instead of quietly dro
 | `base64`, `rot13`, `hex`, `leetspeak`, `homoglyph`, `morse`, `piglatin`, … | quoted head, ANSI-C quoting, escaped letter, whitespace               | Same axis — an encoding the _target_ decodes. A model may decode base64; a shell does not, so those are not emitted (they would blame a correct guard). The shell decodes quotes, `$'…'` and backslashes, so those are. |
 | `jailbreak`, `crescendo`, `goat`, … (a model rewrites the attack)          | none                                                                  | Deliberately absent. It costs money and is non-deterministic; every spelling here is produced and checked with no model.                                                                                                |
 | `retry` (re-run previously failed cases)                                   | none                                                                  | The battery is deterministic; a failed case fails the same way every run.                                                                                                                                               |
-| —                                                                          | the equivalence check (a rewrite that is not the same command throws) | promptfoo strategies are not required to preserve meaning. Here every emitted spelling is one the shell provably runs identically, so a miss is always a guard bug, never an ambiguous input.                           |
+| —                                                                          | the equivalence check (a rewrite that is not the same command throws) | promptfoo strategies are not required to preserve meaning. Here every emitted spelling provably contains the operation the guard must catch, so a miss is always a guard bug, never an ambiguous input.                 |
 
 **What it cannot find.** The generator decides "same command" with the same shell parser the compiled guard's `runs()` uses. That makes every spelling it emits trustworthy, and it sets the limit: it can only produce spellings that parser already understands. It tests whether your guard matches the _operation_ rather than one way of typing it; it cannot find a blind spot in the parser itself, because it would share it. `g\it` is the example: a reader tried it, the shell ran git, the parser read `g\it`, and the guard behind "7 of 7" let it through — while the 73-case battery of the day could not have produced it. The parser was fixed, the spelling joined the battery, and the shipped guard now blocks all 164. A spelling the parser does not understand still has to come from a person.
 

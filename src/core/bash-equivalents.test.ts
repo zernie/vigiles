@@ -156,7 +156,9 @@ test("seeds a user might write never break the generator", () => {
     for (const v of out) assert.ok(sameOperation(seed, v), `${seed} → ${v}`);
     assert.ok(!out.some((v) => v.includes("-f-with-lease")), seed);
     assert.ok(
-      !out.some((v) => /^\S*\/?\\?DROP=|^\/usr\/bin\/\[\[/.test(v)),
+      !out.some((v) =>
+        /^(\/usr\/bin\/|\/bin\/|\\|sudo |\$')(DROP=|\[\[)/.test(v),
+      ),
       seed,
     );
   }

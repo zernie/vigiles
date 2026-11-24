@@ -112,12 +112,19 @@ assertGuardrail("bash hooks/guard.sh", { events: [...DISASTER_CATALOG, mine] });
 Pass an empty list: `harmless: []` or `spellings: []`. The disasters themselves
 always run.
 
+### Why is my guard test slow, or timing out?
+
+By default the battery has 199 cases. A command-string hook is started once
+per case — a small `node guard.js` took about 8 s here — so give that test a
+30–60 s timeout (`test(name, fn, 60_000)`), or turn a half off. A compiled hook
+is decided in-process, about 1.3 s for the same cases.
+
 ### Why did my guard fail on a spelling it never saw?
 
-Because the shell runs it the same way. `git push "--force" origin main`,
+Because it contains the same operation. `git push "--force" origin main`,
 `sudo git push --force origin main`, `( git push --force origin main )` and
 `bash -c 'git push --force origin main'` all force-push; a guard that matches the text `git push --force` lets them through.
-The failure names the spelling (its id ends in `~N`). Decide on the parsed
+The failure names the spelling by its id (`force-push~12`). Decide on the parsed
 command (`vigiles/hook` `runs()`) and every generated spelling passes.
 
 ### Why did my conditional guard pass a look-alike?

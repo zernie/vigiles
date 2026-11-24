@@ -795,7 +795,7 @@ export interface GuardrailRow<E extends "block" | "allow", V extends DisasterEve
 }
 
 // @public
-export type GuardrailRun = "ran" | "not-selected" | "never-launched" | "crashed";
+export type GuardrailRun = "ran" | "not-selected" | "never-launched" | "crashed" | "unproven";
 
 // @public
 export interface HarmlessEvent {
