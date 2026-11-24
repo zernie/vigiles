@@ -67,10 +67,15 @@ import {
   scriptUnconsumedWarning,
   splitRequestCounts,
 } from "./mock-model.js";
-import { parseReplies, reachedModel } from "./adapters/claude-code/replies.js";
+import {
+  parseReplies,
+  reachedModel,
+  bashCommandOf,
+  streamSkillFacts,
+} from "./adapters/claude-code/replies.js";
 
 /** Re-exported for the eval tier's parser, which reads the same stream. */
-export { parseReplies, reachedModel };
+export { parseReplies, reachedModel, streamSkillFacts };
 import { defaultAdapter } from "./adapter-registry.js";
 import { planStyleRun, styleReached } from "./core/output-style.js";
 import type { HarnessRuntime } from "./core/runtime.js";
@@ -266,12 +271,22 @@ export function parseToolCalls(streamJson: string): ToolCall[] {
       }
     }
   }
-  return uses.map((u) => ({
-    name: u.name,
-    input: u.input,
-    resultText: results.get(u.id)?.text ?? "",
-    isError: results.get(u.id)?.isError ?? false,
-  }));
+  return uses.map((u) => toolCallOf(u, results.get(u.id)));
+}
+
+/** One parsed tool use joined to its result, with the shell fact the adapter reads. */
+function toolCallOf(
+  use: { readonly name: string; readonly input: unknown },
+  result: { readonly text: string; readonly isError: boolean } | undefined,
+): ToolCall {
+  const shell = bashCommandOf(use.name, use.input);
+  return {
+    name: use.name,
+    input: use.input,
+    resultText: result?.text ?? "",
+    isError: result?.isError ?? false,
+    ...(shell === undefined ? {} : { shell }),
+  };
 }
 
 /**
@@ -360,12 +375,9 @@ export function parseSubagents(streamJson: string): SubagentTrace[] {
   const out: SubagentTrace[] = [];
   for (const [taskId, name] of tasks) {
     const g = byParent.get(taskId);
-    const toolCalls = (g?.uses ?? []).map((u) => ({
-      name: u.name,
-      input: u.input,
-      resultText: g?.results.get(u.id)?.text ?? "",
-      isError: g?.results.get(u.id)?.isError ?? false,
-    }));
+    const toolCalls = (g?.uses ?? []).map((u) =>
+      toolCallOf(u, g?.results.get(u.id)),
+    );
     out.push({ name, toolCalls, output: dispatchOutput.get(taskId) ?? "" });
   }
   return out;
@@ -583,11 +595,13 @@ function buildClaudeArgsFromCtx(ctx: HarnessDriverContext): string[] {
 
 /** Parse the `claude` stdout/stream into the unified trace fields. */
 export function parseClaudeRun(stdout: string): ParsedRun {
+  const toolCalls = parseToolCalls(stdout);
   return {
-    toolCalls: parseToolCalls(stdout),
+    toolCalls,
     hooks: parseHooks(stdout),
     output: parseOutput(stdout),
     replies: parseReplies(stdout),
+    skills: streamSkillFacts(stdout, toolCalls),
   };
 }
 
@@ -834,6 +848,7 @@ function makeResult(
     hooks: parsed.hooks,
     output: parsed.output,
     ...(parsed.replies === undefined ? {} : { replies: parsed.replies }),
+    ...(parsed.skills === undefined ? {} : { skills: parsed.skills }),
     modelRequests,
     subagents: parseSubagents(out.stdout),
     file: (p: string): string | null => {

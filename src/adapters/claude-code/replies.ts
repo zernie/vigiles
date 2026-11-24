@@ -7,6 +7,11 @@
  */
 import { z } from "zod";
 
+// The stream's OTHER facts — the shell a call ran, which skills fired — live in
+// `trace-facts.ts`; re-exported here because this is the module the runners
+// already read Claude Code's stream through.
+export { bashCommandOf, streamSkillFacts } from "./trace-facts.js";
+
 /** The parts of an `assistant` stream line this reads; the rest is ignored. */
 const AssistantLineSchema = z.object({
   type: z.literal("assistant"),
@@ -50,6 +55,16 @@ const isStream = (lines: readonly string[]): boolean =>
   );
 
 const ToolUseBlock = z.object({ type: z.literal("tool_use") });
+
+/**
+ * Whether `stdout` is a stream-json run (`transcript: true`, always on the eval
+ * tier) rather than the single `json` result — i.e. whether the run's tool calls
+ * were captured at all. Lets a fact read off the tool calls say "not captured"
+ * instead of "none".
+ */
+export function isStreamOutput(stdout: string): boolean {
+  return isStream(stdout.split("\n"));
+}
 
 /** Whether the model answered at all: any `assistant` event, subagents included. */
 export function reachedModel(streamJson: string): boolean {

@@ -23,7 +23,10 @@ import type {
   SubagentTrace,
 } from "./harness-test.js";
 import type { HookRunResult } from "./run-hook.js";
+import type { SkillFacts } from "./core/harness-driver.js";
+import { parseShellCommand } from "./core/hook-program.js";
 import { judge as runJudge } from "./judge.js";
+import { recordCheck } from "./check-count.js";
 import {
   type ArgMatcher,
   matchesArgs,
@@ -139,6 +142,33 @@ const matches = (matcher: string | Readonly<RegExp>, text: string): boolean =>
 const show = (matcher: string | Readonly<RegExp>): string =>
   typeof matcher === "string" ? matcher : `/${matcher.source}/${matcher.flags}`;
 
+/** A tool/hook name matcher: a string is an exact name, a RegExp is tested. */
+type NameMatcher = string | Readonly<RegExp>;
+
+const nameIs = (matcher: NameMatcher, name: string): boolean =>
+  typeof matcher === "string"
+    ? name === matcher
+    : new RegExp(matcher).test(name);
+
+/** A name matcher as a message prints it: `"Bash"` or `/^mcp__/`. */
+const showName = (matcher: NameMatcher): string =>
+  typeof matcher === "string" ? `"${matcher}"` : show(matcher);
+
+/** A name matcher's serialized fields — the string as before, a RegExp flagged. */
+const nameJSON = (
+  matcher: NameMatcher,
+): { readonly name: string; readonly regex?: true } =>
+  typeof matcher === "string"
+    ? { name: matcher }
+    : { name: show(matcher), regex: true };
+
+/** The tools a run used, with the hint an empty list needs. */
+function usedTools(calls: readonly ToolCall[]): string {
+  return calls.length > 0
+    ? distinctToolNames(calls)
+    : "no tools (did you set transcript: true?)";
+}
+
 /** Why a reply check cannot run: the trace carries no replies to read. */
 const NO_REPLIES =
   "the run has no `replies` (the harness does not tell replies apart, or the run was not streamed — pass `transcript: true`)";
@@ -161,17 +191,105 @@ function boundsProblem(opts: {
 // Trace checks (an agent run — runHarness / runEval)
 // ---------------------------------------------------------------------------
 
-/** The agent invoked a tool by this name (regardless of result). */
-export function tool(name: string): Check<Trace> {
+/** How many times a tool may be used: `{ max: 1 }`, `{ min: 2 }`, `{ min: 0, max: 0 }`. */
+type ToolBounds = { readonly min?: number; readonly max?: number };
+
+/**
+ * `check.tool`: the agent invoked a tool by this name (regardless of result) —
+ * or, with `bounds`, a number of times within them: `check.tool("Write", { max:
+ * 1 })` is "at most one Write", `{ min: n, max: n }` is "exactly n". A RegExp
+ * matches by pattern (`check.tool(/^mcp__github__/)`).
+ */
+function toolCheck(
+  name: string | Readonly<RegExp>,
+  bounds?: { readonly min?: number; readonly max?: number },
+): Check<Trace> {
+  if (bounds !== undefined) return toolCount(name, bounds);
   return {
     kind: "tool",
-    eval: (t) =>
-      t.toolCalls.some((c) => c.name === name)
+    eval: (t) => {
+      const hit = t.toolCalls.find((c) => nameIs(name, c.name));
+      if (hit === undefined)
+        return no(
+          `expected the agent to use tool ${showName(name)}, but it used ${usedTools(t.toolCalls)}`,
+        );
+      return typeof name === "string"
         ? ok(`agent used tool "${name}"`)
+        : ok(`agent used tool "${hit.name}" (matched ${showName(name)})`);
+    },
+    toJSON: () => ({ kind: "tool", ...nameJSON(name) }),
+  };
+}
+
+/** The agent invoked a tool by this name (regardless of result). */
+export function tool(name: string): Check<Trace> {
+  return toolCheck(name);
+}
+
+/** `check.tool` with bounds: how many calls matched, within `{ min, max }`. */
+function toolCount(name: NameMatcher, bounds: ToolBounds): Check<Trace> {
+  const problem = boundsProblem(bounds);
+  if (problem !== null) throw new Error(`tool: ${problem}`);
+  const want = [
+    bounds.min !== undefined ? `at least ${String(bounds.min)}` : null,
+    bounds.max !== undefined ? `at most ${String(bounds.max)}` : null,
+  ]
+    .filter((x): x is string => x !== null)
+    .join(" and ");
+  return {
+    kind: "tool",
+    eval: (t) => {
+      const n = t.toolCalls.filter((c) => nameIs(name, c.name)).length;
+      const pass =
+        (bounds.min === undefined || n >= bounds.min) &&
+        (bounds.max === undefined || n <= bounds.max);
+      const says = `tool ${showName(name)} used ${String(n)} time(s)`;
+      return pass
+        ? ok(`${says} (${want})`)
         : no(
-            `expected the agent to use tool "${name}", but it used ${distinctToolNames(t.toolCalls)}`,
-          ),
-    toJSON: () => ({ kind: "tool", name }),
+            `expected tool ${showName(name)} to be used ${want} time(s); it was used ${String(n)} (tools: ${usedTools(t.toolCalls)})`,
+          );
+    },
+    toJSON: () => ({
+      kind: "tool",
+      ...nameJSON(name),
+      ...(bounds.min !== undefined && { min: bounds.min }),
+      ...(bounds.max !== undefined && { max: bounds.max }),
+    }),
+  };
+}
+
+/**
+ * The named tools ran in this order, as a subsequence (other calls may sit
+ * between them): `toolSequence(["Read", "Edit"])` is "a Read came before an
+ * Edit". A RegExp entry matches by pattern. Reached as `check.toolSequence`.
+ */
+function toolSequence(
+  names: readonly (string | Readonly<RegExp>)[],
+): Check<Trace> {
+  if (names.length === 0)
+    throw new Error("toolSequence: give at least one tool name");
+  const order = names.map(showName).join(" → ");
+  return {
+    kind: "toolSequence",
+    eval: (t) => {
+      const matched = t.toolCalls.reduce((i, c) => {
+        const want = names[i];
+        return want !== undefined && nameIs(want, c.name) ? i + 1 : i;
+      }, 0);
+      if (matched === names.length) return ok(`tools ran in order ${order}`);
+      const stuck = names[matched];
+      return no(
+        `expected tools in order ${order}; got ${usedTools(t.toolCalls)}` +
+          (stuck === undefined
+            ? ""
+            : ` (no ${showName(stuck)} after step ${String(matched)})`),
+      );
+    },
+    toJSON: () => ({
+      kind: "toolSequence",
+      names: names.map((n) => (typeof n === "string" ? n : show(n))),
+    }),
   };
 }
 
@@ -219,24 +337,36 @@ export function toolWith(name: string, args: ArgMatcher): Check<Trace> {
  * not what it correctly refrained from doing.
  */
 export function notTool(name: string, args?: ArgMatcher): Check<Trace> {
+  return notToolCheck(name, args);
+}
+
+/** {@link notTool}, whose name may also be a RegExp — `check.notTool`. */
+function notToolCheck(
+  name: string | Readonly<RegExp>,
+  args?: Readonly<ArgMatcher>,
+): Check<Trace> {
   return {
     kind: "notTool",
     eval: (t) => {
-      const calls = t.toolCalls.filter((c) => c.name === name);
+      const calls = t.toolCalls.filter((c) => nameIs(name, c.name));
       const offending = args
         ? calls.filter((c) => matchesArgs(c.input, args))
         : calls;
-      const what = args ? `"${name}" with ${describeArgs(args)}` : `"${name}"`;
+      const what = args
+        ? `${showName(name)} with ${describeArgs(args)}`
+        : showName(name);
       const first = offending[0];
       if (!first) return ok(`agent never used ${what}`);
+      // A pattern names a family of tools, so say which one it caught.
+      const which = typeof name === "string" ? "" : `"${first.name}": `;
       return no(
-        `expected the agent NOT to use ${what}, but it did (${truncate(stringifyValue(first.input), 60)})`,
+        `expected the agent NOT to use ${what}, but it did (${which}${truncate(stringifyValue(first.input), 60)})`,
       );
     },
     toJSON: () =>
       args
-        ? { kind: "notTool", name, args: serializeArgs(args) }
-        : { kind: "notTool", name },
+        ? { kind: "notTool", ...nameJSON(name), args: serializeArgs(args) }
+        : { kind: "notTool", ...nameJSON(name) },
   };
 }
 
@@ -328,21 +458,60 @@ export function onlyTools(allowed: readonly string[]): Check<Trace> {
   };
 }
 
-/** A skill resolved to this id (`<plugin>:<skill>`) without erroring. */
+/**
+ * The skills a trace says fired. A trace from a runner carries the ADAPTER's
+ * answer in `skills`; one built by hand, or by a runner older than that field,
+ * is read the way this check always read it — `Skill` tool calls — so no
+ * existing test changes meaning.
+ */
+function skillFactsOf(t: Trace): SkillFacts {
+  if (t.skills !== undefined) return t.skills;
+  return {
+    observable: true,
+    fired: t.toolCalls.flatMap((c) => {
+      if (c.name !== "Skill") return [];
+      const id =
+        typeof c.input === "object" && c.input !== null && "skill" in c.input
+          ? c.input.skill
+          : undefined;
+      return [
+        {
+          id: typeof id === "string" ? id : "?",
+          isError: c.isError,
+          resultText: c.resultText,
+        },
+      ];
+    }),
+  };
+}
+
+/**
+ * A skill resolved to this id without erroring — `<plugin>:<skill>` on Claude
+ * Code, the skill's directory name on Codex. Reads `trace.skills`, which the
+ * harness's adapter fills, so the same check works on every harness. When the
+ * adapter cannot observe skills in the run, the check FAILS naming the harness
+ * and why — never as "did not fire", which would be a claim about the skill
+ * the run has no evidence for.
+ */
 export function skill(id: string): Check<Trace> {
   return {
     kind: "skill",
     eval: (t) => {
-      const call = t.toolCalls.find(
-        (c) =>
-          c.name === "Skill" && (c.input as { skill?: string })?.skill === id,
-      );
-      if (call && !call.isError) return ok(`skill "${id}" resolved`);
-      const skills = t.toolCalls
-        .filter((c) => c.name === "Skill")
-        .map((c) => (c.input as { skill?: string })?.skill ?? "?");
+      const facts = skillFactsOf(t);
+      if (!facts.observable)
+        return no(
+          `cannot tell whether skill "${id}" fired: skill activations are not observable on ${facts.harness} in this run (${facts.why})`,
+        );
+      const fire = facts.fired.find((f) => f.id === id);
+      if (fire !== undefined && !fire.isError)
+        return ok(`skill "${id}" resolved`);
+      if (fire !== undefined)
+        return no(
+          `skill "${id}" was invoked but errored: ${fire.resultText.slice(0, 200) || "(no result text)"}`,
+        );
+      const ids = facts.fired.map((f) => f.id);
       return no(
-        `expected skill "${id}" to resolve; it did not (skills invoked: ${skills.length > 0 ? `[${skills.join(", ")}]` : "none"})`,
+        `expected skill "${id}" to resolve; it did not (skills invoked: ${ids.length > 0 ? `[${ids.join(", ")}]` : "none"})`,
       );
     },
     toJSON: () => ({ kind: "skill", id }),
@@ -432,20 +601,148 @@ export function experimental_replyCount(
   };
 }
 
-/** A hook fired for this event (e.g. `"PreToolUse"`, `"Stop"`). */
+/**
+ * A hook fired for this event (`"PreToolUse"`, `"Stop"`) or with this label
+ * (`"PreToolUse:Edit"`). `check.hookFired` also takes a RegExp and
+ * `{ blocked: true }`.
+ */
 export function hookFired(event: string): Check<Trace> {
+  return hookFiredCheck(event);
+}
+
+/**
+ * `check.hookFired`: a hook fired for this event (`"PreToolUse"`) or with this
+ * label (`"PreToolUse:Edit"`, `Event:Matcher`); a RegExp is tested against both.
+ * With `{ blocked: true }`, a matching hook must also have blocked.
+ */
+/** The hooks a run fired, by label, with the hint an empty list needs. */
+const hooksSeen = (t: Trace): string =>
+  t.hooks.length > 0
+    ? `[${[...new Set(t.hooks.map((h) => h.name))].join(", ")}]`
+    : "none (did you set transcript: true?)";
+
+function hookFiredCheck(
+  event: string | Readonly<RegExp>,
+  opts: { readonly blocked?: boolean } = {},
+): Check<Trace> {
+  const label = typeof event === "string" ? event : show(event);
+  const matching = (h: HookFire): boolean =>
+    nameIs(event, h.event) || nameIs(event, h.name);
   return {
     kind: "hookFired",
     eval: (t) => {
-      const fired = t.hooks.filter((h: HookFire) => h.event === event);
-      return fired.length > 0
-        ? ok(`hook fired for ${event}`)
-        : no(
-            `expected a hook to fire for ${event}; hooks that fired: ${t.hooks.length > 0 ? `[${[...new Set(t.hooks.map((h) => h.event))].join(", ")}]` : "none"}`,
-          );
+      const fired = t.hooks.filter(matching);
+      if (fired.length === 0)
+        return no(
+          `expected a hook to fire for ${label}; hooks that fired: ${hooksSeen(t)}`,
+        );
+      if (opts.blocked === true && !fired.some((h) => h.blocked))
+        return no(
+          `expected a hook for ${label} to block, but none did; hooks that fired: ${hooksSeen(t)}`,
+        );
+      const how = opts.blocked === true ? " and blocked" : "";
+      return ok(`hook for ${label} fired${how}`);
     },
-    toJSON: () => ({ kind: "hookFired", event }),
+    toJSON: () => ({
+      kind: "hookFired",
+      event: label,
+      ...(typeof event !== "string" && { regex: true }),
+      ...(opts.blocked === true && { blocked: true }),
+    }),
   };
+}
+
+/**
+ * The agent ran shell command `program` — `runs("git push")`, `runs("git push",
+ * { force: true })` for a force push in any spelling (`-f`, `--force`, a quoted
+ * flag, `sudo`, `bash -c '…'`). Reads `ToolCall.shell`, the command text the
+ * harness's adapter records (Claude Code's `Bash`, Codex's command execution),
+ * and asks the compiled-hook shell parser — the same `runs()` a Bash gate uses,
+ * so a test and a gate can never disagree about what a command does. Never a
+ * pattern over the command string. Reached as `check.runs`.
+ */
+function runs(
+  program: string,
+  opts: { readonly force?: boolean } = {},
+): Check<Trace> {
+  if (program.trim() === "")
+    throw new Error('runs: give the program to look for, e.g. "git push"');
+  const what = `"${program}"${opts.force === true ? " with --force" : ""}`;
+  return {
+    kind: "runs",
+    eval: (t) => {
+      const shells = t.toolCalls.flatMap((c) =>
+        c.shell === undefined ? [] : [c.shell],
+      );
+      const hit = shells.find((cmd) =>
+        parseShellCommand(cmd).runs(program, opts),
+      );
+      if (hit !== undefined)
+        return ok(`agent ran ${what}: ${truncate(hit, 80)}`);
+      return no(
+        shells.length === 0
+          ? `expected the agent to run ${what}, but the run recorded no shell command (tools: ${usedTools(t.toolCalls)})`
+          : `expected the agent to run ${what}; shell commands run: [${shells.map((c) => truncate(c, 60)).join("; ")}]`,
+      );
+    },
+    toJSON: () => ({
+      kind: "runs",
+      program,
+      ...(opts.force === true && { force: true }),
+    }),
+  };
+}
+
+/**
+ * A named custom check — any predicate over the result, so a rule the
+ * vocabulary does not spell still reports, serializes and scores like every
+ * other check (the role vitest's `toSatisfy` plays). `check("every Edit was
+ * preceded by a Read", (t) => …)`. A predicate that throws fails the check with
+ * what it threw. Each evaluation counts toward the script's check count, the
+ * same as a run does. Called as `check(name, fn)`.
+ */
+function customCheck<T>(name: string, fn: (target: T) => boolean): Check<T> {
+  if (name.trim() === "")
+    throw new Error(
+      "check: give the check a name — it is what a failure prints",
+    );
+  return {
+    kind: "check",
+    eval: (target) => {
+      recordCheck();
+      try {
+        return fn(target)
+          ? ok(`check "${name}" held`)
+          : no(`check "${name}" failed${toolsOf(target)}`);
+      } catch (e) {
+        return no(
+          `check "${name}" threw: ${e instanceof Error ? e.message : String(e)}`,
+        );
+      }
+    },
+    toJSON: () => ({ kind: "check", name }),
+  };
+}
+
+/** For a failed {@link check} over a run, the tools it used — the context a
+ *  custom tool-call rule needs to be debugged. Empty for any other target. */
+function toolsOf(target: unknown): string {
+  if (typeof target !== "object" || target === null || !("toolCalls" in target))
+    return "";
+  const calls: unknown = target.toolCalls;
+  if (!Array.isArray(calls)) return "";
+  const list: readonly unknown[] = calls;
+  return list.every(isToolCall) ? `; tools used: ${usedTools(list)}` : "";
+}
+
+/** A value shaped like a {@link ToolCall} — enough to print its name. */
+function isToolCall(c: unknown): c is ToolCall {
+  return (
+    typeof c === "object" &&
+    c !== null &&
+    "name" in c &&
+    typeof c.name === "string"
+  );
 }
 
 /**
@@ -467,7 +764,7 @@ export function received(matcher: string | RegExp): Check<Trace> {
       return pass
         ? ok(`the model received ${String(matcher)}`)
         : no(
-            `expected the model to receive ${String(matcher)} (a slash-command expansion or injected context); ${t.modelRequests.length === 0 ? "no requests captured (eval tier captures none — use runHarness)" : `got "${truncate(text)}"`}`,
+            `expected the model to receive ${String(matcher)} (a slash-command expansion or injected context); ${t.modelRequests.length === 0 ? "no requests captured (eval tier captures none — use runHarness)" : `${String(t.modelRequests.length)} request(s) captured, got "${truncate(text)}"`}`,
           );
     },
     toJSON: () => ({ kind: "received", matcher: String(matcher), regex: isRe }),
@@ -615,7 +912,7 @@ export function allowed(): Check<HookRunResult> {
     eval: (r) =>
       r.blocked
         ? no(
-            `expected the hook to allow, but it blocked (exit ${String(r.exitCode)})`,
+            `expected the hook to allow, but it blocked (exit ${String(r.exitCode)}, decision ${String(r.decision)})`,
           )
         : ok("hook allowed the event"),
     toJSON: () => ({ kind: "allowed" }),
@@ -816,3 +1113,60 @@ export function cacheTokens(opts: {
     }),
   };
 }
+
+// ---------------------------------------------------------------------------
+// `check` — the vocabulary as ONE callable object
+// ---------------------------------------------------------------------------
+
+/**
+ * The check vocabulary as one object: call it for a named custom check, reach
+ * every built-in one as a member.
+ *
+ * ```ts
+ * import { check, assertChecks } from "vigiles";
+ *
+ * assertChecks(trace, [
+ *   check.tool("Read"),
+ *   check.tool("Write", { max: 1 }),            // a bound: at most one Write
+ *   check.toolSequence(["Read", "Edit"]),        // in this order, gaps allowed
+ *   check.runs("git push", { force: true }),     // the shell parser, any spelling
+ *   check.skill("my-plugin:greet"),              // asks the harness's adapter
+ *   check("every Edit follows a Read", (t) => …), // anything else, named
+ * ]);
+ * ```
+ *
+ * One form for every assertion: each member is data that evaluates to
+ * pass/fail with an actionable message and serializes for reports, so the same
+ * line asserts on one run and scores a rate across many (`measure`, `fired:`).
+ * Members that also exist as plain functions (`tool`, `skill`, …) are the same
+ * checks; the members accept more where noted (a RegExp name, `{ min, max }`,
+ * `{ blocked }`).
+ *
+ * @public
+ */
+// eslint-disable-next-line functional/immutable-data -- a callable with members, built the way experimental_stub and experimental_agent are
+export const check = Object.assign(customCheck, {
+  tool: toolCheck,
+  toolWith,
+  notTool: notToolCheck,
+  onlyTools,
+  toolSequence,
+  runs,
+  skill,
+  output,
+  received,
+  hookFired: hookFiredCheck,
+  turns,
+  wrote,
+  didNotWrite,
+  subagent,
+  mcp,
+  blocked,
+  allowed,
+  cost,
+  latency,
+  tokens,
+  inputTokens,
+  outputTokens,
+  cacheTokens,
+});

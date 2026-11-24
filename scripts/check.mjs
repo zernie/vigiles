@@ -130,6 +130,8 @@ const PARALLEL = [
   { name: "types:site", cmd: "npx tsc --noEmit -p site/tsconfig.json" },
   { name: "types:lint-config", cmd: "npx tsc -p tsconfig.lint.json" },
   { name: "jest", cmd: "npx jest" },
+  // The same `check.*` cases under node:test — no runner dependency at all.
+  { name: "node-runner", cmd: "node --test test/runners/checks.node-test.mjs" },
   { name: "cli-lint", cmd: "node dist/cli.js lint" },
   { name: "lint", cmd: "npm run lint" },
   { name: "format", cmd: "npm run fmt:check" },

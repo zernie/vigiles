@@ -66,7 +66,59 @@ export interface ToolCall {
   readonly resultText: string;
   /** Whether the tool_result came back flagged as an error. */
   readonly isError: boolean;
+  /**
+   * The shell command text, when this call ran a shell command — a fact the
+   * ADAPTER fills while parsing the run, so a harness-neutral check (`runs()`)
+   * never has to know which tool a harness shells out through. Claude Code: the
+   * `Bash` tool's `input.command`. Codex: a `command_execution` item's
+   * `command`. Absent for every other call, and for a call recorded by a parser
+   * that does not know this field.
+   *
+   * @public
+   */
+  readonly shell?: string;
 }
+
+/**
+ * One skill activation the adapter observed in a run.
+ *
+ * @public
+ */
+export interface SkillFire {
+  /**
+   * The skill as the harness names it: Claude Code's namespaced
+   * `<plugin>:<skill>` (or the bare name for a loose skill), Codex's directory
+   * name.
+   */
+  readonly id: string;
+  /** Whether the activation came back as an error. */
+  readonly isError: boolean;
+  /** The activation's result text ("" when none was captured). */
+  readonly resultText: string;
+}
+
+/**
+ * Which skills fired in a run — as the ADAPTER that parsed it can tell.
+ *
+ * Two different answers, kept apart by the type (make-the-distinction-a-type):
+ * "this harness saw no skill fire" and "this harness cannot see skills fire in
+ * this run" must never print the same, or a run that recorded nothing reads as
+ * a skill that did not trigger.
+ *
+ * - `observable: true` — `fired` lists every activation seen, possibly none.
+ * - `observable: false` — the adapter cannot tell; `harness` names it and `why`
+ *   says what is missing (a run that was not streamed, a harness tier that
+ *   captures no commands).
+ *
+ * @public
+ */
+export type SkillFacts =
+  | { readonly observable: true; readonly fired: readonly SkillFire[] }
+  | {
+      readonly observable: false;
+      readonly harness: string;
+      readonly why: string;
+    };
 
 /**
  * A hook invocation observed during the run, recorded (not inferred) from the
@@ -149,6 +201,8 @@ export interface ParsedRun {
   readonly output: string;
   /** Every reply the agent ended a turn with; absent when the output is not a stream. */
   readonly replies?: readonly string[];
+  /** Which skills fired, as this harness can tell (see {@link SkillFacts}). */
+  readonly skills?: SkillFacts;
 }
 
 /**

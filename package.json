@@ -88,6 +88,7 @@
     "test:eval": "npm run build && node dist/cli.js eval --all",
     "test:vitest": "npm run build && vitest run --project runners",
     "test:jest": "npm run build && jest",
+    "test:node-runner": "npm run build && node --test test/runners/checks.node-test.mjs",
     "test:types": "npm run build && tsc --noEmit -p test/types/tsconfig.json",
     "api:report": "npm run build && node scripts/api-extractor.mjs --local",
     "api:check": "npm run build && node scripts/api-extractor.mjs",
