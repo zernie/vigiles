@@ -46,6 +46,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "@vitest/browser": "^4.1.8",
     "@vitest/browser-playwright": "^4.1.8",
+    "pathe": "^2.0.3",
     "playwright": "^1.61.1",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.7.0",

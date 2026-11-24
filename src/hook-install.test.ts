@@ -34,7 +34,7 @@ import {
 import { execFileSync, spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
-const REPO = resolve(__dirname, "..");
+const REPO = resolve(import.meta.dirname, "..");
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 

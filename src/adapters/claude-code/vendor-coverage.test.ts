@@ -45,9 +45,13 @@ import { claudeCodeDialect } from "./dialect.js";
 // __dirname is dist/adapters/claude-code at runtime; vendored plugins are at the
 // repo root. Matches the relative climb in vendor.test.ts.
 const VENDOR = "../../../test/dogfood";
-const omcRoot = join(__dirname, VENDOR, "oh-my-claudecode@deee3a4");
-const spRoot = join(__dirname, VENDOR, "superpowers@6fd4507");
-const wsRoot = join(__dirname, VENDOR, "wshobson-accessibility@cf6059d");
+const omcRoot = join(import.meta.dirname, VENDOR, "oh-my-claudecode@deee3a4");
+const spRoot = join(import.meta.dirname, VENDOR, "superpowers@6fd4507");
+const wsRoot = join(
+  import.meta.dirname,
+  VENDOR,
+  "wshobson-accessibility@cf6059d",
+);
 
 // ===========================================================================
 // oh-my-claudecode — R1

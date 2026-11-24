@@ -8,7 +8,7 @@
  * runner only iterates; nothing here depends on which runner calls it, which is
  * the claim being tested.
  */
-const { check, assertChecks } = require("../../dist/entries/index.js");
+const { check, assertChecks } = require("vigiles");
 
 const call = (name, extra = {}) => ({
   name,

@@ -14,7 +14,7 @@ import { makeTmpDir } from "./tmp-root.js";
  * This repository's root, for a test that compiles or scans the repo itself.
  * Named, never `process.cwd()`: the core takes its root explicitly.
  */
-export const REPO_ROOT = resolve(__dirname, "..", "..");
+export const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
 
 /**
  * The environment for a CLI child whose HUMAN-READABLE output a test reads:
@@ -53,7 +53,7 @@ export function makeEslintProject(config: string): string {
   );
   mkdirSync(join(dir, "node_modules"));
   symlinkSync(
-    resolve(__dirname, "..", "..", "node_modules", "eslint"),
+    resolve(import.meta.dirname, "..", "..", "node_modules", "eslint"),
     join(dir, "node_modules", "eslint"),
     "dir",
   );

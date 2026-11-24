@@ -41,7 +41,7 @@ import { getAdapter } from "./adapter-registry.js";
 import { skillsHome } from "./core/layout.js";
 import { relinkTempPath } from "./skill-links.js";
 
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 
 // eslint-disable-next-line local/no-harness-names -- `init --harness=<name>` takes these names; the test types them as a user does
 const [CC, CX] = ["claude", "codex"] as const;

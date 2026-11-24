@@ -20,8 +20,14 @@ import { execFileSync } from "node:child_process";
 
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
-const SPEC_ENTRY = resolve(__dirname, "..", "dist", "core", "spec.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
+const SPEC_ENTRY = resolve(
+  import.meta.dirname,
+  "..",
+  "dist",
+  "core",
+  "spec.js",
+);
 
 let dir: string;
 
@@ -148,7 +154,13 @@ test("a SKILL spec with a dead ref writes nothing either", () => {
   //
   // Guarding four call sites would have left the fifth writable, so the write
   // takes a `StampedMarkdown` that an erroring compile never mints.
-  const specEntry = resolve(__dirname, "..", "dist", "core", "spec.js");
+  const specEntry = resolve(
+    import.meta.dirname,
+    "..",
+    "dist",
+    "core",
+    "spec.js",
+  );
   mkdirSync(join(dir, "skills", "demo"), { recursive: true });
   writeFileSync(
     join(dir, "skills", "demo", "SKILL.md.spec.ts"),
@@ -173,7 +185,13 @@ test("a SKILL spec with a dead ref writes nothing either", () => {
 
 test("a CLEAN skill spec still compiles and writes", () => {
   // The other half — refusing to write must not become refusing to work.
-  const specEntry = resolve(__dirname, "..", "dist", "core", "spec.js");
+  const specEntry = resolve(
+    import.meta.dirname,
+    "..",
+    "dist",
+    "core",
+    "spec.js",
+  );
   mkdirSync(join(dir, "skills", "ok"), { recursive: true });
   writeFileSync(
     join(dir, "skills", "ok", "SKILL.md.spec.ts"),

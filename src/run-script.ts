@@ -450,9 +450,9 @@ const EGRESS_WRAPPER = [
 function egressProxyEntry(): string {
   return (
     [
-      join(__dirname, "egress-proxy.js"),
-      join(__dirname, "..", "dist", "egress-proxy.js"),
-    ].find((p) => existsSync(p)) ?? join(__dirname, "egress-proxy.js")
+      join(import.meta.dirname, "egress-proxy.js"),
+      join(import.meta.dirname, "..", "dist", "egress-proxy.js"),
+    ].find((p) => existsSync(p)) ?? join(import.meta.dirname, "egress-proxy.js")
   );
 }
 
@@ -557,9 +557,9 @@ function sandboxedSpawn(
 function egressEntry(): string {
   return (
     [
-      join(__dirname, "egress-entry.js"),
-      join(__dirname, "..", "dist", "egress-entry.js"),
-    ].find((p) => existsSync(p)) ?? join(__dirname, "egress-entry.js")
+      join(import.meta.dirname, "egress-entry.js"),
+      join(import.meta.dirname, "..", "dist", "egress-entry.js"),
+    ].find((p) => existsSync(p)) ?? join(import.meta.dirname, "egress-entry.js")
   );
 }
 

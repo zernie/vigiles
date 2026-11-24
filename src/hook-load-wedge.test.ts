@@ -40,7 +40,7 @@ import { scanPlugin } from "./scan.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 
-const REPO_ROOT = resolve(__dirname, "..");
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
 
 const HOOK = `import { experimental_defineHook, deny, allow } from "vigiles/hook";

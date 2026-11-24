@@ -70,8 +70,8 @@ const ungradedBlocks = z.object({
 });
 
 // __dirname is src/ when vitest resolves the .ts source → ".." is the repo root.
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
-const VENDOR = resolve(__dirname, "..", "test/dogfood");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
+const VENDOR = resolve(import.meta.dirname, "..", "test/dogfood");
 
 function run(
   args: string,
@@ -745,7 +745,7 @@ describe("audit → every hand-written instruction file, nested included", () =>
 // library-level generate-harness.test.ts can't: spec loading, the duplicate
 // non-zero exit, and the emitted file.
 describe("generate-harness CLI", () => {
-  const REPO = resolve(__dirname, "..");
+  const REPO = resolve(import.meta.dirname, "..");
   let dir = "";
 
   const PLANNER = `import { experimental_agent } from "vigiles/spec";\nconst { result } = experimental_agent;
@@ -822,7 +822,7 @@ export default railway({ name: "ship", steps: [delegate("planner"), delegate("im
 // user never hand-runs `generate-harness`. Opt-in: compile refreshes a registry
 // that already exists (committed like a lockfile), never imposes one.
 describe("compile refreshes harness.gen.ts", () => {
-  const REPO = resolve(__dirname, "..");
+  const REPO = resolve(import.meta.dirname, "..");
   const SPECS: Record<string, string> = {
     "planner.md.spec.ts": `import { experimental_agent } from "vigiles/spec";\nconst { result } = experimental_agent;
 export default experimental_agent({ name: "planner", description: "Break the request into an ordered plan. Dispatch first.", tools: ["Read", "Grep", "Glob"], output: result({ steps: "string[]" }, { reason: "string" }) });

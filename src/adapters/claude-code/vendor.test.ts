@@ -74,7 +74,7 @@ const skillCount = (files: Record<string, string>): number =>
 
 for (const p of PLUGINS) {
   test(`${p.label}: loadPlugin parses the real shipped layout`, () => {
-    const loaded = loadPlugin(join(__dirname, VENDOR, p.dir));
+    const loaded = loadPlugin(join(import.meta.dirname, VENDOR, p.dir));
 
     // 1. a real surface loaded — never a silent empty machine
     assert.ok(

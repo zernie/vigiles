@@ -42,7 +42,7 @@ const DENY_ALL = `echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","per
 const ALLOW_ALL = `echo watching`;
 
 const VENDOR = join(
-  __dirname,
+  import.meta.dirname,
   "..",
   "test",
   "dogfood",

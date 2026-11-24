@@ -2,14 +2,15 @@
  * Cross-runner constraint: the harness helpers + matchers work under **jest**.
  *
  * Same `vigilesMatchers` object as the vitest test — proving the integration is
- * genuinely runner-agnostic. The dist is CommonJS, so jest requires it natively
- * (no ESM flags, no babel — see jest.config.cjs `transform: {}`). Pure — no
+ * genuinely runner-agnostic. vigiles is an ES module package; jest requires its
+ * CommonJS copies through package.json `exports`, by package name, as a user
+ * would (no ESM flags, no babel — see jest.config.cjs `transform: {}`). Pure — no
  * model, no claude.
  *
  *   npm run test:jest
  */
-const { compare, assertImproves } = require("../../dist/entries/eval.js");
-const { check, assertChecks } = require("../../dist/check.js");
+const { compare, assertImproves } = require("vigiles/eval");
+const { check, assertChecks } = require("vigiles");
 const checksCases = require("./checks-cases.cjs");
 // Matchers are registered by the `vigiles/jest` entry via setupFilesAfterEnv
 // (jest.config.cjs) — this file asserts that wiring works end-to-end.

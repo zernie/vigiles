@@ -41,7 +41,7 @@ import ts from "typescript";
 import { extname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-const CI = resolve(__dirname, "..", ".github", "workflows", "ci.yml");
+const CI = resolve(import.meta.dirname, "..", ".github", "workflows", "ci.yml");
 
 interface Step {
   uses?: string;
@@ -320,7 +320,7 @@ describe("no root test depends on a file under site/ (#219)", () => {
     return hit;
   }
 
-  const REPO = resolve(__dirname, "..");
+  const REPO = resolve(import.meta.dirname, "..");
 
   /**
    * WHICH FILES THE SKIPPED ROOT JOBS ACTUALLY RUN — READ, not parsed. The

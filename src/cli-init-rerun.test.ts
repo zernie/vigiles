@@ -37,7 +37,7 @@ import { SHIPPED_SKILLS } from "./setup-plan.js";
 import { getAdapter } from "./adapter-registry.js";
 import { skillsHome } from "./core/layout.js";
 
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 
 const CC = "claude";
 

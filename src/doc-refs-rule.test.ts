@@ -27,7 +27,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 
 let dir: string;
 

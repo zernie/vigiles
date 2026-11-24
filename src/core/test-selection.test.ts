@@ -328,7 +328,7 @@ describe("harnessReach on disk — the file probe is total", () => {
 });
 
 // __dirname is src/core/ when vitest resolves the .ts source.
-const CLI = resolve(__dirname, "..", "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "..", "dist", "cli.js");
 
 let dir: string;
 

@@ -102,6 +102,9 @@ import {
   type HookExitCode,
   type HookRunOutcome,
 } from "./core/hook-exit.js";
+import { createRequire } from "node:module";
+// ES module: `require` does not exist; this one keeps the lazy, synchronous loads.
+const require = createRequire(import.meta.url);
 
 /**
  * Which events accept injected context, from the ACTIVE adapter — the one

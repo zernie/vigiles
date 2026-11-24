@@ -24,7 +24,7 @@ import {
 import { resolve, join } from "node:path";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
-const REPO_ROOT = resolve(__dirname, "..");
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
 
 const PAYLOADS: Record<string, (command: string) => object> = {

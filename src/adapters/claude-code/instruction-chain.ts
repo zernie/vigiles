@@ -151,6 +151,9 @@ import {
   readFrontmatter,
 } from "../../core/frontmatter-read.js";
 import { proseLines, proseWords, wordsOf } from "../../core/markdown.js";
+import { createRequire } from "node:module";
+// ES module: `require` does not exist; this one keeps the lazy, synchronous loads.
+const require = createRequire(import.meta.url);
 
 /**
  * The settings key that removes files from the chain, and the frontmatter key

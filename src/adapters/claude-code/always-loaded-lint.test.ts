@@ -34,9 +34,9 @@ import {
 import { cleanupTmpDir, makeTmpDir } from "../../core/test-utils.js";
 import { RULES } from "../../rules/index.js";
 
-const CLI = resolve(__dirname, "..", "..", "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "..", "..", "dist", "cli.js");
 const SPEC_ENTRY = resolve(
-  __dirname,
+  import.meta.dirname,
   "..",
   "..",
   "..",

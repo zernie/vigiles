@@ -26,7 +26,7 @@ import { aggregateUsage, type EvalReport } from "./eval.js";
 import { ARGV_REST, type StubCall } from "./core/stub-rules.js";
 
 const DIST = resolve("dist");
-const ENTRY = join(DIST, "eval-entry.js");
+const ENTRY = join(DIST, "eval-program.js");
 
 function standin(name: string, body: string): string {
   const dir = mkdtempSync(join(tmpdir(), "vigiles-entry-"));

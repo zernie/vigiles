@@ -27,9 +27,9 @@ import { spawnSync } from "node:child_process";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 // __dirname is src/ when vitest resolves the .ts source → ".." is the repo root.
-const EVAL = resolve(__dirname, "..", "dist", "eval.js");
+const EVAL = resolve(import.meta.dirname, "..", "dist", "eval.js");
 const FOREIGN_RUNNER = resolve(
-  __dirname,
+  import.meta.dirname,
   "..",
   "dist",
   "core",

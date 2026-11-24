@@ -1,4 +1,6 @@
-/**
+import { createRequire } from "node:module";
+// ES module: `require` does not exist; this one keeps the lazy, synchronous loads.
+const require = createRequire(import.meta.url); /**
  * `SettingsCodec` — the BYTES-TO-VALUE half of a harness's settings file, and
  * the two encodings vigiles ships.
  *

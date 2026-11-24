@@ -16,7 +16,7 @@ import { join } from "node:path";
 // `cli-main.ts`, not `cli.ts`: #216 reduced `cli.ts` to a dispatcher shim so a
 // compiled hook stops loading the verbs to decide allow/deny. Every verb — and
 // so every harness resolution this gate polices — lives in the barrel now.
-const CLI_SRC = readFileSync(join(__dirname, "cli-main.ts"), "utf-8");
+const CLI_SRC = readFileSync(join(import.meta.dirname, "cli-main.ts"), "utf-8");
 
 test("cli-main.ts resolves the harness through resolveHarnessSelection, never raw detect (dogfood A/I3)", () => {
   // A direct call — `detectAdapterResult(` — bypasses config.harness. Strip

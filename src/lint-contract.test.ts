@@ -29,7 +29,7 @@ import { execFileSync } from "node:child_process";
 
 import { makeTmpDir, cleanupTmpDir, humanCliEnv } from "./core/test-utils.js";
 
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 
 let dir: string;
 
@@ -231,7 +231,13 @@ test("lint catches a committed artifact whose spec refs died (#173 residual)", (
   );
   mkdirSync(join(dir, "docs"), { recursive: true });
   writeFileSync(join(dir, "docs", "guide.md"), "# Guide\n");
-  const specEntry = resolve(__dirname, "..", "dist", "core", "spec.js");
+  const specEntry = resolve(
+    import.meta.dirname,
+    "..",
+    "dist",
+    "core",
+    "spec.js",
+  );
   writeFileSync(
     join(dir, "CLAUDE.md.spec.ts"),
     `import { instructionFile, file } from ${JSON.stringify(specEntry)};\n` +
@@ -266,7 +272,13 @@ test("spec-refs is tierable, and silent when every ref is alive", () => {
   );
   mkdirSync(join(dir, "docs"), { recursive: true });
   writeFileSync(join(dir, "docs", "guide.md"), "# Guide\n");
-  const specEntry = resolve(__dirname, "..", "dist", "core", "spec.js");
+  const specEntry = resolve(
+    import.meta.dirname,
+    "..",
+    "dist",
+    "core",
+    "spec.js",
+  );
   writeFileSync(
     join(dir, "CLAUDE.md.spec.ts"),
     `import { instructionFile, file } from ${JSON.stringify(specEntry)};\n` +

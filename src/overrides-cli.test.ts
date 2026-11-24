@@ -23,7 +23,7 @@ import { execFileSync } from "node:child_process";
 
 import { handWrittenInstructionRemedy } from "./core/instruction-remedies.js";
 
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 const dirs: string[] = [];
 
 afterEach(() => {

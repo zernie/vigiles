@@ -96,7 +96,7 @@ describe("scanFiles parity with scanPlugin (buildAuditReport byte-identical)", (
     it(`produces an identical AuditReport for ${name}`, () => {
       // __dirname is src/ (vitest) or dist/ (built) — both one level under the
       // repo root, where the vendored plugins live.
-      const abs = resolve(__dirname, "..", "test/dogfood", name);
+      const abs = resolve(import.meta.dirname, "..", "test/dogfood", name);
 
       const diskReport = diskScan(abs);
       const map = readDirToMap(abs);

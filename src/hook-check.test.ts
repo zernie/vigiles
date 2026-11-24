@@ -36,7 +36,7 @@ import { spawnSync } from "node:child_process";
 
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
-const REPO_ROOT = resolve(__dirname, "..");
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
 
 const GATE = `import { experimental_defineHook, deny, allow } from "vigiles/hook";

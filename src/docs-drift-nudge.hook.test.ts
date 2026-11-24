@@ -31,7 +31,7 @@ import { experimental_loadHook as loadHook } from "./load-hook.js";
 import { runHookProgram, type AnyHook } from "./core/hook-program.js";
 import { stateFact, type StateFact } from "./core/hook-state.js";
 
-const REPO_ROOT = resolve(__dirname, "..");
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 const HOOK = ".vigiles/hooks/docs-drift-nudge.hook.mjs";
 
 let hook: AnyHook;

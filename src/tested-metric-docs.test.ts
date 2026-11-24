@@ -24,7 +24,7 @@ import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 
 // __dirname is src/ (vitest) or dist/ (built) — both one level under the root.
-const ROOT = resolve(__dirname, "..");
+const ROOT = resolve(import.meta.dirname, "..");
 
 const SKILL = [
   "---",

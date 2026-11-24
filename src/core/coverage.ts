@@ -19,6 +19,9 @@ import { withIgnored, type GlobIgnore } from "./glob-ignore.js";
 import { readPackageScripts } from "./compile.js";
 import type { CoverageThresholds } from "./types.js";
 import type { ClaudeSpec } from "./spec.js";
+import { createRequire } from "node:module";
+// ES module: `require` does not exist; this one keeps the lazy, synchronous loads.
+const require = createRequire(import.meta.url);
 
 // ---------------------------------------------------------------------------
 // Types

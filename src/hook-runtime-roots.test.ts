@@ -24,7 +24,7 @@ import { pathToFileURL } from "node:url";
 import { runHook } from "./run-hook.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
-const REPO_ROOT = resolve(__dirname, "..");
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
 const HOOK_DIST = pathToFileURL(
   resolve(REPO_ROOT, "dist", "entries/hook.js"),

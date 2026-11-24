@@ -27,7 +27,7 @@ import { skillsHome } from "./core/layout.js";
 import { makeTmpDir } from "./core/tmp-root.js";
 import { LAST_AUDIT_FILE, VIGILES_DIR } from "./local-files.js";
 
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 const { layout } = defaultAdapter;
 const SKILLS = skillsHome(layout) ?? "skills";
 

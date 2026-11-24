@@ -36,7 +36,7 @@ import { experimental_hookState } from "./hook-state-store.js";
 import { runHook } from "./run-hook.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
-const REPO_ROOT = resolve(__dirname, "..");
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
 /** The surface under test, spelled as the wiring spells it. */
 const HOOK = ".vigiles/hooks/test-tier-nudge.hook.mjs";

@@ -7,10 +7,9 @@ that turn their reports into pass or fail.
 **For:** people who gate a skill, hook or plugin on a measured number, in CI or
 on a laptop. Eval files are run with `npx vigiles eval`, not with `node`.
 
-The runners are CommonJS. Named imports work in Node (`import { assertRates } from
-"vigiles/eval"`). If your loader or bundler cannot see the names, use a default
-import and destructure it: `import evalApi from "vigiles/eval"; const { compare } =
-evalApi;`.
+vigiles is an ES module package: `import { assertRates } from "vigiles/eval"`.
+Every entry also has a CommonJS copy, so `require("vigiles/eval")` works too,
+including inside Jest. It needs Node 20.19+ or 22.12+.
 
 Signatures are in the [generated API reference](https://zernie.github.io/vigiles/api/).
 The guides: [measuring skills](../measuring-skills.md),

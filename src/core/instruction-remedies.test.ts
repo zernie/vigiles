@@ -117,7 +117,7 @@ describe("the remedy for a hand-written instruction file", () => {
     expect(remedy).toContain("`adopt-spec`");
     // __dirname is src/core → the repo root is two levels up.
     const skill = resolve(
-      __dirname,
+      import.meta.dirname,
       "..",
       "..",
       "skills",

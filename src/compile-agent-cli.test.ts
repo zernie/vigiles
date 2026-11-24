@@ -12,8 +12,8 @@ import { join, resolve } from "node:path";
 
 import { cleanupTmpDir, makeEslintProject } from "./core/test-utils.js";
 
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
-const SPEC = resolve(__dirname, "..", "dist", "core", "spec.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
+const SPEC = resolve(import.meta.dirname, "..", "dist", "core", "spec.js");
 
 const dirs: string[] = [];
 afterAll(() => {

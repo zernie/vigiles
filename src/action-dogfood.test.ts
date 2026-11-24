@@ -19,7 +19,7 @@ import { join, resolve } from "node:path";
 import { load } from "js-yaml";
 import { z } from "zod";
 
-const ROOT = resolve(__dirname, "..");
+const ROOT = resolve(import.meta.dirname, "..");
 
 /** Commands the Action accepts but this repo's CI deliberately does not run, with why. */
 const NOT_DOGFOODED: Readonly<Record<string, string>> = {};

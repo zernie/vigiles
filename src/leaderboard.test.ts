@@ -664,7 +664,7 @@ test("…and a real Claude Code plugin is scored exactly as it was before", () =
   // The quiet half on real input: the SHA-pinned vendored plugins. Detection has
   // to resolve them to Claude Code and reproduce, number for number, the score a
   // direct Claude-Code scan gives — otherwise this fix moved a published board.
-  const vendor = join(__dirname, "..", "test/dogfood");
+  const vendor = join(import.meta.dirname, "..", "test/dogfood");
   for (const name of [
     "oh-my-claudecode@deee3a4",
     "wshobson-accessibility@cf6059d",

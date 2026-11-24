@@ -1,4 +1,6 @@
-/**
+import { createRequire } from "node:module";
+// ES module: `require` does not exist; this one keeps the lazy, synchronous loads.
+const require = createRequire(import.meta.url); /**
  * Lenient frontmatter reader — ONE reader for the SKILL.md / subagent `---` block,
  * shared by `scan` and the PreToolUse rail (`agent-runtime`). It is deliberately
  * fault-tolerant: it audits arbitrary third-party files, so it must never throw

@@ -544,6 +544,9 @@ import {
   hookStampPath,
   runHookProgramCommand,
 } from "./hook-runtime.js";
+import { createRequire } from "node:module";
+// ES module: `require` does not exist; this one keeps the lazy, synchronous loads.
+const require = createRequire(import.meta.url);
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -772,7 +775,7 @@ let host: Host | null = null;
 
 /** The compiled host entry, beside this file in `dist/`. */
 function hostEntry(): string {
-  return resolve(__dirname, "spec-host.mjs");
+  return resolve(import.meta.dirname, "spec-host.mjs");
 }
 
 /**
@@ -783,7 +786,7 @@ function hostEntry(): string {
  * no `package.json` to install into at all — compile a spec.
  */
 function selfRoot(): string {
-  return resolve(__dirname, "..");
+  return resolve(import.meta.dirname, "..");
 }
 
 function startHost(): Host {
@@ -3483,7 +3486,7 @@ function getVersion(): string {
   try {
     // dist/cli.js → ../package.json (the package root).
     const pkg = JSON.parse(
-      readFileSync(resolve(__dirname, "..", "package.json"), "utf-8"),
+      readFileSync(resolve(import.meta.dirname, "..", "package.json"), "utf-8"),
     ) as { version?: string };
     return pkg.version ?? "unknown";
   } catch {
@@ -7961,11 +7964,13 @@ async function handleRunScripts(
   if (toRun.length === 0) return;
 
   console.log(`Running ${String(toRun.length)} ${kind} file(s):\n`);
-  // An eval file DESCRIBES its eval; `dist/eval-entry.js` is what imports the
+  // An eval file DESCRIBES its eval; `dist/eval-program.js` is what imports the
   // description and runs what it declares. A harness script is still its own
   // program (it is free, so "import spends money" never applied to it).
   const results = await runScripts(toRun, cwd, env, {
-    ...(kind === "eval" ? { entry: resolve(__dirname, "eval-entry.js") } : {}),
+    ...(kind === "eval"
+      ? { entry: resolve(import.meta.dirname, "eval-program.js") }
+      : {}),
   });
   // Write down WHAT the run exercised, so `lint`/`audit` can answer "tested?"
   // from execution instead of from a matching file name. Not a new verb and not

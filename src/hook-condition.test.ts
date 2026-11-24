@@ -247,7 +247,7 @@ describe("runHook honours a declared condition", () => {
 // ---------------------------------------------------------------------------
 
 const VENDOR = join(
-  __dirname,
+  import.meta.dirname,
   "..",
   "test",
   "dogfood",

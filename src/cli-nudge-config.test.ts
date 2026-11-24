@@ -31,7 +31,7 @@ import { execFileSync } from "node:child_process";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 // __dirname is src/ when vitest resolves the .ts source → ".." is the repo root.
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 const SKILL = ".claude/skills/demo/SKILL.md";
 /** How `vigiles lint` prints an untested skill on stdout (the finding + fix). */
 /** The skill's folder, as an `overrides` glob. */

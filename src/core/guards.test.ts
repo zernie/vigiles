@@ -290,7 +290,7 @@ test("runGuardHook (ORDER): destroy is blocked, then allowed once plan has been 
 // E2E — the real built CLI gate, driven through runHook (no model, no shell guard)
 // ---------------------------------------------------------------------------
 
-const CLI = resolve(__dirname, "..", "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "..", "dist", "cli.js");
 
 test("guard-hook CLI blocks destroy before plan (exit 2), allows after (ORDER, live)", () => {
   const dir = makeTmpDir("guard-hook-e2e");

@@ -49,6 +49,9 @@ import { codexDialect } from "../adapters/codex/dialect.js";
 import { writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { makeEslintProject, cleanupTmpDir, REPO_ROOT } from "./test-utils.js";
+import { createRequire } from "node:module";
+// ES module: `require` does not exist; this one keeps the lazy, synchronous loads.
+const require = createRequire(import.meta.url);
 
 /** Compile against this repository's root. */
 const atRoot = { basePath: REPO_ROOT } as const;

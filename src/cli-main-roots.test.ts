@@ -35,7 +35,7 @@ import { resolve } from "node:path";
 import { runHook } from "./run-hook.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
-const REPO_ROOT = resolve(__dirname, "..");
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
 
 /**

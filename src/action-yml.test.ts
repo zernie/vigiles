@@ -22,7 +22,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { load } from "js-yaml";
 import { AUDIT_SUMMARY_MAX_CHARS } from "./audit-pr-summary.js";
 
-const actionPath = resolve(__dirname, "..", "action.yml");
+const actionPath = resolve(import.meta.dirname, "..", "action.yml");
 const raw = readFileSync(actionPath, "utf-8");
 const action = load(raw) as {
   inputs: Record<string, { default?: string; description?: string }>;

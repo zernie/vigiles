@@ -327,9 +327,9 @@ export function runSandboxed(opts: {
   // the built dist/ copy.
   const mockEntry =
     [
-      join(__dirname, "mock-entry.js"),
-      join(__dirname, "..", "dist", "mock-entry.js"),
-    ].find((p) => existsSync(p)) ?? join(__dirname, "mock-entry.js");
+      join(import.meta.dirname, "mock-entry.js"),
+      join(import.meta.dirname, "..", "dist", "mock-entry.js"),
+    ].find((p) => existsSync(p)) ?? join(import.meta.dirname, "mock-entry.js");
   const args = [
     ...bwrapArgs({
       cwd: opts.cwd,

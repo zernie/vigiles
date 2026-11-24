@@ -28,7 +28,7 @@ import { spawnSync } from "node:child_process";
 
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
-const DIST = resolve(__dirname, "..", "dist");
+const DIST = resolve(import.meta.dirname, "..", "dist");
 const CODEX_EVAL = join(DIST, "adapters", "codex", "eval.js");
 const JUDGE = join(DIST, "judge.js");
 

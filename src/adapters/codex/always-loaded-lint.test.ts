@@ -29,7 +29,7 @@ import { legacyBaselineFiles } from "../../core/legacy-baseline.js";
 import { cleanupTmpDir, makeTmpDir } from "../../core/test-utils.js";
 import { RULES } from "../../rules/index.js";
 
-const CLI = resolve(__dirname, "..", "..", "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "..", "..", "dist", "cli.js");
 const RULE_ID =
   RULES.find((r) => r.detector === checkAlwaysLoadedLimits.name)?.id ?? "";
 const LEGACY = legacyBaselineFiles(RULE_ID)[0] ?? "";

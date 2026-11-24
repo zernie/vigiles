@@ -126,7 +126,7 @@ describe("findStaleCommandRefs", () => {
 
 // --- The repo dogfood -------------------------------------------------------
 
-const ROOT = resolve(__dirname, "..");
+const ROOT = resolve(import.meta.dirname, "..");
 // The must-be-current surfaces: public docs, the live spec, code, examples,
 // wired scripts, and the shipped skills (whose SKILL.md bodies tell the model
 // which commands to run — stale ones there misdirect the agent). research/ is

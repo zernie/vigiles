@@ -332,7 +332,7 @@ test("evaluateSkillPreToolUse allows everything when skill declares no purity ma
 // skill-tool-hook (CLI): the real PreToolUse purity gate process
 // ---------------------------------------------------------------------------
 
-const CLI = resolve(__dirname, "..", "..", "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "..", "..", "dist", "cli.js");
 
 /** Set up a temp project with a compiled bounded skill and mark it active. */
 async function projectWithBoundedSkill(): Promise<string> {

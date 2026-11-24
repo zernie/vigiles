@@ -24,7 +24,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { spawnSync } from "node:child_process";
 
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 let dir: string;
 
 const run = (args: string[]) =>
@@ -36,7 +36,7 @@ beforeAll(() => {
   writeFileSync(
     join(dir, "SKILL.md.spec.ts"),
     [
-      `import { experimental_skill, file, prose } from ${JSON.stringify(resolve(__dirname, "core", "spec.js"))};`,
+      `import { experimental_skill, file, prose } from ${JSON.stringify(resolve(import.meta.dirname, "core", "spec.js"))};`,
       "export default experimental_skill({",
       '  name: "fixture",',
       '  description: "A fixture skill whose one reference is about to die",',

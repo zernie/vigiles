@@ -39,7 +39,7 @@ const SAFE_GUARD_HARMLESS = disasters().harmless.filter(
   (t) => t.of !== "read-ssh-key",
 );
 
-const REPO_ROOT = resolve(__dirname, "..");
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
 const COMPILED_GUARD = resolve(
   REPO_ROOT,
