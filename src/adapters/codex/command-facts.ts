@@ -72,18 +72,30 @@ const FILE_PRINTERS = new Set([
 
 const SKILL_FILE = "/SKILL.md";
 
-/** The skills one shell command READS, by directory name, from the parsed command. */
+/** The skill a path names, when it is a `<dir>/<name>/SKILL.md`. */
+function skillOfPath(path: string): readonly string[] {
+  if (!path.endsWith(SKILL_FILE)) return [];
+  const dir = path.slice(0, -SKILL_FILE.length);
+  const name = dir.slice(dir.lastIndexOf("/") + 1);
+  return name === "" ? [] : [name];
+}
+
+/**
+ * The skills one shell command READS, by directory name, from the parsed
+ * command: a `SKILL.md` a file printer is handed as an operand, or on stdin
+ * (`cat < …/SKILL.md`, which the substring test this replaced also counted). A
+ * redirect that WRITES the file (`>`, `>>`) is authoring, and is never read
+ * here: only an input redirect (`<`) is taken, and only on a printer.
+ */
 function skillsReadBy(command: string): readonly string[] {
   return readShell(command).effects.flatMap((e) => {
     if (e.kind !== "leaf" || !FILE_PRINTERS.has(e.leaf.head)) return [];
     // `sed -i` edits the file in place: authoring the skill, not reading it.
     if (e.leaf.head === "sed" && e.leaf.hasFlag("i", "in-place")) return [];
-    return e.leaf.args.flatMap((arg) => {
-      if (!arg.endsWith(SKILL_FILE)) return [];
-      const dir = arg.slice(0, -SKILL_FILE.length);
-      const name = dir.slice(dir.lastIndexOf("/") + 1);
-      return name === "" ? [] : [name];
-    });
+    const stdin = e.leaf.redirects.flatMap((r) =>
+      r.op === "<" && r.target !== null ? [r.target] : [],
+    );
+    return [...e.leaf.args, ...stdin].flatMap(skillOfPath);
   });
 }
 
