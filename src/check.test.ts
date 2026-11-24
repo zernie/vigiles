@@ -268,7 +268,7 @@ test("hookFired(): matches by event, lists fired events on miss", () => {
   assert.equal(hookFired("Stop").eval(t).pass, true);
   const miss = hookFired("PostToolUse").eval(t);
   assert.equal(miss.pass, false);
-  assert.match(miss.message, /\[PreToolUse, Stop\]/);
+  assert.match(miss.message, /\[PreToolUse:\*, Stop:\*\]/);
 });
 
 test("received(): a slash-command expansion / injected context reached the model", () => {

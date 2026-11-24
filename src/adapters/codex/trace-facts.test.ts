@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import { parseCodexEvalRun, codexSkillFired } from "./eval.js";
 import { codexShell, codexSkillFires } from "./command-facts.js";
 import { parseCodexRun } from "./driver.js";
-import { skill } from "../../check.js";
+import { check, skill } from "../../check.js";
 import type { Trace } from "../../core/eval-driver.js";
 import type { ToolCall } from "../../core/harness-driver.js";
 
@@ -185,4 +185,27 @@ describe("codexShell — the command out of Codex's wrapper", () => {
     test(`leaves anything else as it was: ${kept}`, () => {
       assert.equal(codexShell(kept), kept);
     });
+});
+
+describe("check.runs over a Codex run", () => {
+  for (const command of [
+    `/bin/bash -lc 'git push --force origin main'`,
+    `/bin/bash -lc "git push -f"`,
+    `/bin/bash -lc "sudo git push '--force' origin main"`,
+    `/bin/bash -lc "cd repo && git push -f"`,
+  ])
+    test(`a force push inside Codex's wrapper is seen: ${command}`, () => {
+      const r = check
+        .runs("git push", { force: true })
+        .eval(traceOf(stream(command)));
+      assert.equal(r.pass, true, r.message);
+    });
+
+  test("a non-forced push is not", () => {
+    const r = check
+      .runs("git push", { force: true })
+      .eval(traceOf(stream(`/bin/bash -lc 'git push origin main'`)));
+    assert.equal(r.pass, false);
+    assert.match(r.message, /git push origin main/);
+  });
 });

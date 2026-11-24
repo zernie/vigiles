@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { bashCommandOf, streamSkillFacts } from "./trace-facts.js";
 import { parseClaudeRun } from "../../harness-test.js";
 import { parseClaudeRun as parseClaudeEvalRun } from "../../eval.js";
-import { skill } from "../../check.js";
+import { check, skill } from "../../check.js";
 import type { Trace } from "../../core/eval-driver.js";
 import type { ParsedRun } from "../../core/harness-driver.js";
 
@@ -189,5 +189,36 @@ describe("Trace.skills — a run that captured no tool calls", () => {
     assert.equal(r.pass, false);
     assert.match(r.message, /not observable on claude-code/);
     assert.match(r.message, /transcript: true/);
+  });
+});
+
+describe("check.runs over a Claude Code run", () => {
+  for (const command of [
+    "git push --force origin main",
+    "git push -f",
+    `sudo git push "-f" origin main`,
+    `bash -c 'git push --force'`,
+  ])
+    test(`a Bash force push is seen: ${command}`, () => {
+      const t = traceOf(
+        parseClaudeRun(stream({ name: "Bash", input: { command } })),
+      );
+      const r = check.runs("git push", { force: true }).eval(t);
+      assert.equal(r.pass, true, r.message);
+    });
+
+  test("a non-forced push, or the words in another tool's input, is not", () => {
+    const t = traceOf(
+      parseClaudeRun(
+        stream(
+          { name: "Bash", input: { command: "git push origin main" } },
+          {
+            name: "Write",
+            input: { file_path: "n.md", content: "git push -f" },
+          },
+        ),
+      ),
+    );
+    assert.equal(check.runs("git push", { force: true }).eval(t).pass, false);
   });
 });
