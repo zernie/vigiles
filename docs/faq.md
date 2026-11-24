@@ -82,6 +82,66 @@ Safe. `init` never overwrites instruction files (see above) — an adopted file 
 
 To back out: `vigiles eject <file>` returns the file to plain markdown and removes the spec. Uninstalling the dev dependency leaves your repo as plain markdown plus CI you can delete. Nothing is locked in.
 
+## Testing guards
+
+These are about `assertGuardrail`, the disaster battery. The full page is
+[Prove a guard actually blocks](harness-testing.md#prove-a-guard-actually-blocks-the-disaster-battery).
+
+### How do I add my own cases, or replace the defaults?
+
+Three options, one rule: passing an option **replaces** its default; to **add**,
+spread the default in. `events` are the disasters (default `DISASTER_CATALOG`),
+`spellings` their other spellings, `harmless` the look-alikes that must pass.
+
+```ts
+import { assertGuardrail, DISASTER_CATALOG } from "vigiles";
+
+const mine = {
+  id: "push-main",
+  label: "plain push to main",
+  category: "destructive-git" as const,
+  tool: "Bash",
+  input: { command: "git push origin main" },
+};
+assertGuardrail("bash hooks/guard.sh", { events: [mine] }); // replace
+assertGuardrail("bash hooks/guard.sh", { events: [...DISASTER_CATALOG, mine] }); // add
+```
+
+### How do I turn off the look-alikes or the spellings?
+
+Pass an empty list: `harmless: []` or `spellings: []`. The disasters themselves
+always run.
+
+### Why did my guard fail on a spelling it never saw?
+
+Because the shell runs it the same way. `git push "--force" origin main`,
+`sudo git push --force origin main` and `( git push --force origin main )` all
+force-push; a guard that matches the text `git push --force` lets them through.
+The failure names the spelling (its id ends in `~N`). Decide on the parsed
+command (`vigiles/hook` `runs()`) and every generated spelling passes.
+
+### Why did my conditional guard pass a look-alike?
+
+A command hook with an `if` (say `Bash(git push *)`) is never started for
+`echo 'git push --force'`, so the harness lets that command through. That is
+what "allowed" means, so the look-alike passes. A _disaster_ the `if` does not
+select is still a miss.
+
+### What does `crashed` mean?
+
+The hook never really ran. A command hook that exits non-zero on every call,
+prints no decision, and shows an interpreter or loader error on stderr — a
+missing script, a missing `lib/common.sh` — is reported as `run: "crashed"`
+with the end of its stderr, not as a score. It is a best-effort reading from
+outside; a compiled hook never needs it.
+
+### Compiled hook or string hook?
+
+Write guards as compiled hooks (`vigiles/hook`). The battery calls `decide()`
+directly and the answer is exact. A command string can only be watched from
+outside: a hook that never started, or that branches on its input, can look
+like it works.
+
 ## How is the Eval layer different from promptfoo / DeepEval?
 
 Two things set it apart.

@@ -740,15 +740,16 @@ None of these is an evasion trick. Quoting a flag is ordinary typing. The "7 of 
 - the short and long form of a flag: `-f` / `--force`, `-n` / `--no-verify`
 - the full or backslash-escaped command path: `/usr/bin/git`, `/bin/git`, `\git`
 - a pass-through wrapper in front: `sudo`, `env`, `command`, `nice -n 5`, `timeout 30`
+- a subshell around the command: `( git push --force origin main )`
 - a per-command environment assignment in front: `FOO=1 git push --force` (the shell strips the assignment and runs the rest)
 - a quote pair inside or around the command name: `g""it`, `"git"`, `gi"t"`
 - ANSI-C quoting of the name: `$'git'`
 - a backslash before an ordinary letter: `g\it` (the shell drops it — `sh -c 'g\it --version'` prints git's version)
 - runs of spaces, or tabs, between words: `git   push    --force`
 
-Seven commands become 136 (today's count; it grows as rewrite rules are added). The last four are the shell's own obfuscations: `sh` removes them before the command runs, so a guard that matches the source text (a `grep`, a substring) sees a different string while the shell sees the same command. Against a guard that greps for each of the seven command strings, most of them get through. Which ones depends on how that guard matches, and the difference is sharp: an ANCHORED matcher (`case "$cmd" in "git push --force"*`, a `startsWith`) blocks **0 of the 14** environment-assignment spellings, because the prefix moves the start of the string. An unanchored `grep` blocks 12 of those 14 and falls to the quoting ones instead.
+Seven commands become 143 (today's count; it grows as rewrite rules are added). The last four are the shell's own obfuscations: `sh` removes them before the command runs, so a guard that matches the source text (a `grep`, a substring) sees a different string while the shell sees the same command. Against a guard that greps for each of the seven command strings, most of them get through. Which ones depends on how that guard matches, and the difference is sharp: an ANCHORED matcher (`case "$cmd" in "git push --force"*`, a `startsWith`) blocks **0 of the 14** environment-assignment spellings, because the prefix moves the start of the string. An unanchored `grep` blocks 12 of those 14 and falls to the quoting ones instead.
 
-It returns **only the rewrites**, never the originals — so spread both into the same checker:
+`assertGuardrail` runs them **by default**, beside the originals (its `spellings` option; `[]` turns them off). The generator returns **only the rewrites**, so to add your own spelling, spread both:
 
 ```ts
 import {
@@ -759,16 +760,20 @@ import {
 
 const guard = "node … hook-runtime run-program guard.hook.mjs";
 assertGuardrail(guard, {
-  events: [
-    ...DISASTER_CATALOG,
+  spellings: [
     ...experimental_alternateSpellings(DISASTER_CATALOG),
+    {
+      ...DISASTER_CATALOG[0],
+      id: "force-push~mine",
+      input: { command: "git push origin +main" },
+    },
   ],
 });
 ```
 
-Passing the generator alone would test the seven originals zero times. Each rewrite keeps the original's id with a suffix (`force-push~4`), so a failure names the spelling that got through.
+Each rewrite keeps the original's id with a suffix (`force-push~4`), so a failure names the spelling that got through. **A compiled gate passes them by construction:** `runs()` reads the command with the same parser that proved each spelling the same command.
 
-On its first run the generated set found a miss the 30 hand-written cases had not: `git commit -n -m 'skip hooks'`. The guard asked for the literal `--no-verify`, and `-n` is git's short form of it. The matcher behind `runs()` was fixed to recognise both spellings, and the shipped guard now blocks all 136. [`src/hook-dogfood.test.ts`](../src/hook-dogfood.test.ts) keeps it that way in CI.
+On its first run the generated set found a miss the 30 hand-written cases had not: `git commit -n -m 'skip hooks'`. The guard asked for the literal `--no-verify`, and `-n` is git's short form of it. The matcher behind `runs()` was fixed to recognise both spellings, and the shipped guard now blocks all 143. [`src/hook-dogfood.test.ts`](../src/hook-dogfood.test.ts) keeps it that way in CI.
 
 **Nobody has to label the new cases.** Two questions decide whether a rewrite belongs in the battery, and both are already answered:
 
@@ -789,9 +794,9 @@ If a rewrite fails the second check, the generator throws instead of quietly dro
 | `retry` (re-run previously failed cases)                                   | none                                                                  | The battery is deterministic; a failed case fails the same way every run.                                                                                                                                               |
 | —                                                                          | the equivalence check (a rewrite that is not the same command throws) | promptfoo strategies are not required to preserve meaning. Here every emitted spelling is one the shell provably runs identically, so a miss is always a guard bug, never an ambiguous input.                           |
 
-**What it cannot find.** The generator decides "same command" with the same shell parser the compiled guard's `runs()` uses. That makes every spelling it emits trustworthy, and it sets the limit: it can only produce spellings that parser already understands. It tests whether your guard matches the _operation_ rather than one way of typing it; it cannot find a blind spot in the parser itself, because it would share it. `g\it` is the example: a reader tried it, the shell ran git, the parser read `g\it`, and the guard behind "7 of 7" let it through — while the 73-case battery of the day could not have produced it. The parser was fixed, the spelling joined the battery, and the shipped guard now blocks all 136. A spelling the parser does not understand still has to come from a person.
+**What it cannot find.** The generator decides "same command" with the same shell parser the compiled guard's `runs()` uses. That makes every spelling it emits trustworthy, and it sets the limit: it can only produce spellings that parser already understands. It tests whether your guard matches the _operation_ rather than one way of typing it; it cannot find a blind spot in the parser itself, because it would share it. `g\it` is the example: a reader tried it, the shell ran git, the parser read `g\it`, and the guard behind "7 of 7" let it through — while the 73-case battery of the day could not have produced it. The parser was fixed, the spelling joined the battery, and the shipped guard now blocks all 143. A spelling the parser does not understand still has to come from a person.
 
-**What it deliberately does not generate.** `eval "$(…)"`, `sh -c "$X"`, a command name held in a variable (`$CMD push --force`), a command decoded from base64. The parser cannot tell what those will run, so they are never emitted. That is on purpose: a guard built on `runs()` genuinely cannot see through `eval "$(echo … | base64 -d)"` either — the gate [asks on it](#the-vocabulary) rather than allowing it, and an ask is not a block. Emitting such cases would mark a correct guard as broken, and a check that flags correct guards gets switched off. A _literal_ `sh -c '…'` or `eval '…'` is a different case: the gate reads it, but the generator does not emit it yet, because its "same command" check compares one level of the command line.
+**What it deliberately does not generate.** `eval "$(…)"`, `sh -c "$X"`, a command name held in a variable (`$CMD push --force`), a command decoded from base64. The parser cannot tell what those will run, so they are never emitted. That is on purpose: a guard built on `runs()` genuinely cannot see through `eval "$(echo … | base64 -d)"` either — the gate [asks on it](#the-vocabulary) rather than allowing it, and an ask is not a block. Emitting such cases would mark a correct guard as broken, and a check that flags correct guards gets switched off. A _literal_ `sh -c '…'`, `bash -c '…'` or `eval '…'` is a different case: the gate reads it, but the generator does not emit it, because its "same command" check compares one level of the command line — and it does not emit `git -C . …` either, because that check reads `.` as an argument.
 
 ### The other direction — harmless look-alikes
 

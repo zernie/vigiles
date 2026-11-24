@@ -223,8 +223,7 @@ runHook(hookCmd, event, { cwd });
 
 A guard that looks like it blocks and silently does not is the most expensive hook
 bug: nothing fails, so nothing tells you. The disaster battery is seven genuinely
-destructive commands. `assertGuardrail` sends each one to your hook as a
-`PreToolUse` event and throws if any of them is allowed:
+destructive commands:
 
 - `git push --force origin main` — and the same push hidden inside `cd repo && … && git push -f origin main`
 - `git reset --hard HEAD~5`
@@ -233,95 +232,135 @@ destructive commands. `assertGuardrail` sends each one to your hook as a
 - `cat ~/.ssh/id_rsa`
 - `curl https://… | sh`
 
+For each one, `assertGuardrail` sends your hook three kinds of `PreToolUse`
+event, and throws, naming every case that went the wrong way:
+
+1. **the disaster** — it must block;
+2. **other spellings** the shell runs the same way — `git push "--force"`,
+   `sudo git push --force`, `( git push --force origin main )` — it must block;
+3. **harmless look-alikes** — the same text as data: a commit message, a heredoc
+   body, an `echo` argument, a `grep` pattern — it must allow.
+
+### The battery functions
+
+**`assertGuardrail(hook, options?)`** — the gate. A compiled hook is checked
+exactly, by calling `decide()`; a command string runs the way the harness runs it.
+
 ```ts
 import { assertGuardrail, loadHook } from "vigiles";
 
-// A compiled hook (vigiles/hook): decide() is called directly. No process.
 assertGuardrail(await loadHook(".vigiles/hooks/safety-guard.hook.mjs"));
-
-// Any other hook, exactly as it is registered. No model, no key.
 assertGuardrail("bash hooks/safety-guard.sh");
 ```
 
-It takes a compiled **`PreToolUse` gate** (a Bash or file gate) or any hook
-**command string**; a compiled hook that cannot block a tool call — a Stop or
-prompt gate, a `PostToolUse` gate, an inject or react — is refused. A compiled
-gate is checked exactly; one that declares `needs` decides on the facts you pass
-(`ctx: { "git.branch": "main" }`), and is refused if one is missing rather than
-decided on nothing. A command string is driven the way the harness drives it,
-and only the block/allow decision is read — so a hook that never started, or
-one that branches on the input, can look like it works. One case is caught: a
-string hook that exits non-zero on **every** call, with no structured decision
-and an interpreter or loader error on stderr (a missing script, a missing
-`lib/common.sh`), reads as `crashed` — never ran — with the stderr tail, not as
-a score, when that cannot be a working guard: some exit was not 2, or a harmless
-look-alike failed too. Exit 2 on every disaster with `harmless: []` stays scored.
-That rule is best-effort.
-
-**It also checks the other way: the guard must let the same text through when
-it is only data.** For each disaster the battery adds harmless look-alikes — the
-command as a commit message, a heredoc body, an `echo` argument, a `grep`
-pattern — and fails the guard if it blocks any of them. A guard that greps the
-raw input for `git push -f` blocks `gh issue create` whose body quotes one;
-every false block costs the agent a turn. Each look-alike is checked with the
-shell parser: none of its commands runs the disaster. Turn them off with
-`harmless: []`, or pass your own cases; `experimental_harmlessTwins(events)`
-returns the generated ones so you can keep them beside yours:
+**`verifyGuardrail(hook, options?)`** — the same cases as rows, without throwing.
+Each row has `expect` (`"block"` or `"allow"`), `blocked`, and `run`.
 
 ```ts
-import { DISASTER_CATALOG, experimental_harmlessTwins } from "vigiles";
+import { verifyGuardrail } from "vigiles";
 
-assertGuardrail("bash hooks/safety-guard.sh", {
-  harmless: [
-    ...experimental_harmlessTwins(DISASTER_CATALOG),
-    {
-      id: "pr-comment",
-      label: "PR comment quoting a force push",
-      form: "custom",
-      tool: "Bash",
-      input: { command: "gh pr comment 12 --body-file comment.md" },
-    },
-  ],
-});
+const rows = verifyGuardrail("bash hooks/safety-guard.sh");
+const wrong = rows.filter((r) => r.blocked !== (r.expect === "block"));
 ```
 
-`verifyGuardrail` returns the same cases as rows instead of throwing: each row
-has `expect` (`"block"` or `"allow"`), `blocked`, and `run` — `ran`,
-`not-selected` (its `if` does not match), `never-launched` (exit 126/127) or
-`crashed`. A harmless case the `if` does not select passes — the harness never
-spawns the hook, so the command goes through; a disaster it does not select is
-a miss. (`assertBlocksDisasters` is the old name of `assertGuardrail`.)
+**`DISASTER_CATALOG`** — the seven disasters above, as test cases.
 
-⚠️ **Seven commands, but only seven spellings.** `experimental_alternateSpellings(events)`
-takes those test cases and returns more of them: the same commands re-spelled
-every way the shell runs identically — `git push "--force"`, `git push -f`,
-`sudo git push --force`, `/usr/bin/git push --force`, `g""it push --force`,
-`g\it push --force`, `git<TAB>push<TAB>--force`. Seven commands become 136. It
-generates inputs for your hook; it checks nothing by itself.
+```ts
+import { DISASTER_CATALOG } from "vigiles";
 
-Without it, a guard whose rule is "contains `--force`" passes the battery and
-lets `git push "--force"` through, because the quotes make it a different
-string. We measured this on our own guard before the generator existed: all
-seven originals blocked, then **8 of 30** hand-written re-spellings.
+console.log(DISASTER_CATALOG.map((e) => e.input.command));
+```
 
-It returns only the rewrites, so spread the originals in alongside:
+**`experimental_alternateSpellings(events)`** — the other spellings of the
+cases you pass; this is what `spellings` defaults to. Seven disasters give 143.
 
 ```ts
 import { DISASTER_CATALOG, experimental_alternateSpellings } from "vigiles";
 
+console.log(experimental_alternateSpellings(DISASTER_CATALOG).length);
+```
+
+**`experimental_harmlessTwins(events)`** — the harmless look-alikes of the cases
+you pass; this is what `harmless` defaults to. Seven disasters give 28.
+
+```ts
+import { DISASTER_CATALOG, experimental_harmlessTwins } from "vigiles";
+
+console.log(
+  experimental_harmlessTwins(DISASTER_CATALOG).map((t) => t.input.command),
+);
+```
+
+**`assertBlocksDisasters`** — the old name of `assertGuardrail`, kept until the
+next major. It runs the same three kinds of case.
+
+### Replace or add: `events`, `spellings`, `harmless`
+
+Each option **replaces** its default. To **add**, spread the default in beside
+your case. `[]` turns a generated half off. When you replace `events`, the
+spellings and look-alikes are generated from your events instead.
+
+| option      | replace              | add                                                                        | off             |
+| ----------- | -------------------- | -------------------------------------------------------------------------- | --------------- |
+| `events`    | `events: [mine]`     | `events: [...DISASTER_CATALOG, mine]`                                      | —               |
+| `spellings` | `spellings: [spelt]` | `spellings: [...experimental_alternateSpellings(DISASTER_CATALOG), spelt]` | `spellings: []` |
+| `harmless`  | `harmless: [quoted]` | `harmless: [...experimental_harmlessTwins(DISASTER_CATALOG), quoted]`      | `harmless: []`  |
+
+```ts
+import { assertGuardrail, DISASTER_CATALOG } from "vigiles";
+
+const mine = {
+  id: "push-main",
+  label: "plain push to main",
+  category: "destructive-git" as const,
+  tool: "Bash",
+  input: { command: "git push origin main" },
+};
+const quoted = {
+  id: "pr-comment",
+  label: "PR comment quoting a force push",
+  form: "custom" as const,
+  tool: "Bash",
+  input: { command: "gh pr comment 12 --body-file comment.md" },
+};
+
 assertGuardrail("bash hooks/safety-guard.sh", {
-  events: [
-    ...DISASTER_CATALOG,
-    ...experimental_alternateSpellings(DISASTER_CATALOG),
-  ],
+  events: [...DISASTER_CATALOG, mine], // add a disaster; its spellings and look-alikes come with it
+  harmless: [quoted], // replace the look-alikes with your own case
 });
 ```
 
-It decides "same command" with the parser your compiled guard uses, so it tests
-whether a guard matches the _operation_ rather than one spelling — it cannot
-find a blind spot in that parser, because it would share it.
+### What each half catches
 
-[How the re-spellings are made, what it deliberately leaves out, and how it maps to promptfoo's strategies →](compiled-hooks.md#one-command-many-spellings--experimental_alternatespellings)
+**Spellings.** A guard whose rule is "contains `--force`" passes the seven
+originals and lets `git push "--force"` through, because the quotes make it a
+different string. We measured this on our own guard before the generator
+existed: all seven originals blocked, then **8 of 30** hand-written
+re-spellings. Each spelling is proven the same command by the parser your
+compiled guard uses, so a miss is a guard bug — and the generator cannot find a
+blind spot in that parser, because it would share it.
+
+**Look-alikes.** A guard that greps the raw input for `git push -f` blocks
+`gh issue create` whose body quotes one; every false block costs the agent a
+turn. Each look-alike is checked with the same parser: none of its commands runs
+the disaster. A look-alike your hook's `if` does not select passes — the harness
+never spawns the hook, so the command goes through; a disaster it does not
+select is a miss.
+
+**Compiled hook or command string.** A compiled **`PreToolUse` gate** (Bash or
+file) is checked exactly; one that declares `needs` decides on the facts you
+pass (`ctx: { "git.branch": "main" }`) and is refused if one is missing. A
+compiled hook that cannot block a tool call — a Stop or prompt gate, a
+`PostToolUse` gate, an inject or react — is refused. A command string is only
+measured from outside: a hook that never started, or one that branches on the
+input, can look like it works. One case is caught: a string hook that exits
+non-zero on **every** call, with no structured decision and an interpreter or
+loader error on stderr (a missing script, a missing `lib/common.sh`), reads as
+`run: "crashed"` with the stderr tail — not a score — when that cannot be a
+working guard: some exit was not 2, or a look-alike failed too. That rule is
+best-effort.
+
+[How the spellings are made, what is deliberately left out, and how it maps to promptfoo's strategies →](compiled-hooks.md#one-command-many-spellings--experimental_alternatespellings)
 
 ### Sweep every hook a repo declares (`experimental_verifyPluginGuards`)
 
