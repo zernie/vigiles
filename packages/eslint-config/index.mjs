@@ -11,9 +11,8 @@
  * eslint-plugin-functional and eslint-plugin-sonarjs itself, and the imports
  * below resolve to that copy.
  *
- * What each repo keeps for itself: its folder layout (passed to `layers`), its
- * ceiling table for old functions (passed to `ceilings`) and its
- * eslint-suppressions.json.
+ * What each repo keeps for itself: its folder layout (passed to `layers`) and
+ * its eslint-suppressions.json.
  */
 import boundaries from "eslint-plugin-boundaries";
 import functional from "eslint-plugin-functional";

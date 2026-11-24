@@ -139,7 +139,7 @@ BUILD + TOOLING + GENERATED:
 
     "cognitive-complexity": enforce(
       "sonarjs/cognitive-complexity",
-      "Keep functions under 5 cognitive complexity (the shared limit in packages/eslint-config). A function older than the limit is grandfathered in eslint-suppressions.json. Split complex logic into helpers.",
+      "Keep functions at or below 5 cognitive complexity (the shared limit in packages/eslint-config). A function older than the limit is grandfathered in eslint-suppressions.json. Split complex logic into helpers.",
       { render: "line" },
     ),
 

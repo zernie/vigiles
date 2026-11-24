@@ -43,7 +43,17 @@ try {
   process.exit(1);
 }
 
-const base = JSON.parse(git("show", `${mergeBase}:${FILE}`));
+let baseText;
+try {
+  baseText = git("show", `${mergeBase}:${FILE}`);
+} catch {
+  console.log(
+    `⚠ suppressions-shrink: ${FILE} does not exist at the base (${mergeBase.slice(0, 7)}); ` +
+      `every suppression counts as growth.`,
+  );
+  baseText = "{}";
+}
+const base = JSON.parse(baseText);
 const head = JSON.parse(readFileSync(FILE, "utf8"));
 const at = `${ref} (${mergeBase.slice(0, 7)})`;
 
@@ -89,6 +99,9 @@ if (reasons.length > 0) {
     `✓ suppressions-shrink: ${FILE} grew by ${String(added)} against ${at}, declared:`,
   );
   for (const r of reasons) console.log(`  ${GROW_TRAILER}: ${r}`);
+  // The trailer covers every growth in the change, so show what it covered.
+  console.log("  what grew:");
+  for (const l of [...lines, ...more]) console.log(l);
   process.exit(0);
 }
 
