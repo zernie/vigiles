@@ -1653,7 +1653,8 @@ test("scanPlugin flags a HARD lethal trifecta on a subagent with all three legs"
   assert.equal(flat.kind, "subagent");
   // …and it prints in the human report under the trifecta section.
   assert.match(formatScanReport(shown(r)), /Lethal trifecta/);
-  assert.match(formatScanReport(shown(r)), /✗ exfil: /);
+  // A group is three lines: ✗ problem, → edit, then the units.
+  assert.match(formatScanReport(shown(r)), /^ {2}✗ .*\n {4}→ .*\n {4}exfil$/m);
   assert.equal(flat.finding.fix.kind, "remove-a-tool");
   cleanupTmpDir(dir);
 });
@@ -1670,7 +1671,7 @@ test("scanPlugin reports an inherits-all subagent trifecta as ADVISORY", () => {
   assert.equal(agent?.trifecta?.severity, "advisory");
   // No `tools:` line adds nothing of its own: the session is the cause (#392).
   assert.equal(agent?.trifecta?.cause, "session");
-  assert.match(formatScanReport(shown(r)), /⚠ wide: /);
+  assert.match(formatScanReport(shown(r)), /^ {2}⚠ .*\n {4}→ .*\n {4}wide$/m);
   cleanupTmpDir(dir);
 });
 
@@ -1814,7 +1815,7 @@ test("the report states the session cause ONCE but still counts every unit", () 
   // The header counts UNITS (3), not the lines the aggregate collapsed them into.
   assert.match(text, /Lethal trifecta \(prompt-injection exfil risk\) \(3\)/);
   // One line names all three: the grouping is by message (`groupFindings`).
-  assert.match(text, /⚠ alpha, beta, gamma: /);
+  assert.match(text, /^ {4}alpha · beta · gamma$/m);
   const section = text.slice(text.indexOf("Lethal trifecta")).split("\n\n")[0];
   assert.equal(section?.match(/\balpha\b/g)?.length, 1, "named once");
   cleanupTmpDir(dir);

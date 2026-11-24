@@ -8,6 +8,7 @@
 import { describe, expect, it } from "vitest";
 import {
   describeFix,
+  fixLine,
   type TrifectaFix,
   type TrifectaLegs,
 } from "./trifecta-fix.js";
@@ -70,14 +71,14 @@ const cases: readonly { fix: TrifectaFix; shows: readonly string[] }[] = [
 
 describe("describeFix", () => {
   it.each(cases)("$fix.kind is one short line with its own data", (c) => {
-    const line = describeFix(c.fix, legs);
+    const line = fixLine(describeFix(c.fix, legs));
     expect(line.length).toBeLessThanOrEqual(160);
     expect(line).not.toMatch(/\n/);
     for (const s of c.shows) expect(line).toContain(s);
   });
 
   it("no two fixes read the same", () => {
-    const lines = cases.map((c) => describeFix(c.fix, legs));
+    const lines = cases.map((c) => fixLine(describeFix(c.fix, legs)));
     expect(new Set(lines).size).toBe(lines.length);
   });
 });

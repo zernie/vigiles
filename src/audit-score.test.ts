@@ -538,7 +538,10 @@ describe("auditScore", () => {
             finding: {
               severity: "advisory",
               cause: "session",
-              message: "no `tools:` line, so every session tool is inherited",
+              problem: "no `tools:` line, so every session tool is inherited",
+              edit: "list the tools it needs",
+              message:
+                "no `tools:` line, so every session tool is inherited → list the tools it needs",
             },
           },
         ] as unknown as ScanReport["trifectaFindings"],
@@ -652,7 +655,9 @@ describe("auditScore", () => {
             severity: "advisory",
             fence: "none",
             cause: "session",
-            message: "no `disallowed-tools:` line",
+            problem: "no `disallowed-tools:` line",
+            edit: "add one",
+            message: "no `disallowed-tools:` line → add one",
           },
         })) as unknown as ScanReport["trifectaFindings"],
       }),
@@ -662,6 +667,8 @@ describe("auditScore", () => {
     expect(findings.length).toBe(1);
     expect(findings[0]).toContain("skill-0, skill-1");
     expect(findings[0]).toContain("+30 more: no `disallowed-tools:` line");
+    // …and the structured group carries all 35, for a surface that lays it out.
+    expect(cat(s, "Safety")?.groups?.[0]?.names).toHaveLength(35);
     expect(findings.some((f) => f.includes("skill-7"))).toBe(false);
     // One cause, charged once: W_TRIFECTA, not the −30 cap 35 units used to hit.
     expect(cat(s, "Safety")?.score).toBe(90);
@@ -862,6 +869,8 @@ describe("ineffective-fence collapse", () => {
     finding: {
       severity: "advisory" as const,
       fence: "ineffective" as const,
+      problem: "`disallowed-tools: WebFetch` closes no leg",
+      edit: "deny …",
       message: "`disallowed-tools: WebFetch` closes no leg → deny …",
     },
   });

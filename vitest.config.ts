@@ -88,6 +88,7 @@ export default defineConfig({
         "src/core/prompt-diversity.ts",
         "src/core/finding-groups.ts",
         "src/core/trifecta-fix.ts",
+        "src/term-render.ts",
         "src/eval-baseline.ts",
         "src/eval-cache.ts",
         "src/eval-lock.ts",

@@ -49,6 +49,7 @@
 import type { HarnessDialect } from "./dialect.js";
 import {
   describeFix,
+  fixLine,
   type TrifectaFix,
   type TrifectaLeg,
   type TrifectaLegs,
@@ -116,7 +117,11 @@ export interface TrifectaFinding {
   readonly legs: TrifectaLegs;
   /** The edit that closes it, decided by the detector ({@link TrifectaFix}). */
   readonly fix: TrifectaFix;
-  /** {@link fix} as one line a person reads (`describeFix`). */
+  /** What is wrong, as a person reads it (`describeFix`). */
+  readonly problem: string;
+  /** The one edit that fixes it (`describeFix`). */
+  readonly edit: string;
+  /** `problem → edit` on one line, for a surface that prints one line. */
   readonly message: string;
   /**
    * SKILLS ONLY — the fence state behind the finding ({@link SkillFenceState}).
@@ -546,12 +551,19 @@ function hardTrifectaRemedy(
   return { kind: "remove-a-tool" };
 }
 
-/** A finding, its message rendered from its fix. */
+/** A finding, its text rendered from its fix. */
 function finding(
-  f: Omit<TrifectaFinding, "message">,
-  suffix = "",
+  f: Omit<TrifectaFinding, "message" | "problem" | "edit">,
+  note = "",
 ): TrifectaFinding {
-  return { ...f, message: describeFix(f.fix, f.legs) + suffix };
+  const t = describeFix(f.fix, f.legs);
+  const problem = t.problem + note;
+  return {
+    ...f,
+    problem,
+    edit: t.edit,
+    message: fixLine({ problem, edit: t.edit }),
+  };
 }
 
 /**

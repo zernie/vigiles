@@ -12,8 +12,6 @@
  * The leg vocabulary lives here too, so this module depends on nothing but the
  * guard; the detector re-exports it under its old names.
  */
-import { assertNever } from "./assert-never.js";
-
 /** The three capability legs of the lethal trifecta. */
 export type TrifectaLeg = "private" | "untrusted" | "exfil";
 
@@ -41,29 +39,36 @@ export interface TrifectaLegs {
  *
  * `leg` + `deny` name the open leg that takes the fewest further denies.
  */
-export type TrifectaFix =
-  | { readonly kind: "declare-tools" }
-  | { readonly kind: "remove-shell"; readonly shell: string }
-  | {
-      readonly kind: "narrowed-still-counts";
-      readonly grants: readonly string[];
-      readonly shell: string;
-    }
-  | { readonly kind: "remove-a-tool" }
-  | { readonly kind: "fix-yaml"; readonly field: "tools" | "disallowed-tools" }
-  | { readonly kind: "drop-pre-approval"; readonly tools: readonly string[] }
-  | {
-      readonly kind: "add-fence";
-      readonly leg: TrifectaLeg;
-      readonly deny: readonly string[];
-    }
-  | {
-      readonly kind: "extend-fence";
-      readonly declared: readonly string[];
-      readonly ignored: readonly string[];
-      readonly leg: TrifectaLeg;
-      readonly deny: readonly string[];
-    };
+export interface TrifectaFixFields {
+  readonly "declare-tools": Record<never, never>;
+  readonly "remove-shell": { readonly shell: string };
+  readonly "narrowed-still-counts": {
+    readonly grants: readonly string[];
+    readonly shell: string;
+  };
+  readonly "remove-a-tool": Record<never, never>;
+  readonly "fix-yaml": { readonly field: "tools" | "disallowed-tools" };
+  readonly "drop-pre-approval": { readonly tools: readonly string[] };
+  readonly "add-fence": {
+    readonly leg: TrifectaLeg;
+    readonly deny: readonly string[];
+  };
+  readonly "extend-fence": {
+    readonly declared: readonly string[];
+    readonly ignored: readonly string[];
+    readonly leg: TrifectaLeg;
+    readonly deny: readonly string[];
+  };
+}
+
+/** One kind of fix, with the fields that kind carries. */
+export type TrifectaFixOf<K extends keyof TrifectaFixFields> = {
+  readonly kind: K;
+} & TrifectaFixFields[K];
+
+export type TrifectaFix = {
+  readonly [K in keyof TrifectaFixFields]: TrifectaFixOf<K>;
+}[keyof TrifectaFixFields];
 
 const LEG_NAME: Readonly<Record<TrifectaLeg, string>> = {
   private: "private-data read",
@@ -97,28 +102,76 @@ function fenceProblem(declared: readonly string[], ignored: readonly string[]) {
   return `${ticked(ignored)} denies nothing: a restricted deny is ignored${rest}`;
 }
 
-/** The finding's one line: the problem, then the edit. */
-export function describeFix(fix: TrifectaFix, legs: TrifectaLegs): string {
-  switch (fix.kind) {
-    case "declare-tools":
-      return "no `tools:` line, so every session tool is inherited → list the tools it needs in `tools:`, leaving out one leg";
-    case "remove-shell":
-      return `${holds(legs)} → remove ${fix.shell}, it both reads and sends out`;
-    case "narrowed-still-counts":
-      return `${holds(legs)} → ${ticked(fix.grants)} still counts: remove ${fix.shell} or drop a leg`;
-    case "remove-a-tool":
-      return `${holds(legs)} → remove one of those tools, usually the untrusted input`;
-    case "fix-yaml":
-      return fix.field === "tools"
-        ? "frontmatter is not valid YAML, so `tools:` is unread and every tool is inherited → fix the YAML"
-        : "frontmatter is not valid YAML, so no `disallowed-tools:` fence is read → fix the YAML, then fence";
-    case "drop-pre-approval":
-      return `\`allowed-tools:\` pre-approves ${ticked(fix.tools)}, a trifecta leg, and no \`disallowed-tools:\` fences it → drop the pre-approval`;
-    case "add-fence":
-      return `no \`disallowed-tools:\` line, so every session tool is inherited → add \`disallowed-tools: ${fix.deny.join(", ")}\` to close ${LEG_NAME[fix.leg]}`;
-    case "extend-fence":
-      return `${fenceProblem(fix.declared, fix.ignored)} → deny ${ticked(fix.deny)} to close ${LEG_NAME[fix.leg]}`;
-    default:
-      return assertNever(fix);
-  }
+/**
+ * A finding in two parts a renderer can lay out apart: what is wrong, and the
+ * one edit that fixes it. Joined, they are the finding's one line
+ * ({@link fixLine}).
+ */
+export interface FixText {
+  readonly problem: string;
+  readonly edit: string;
 }
+
+const text = (problem: string, edit: string): FixText => ({ problem, edit });
+
+/**
+ * Each kind's words, keyed by kind: a kind without an entry, or an entry that
+ * reads a field its kind does not carry, fails `tsc`.
+ */
+const DESCRIBE: {
+  readonly [K in keyof TrifectaFixFields]: (
+    fix: TrifectaFixOf<K>,
+    legs: TrifectaLegs,
+  ) => FixText;
+} = {
+  "declare-tools": () =>
+    text(
+      "no `tools:` line, so every session tool is inherited",
+      "list the tools it needs in `tools:`, leaving out one leg",
+    ),
+  "remove-shell": (fix, legs) =>
+    text(holds(legs), `remove ${fix.shell}, it both reads and sends out`),
+  "narrowed-still-counts": (fix, legs) =>
+    text(
+      holds(legs),
+      `${ticked(fix.grants)} still counts: remove ${fix.shell} or drop a leg`,
+    ),
+  "remove-a-tool": (_fix, legs) =>
+    text(holds(legs), "remove one of those tools, usually the untrusted input"),
+  "fix-yaml": (fix) =>
+    fix.field === "tools"
+      ? text(
+          "frontmatter is not valid YAML, so `tools:` is unread and every tool is inherited",
+          "fix the YAML",
+        )
+      : text(
+          "frontmatter is not valid YAML, so no `disallowed-tools:` fence is read",
+          "fix the YAML, then fence",
+        ),
+  "drop-pre-approval": (fix) =>
+    text(
+      `\`allowed-tools:\` pre-approves ${ticked(fix.tools)}, a trifecta leg`,
+      "drop the pre-approval",
+    ),
+  "add-fence": (fix) =>
+    text(
+      "no `disallowed-tools:` line, so every session tool is inherited",
+      `add \`disallowed-tools: ${fix.deny.join(", ")}\` to close ${LEG_NAME[fix.leg]}`,
+    ),
+  "extend-fence": (fix) =>
+    text(
+      fenceProblem(fix.declared, fix.ignored),
+      `deny ${ticked(fix.deny)} to close ${LEG_NAME[fix.leg]}`,
+    ),
+};
+
+/** The problem and the edit, from the detector's decision and this unit's legs. */
+export function describeFix<K extends keyof TrifectaFixFields>(
+  fix: TrifectaFixOf<K>,
+  legs: TrifectaLegs,
+): FixText {
+  return DESCRIBE[fix.kind](fix, legs);
+}
+
+/** The finding as one line: `problem → edit`. */
+export const fixLine = (t: FixText): string => `${t.problem} → ${t.edit}`;

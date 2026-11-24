@@ -23,10 +23,15 @@ import { sortBy } from "remeda";
 import { AUDIT_SCHEMA_VERSION, type AuditReport } from "./audit-report.js";
 import type { CategoryScore } from "./audit-score.js";
 import {
+  groupLine,
+  namesLine,
+  type FindingGroup,
+} from "./core/finding-groups.js";
+import {
   parseAuditSnapshot,
   type AuditSnapshot,
 } from "./core/audit-snapshot.js";
-import { gradeFor } from "./score-core.js";
+import { arrow, ringBadges } from "./audit-pr-badges.js";
 
 /** The first line of every rendered section. */
 export const AUDIT_SUMMARY_MARKER = "<!-- vigiles-audit-summary -->";
@@ -90,86 +95,6 @@ export function parseBaseAudit(text: string | undefined): BaseAudit {
   return { kind: "report", score: { overall, grade, categories } };
 }
 
-/** ` ▲`, ` ▼`, or nothing when the two are equal or one is missing. */
-function arrow(before: number | null, after: number | null): string {
-  if (before === null || after === null || before === after) return "";
-  return after > before ? " ▲" : " ▼";
-}
-
-/** `90 → 82 ▼`, `60 → 70 ▲`, or the plain value when nothing moved. */
-function change(
-  before: number | null,
-  after: number | null,
-  shown: string,
-): string {
-  if (before === after) return shown;
-  const from = before === null ? "n/a" : String(before);
-  return `${from} → ${shown}${arrow(before, after)}`;
-}
-
-function scoreText(c: Readonly<CategoryScore>): string {
-  if (c.score !== null) return String(c.score);
-  return c.notMeasured === true ? "not measured" : "n/a";
-}
-
-/** shields.io colours by grade band: the same A–F bands the headline uses. */
-const BAND_COLOUR = {
-  A: "brightgreen",
-  B: "green",
-  C: "yellow",
-  D: "orange",
-  F: "red",
-} as const;
-
-/**
- * Text for a shields.io static-badge path segment: `-` and `_` doubled, then
- * URL-encoded, parentheses too, so the markdown image link stays one token.
- */
-const shieldsText = (s: string): string =>
-  encodeURIComponent(s.replaceAll("-", "--").replaceAll("_", "__"))
-    .replaceAll("(", "%28")
-    .replaceAll(")", "%29");
-
-/**
- * One ring as a coloured badge. The alt text carries the plain value, so a
- * reader without images (an email notification, a screen reader) reads the
- * same `Safety: 90 → 82 ▼` the badge shows. Advisory and unscored rings are
- * grey: they are not graded, so they get no band colour.
- */
-function ringBadge(
-  c: Readonly<CategoryScore>,
-  base: Readonly<BaseAudit>,
-): string {
-  const name = c.advisory === true ? `${c.key} (advisory)` : c.key;
-  const now = scoreText(c);
-  const value =
-    base.kind === "report"
-      ? change(
-          base.score.categories.find((b) => b.key === c.key)?.score ?? null,
-          c.score,
-          now,
-        )
-      : now;
-  const colour =
-    c.score === null || c.advisory === true
-      ? "lightgrey"
-      : BAND_COLOUR[gradeFor(c.score)];
-  return `![${name}: ${value}](https://img.shields.io/badge/${shieldsText(name)}-${shieldsText(value)}-${colour})`;
-}
-
-/** The graded rings on one line, the advisory ones on the next. */
-function ringBadges(
-  report: AuditReport,
-  base: Readonly<BaseAudit>,
-): readonly string[] {
-  const row = (advisory: boolean): string =>
-    report.score.categories
-      .filter((c) => (c.advisory === true) === advisory)
-      .map((c) => ringBadge(c, base))
-      .join(" ");
-  return [row(false), "", row(true)];
-}
-
 function headline(report: AuditReport, base: Readonly<BaseAudit>): string {
   const { grade, overall } = report.score;
   const now = `**${grade}** · ${String(overall)}/100`;
@@ -210,8 +135,45 @@ function rankedFixes(report: AuditReport): readonly string[] {
   });
 }
 
+/** A ring's sign in the comment: a glance tells which ring a finding is about. */
+const RING_EMOJI: Readonly<Record<CategoryScore["key"], string>> = {
+  Truthfulness: "🔎",
+  Triggering: "🎯",
+  Structure: "🧱",
+  Safety: "🛡️",
+  Tested: "🧪",
+  Evaluated: "📏",
+};
+
 /**
- * The graded rings' own findings, worst ring first — what the section lists
+ * A group as three short lines: the problem, the edit, the units it applies
+ * to — instead of one sentence that runs all three together (`tidy-output`).
+ */
+const groupChunk = (g: FindingGroup): string =>
+  [
+    `⚠️ ${flat(g.problem)}<br>`,
+    `👉 ${flat(g.edit)}<br>`,
+    `<sub>${namesLine(g.names, " · ")}</sub>`,
+  ].join("\n");
+
+/**
+ * One ring's findings as markdown chunks: a header carrying the ring's first
+ * ungrouped finding, its other ungrouped findings as bullets, then each group.
+ */
+function ringChunks(c: Readonly<CategoryScore>): readonly string[] {
+  const groups = c.groups ?? [];
+  const grouped = new Set(groups.map(groupLine));
+  const ungrouped = c.findings.filter((f) => !grouped.has(f)).map(flat);
+  const title = `${RING_EMOJI[c.key]} **${c.key}**`;
+  return [
+    [title, ...ungrouped.slice(0, 1)].join(" · "),
+    ...ungrouped.slice(1).map((f) => `- ${f}`),
+    ...groups.map(groupChunk),
+  ];
+}
+
+/**
+ * The graded rings' own findings, worst ring first — what the section shows
  * when the report has no deterministic fix list (a deduction such as the
  * lethal trifecta carries its fix in its own text, not as a recommendation).
  * Advisory rings never count: they are hardening advice, not what is broken.
@@ -219,10 +181,54 @@ function rankedFixes(report: AuditReport): readonly string[] {
 function gradedFindings(report: AuditReport): readonly string[] {
   return sortBy(
     report.score.categories.filter(
-      (c) => c.advisory !== true && c.score !== null,
+      (c) => c.advisory !== true && c.score !== null && c.findings.length > 0,
     ),
     (c) => c.score ?? 0,
-  ).flatMap((c) => c.findings.map((f) => `**${c.key}:** ${flat(f)}`));
+  ).flatMap(ringChunks);
+}
+
+/** How many finding chunks show before the rest fold away. */
+const SHOWN_CHUNKS = 6;
+
+/**
+ * The chunks, the first few shown and the rest folded, cut to the budget with
+ * a last line naming how many did not fit.
+ */
+function chunked(chunks: readonly string[]): readonly string[] {
+  const folded = chunks.slice(SHOWN_CHUNKS);
+  return [
+    "**Findings**",
+    "",
+    ...chunks.slice(0, SHOWN_CHUNKS).flatMap((c) => [c, ""]),
+    ...(folded.length === 0 ? [] : foldedChunks(folded)),
+  ];
+}
+
+/**
+ * The chunks past the first few, in a collapsed block, as many as fit the
+ * budget and then a line naming how many did not.
+ */
+function foldedChunks(folded: readonly string[]): readonly string[] {
+  const budget = AUDIT_SUMMARY_MAX_CHARS - FRAME_CHARS;
+  const ends = folded.reduce<readonly number[]>(
+    (acc, c) => [...acc, (acc.at(-1) ?? 0) + c.length + 2],
+    [],
+  );
+  const kept = folded.slice(0, ends.filter((end) => end <= budget).length);
+  const cut = folded.length - kept.length;
+  return [
+    `<details><summary>${String(folded.length)} more</summary>`,
+    "",
+    ...kept.flatMap((c) => [c, ""]),
+    ...(cut > 0
+      ? [
+          `… and ${String(cut)} more — run \`npx vigiles audit\` locally for the full list`,
+          "",
+        ]
+      : []),
+    "</details>",
+    "",
+  ];
 }
 
 /**
@@ -249,23 +255,20 @@ function fitted(items: readonly string[], budget: number): readonly string[] {
  * shows every item, it shows them whole and folds nothing: the same lines twice
  * is noise (`tidy-output`).
  */
-function listed(
-  noun: "fixes" | "findings",
-  items: readonly string[],
-): readonly string[] {
+function listed(items: readonly string[]): readonly string[] {
   if (items.length <= TOP)
     return [
-      `**${noun === "fixes" ? "Fixes" : "Findings"}**`,
+      "**Fixes**",
       "",
       ...items.map((f, i) => `${String(i + 1)}. ${f}`),
       "",
     ];
   return [
-    `**Top ${noun}**`,
+    "**Top fixes**",
     "",
     ...items.slice(0, TOP).map((f, i) => `${String(i + 1)}. ${short(f)}`),
     "",
-    `<details><summary>All ${String(items.length)} ${noun}</summary>`,
+    `<details><summary>All ${String(items.length)} fixes</summary>`,
     "",
     ...fitted(items, AUDIT_SUMMARY_MAX_CHARS - FRAME_CHARS),
     "",
@@ -276,9 +279,9 @@ function listed(
 
 function whatToFix(report: AuditReport): readonly string[] {
   const fixes = rankedFixes(report);
-  if (fixes.length > 0) return listed("fixes", fixes);
+  if (fixes.length > 0) return listed(fixes);
   const findings = gradedFindings(report);
-  if (findings.length > 0) return listed("findings", findings);
+  if (findings.length > 0) return chunked(findings);
   return ["Nothing to fix in the graded rings.", ""];
 }
 
@@ -299,7 +302,10 @@ export function renderAuditPrSummary(
     ...(base.kind === "unavailable"
       ? [`_No comparison with the PR base: ${base.why}._`, ""]
       : []),
-    ...ringBadges(report, base),
+    ...ringBadges(
+      report.score.categories,
+      base.kind === "report" ? base.score.categories : undefined,
+    ),
     "",
     ...whatToFix(report),
     HEADLESS,

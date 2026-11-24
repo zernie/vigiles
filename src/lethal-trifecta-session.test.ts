@@ -165,17 +165,24 @@ for (const a of ADAPTERS.filter(fenced)) {
     const r = scan(dir);
     const text = formatScanReport(shown(r));
     const start = text.indexOf("Lethal trifecta");
-    const section =
-      text.slice(start).split("\n\n")[0]?.split("\n").slice(1) ?? [];
-    // Units in the same state share a line, so the section has exactly as many
-    // lines as there are distinct findings, never a line per unit.
-    const distinct = new Set(r.trifectaFindings.map((t) => t.finding.message));
-    assert.equal(section.length, distinct.size, text);
+    // The section runs to the next unindented heading: groups inside it are
+    // separated by blank lines.
+    const after = text.slice(start).split("\n").slice(1);
+    const end = after.findIndex((l) => l !== "" && !l.startsWith(" "));
+    const section = end === -1 ? after : after.slice(0, end);
+    // Units in the same state share one group (three lines: mark + problem,
+    // → edit, the units), so there are exactly as many groups as distinct
+    // findings, never one per unit.
+    const marks = section.filter((l) => /^ {2}[⚠✗] /.test(l));
+    const distinct = new Set(
+      r.trifectaFindings.map((t) => `${t.finding.problem}\n${t.finding.edit}`),
+    );
+    assert.equal(marks.length, distinct.size, text);
+    const nameLines = section.filter(
+      (l) => l.startsWith("    ") && !l.startsWith("    → "),
+    );
     for (const n of Object.keys(expectedCauses(a))) {
-      // Only the names part (before the first ": "), not the message.
-      const named = section.filter((l) =>
-        (l.split(": ")[0] ?? "").split(/[ ,]+/).includes(n),
-      );
+      const named = nameLines.filter((l) => l.trim().split(" · ").includes(n));
       assert.equal(named.length, 1, `${n}: ${text}`);
     }
     cleanupTmpDir(dir);

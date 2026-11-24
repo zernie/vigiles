@@ -397,7 +397,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 675 project files. */
+  /** 678 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -518,6 +518,7 @@ declare module "vigiles/generated" {
     | "src/audit-bundle-frame.test.ts"
     | "src/audit-html.test.ts"
     | "src/audit-html.ts"
+    | "src/audit-pr-badges.ts"
     | "src/audit-pr-summary.test.ts"
     | "src/audit-pr-summary.ts"
     | "src/audit-prompts.test.ts"
@@ -1057,6 +1058,8 @@ declare module "vigiles/generated" {
     | "src/subagent-delivery.test.ts"
     | "src/surface-discovery-fs.test.ts"
     | "src/surface-discovery-fs.ts"
+    | "src/term-render.test.ts"
+    | "src/term-render.ts"
     | "src/test-coverage-files.ts"
     | "src/test-coverage-harnesses.test.ts"
     | "src/test-coverage-output-style.test.ts"
@@ -1561,6 +1564,7 @@ declare module "vigiles/spec" {
       | "src/audit-bundle-frame.test.ts"
       | "src/audit-html.test.ts"
       | "src/audit-html.ts"
+      | "src/audit-pr-badges.ts"
       | "src/audit-pr-summary.test.ts"
       | "src/audit-pr-summary.ts"
       | "src/audit-prompts.test.ts"
@@ -2100,6 +2104,8 @@ declare module "vigiles/spec" {
       | "src/subagent-delivery.test.ts"
       | "src/surface-discovery-fs.test.ts"
       | "src/surface-discovery-fs.ts"
+      | "src/term-render.test.ts"
+      | "src/term-render.ts"
       | "src/test-coverage-files.ts"
       | "src/test-coverage-harnesses.test.ts"
       | "src/test-coverage-output-style.test.ts"

@@ -229,31 +229,42 @@ severities and the same score.
 
 ### How skill findings read
 
+`vigiles audit` prints each group as three lines: the problem after its mark,
+the edit after an arrow, then the units it applies to.
+
 ```
-⚠ food-log-entry, handoff, render-paper, review, ship +29 more: no `disallowed-tools:`
-  line, so every session tool is inherited → add `disallowed-tools: WebFetch, WebSearch, Bash` to close untrusted intake
+⚠ no `disallowed-tools:` line, so every session tool is inherited
+  → add `disallowed-tools: WebFetch, WebSearch, Bash` to close untrusted intake
+  food-log-entry · handoff · render-paper · review · ship +29 more
 
-⚠ half: `disallowed-tools: Read` closes no leg → deny `WebFetch`, `WebSearch`, `Bash` to close untrusted intake
+⚠ `disallowed-tools: Read` closes no leg
+  → deny `WebFetch`, `WebSearch`, `Bash` to close untrusted intake
+  half
 
-⚠ deploy, release: `allowed-tools:` pre-approves `Bash`, a trifecta leg, and no `disallowed-tools:` fences it → drop the pre-approval
+⚠ `allowed-tools:` pre-approves `Bash`, a trifecta leg
+  → drop the pre-approval
+  deploy · release
 ```
 
-**A finding is one line: the problem, then the edit**, computed from that unit's
-own legs. The suggested deny list is the open leg that takes the fewest further
-denies to close. Everything else (why, how it was measured, which remedy fits
-which grant) is on this page, not in the finding. Units in the **same state
-share one line** that names them in every report a person reads: the terminal
-audit, and the Safety ring that feeds the PR comment and the HTML report.
-`vigiles lint` does not group: it prints one line and one CI annotation per
-finding, at its file, like any linter.
+**A finding is the problem and one edit**, computed from that unit's own legs.
+The suggested deny list is the open leg that takes the fewest further denies to
+close. Everything else (why, how it was measured, which remedy fits which grant)
+is on this page, not in the finding. Units in the **same state share one group**
+in every report a person reads: the terminal audit, and the Safety ring that
+feeds the PR comment and the HTML report. `vigiles lint` does not group: it
+prints one line and one CI annotation per finding, at its file, like any linter:
+
+```
+⚠ .claude/skills/half/SKILL.md  `disallowed-tools: Read` closes no leg → deny `WebFetch`, `WebSearch`, `Bash` to close untrusted intake
+```
 
 - **No fence and nothing added** (`cause: "session"`) is the **ecosystem
   default**, so it is usually the longest list of names.
 - **A fence that closes no leg** (`fence: "ineffective"`, `cause: "fence"`). The
   author believed they had fenced and had not — same shape as
   [disallowed-tools-contract](disallowed-tools-contract.md)'s "this entry blocks
-  nothing". Two skills with the same ineffective fence share a line; different
-  fences get different lines.
+  nothing". Two skills with the same ineffective fence share a group; different
+  fences get different groups.
 - **A pre-approved leg tool or MCP tool** (`cause: "unit"`).
 
 Every skill finding is `"advisory"`. An ineffective fence has capability ≤ no

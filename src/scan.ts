@@ -39,7 +39,8 @@ import { diskHookInventory, diskHookScan } from "./hook-inventory.js";
 // adapter before every one of these calls, and passing it is what removes the
 // import rather than hiding it.
 import { isEmptyMachine } from "./score-core.js";
-import { groupFindings, groupLine } from "./core/finding-groups.js";
+import { groupFindings } from "./core/finding-groups.js";
+import { groupBlock, plain, type Paint } from "./term-render.js";
 import { brokenSkillRefs, formatSkillRefIssue } from "./skill-refs.js";
 import {
   executableSourceDirs,
@@ -1293,17 +1294,29 @@ function skillLine(s: ScanSkill): string {
  * taking the hard findings above it along. The header still counts UNITS, so
  * grouping hides no exposure.
  */
-function trifectaLines(r: ScanReport): string[] {
-  const lines = (
+function trifectaLines(r: ScanReport, paint: Paint): string[] {
+  const blocks = (
     severity: "hard" | "advisory",
     mark: string,
+    tone: "bad" | "warn",
   ): readonly string[] =>
     groupFindings(
       r.trifectaFindings
         .filter((t) => t.finding.severity === severity)
-        .map((t) => ({ name: t.name, message: t.finding.message })),
-    ).map((g) => `  ${mark} ${groupLine(g)}`);
-  return [...lines("hard", "✗"), ...lines("advisory", "⚠")];
+        .map((t) => ({
+          name: t.name,
+          problem: t.finding.problem,
+          edit: t.finding.edit,
+        })),
+    ).flatMap((g) => [
+      ...groupBlock(g, { indent: "  ", mark, tone, paint }),
+      "",
+    ]);
+  const lines = [
+    ...blocks("hard", "✗", "bad"),
+    ...blocks("advisory", "⚠", "warn"),
+  ];
+  return lines.at(-1) === "" ? lines.slice(0, -1) : lines;
 }
 
 /** One agent's report block: ✗ (broken contract) / ⚠ (inherits all) / ✓ + issues + purity. */
@@ -1648,12 +1661,19 @@ export function formatScanReport(
    * never counted in it, from the same data the JSON and the HTML render.
    */
   r: FilteredScan<ScanReport>,
+  /** Colour for a terminal (`terminalPaint`); none by default. */
+  paint: Paint = plain,
 ): string {
-  return [...gradedReportLines(r), ...ungradedLines(r.ungraded)].join("\n");
+  return [...gradedReportLines(r, paint), ...ungradedLines(r.ungraded)].join(
+    "\n",
+  );
 }
 
 /** The report's lines up to and including the verdict — everything graded. */
-function gradedReportLines(r: FilteredScan<ScanReport>): readonly string[] {
+function gradedReportLines(
+  r: FilteredScan<ScanReport>,
+  paint: Paint,
+): readonly string[] {
   const out: string[] = [`Scan: ${r.dir}`, ""];
 
   if (r.instructions) {
@@ -1729,7 +1749,7 @@ function gradedReportLines(r: FilteredScan<ScanReport>): readonly string[] {
   out.push(
     ...section(
       "Lethal trifecta (prompt-injection exfil risk)",
-      trifectaLines(r),
+      trifectaLines(r, paint),
       // Count UNITS, not lines: the session line collapses many units into one,
       // and a header that counted lines would understate exposure.
       r.trifectaFindings.length,

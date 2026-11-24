@@ -30,6 +30,7 @@ import {
   type Dirent,
 } from "node:fs";
 import { injectableEventsOf } from "./core/event-capability.js";
+import { terminalPaint } from "./term-render.js";
 import {
   resolve,
   dirname,
@@ -6490,7 +6491,12 @@ function checkLethalTrifecta(ctx: BundleCheck): {
     path: string;
     kind: string;
     name: string;
-    finding: { message: string; fence?: string };
+    finding: {
+      message: string;
+      problem: string;
+      edit: string;
+      fence?: string;
+    };
   }[];
   try {
     raw = ctx.scan().trifectaFindings;
@@ -6502,12 +6508,16 @@ function checkLethalTrifecta(ctx: BundleCheck): {
   );
   if (found.length > 0 && !silent) {
     console.log("\nLethal-trifecta check:\n");
+    const paint = terminalPaint(process.stdout.isTTY, process.env);
     for (const t of found) {
-      const msg = `${t.kind} ${t.name}: ${t.finding.message}`;
+      const path = ctx.bundle.scanned(t.path);
+      const tone = t.sev === "error" ? "bad" : "warn";
+      const edit = paint("fix", `→ ${t.finding.edit}`);
       console.log(
-        `  ${markOf(t.sev).mark} ${ctx.bundle.scanned(t.path)}: ${msg}`,
+        `  ${paint(tone, markOf(t.sev).mark)} ${paint("muted", path)}  ` +
+          `${t.finding.problem} ${edit}`,
       );
-      ctx.annotate(markOf(t.sev).level, msg, ctx.bundle.scanned(t.path));
+      ctx.annotate(markOf(t.sev).level, t.finding.message, path);
     }
   }
   return tally(found);
@@ -10370,11 +10380,12 @@ export async function main(): Promise<void> {
         if (!quiet) {
           // The Lighthouse rings: per-category 0–100 + the weighted overall,
           // shown before the detailed report so the headline signal leads.
-          console.log(formatAuditScore(sc));
+          const paint = terminalPaint(process.stdout.isTTY, process.env);
+          console.log(formatAuditScore(sc, paint));
           console.log("");
           // The ungraded blocks come off the filtered scan — the same data
           // the JSON and HTML render — so the three cannot drift.
-          console.log(formatScanReport(report));
+          console.log(formatScanReport(report, paint));
           // Fold each finding's fix inline (replaces the former --fix-plan/--explain
           // flags): the deterministic, free recommendation list under the report.
           const fixes = formatRecommendations(plan);

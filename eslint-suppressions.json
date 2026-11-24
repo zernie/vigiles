@@ -1088,7 +1088,7 @@
       "count": 1
     },
     "functional/no-loop-statements": {
-      "count": 3
+      "count": 2
     },
     "functional/prefer-immutable-types": {
       "count": 6
@@ -1103,9 +1103,6 @@
       "count": 5
     },
     "max-statements": {
-      "count": 1
-    },
-    "sonarjs/cognitive-complexity": {
       "count": 1
     }
   },

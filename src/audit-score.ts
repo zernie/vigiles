@@ -56,7 +56,12 @@ import {
 } from "./score-core.js";
 import type { ScanReport } from "./scan.js";
 import type { GradedView } from "./core/apply-rules.js";
-import { groupFindings, groupLine } from "./core/finding-groups.js";
+import {
+  groupFindings,
+  groupLine,
+  type FindingGroup,
+} from "./core/finding-groups.js";
+import { groupBlock, plain, type Paint, type Tone } from "./term-render.js";
 
 export type CategoryKey =
   | "Truthfulness"
@@ -90,6 +95,13 @@ export interface CategoryScore {
   readonly advisory?: boolean;
   /** Human-readable deductions / notes, worst first; empty when clean. */
   readonly findings: readonly string[];
+  /**
+   * The same findings, grouped, for a surface that lays a finding out in parts
+   * (the terminal, the PR comment): each group's one-line form
+   * (`groupLine`) is also in {@link findings}, so a reader of `findings` alone
+   * loses nothing. Absent when the ring has nothing to group.
+   */
+  readonly groups?: readonly FindingGroup[];
 }
 
 export interface AuditScore {
@@ -387,18 +399,22 @@ function safety(r: ScanReport): CategoryScore {
   // cause the session supplies to eight skills is one fact, and so is the same
   // pre-approval in three. 🔴 #392: the session's units are still charged once —
   // that is `trifectaExposure`'s arithmetic, not this text.
-  findings.push(
-    ...groupFindings(
-      r.trifectaFindings
-        .filter((f) => f.finding.severity === "advisory")
-        .map((f) => ({ name: f.name, message: f.finding.message })),
-    ).map(groupLine),
+  const groups = groupFindings(
+    r.trifectaFindings
+      .filter((f) => f.finding.severity === "advisory")
+      .map((f) => ({
+        name: f.name,
+        problem: f.finding.problem,
+        edit: f.finding.edit,
+      })),
   );
+  findings.push(...groups.map(groupLine));
   return {
     key: "Safety",
     score: Math.max(0, 100 - exposure.penalty),
     weight: 1,
     findings,
+    ...(groups.length > 0 ? { groups } : {}),
   };
 }
 
@@ -657,16 +673,38 @@ export function categoryScoreLabel(c: CategoryScore): string {
   return c.notMeasured ? "not measured" : "n/a";
 }
 
+/** The band a ring's number falls in, as a colour. */
+function bandTone(c: CategoryScore): Tone {
+  if (c.score === null) return "muted";
+  if (c.score >= 90) return "good";
+  return c.score >= 70 ? "warn" : "bad";
+}
+
+/** A ring's findings: the ungrouped ones one per line, then each group as a block. */
+function ringFindingLines(c: CategoryScore, paint: Paint): readonly string[] {
+  const grouped = new Set((c.groups ?? []).map(groupLine));
+  return [
+    ...c.findings.filter((f) => !grouped.has(f)).map((f) => `       └ ${f}`),
+    ...(c.groups ?? []).flatMap((g) => [
+      "",
+      ...groupBlock(g, { indent: "       ", mark: "⚠", tone: "warn", paint }),
+    ]),
+    ...(c.groups === undefined ? [] : [""]),
+  ];
+}
+
 /** Render the category rings (diagnostic) + the summed overall for the terminal. */
-export function formatAuditScore(s: AuditScore): string {
+export function formatAuditScore(s: AuditScore, paint: Paint = plain): string {
   const lines: string[] = ["Harness audit", ""];
   for (const c of s.categories) {
-    const glyph = bandGlyph(c);
+    const tone = bandTone(c);
     const label = c.key.padEnd(13);
     const num = categoryScoreLabel(c).padStart(4);
-    const tag = c.advisory ? "  · advisory (not graded)" : "";
-    lines.push(`  ${glyph} ${label} ${num}  ${bar(c)}${tag}`);
-    for (const f of c.findings) lines.push(`       └ ${f}`);
+    const tag = c.advisory ? paint("muted", "  · advisory (not graded)") : "";
+    lines.push(
+      `  ${paint(tone, bandGlyph(c))} ${label} ${num}  ${paint(tone, bar(c))}${tag}`,
+    );
+    lines.push(...ringFindingLines(c, paint));
   }
   lines.push("");
   lines.push(

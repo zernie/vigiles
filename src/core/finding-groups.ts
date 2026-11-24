@@ -14,51 +14,61 @@
  * mechanism. Pure.
  */
 
-import { unique } from "remeda";
+import { unique, uniqueBy } from "remeda";
 
-/** A finding about one named unit (a skill, a subagent, a hook). */
+/** A finding about one named unit (a skill, a subagent, a hook), in two parts. */
 export interface NamedFinding {
   readonly name: string;
-  readonly message: string;
+  /** What is wrong, without the unit's name. */
+  readonly problem: string;
+  /** The one edit that fixes it. */
+  readonly edit: string;
 }
 
-/** Units that share one message, in the order they were first seen. */
+/** Units that share one problem and one edit, in the order they were first seen. */
 export interface FindingGroup {
-  readonly message: string;
+  readonly problem: string;
+  readonly edit: string;
   readonly names: readonly string[];
 }
 
 /** How many names a line spells out before it says "+N more". */
 export const NAMES_SHOWN = 5;
 
+const keyOf = (f: { readonly problem: string; readonly edit: string }) =>
+  JSON.stringify([f.problem, f.edit]);
+
 /**
- * Groups by exact message, keeping first-seen order for groups and for the
- * names within each, and never listing a name twice in one group.
+ * Groups by exact problem AND edit, keeping first-seen order for groups and
+ * for the names within each, and never listing a name twice in one group.
  */
 export function groupFindings(
   items: readonly NamedFinding[],
 ): readonly FindingGroup[] {
-  return unique(items.map((i) => i.message)).map((message) => ({
-    message,
+  return uniqueBy(items, keyOf).map((first) => ({
+    problem: first.problem,
+    edit: first.edit,
     names: unique(
-      items.filter((i) => i.message === message).map((i) => i.name),
+      items.filter((i) => keyOf(i) === keyOf(first)).map((i) => i.name),
     ),
   }));
 }
 
 /** The names, at most {@link NAMES_SHOWN} of them, then "+N more". */
-export function namesLine(
-  names: readonly string[],
-  shown: number = NAMES_SHOWN,
-): string {
-  const rest = names.length - shown;
+export function namesLine(names: readonly string[], separator = ", "): string {
+  const rest = names.length - NAMES_SHOWN;
   return (
-    names.slice(0, shown).join(", ") +
+    names.slice(0, NAMES_SHOWN).join(separator) +
     (rest > 0 ? ` +${String(rest)} more` : "")
   );
 }
 
-/** One group as one line: `a, b, c: message`. */
+/**
+ * One group as one line: `a, b, c: problem → edit` — for a surface that
+ * prints a finding as one string (`CategoryScore.findings`, the JSON report).
+ * A surface that can lay the parts out (the terminal, the PR comment) reads
+ * the {@link FindingGroup} itself.
+ */
 export function groupLine(g: FindingGroup): string {
-  return `${namesLine(g.names)}: ${g.message}`;
+  return `${namesLine(g.names)}: ${g.problem} → ${g.edit}`;
 }
