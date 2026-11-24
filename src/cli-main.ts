@@ -30,7 +30,7 @@ import {
   type Dirent,
 } from "node:fs";
 import { injectableEventsOf } from "./core/event-capability.js";
-import { terminalPaint } from "./term-render.js";
+import { fileBlocks, terminalPaint } from "./term-render.js";
 import {
   resolve,
   dirname,
@@ -6509,16 +6509,21 @@ function checkLethalTrifecta(ctx: BundleCheck): {
   if (found.length > 0 && !silent) {
     console.log("\nLethal-trifecta check:\n");
     const paint = terminalPaint(process.stdout.isTTY, process.env);
-    for (const t of found) {
-      const path = ctx.bundle.scanned(t.path);
-      const tone = t.sev === "error" ? "bad" : "warn";
-      const edit = paint("fix", `→ ${t.finding.edit}`);
-      console.log(
-        `  ${paint(tone, markOf(t.sev).mark)} ${paint("muted", path)}  ` +
-          `${t.finding.problem} ${edit}`,
+    const rows = found.map((t) => ({
+      path: ctx.bundle.scanned(t.path),
+      mark: markOf(t.sev).mark,
+      tone: t.sev === "error" ? ("bad" as const) : ("warn" as const),
+      problem: t.finding.problem,
+      edit: t.finding.edit,
+    }));
+    console.log(fileBlocks(rows, "  ", paint).join("\n"));
+    found.forEach((t) => {
+      ctx.annotate(
+        markOf(t.sev).level,
+        t.finding.message,
+        ctx.bundle.scanned(t.path),
       );
-      ctx.annotate(markOf(t.sev).level, t.finding.message, path);
-    }
+    });
   }
   return tally(found);
 }

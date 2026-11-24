@@ -8,6 +8,7 @@ import { describe, it, expect } from "vitest";
 import { stripVTControlCharacters } from "node:util";
 import {
   colourEnabled,
+  fileBlocks,
   groupBlock,
   plain,
   terminalPaint,
@@ -86,5 +87,41 @@ describe("groupBlock", () => {
         paint: terminalPaint(false, { FORCE_COLOR: "1" }),
       }).map(stripVTControlCharacters),
     ).toEqual(groupBlock(g, { ...o, paint: plain }));
+  });
+});
+
+describe("fileBlocks", () => {
+  const f = (path: string, problem: string) =>
+    ({
+      path,
+      mark: "⚠",
+      tone: "warn",
+      problem,
+      edit: `fix ${problem}`,
+    }) as const;
+
+  it("prints every finding under its file, one block per file, in first-seen order", () => {
+    const lines = fileBlocks(
+      [f("a.md", "p1"), f("b.md", "p2"), f("a.md", "p3")],
+      "",
+      plain,
+    );
+    const headers = lines.filter((l) => l !== "" && !l.startsWith(" "));
+    expect(headers).toEqual(["a.md", "b.md"]);
+    // Same problem in two files is still two findings: nothing merges.
+    for (const p of ["p1", "p2", "p3"]) {
+      expect(
+        lines.filter((l) => l.includes(p) && !l.includes("fix")),
+      ).toHaveLength(1);
+      expect(lines.filter((l) => l.includes(`fix ${p}`))).toHaveLength(1);
+    }
+    expect(lines.indexOf("b.md")).toBeGreaterThan(
+      lines.findIndex((l) => l.includes("fix p3")),
+    );
+  });
+
+  it("does not merge the same finding across files", () => {
+    const lines = fileBlocks([f("a.md", "p"), f("b.md", "p")], "", plain);
+    expect(lines.filter((l) => l.includes("fix p"))).toHaveLength(2);
   });
 });

@@ -54,11 +54,15 @@ export function groupFindings(
   }));
 }
 
-/** The names, at most {@link NAMES_SHOWN} of them, then "+N more". */
-export function namesLine(names: readonly string[], separator = ", "): string {
-  const rest = names.length - NAMES_SHOWN;
+/** The names, at most `shown` of them, then "+N more". */
+export function namesLine(
+  names: readonly string[],
+  separator = ", ",
+  shown = NAMES_SHOWN,
+): string {
+  const rest = names.length - shown;
   return (
-    names.slice(0, NAMES_SHOWN).join(separator) +
+    names.slice(0, shown).join(separator) +
     (rest > 0 ? ` +${String(rest)} more` : "")
   );
 }

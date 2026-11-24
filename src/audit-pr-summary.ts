@@ -145,16 +145,43 @@ const RING_EMOJI: Readonly<Record<CategoryScore["key"], string>> = {
   Evaluated: "📏",
 };
 
-/**
- * A group as three short lines: the problem, the edit, the units it applies
- * to — instead of one sentence that runs all three together (`tidy-output`).
- */
-const groupChunk = (g: FindingGroup): string =>
-  [
-    `⚠️ ${flat(g.problem)}<br>`,
-    `👉 ${flat(g.edit)}<br>`,
-    `<sub>${namesLine(g.names, " · ")}</sub>`,
+/** How many group rows a ring's table shows before the rest fold away. */
+const SHOWN_ROWS = 6;
+
+/** How many unit names a table cell spells out before "+N more". */
+const NAMES_IN_CELL = 3;
+
+/** A markdown table cell: one line, `|` escaped. */
+const cell = (s: string): string => flat(s).replaceAll("|", "\\|");
+
+/** Groups as a table: problem, fix and units in their own columns. */
+function groupTable(groups: readonly FindingGroup[]): string {
+  return [
+    "| Problem | Fix | Units |",
+    "|---|---|---|",
+    ...groups.map(
+      (g) =>
+        `| ${cell(g.problem)} | ${cell(g.edit)} | ${cell(namesLine(g.names, " · ", NAMES_IN_CELL))} |`,
+    ),
   ].join("\n");
+}
+
+/**
+ * A ring's groups: the first rows as a table, the rest in a collapsed table
+ * right below it, so a long list never runs the comment long (`tidy-output`).
+ */
+function groupTables(groups: readonly FindingGroup[]): readonly string[] {
+  if (groups.length === 0) return [];
+  const rest = groups.slice(SHOWN_ROWS);
+  return [
+    groupTable(groups.slice(0, SHOWN_ROWS)),
+    ...(rest.length === 0
+      ? []
+      : [
+          `<details><summary>${String(rest.length)} more</summary>\n\n${groupTable(rest)}\n\n</details>`,
+        ]),
+  ];
+}
 
 /**
  * One ring's findings as markdown chunks: a header carrying the ring's first
@@ -168,7 +195,7 @@ function ringChunks(c: Readonly<CategoryScore>): readonly string[] {
   return [
     [title, ...ungrouped.slice(0, 1)].join(" · "),
     ...ungrouped.slice(1).map((f) => `- ${f}`),
-    ...groups.map(groupChunk),
+    ...groupTables(groups),
   ];
 }
 
@@ -286,9 +313,9 @@ function whatToFix(report: AuditReport): readonly string[] {
 }
 
 const HEADLESS =
-  "_This is the headless audit: the checks that need your consent — starting " +
-  "live MCP servers, measuring skill trigger rate, loading your ESLint config — " +
-  "did not run here. `npx vigiles audit` locally can show more._";
+  "<sub>Headless read: live MCP servers, skill trigger rate and your ESLint " +
+  "config need your consent and did not run. `npx vigiles audit` locally " +
+  "shows more.</sub>";
 
 /** The markdown section; first line {@link AUDIT_SUMMARY_MARKER}. */
 export function renderAuditPrSummary(

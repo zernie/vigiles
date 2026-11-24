@@ -77,3 +77,45 @@ export function groupBlock(
     `${o.indent}  ${o.paint("muted", namesLine(g.names, " · "))}`,
   ];
 }
+
+/** One finding at a file, for {@link fileBlocks}. */
+export interface FileFinding {
+  readonly path: string;
+  readonly mark: string;
+  readonly tone: "bad" | "warn";
+  readonly problem: string;
+  readonly edit: string;
+}
+
+/**
+ * Findings grouped by FILE, the way a linter prints them: the path, then each
+ * finding under it as its problem and, below, its edit. Every finding is
+ * printed; nothing merges across files, so the output stays predictable. No
+ * blank line between files: a rule that reports once per file would spend a
+ * quarter of its lines on them.
+ *
+ * ```
+ * .claude/skills/half/SKILL.md
+ *   ⚠ `disallowed-tools: Read` closes no leg
+ *     → deny `WebFetch`, `WebSearch`, `Bash` to close untrusted intake
+ * ```
+ */
+export function fileBlocks(
+  findings: readonly FileFinding[],
+  indent: string,
+  paint: Paint,
+): readonly string[] {
+  const paths = [...new Set(findings.map((f) => f.path))];
+  return paths.flatMap((path) => [
+    indent + path,
+    ...findings
+      .filter((f) => f.path === path)
+      .flatMap((f) => {
+        const edit = paint("fix", `→ ${f.edit}`);
+        return [
+          `${indent}  ${paint(f.tone, f.mark)} ${f.problem}`,
+          `${indent}    ${edit}`,
+        ];
+      }),
+  ]);
+}

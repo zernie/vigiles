@@ -305,9 +305,14 @@ describe("renderAuditPrSummary — finding groups", () => {
       expect(md.split(g.problem)).toHaveLength(2);
       expect(md.split(g.edit)).toHaveLength(2);
       for (const n of g.names) expect(md.split(n)).toHaveLength(2);
-      // The edit sits on its own line, apart from the problem it fixes.
-      const problemLine = md.split("\n").find((l) => l.includes(g.problem));
-      expect(problemLine).not.toContain(g.edit);
+      // Problem, fix and units sit in their own cells of one table row.
+      const row = md.split("\n").find((l) => l.includes(g.problem)) ?? "";
+      const cells = row
+        .split("|")
+        .map((c) => c.trim())
+        .filter((c) => c !== "");
+      expect(cells.indexOf(g.problem)).toBeGreaterThan(-1);
+      expect(cells.indexOf(g.edit)).toBeGreaterThan(cells.indexOf(g.problem));
     }
   });
 
@@ -332,6 +337,19 @@ describe("renderAuditPrSummary — finding groups", () => {
 });
 
 describe("renderAuditPrSummary — ring findings and short fix lists", () => {
+  it("keeps a table row one row when a finding holds a pipe or a newline", () => {
+    const groups = [{ problem: "a | b\nc", edit: "e", names: ["u"] }];
+    const md = renderAuditPrSummary(
+      findingsOnly([
+        ring("Safety", 60, { findings: groups.map(groupLine), groups }),
+      ]),
+      { kind: "none" },
+    );
+    const row = md.split("\n").find((l) => l.includes("a \\| b")) ?? "";
+    expect(row).toContain("c");
+    expect(row.endsWith("|")).toBe(true);
+  });
+
   it("shows every finding of a ring, the first beside its name", () => {
     const md = renderAuditPrSummary(
       findingsOnly([ring("Structure", 70, { findings: ["first", "second"] })]),
@@ -424,7 +442,8 @@ describe("renderAuditPrSummary — size", () => {
     );
     expect(md.length).toBeLessThanOrEqual(AUDIT_SUMMARY_MAX_CHARS);
     expect(md).toContain("**C**");
-    expect(md).toContain("headless audit");
+    // The closing line (how to see the rest locally) survives the cut.
+    expect(md.trimEnd().split("\n").at(-1)).toContain("npx vigiles audit");
     expect(md).toMatch(/and \d+ more/);
   });
 });
