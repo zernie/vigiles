@@ -26,6 +26,8 @@ export type HookFailureWiring = "handler-field" | "shell-ending";
  * to grow a `kind !== "rules"` branch (the empty-machine decision, the per-kind
  * counts, the shape table, the known-homes map, `executableSourceDirs`), which
  * is the per-value branch this record exists to remove.
+ *
+ * @public
  */
 export type SurfaceKind = "skill" | "agent" | "command";
 
@@ -45,6 +47,8 @@ export type SurfaceKind = "skill" | "agent" | "command";
  * and never read by anything. With one record there is no second place to
  * disagree with, `surfaceDirs()` is derived, and a duplicate kind is a
  * duplicate object key (TS1117) rather than a conformance finding.
+ *
+ * @public
  */
 export type SurfaceDirs = Readonly<Partial<Record<SurfaceKind, string>>>;
 
@@ -64,6 +68,8 @@ export type SurfaceDirs = Readonly<Partial<Record<SurfaceKind, string>>>;
  * skills were read by nothing. The copies are now `surfaceDirs()`,
  * `executableSourceDirs()` and `materializePrefix()` — functions of what is
  * left, so there is no second place to disagree with.
+ *
+ * @public
  */
 export interface PluginLayout {
   /** Stable identifier, e.g. "claude-code". */
@@ -253,6 +259,8 @@ export const SURFACE_KINDS = ["skill", "agent", "command"] as const;
  * Every surface dir a layout declares — what the `surfaceDirs` FIELD used to
  * be, minus the possibility of disagreeing with the per-kind fields, because
  * there are no per-kind fields left to disagree with.
+ *
+ * @public
  */
 export function surfaceDirs(layout: PluginLayout): readonly string[] {
   return SURFACE_KINDS.map((k) => layout.surfaces[k]).filter(
@@ -267,6 +275,8 @@ export function surfaceDirs(layout: PluginLayout): readonly string[] {
  * Equal to the old hand-written `intraRefDirs` as a SET on Claude Code and
  * Codex; on `opencode` it gains `.opencode/skill`, which the hand list had left
  * out along with the rest of that layout's skill surface.
+ *
+ * @public
  */
 export function executableSourceDirs(layout: PluginLayout): readonly string[] {
   const dirs = surfaceDirs(layout);
@@ -323,6 +333,8 @@ export function skillsHome(
  * The two readers — the pure filter in `core/always-loaded.ts` and the disk
  * walk in `surface-discovery-fs.ts` — both ask {@link sessionSkillDirs}, so
  * they cannot disagree about which files exist.
+ *
+ * @public
  */
 export interface SkillDiscovery {
   /** Fewest directories between the skills folder and a `SKILL.md`. */

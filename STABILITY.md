@@ -71,9 +71,45 @@ consumer uses it, or (b) it is a deliberate extension point listed above (the
 adapter kit is the example). Everything else is internal by default; the
 compiler (`compileClaude` & co.) left the spec door on that rule, and v50 hid
 the report formatters, the hook compiler's internals and the adapter registry on
-it. Each name lives behind exactly one entry point. The
-per-entry reports in `api-surface/` are the review point: `npm run api:check`
+it. Four mechanical gates keep the surface from growing back; a new export must
+clear all of them:
+
+1. **Its audience's entry, and only that one.** Each name lives behind exactly one
+   entry point (a test over every entry's runtime and type exports).
+2. **A release tag.** Every exported declaration carries `@public`, `@beta` or
+   `@alpha` (an `experimental_*` name is `@beta`); `@internal` is for what we do
+   not export, and is stripped from the published `.d.ts`. API Extractor fails on
+   a missing tag, and the built `.d.ts` must type-check without the stripped names.
+3. **It fits the budget.** `api-surface/budget.json` caps the runtime functions
+   per entry. Entries above ten functions have a ceiling below today's count and
+   a grandfather list that can only shrink.
+4. **A row in the table below** for any new entry.
+
+The per-entry reports in `api-surface/` are the review point: `npm run api:check`
 fails when the public surface changes without its report.
+
+### The entries
+
+One row per subpath in `package.json` `exports`; a test fails if this table and
+`exports` disagree. _Stability_ is the entry's own: `stable` (depend on it),
+`beta` (usable, may change in a minor release; its `experimental_*` names carry
+no promise at all) or `internal` (published for our own tooling, not for you).
+
+| entry                 | audience                                                             | stability |
+| --------------------- | -------------------------------------------------------------------- | --------- |
+| `vigiles`             | test authors: the free harness-test and `check` vocabulary           | stable    |
+| `vigiles/spec`        | spec authors: builders and verified-reference types                  | stable    |
+| `vigiles/eval`        | eval authors: the paid model runners and the free report readers     | stable    |
+| `vigiles/battery`     | guard authors proving a guard blocks                                 | stable    |
+| `vigiles/fixtures`    | test authors needing tool stubs and disposable services              | beta      |
+| `vigiles/hook`        | compiled-hook authors (effect-free, the only import a hook may have) | beta      |
+| `vigiles/hook-test`   | compiled-hook authors testing a hook in process                      | beta      |
+| `vigiles/claude-code` | test authors targeting Claude Code                                   | stable    |
+| `vigiles/codex`       | test authors targeting Codex                                         | stable    |
+| `vigiles/adapter`     | authors of a harness adapter                                         | stable    |
+| `vigiles/rule-proof`  | repositories proving their linter config fires                       | beta      |
+| `vigiles/vitest`      | vitest users: registers the matchers                                 | stable    |
+| `vigiles/jest`        | jest users: registers the matchers                                   | stable    |
 
 ## What's still evolving — pin if you rely on it
 

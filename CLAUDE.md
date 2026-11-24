@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:3a9f3cc320914f01 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:ebd0a70e54805fdc compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -161,10 +161,6 @@ BUILD + TOOLING + GENERATED:
 
 **Guidance only** — Architectural linting belongs in ast-grep/Dependency Cruiser/Steiger. [Details](docs/contributing/rules.md#dont-reimplement-linters)
 
-### Prefer Existing Solutions
-
-**Guidance only** — Before building any non-trivial capability — a tool, a check, a runtime, a parser — LOOK FOR EXISTING SOLUTIONS FIRST and PREFER adopting/composing/delegating over reinventing. [Details](docs/contributing/rules.md#prefer-existing-solutions)
-
 ### Parse Structured Input With A Real Parser
 
 **Guidance only** — Parse a structured language with its real parser, never a hand-rolled regex or line scanner; SKILL.md and subagent frontmatter go through `src/core/frontmatter-read.ts`. [Details](docs/contributing/rules.md#parse-structured-input-with-a-real-parser)
@@ -180,7 +176,7 @@ BUILD + TOOLING + GENERATED:
 
 ### Public Exports Are Opt In
 
-**Guidance only** — Public exports are opt-in. [Details](docs/contributing/rules.md#public-exports-are-opt-in)
+**Guidance only** — Public exports are opt-in and gated: a new export lives in ONE entry (`package.json` `exports`), carries a release tag, fits `api-surface/budget.json`, and a new entry gets a `STABILITY.md` row; `vigiles/hook` stays effect-free. [Details](docs/contributing/rules.md#public-exports-are-opt-in)
 
 ### Dogfood Vendoring Policy
 

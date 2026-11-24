@@ -356,25 +356,25 @@ export interface EvalUsage {
     readonly outputTokens: number;
 }
 
-// @public
+// @beta
 export function experimental_assertEmittedOk(toolCalls: readonly ToolCall[], contract: OutputContract, options?: {
     readonly name?: string;
 }): Record<string, unknown>;
 
-// @public
+// @beta
 export function experimental_eachReply(matcher: string | Readonly<RegExp>): Readonly<Check<Trace>>;
 
-// @public
+// @beta
 export function experimental_emitTool(contract: OutputContract, options?: {
     readonly name?: string;
 }): ExperimentalEmitTool;
 
-// @public
+// @beta
 export function experimental_parseEmitted(toolCalls: readonly ToolCall[], contract: OutputContract, options?: {
     readonly name?: string;
 }): ParsedAgentResult;
 
-// @public
+// @beta
 export function experimental_replyCount(matcher: string | Readonly<RegExp>, opts: {
     readonly min?: number;
     readonly max?: number;

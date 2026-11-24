@@ -67,6 +67,8 @@ export type {
 /**
  * Options for {@link runHook} — every {@link RunScriptOptions} knob except
  * `stdin`, which the hook layer owns (it serializes the event there).
+ *
+ * @public
  */
 export type RunHookOptions = Omit<RunScriptOptions, "stdin"> & {
   /**
@@ -156,7 +158,11 @@ export function propertyHook<E, D>(opts: {
   };
 }
 
-/** A hook event payload (the JSON Claude Code writes to the hook's stdin). */
+/**
+ * A hook event payload (the JSON Claude Code writes to the hook's stdin).
+ *
+ * @public
+ */
 export interface HookInput {
   /** e.g. "PreToolUse", "PostToolUse", "Stop", "SessionStart", "PreCompact". */
   readonly hook_event_name?: string;
@@ -174,7 +180,11 @@ export interface HookInput {
   readonly [k: string]: unknown;
 }
 
-/** Options for {@link fileToolEvents}. */
+/**
+ * Options for {@link fileToolEvents}.
+ *
+ * @public
+ */
 export interface FileToolEventOptions {
   /** The hook event. Default `"PostToolUse"` (the react tier's event). */
   readonly event?: string;
@@ -214,6 +224,8 @@ export interface FileToolEventOptions {
  * its environment still resolves a root — the same fallback the live runtime uses.
  *
  * @param path - the file, as a repo-relative path.
+ *
+ * @public
  */
 export function fileToolEvents(
   path: string,
@@ -287,7 +299,11 @@ const isAbsolutePath = (p: string): boolean => /^([/\\]|[A-Za-z]:)/.test(p);
  * comes back is always a root the runtime can use.
  */
 
-/** The JSON a hook may print on stdout (all fields optional). */
+/**
+ * The JSON a hook may print on stdout (all fields optional).
+ *
+ * @public
+ */
 export interface HookOutput {
   readonly decision?: "approve" | "block";
   readonly reason?: string;
@@ -304,6 +320,7 @@ export interface HookOutput {
   readonly [k: string]: unknown;
 }
 
+/** @public */
 export interface HookRunResult extends ScriptRunResult {
   /** Parsed stdout JSON if the hook emitted a JSON decision, else null. */
   readonly json: HookOutput | null;
@@ -403,6 +420,8 @@ export function parseHookOutput(stdout: string): HookOutput | null {
  * construction, so nothing can say "you declared a mechanism and did not handle
  * it". `Record<BlockMechanism, …>` can: adding a member to the union without
  * adding its row is a tsc error, the same device the rule set's `satisfies` uses (src/rules/index.ts).
+ *
+ * @public
  */
 export type BlockMechanism = "exit-code" | "deny-decision" | "halt-field";
 
@@ -610,6 +629,8 @@ function skippedScriptResult(): ScriptRunResult {
  * "auto"` directly) — see {@link RunScriptOptions.trusted}.
  *
  * Testing a program that is NOT a hook? Use {@link runScript}.
+ *
+ * @public
  */
 export function runHook(
   command: string,

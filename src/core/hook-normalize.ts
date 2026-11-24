@@ -135,6 +135,8 @@ export function normalizeHooks(raw: unknown): HookRegistration[] {
  * A declared hook action that carries no command — `prompt`, `http`, `mcp_tool`
  * or `agent`. Real, supported actions; simply not shell processes, so no tier
  * that drives a shell can measure one.
+ *
+ * @public
  */
 export interface NonCommandHookAction {
   /** The event it registers under. */

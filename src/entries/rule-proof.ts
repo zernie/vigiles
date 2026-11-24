@@ -16,6 +16,8 @@ import { nodeHost } from "../host/rule-proof.io.js";
  * the repository files it flags — ESLint and Ruff. `install` → `prove` →
  * `flagged`, each taking only what the step before returns. See
  * `docs/rule-proof.md`.
+ *
+ * @beta
  */
 export const experimental_ruleProof = ruleProofWith(nodeHost, PROOF_KITS);
 

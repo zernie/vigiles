@@ -24,7 +24,11 @@ import {
   type ToolStub,
 } from "./core/stub-rules.js";
 
-/** Bounds for {@link experimental_stub.called}. */
+/**
+ * Bounds for {@link experimental_stub.called}.
+ *
+ * @public
+ */
 export interface StubCalledBounds {
   /** At least this many matching calls. Default 1, or 0 when `max` is given. */
   readonly min?: number;
@@ -166,6 +170,8 @@ function stubOf(
  * the run's recorded calls.
  *
  * @experimental
+ *
+ * @beta
  */
 // eslint-disable-next-line functional/immutable-data -- the one experimental root: a callable with members, built the way experimental_agent is
 export const experimental_stub = Object.assign(stubOf, {

@@ -36,6 +36,7 @@
 const toml = (): typeof import("@iarna/toml") =>
   require("@iarna/toml") as typeof import("@iarna/toml");
 
+/** @public */
 export interface SettingsCodec {
   /**
    * For messages and the generated JSON Schema only. The core never branches
@@ -49,14 +50,22 @@ export interface SettingsCodec {
   render(value: Record<string, unknown>): string;
 }
 
-/** JSON settings (`.claude/settings.json`, `opencode.json`). */
+/**
+ * JSON settings (`.claude/settings.json`, `opencode.json`).
+ *
+ * @public
+ */
 export const jsonSettingsCodec: SettingsCodec = {
   label: "json",
   parse: (text) => JSON.parse(text) as Record<string, unknown>,
   render: (value) => JSON.stringify(value, null, 2) + "\n",
 };
 
-/** TOML settings (Codex's `.codex/config.toml`). */
+/**
+ * TOML settings (Codex's `.codex/config.toml`).
+ *
+ * @public
+ */
 export const tomlSettingsCodec: SettingsCodec = {
   label: "toml",
   parse: (text) => toml().parse(text) as Record<string, unknown>,

@@ -376,7 +376,11 @@ export function formatBehavioralReport(b: BehavioralReport): string {
 // the diagonal is recall, off-diagonal mass is collision. Claude Code only — Codex
 // has no skill-selection event to read. See research/plugin-selection-collision.md.
 
-/** Knobs for the selection-collision measurement. */
+/**
+ * Knobs for the selection-collision measurement.
+ *
+ * @public
+ */
 export interface SelectionOptions {
   /** Repeats per prompt (default 1). */
   readonly trials?: number;
@@ -417,6 +421,7 @@ interface SelectionRun {
   readonly firedBare: readonly string[];
 }
 
+/** @public */
 export interface SkillSelectionStat {
   readonly skill: string;
   /** Fraction of its own prompts on which it fired (matrix diagonal). */
@@ -432,6 +437,7 @@ export interface SkillSelectionStat {
   }[];
 }
 
+/** @public */
 export interface SelectionReport {
   /** False when the harness CLI / auth is absent, or the harness has no selector. */
   readonly available: boolean;
@@ -705,6 +711,7 @@ export function formatSelectionReport(r: SelectionReport): string {
 
 /** Options for {@link measureSelectionMatrix}: {@link SelectionOptions} plus an
  * optional explicit prompt set (auto-derived from descriptions when omitted). */
+/** @public */
 export interface SelectionMatrixOptions extends SelectionOptions {
   /**
    * Per-skill recall prompts. Omit for ZERO-SETUP — prompts are auto-derived
@@ -727,6 +734,8 @@ export interface SelectionMatrixOptions extends SelectionOptions {
  * description. Claude Code only (Codex has no skill-selection event to read); needs
  * the `claude` CLI + model auth, else `available: false`. Thin promotion of
  * {@link measurePluginSelection}. See research/plugin-selection-collision.md.
+ *
+ * @public
  */
 export async function measureSelectionMatrix(
   dir: string,
@@ -779,6 +788,8 @@ function resolveSelectionPrompts(
  * fired); `maxPluginCollision` caps the plugin-wide rate. With neither set it
  * demands ZERO collision. THROWS (never a silent green) when nothing was measured
  * — an unavailable harness or a zero-run report is a gap, not a pass.
+ *
+ * @public
  */
 export function assertNoCollision(
   report: SelectionReport,

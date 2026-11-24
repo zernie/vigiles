@@ -109,6 +109,7 @@ export {
 } from "./sandbox.js";
 import { makeTmpDir } from "./core/tmp-root.js";
 
+/** @public */
 export interface HarnessTestSpec {
   /** Fixture files to write in a fresh temp working dir (path → contents). */
   readonly files?: Record<string, string>;
@@ -214,6 +215,7 @@ export interface HarnessTestSpec {
   readonly sandbox?: SandboxMode;
 }
 
+/** @public */
 export interface HarnessTestResult extends Trace {
   readonly exitCode: number;
   readonly stdout: string;
@@ -274,6 +276,8 @@ function contentText(content: unknown): string {
  * tools the agent invoked, each joined to its result by id. Returns [] for the
  * non-stream `json` output. The seam that lets a test assert on the agent's
  * actions, not a brittle stdout substring.
+ *
+ * @public
  */
 export function parseToolCalls(streamJson: string): ToolCall[] {
   const uses: { id: string; name: string; input: unknown }[] = [];
@@ -674,7 +678,11 @@ export function harnessSpawnEnv(
 /* v8 ignore start -- spawns the real claude CLI + filesystem; exercised by the
    claude-backed suite, excluded from the deterministic coverage gate (the parse
    helpers above carry the testable logic). */
-/** Whether the agent CLI is available — harness tests need it. */
+/**
+ * Whether the agent CLI is available — harness tests need it.
+ *
+ * @public
+ */
 export function claudeAvailable(): boolean {
   try {
     return (
@@ -781,7 +789,11 @@ export const claudeCodeDriver: HarnessTestDriver = {
 };
 /* v8 ignore stop */
 
-/** Options for {@link runHarnessTest}. */
+/**
+ * Options for {@link runHarnessTest}.
+ *
+ * @public
+ */
 export interface RunHarnessTestOptions {
   /**
    * Which harness to drive. Defaults to Claude Code. Pass `codexAdapter`
@@ -900,6 +912,8 @@ function makeResult(
  * default `"auto"`); if no sandbox is available the run REFUSES rather than
  * executing unconfined. See `src/sandbox.ts`. The sandbox path is Claude Code
  * only — requesting confinement for another harness throws.
+ *
+ * @public
  */
 export async function runHarnessTest(
   spec: HarnessTestSpec,

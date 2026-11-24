@@ -55,7 +55,7 @@ export interface ClaudeCodeToolVocabulary extends ToolVocabulary {
     readonly readOnly: ClaudeCodeReadOnlyTool;
 }
 
-// @public
+// @beta
 export const experimental_agent: typeof agentSpec & {
     result: <const Ok extends Shape, const Err extends Shape>(ok: Ok, err: Err) => OutputContract<Ok, Err>;
     delegate: (agent: string, task?: string, needsContract?: Shape) => RailwayStep;
@@ -86,7 +86,7 @@ export const experimental_agent: typeof agentSpec & {
     };
 };
 
-// @public (undocumented)
+// @beta (undocumented)
 export const experimental_skill: typeof skillSpec & {
     input: (name: string, hint: string, opts?: {
         required?: boolean;
@@ -147,7 +147,7 @@ export function parseToolCalls(streamJson: string): ToolCall[];
 // @public
 export function scriptModel(turns: readonly ModelTurn[]): ModelTurn[];
 
-// @public
+// @public (undocumented)
 export interface SelectionMatrixOptions extends SelectionOptions {
     readonly prompts?: TriggerPromptSet;
 }

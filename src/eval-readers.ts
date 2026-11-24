@@ -33,7 +33,11 @@ function fail(message: string): never {
   throw new Error(message);
 }
 
-/** One metric's standing of an arm against its baseline. */
+/**
+ * One metric's standing of an arm against its baseline.
+ *
+ * @public
+ */
 export interface ArmComparison {
   /** `arm − baseline` on the metric's mean (fraction-true for a 0/1 metric). */
   readonly gap: number;
@@ -56,6 +60,8 @@ export interface ArmComparison {
  * (before and after a description edit, or a weaker and a stronger model),
  * compared prompt by prompt. A prompt only one run measured is left out — it
  * says nothing about the change.
+ *
+ * @public
  */
 export interface TriggerDiff {
   /** Prompts both runs measured — the only ones the diff can speak about. */
@@ -94,6 +100,8 @@ export interface TriggerDiff {
  *   fired in one run and not the other is a `gained`/`lost` entry made of
  *   noise. At one trial per prompt every cell is one observation: read a
  *   handful as evidence and one as a reason to re-run at higher `trials`.
+ *
+ * @public
  */
 export function compare(
   report: EvalReport,
@@ -101,6 +109,7 @@ export function compare(
   arm: string,
   opts?: { readonly alpha?: number },
 ): Readonly<Record<string, ArmComparison>>;
+/** @public */
 export function compare(
   before: TriggerRateReport,
   after: TriggerRateReport,
@@ -191,6 +200,8 @@ function metricsOf(
  * `{ significant: true }` the verdict must be `better` instead — the computed
  * noise floor: a 0/1 metric needs disjoint Wilson intervals (3/3 against 0/3 is
  * not enough — raise `trials`), any other a Welch gap at `alpha`.
+ *
+ * @public
  */
 export function assertImproves(report: EvalReport, opts: ImprovesGate): void {
   const a = report.arms[opts.arm]?.metrics[opts.metric];
@@ -209,7 +220,11 @@ export function assertImproves(report: EvalReport, opts: ImprovesGate): void {
   }
 }
 
-/** The options of {@link assertImproves}. */
+/**
+ * The options of {@link assertImproves}.
+ *
+ * @public
+ */
 export interface ImprovesGate {
   readonly baseline: string;
   readonly arm: string;
@@ -248,6 +263,8 @@ function assertSignificantGap(report: EvalReport, opts: ImprovesGate): void {
  * Higher is better by default; list `lowerIsBetter` metrics (cost/latency) to
  * flip them. Load the baseline with `readBaseline(path)` and record a fresh one
  * with `writeBaseline(path, reports)`.
+ *
+ * @public
  */
 export function assertNoRegression(
   current: EvalReport | readonly EvalReport[],
@@ -282,6 +299,8 @@ function isReportList(
  * `maxFalsePositive` gates the precision side (does NOT fire when it shouldn't)
  * and `minPrecision` gates `firedRight / firedTotal` — so a too-broad
  * description that hijacks unrelated work fails, not just a too-narrow one.
+ *
+ * @public
  */
 export function assertTriggerRate(
   report: TriggerRateReport,
@@ -302,7 +321,11 @@ export function assertTriggerRate(
     assertPrecision(report, opts.minPrecision);
 }
 
-/** The options of {@link assertTriggerRate}: recall, false positives, precision. */
+/**
+ * The options of {@link assertTriggerRate}: recall, false positives, precision.
+ *
+ * @public
+ */
 export interface TriggerRateGate {
   readonly min?: number;
   readonly maxFalsePositive?: number;

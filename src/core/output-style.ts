@@ -10,7 +10,11 @@
 import type { ModelRequest } from "./harness-driver.js";
 import type { PluginLayout } from "./layout.js";
 
-/** One style, read by its harness's rules. */
+/**
+ * One style, read by its harness's rules.
+ *
+ * @public
+ */
 export interface OutputStyle {
   /**
    * Relative to the directory the caller scanned (a bundle), `/`-separated,
@@ -26,7 +30,11 @@ export interface OutputStyle {
   readonly body: string;
 }
 
-/** How one harness keeps output styles and switches one on. */
+/**
+ * How one harness keeps output styles and switches one on.
+ *
+ * @public
+ */
 export interface OutputStyleRules {
   /** The folder of style files, e.g. `output-styles`. */
   readonly dir: string;
@@ -58,6 +66,8 @@ export interface OutputStyleRules {
  * What a settings object says about the output style. Three different facts:
  * the key is absent, it names the harness's own default (no extra text), or
  * it names a style — which may or may not be a file the repository holds.
+ *
+ * @public
  */
 export type StyleSelection =
   | { readonly kind: "unset" }

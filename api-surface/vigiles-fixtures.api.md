@@ -4,7 +4,7 @@
 
 ```ts
 
-// @public
+// @beta
 export interface ContainerRuntime {
     available(): boolean | Promise<boolean>;
     readonly name: string;
@@ -19,19 +19,19 @@ export type DockerExec = (args: readonly string[]) => {
     readonly code: number;
 };
 
-// @public
+// @beta
 export const experimental_dockerRuntime: ContainerRuntime;
 
-// @public
+// @beta
 export function experimental_startServices(services: Readonly<Record<string, ServiceSpec>>, runtime: ContainerRuntime): Promise<ServiceSession>;
 
-// @public
+// @beta
 export const experimental_stub: typeof stubOf & {
     rest: ArgvRest;
     called: typeof called;
 };
 
-// @public
+// @beta
 export interface ServiceHandle {
     exec(command: string): {
         readonly stdout: string;
@@ -43,7 +43,7 @@ export interface ServiceHandle {
     readonly url?: string;
 }
 
-// @public
+// @beta
 export type ServiceReady = {
     readonly tcp: number;
 } | {
@@ -52,17 +52,17 @@ export type ServiceReady = {
     readonly exec: string;
 };
 
-// @public
+// @beta
 export type ServiceReset = "per-trial" | "per-arm";
 
-// @public
+// @beta
 export interface ServiceSession {
     readonly endpoints: readonly string[];
     readonly handles: Readonly<Record<string, ServiceHandle>>;
     teardown(): Promise<void>;
 }
 
-// @public
+// @beta
 export interface ServiceSpec {
     readonly env?: Readonly<Record<string, string>>;
     readonly image: string;

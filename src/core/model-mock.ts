@@ -13,6 +13,8 @@
  * (`startMock` for Claude Code); a second harness implements the same contract
  * with its own renderer. The Claude Code descriptor is `claudeCodeModelMock` in
  * `src/adapters/claude-code/model-mock.ts`.
+ *
+ * @public
  */
 export interface ModelMock {
   /** Stable identifier, e.g. "claude-code". */

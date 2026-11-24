@@ -25,7 +25,11 @@ import type {
 } from "./harness-driver.js";
 import type { StubCall } from "./stub-rules.js";
 
-/** Per-run resource use, parsed from the terminal `result` event (0 when absent). */
+/**
+ * Per-run resource use, parsed from the terminal `result` event (0 when absent).
+ *
+ * @public
+ */
 export interface EvalUsage {
   /** `total_cost_usd` reported by the harness binary. */
   readonly costUsd: number;
@@ -40,7 +44,11 @@ export interface EvalUsage {
   readonly cacheReadTokens: number;
 }
 
-/** A sub-agent (`Task`) run as a nested trace: its name + the tools it used. */
+/**
+ * A sub-agent (`Task`) run as a nested trace: its name + the tools it used.
+ *
+ * @public
+ */
 export interface SubagentTrace {
   /** The `subagent_type` from the `Task` tool input. */
   readonly name: string;
@@ -61,6 +69,8 @@ export interface SubagentTrace {
  * both satisfy it. That's what lets one check (`check.tool`, `check.skill`,
  * `check.hookFired`, …) evaluate over either: `assertChecks` asserting on one run,
  * `measure` scoring the same check as a rate.
+ *
+ * @public
  */
 export interface Trace {
   /**
@@ -126,7 +136,11 @@ export interface Trace {
   file(path: string): string | null;
 }
 
-/** The raw output of one trial: the agent's exit code + captured streams. */
+/**
+ * The raw output of one trial: the agent's exit code + captured streams.
+ *
+ * @public
+ */
 export interface RunOut {
   /** The exit code; -1 when a signal ended the process (there was no code). */
   code: number;
@@ -139,7 +153,11 @@ export interface RunOut {
   timedOut?: boolean;
 }
 
-/** The per-trial arguments handed to an {@link AgentRunner}. */
+/**
+ * The per-trial arguments handed to an {@link AgentRunner}.
+ *
+ * @public
+ */
 export interface AgentRunArgs {
   readonly task: string;
   readonly cwd: string;
@@ -184,6 +202,8 @@ export interface AgentRunArgs {
  * drives the real `claude` CLI; `runEvalWith` takes one explicitly, so the eval
  * orchestration is testable without a model (pass a fake returning canned
  * stream-json) and a custom runtime can be plugged in.
+ *
+ * @public
  */
 export type AgentRunner = (args: AgentRunArgs) => Promise<RunOut>;
 
@@ -193,6 +213,8 @@ export type AgentRunner = (args: AgentRunArgs) => Promise<RunOut>;
  * second harness (Codex) supplies its own parser of `codex exec --json` JSONL, so
  * the eval tier (`measureTriggerRate`/`runEval`) isn't bound to Claude's format.
  * The non-harness fields (cwd/exitCode/stdout/file/sh) stay in `makeContext`.
+ *
+ * @public
  */
 export interface ParsedModelRun {
   readonly turns: number;
@@ -213,6 +235,7 @@ export interface ParsedModelRun {
    */
   readonly costObserved?: boolean;
 }
+/** @public */
 export type ModelOutputParser = (out: RunOut) => ParsedModelRun;
 
 /**
@@ -222,6 +245,8 @@ export type ModelOutputParser = (out: RunOut) => ParsedModelRun;
  * `measureTriggerRate(spec, { evalDriver })` — the eval-tier analog of
  * `runHarnessTest`'s `{ adapter }`. `runError` lets the loop drop an
  * errored/rate-limited turn instead of scoring it as a miss.
+ *
+ * @public
  */
 export interface EvalDriver {
   readonly runner: AgentRunner;

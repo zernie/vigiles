@@ -41,18 +41,31 @@ export const BUILTIN_LINTERS = [
   "cedar",
 ] as const;
 
+/** @public */
 export type BuiltinLinter = (typeof BUILTIN_LINTERS)[number];
 
 /** Scoped ESLint plugin prefix (e.g., @typescript-eslint). */
 type ScopedPlugin = `@${string}/${string}`;
 
-/** A linter/rule reference: "eslint/no-console", "ruff/T201", "@typescript-eslint/no-explicit-any". */
+/**
+ * A linter/rule reference: "eslint/no-console", "ruff/T201", "@typescript-eslint/no-explicit-any".
+ *
+ * @public
+ */
 export type LinterRule = `${BuiltinLinter}/${string}` | ScopedPlugin;
 
-/** Vigiles-proven rule reference: "vigiles/<assertion-id>". */
+/**
+ * Vigiles-proven rule reference: "vigiles/<assertion-id>".
+ *
+ * @public
+ */
 export type VigilesRef = `vigiles/${string}`;
 
-/** Any enforcement reference. */
+/**
+ * Any enforcement reference.
+ *
+ * @public
+ */
 export type EnforcementRef = LinterRule | VigilesRef;
 
 // ---------------------------------------------------------------------------
@@ -72,6 +85,8 @@ export type EnforcementRef = LinterRule | VigilesRef;
  * Populated by generate-types with per-linter rule unions.
  * Keys are linter prefixes ("eslint", "@typescript-eslint", "ruff", etc.),
  * values are unions of enabled rule names.
+ *
+ * @public
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface KnownLinterRules {}
@@ -79,6 +94,8 @@ export interface KnownLinterRules {}
 /**
  * Populated by generate-types with project file paths.
  * Single key "files" maps to a union of relative paths.
+ *
+ * @public
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface KnownProjectFiles {}
@@ -86,6 +103,8 @@ export interface KnownProjectFiles {}
 /**
  * Populated by generate-types with npm script names.
  * Single key "scripts" maps to a union of script names.
+ *
+ * @public
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface KnownNpmScripts {}
@@ -93,6 +112,8 @@ export interface KnownNpmScripts {}
 /**
  * When KnownLinterRules is populated, narrows to exact rule unions.
  * Falls back to broad LinterRule when no generated types exist.
+ *
+ * @public
  */
 export type StrictLinterRule = [keyof KnownLinterRules] extends [never]
   ? LinterRule
@@ -103,12 +124,15 @@ export type StrictLinterRule = [keyof KnownLinterRules] extends [never]
 /**
  * When KnownProjectFiles is populated, narrows file() to known paths.
  * Falls back to string when no generated types exist.
+ *
+ * @public
  */
 /* eslint-disable @typescript-eslint/no-redundant-type-constituents, @typescript-eslint/no-duplicate-type-constituents */
 export type StrictFile = [keyof KnownProjectFiles] extends [never]
   ? string
   : KnownProjectFiles[keyof KnownProjectFiles] & string;
 
+/** @public */
 export type StrictCmd = [keyof KnownNpmScripts] extends [never]
   ? string
   :
@@ -149,6 +173,8 @@ export type StrictCmd = [keyof KnownNpmScripts] extends [never]
  *
  * The default (`string` at both) imposes no constraint — any tool is accepted at
  * every level, the historical behaviour of an untyped `experimental_agent()`/`skill()`.
+ *
+ * @public
  */
 export interface ToolVocabulary {
   /** Union of tool names allowed under `purity: "pure"`. */
@@ -157,7 +183,11 @@ export interface ToolVocabulary {
   readonly bounded: string;
 }
 
-/** The fully-open default vocabulary — no constraint at any purity level. */
+/**
+ * The fully-open default vocabulary — no constraint at any purity level.
+ *
+ * @public
+ */
 export interface OpenToolVocabulary extends ToolVocabulary {
   readonly readOnly: string;
   readonly bounded: string;
@@ -171,6 +201,8 @@ export interface OpenToolVocabulary extends ToolVocabulary {
  *
  * With the open default vocabulary every branch widens to `string`, so an
  * untyped surface accepts any tools.
+ *
+ * @public
  */
 export type AllowedAt<
   P extends AuthoredPurity | undefined,
@@ -211,6 +243,8 @@ export type AllowedAt<
  * a `file()` reference (verified to exist, like every other one) and an
  * optional anchor inside it (verified to be a heading or an explicit
  * `<a id="…">` in that file). Rendered as a `[Details](path#anchor)` link.
+ *
+ * @public
  */
 export interface RuleDetails {
   readonly file: FileRef;
@@ -229,10 +263,16 @@ export interface RuleDetails {
  * audit rule map and `enforce-rules-format` read the spec, not the markdown —
  * and the integrity hash is taken over the RENDERED file, so it stays a
  * function of what the model actually sees.
+ *
+ * @public
  */
 export type RuleRender = "full" | "line" | "id";
 
-/** A rule delegated to an external tool (linter, ast-grep, dependency-cruiser, etc.) or to a vigiles-internal check. */
+/**
+ * A rule delegated to an external tool (linter, ast-grep, dependency-cruiser, etc.) or to a vigiles-internal check.
+ *
+ * @public
+ */
 export interface EnforceRule {
   readonly _kind: "enforce";
   readonly linterRule: LinterRule | VigilesRef;
@@ -245,7 +285,11 @@ export interface EnforceRule {
   readonly details?: RuleDetails;
 }
 
-/** A guidance-only rule (prose, no enforcement). */
+/**
+ * A guidance-only rule (prose, no enforcement).
+ *
+ * @public
+ */
 export interface GuidanceRule {
   readonly _kind: "guidance";
   readonly text: string;
@@ -256,6 +300,8 @@ export interface GuidanceRule {
 /**
  * The `details` half of a rule's options. An `anchor` is only meaningful
  * inside a `details` file, so the type refuses one without the other.
+ *
+ * @public
  */
 export type RuleDetailsOptions =
   | { readonly details: FileRef; readonly anchor?: string }
@@ -270,7 +316,11 @@ const detailsOf = (
     : { file: o.details, anchor: o.anchor };
 };
 
-/** A reactive rule: runs a command when watched files change. */
+/**
+ * A reactive rule: runs a command when watched files change.
+ *
+ * @public
+ */
 export interface GuardRule {
   readonly _kind: "guard";
   readonly watch: string | readonly string[];
@@ -278,6 +328,7 @@ export interface GuardRule {
   readonly description: string;
 }
 
+/** @public */
 export type Rule = EnforceRule | GuidanceRule | GuardRule;
 
 // ---------------------------------------------------------------------------
@@ -296,6 +347,8 @@ export type Rule = EnforceRule | GuidanceRule | GuardRule;
  *   enforce("@typescript-eslint/no-floating-promises", "Always await.")
  *   enforce("ruff/T201", "Use logging module.")
  *   enforce("vigiles/orphan-docs", "No docs without spec references.")
+ *
+ * @public
  */
 export function enforce(
   ref: NoInfer<StrictLinterRule> | VigilesRef,
@@ -319,6 +372,8 @@ export function enforce(
  *
  *   guidance("Google unfamiliar APIs before implementing.")
  *   guidance("Short statement.", { details: file("docs/rules/x.md"), anchor: "why" })
+ *
+ * @public
  */
 export function guidance(
   text: string,
@@ -335,6 +390,8 @@ export function guidance(
  *
  *   guard({ watch: "*.spec.ts", run: "npx vigiles compile" }, "Recompile on spec change")
  *   guard({ watch: ["eslint.config.*", "package.json"], run: "npx vigiles generate types" }, "Regen types")
+ *
+ * @public
  */
 export function guard(
   options: { watch: string | readonly string[]; run: string },
@@ -358,54 +415,86 @@ export function guard(
  * not raw strings, for path-sensitive positions.
  */
 declare const __brand: unique symbol;
+/** @public */
 export type VerifiedPath = string & { readonly [__brand]: "VerifiedPath" };
+/** @public */
 export type VerifiedCmd = string & { readonly [__brand]: "VerifiedCmd" };
+/** @public */
 export type VerifiedRef = string & { readonly [__brand]: "VerifiedRef" };
+/** @public */
 export type VerifiedDir = string & { readonly [__brand]: "VerifiedDir" };
+/** @public */
 export type VerifiedGlob = string & { readonly [__brand]: "VerifiedGlob" };
 
-/** A typed file reference — verified at compile time. */
+/**
+ * A typed file reference — verified at compile time.
+ *
+ * @public
+ */
 export interface FileRef {
   readonly _ref: "file";
   readonly path: VerifiedPath;
 }
 
-/** A typed command reference — verified at compile time. */
+/**
+ * A typed command reference — verified at compile time.
+ *
+ * @public
+ */
 export interface CmdRef {
   readonly _ref: "cmd";
   readonly command: VerifiedCmd;
 }
 
-/** A typed cross-reference to another instruction file/skill. */
+/**
+ * A typed cross-reference to another instruction file/skill.
+ *
+ * @public
+ */
 export interface SkillRef {
   readonly _ref: "skill";
   readonly path: VerifiedRef;
 }
 
-/** A typed symbol reference — the named file must define the named symbol. */
+/**
+ * A typed symbol reference — the named file must define the named symbol.
+ *
+ * @public
+ */
 export interface SymbolRef {
   readonly _ref: "symbol";
   readonly file: VerifiedPath;
   readonly symbol: string;
 }
 
-/** A typed directory reference — verified to exist AND be a directory. */
+/**
+ * A typed directory reference — verified to exist AND be a directory.
+ *
+ * @public
+ */
 export interface DirRef {
   readonly _ref: "dir";
   readonly path: VerifiedDir;
 }
 
-/** A typed glob reference — verified to match at least one path. */
+/**
+ * A typed glob reference — verified to match at least one path.
+ *
+ * @public
+ */
 export interface GlobRef {
   readonly _ref: "glob";
   readonly pattern: VerifiedGlob;
 }
 
+/** @public */
 export type Ref = FileRef | CmdRef | SkillRef | SymbolRef | DirRef | GlobRef;
 
 /**
  * Reference a file path — verified to exist at compile time.
  * When generated types are present, narrowed to known project files.
+ *
+ * @public
  */
 export function file(path: NoInfer<StrictFile>): FileRef {
   return { _ref: "file", path: path as VerifiedPath };
@@ -414,6 +503,8 @@ export function file(path: NoInfer<StrictFile>): FileRef {
 /**
  * Reference a command — verified against package.json at compile time.
  * When generated types are present, narrowed to known npm scripts.
+ *
+ * @public
  */
 export function cmd(command: NoInfer<StrictCmd>): CmdRef {
   return { _ref: "cmd", command: command as VerifiedCmd };
@@ -424,6 +515,8 @@ export function cmd(command: NoInfer<StrictCmd>): CmdRef {
  * named file exists AND defines the named symbol (via ast-grep, cross-language).
  * Compiles to the file-qualified inline form `` `file#symbol` `` so the markdown
  * `lint` / `refs-hook` re-verify the same reference.
+ *
+ * @public
  */
 export function symbol(file: NoInfer<StrictFile>, name: string): SymbolRef {
   return { _ref: "symbol", file: file as VerifiedPath, symbol: name };
@@ -432,6 +525,8 @@ export function symbol(file: NoInfer<StrictFile>, name: string): SymbolRef {
 /**
  * Reference another skill or instruction file — verified to exist.
  * Compiles to a markdown link: [skill name](path)
+ *
+ * @public
  */
 export function ref(path: string): SkillRef {
   return { _ref: "skill", path: path as VerifiedRef };
@@ -442,6 +537,8 @@ export function ref(path: string): SkillRef {
  * (not a file). The "architecture floats free" fix: a spec that names `src/core/`
  * proves the directory is really there, where a plain string in prose rots
  * silently. Compiles to the inline form `` `path` ``.
+ *
+ * @public
  */
 export function dir(path: string): DirRef {
   return { _ref: "dir", path: path as VerifiedDir };
@@ -452,6 +549,8 @@ export function dir(path: string): DirRef {
  * so `glob("src/*.test.ts")` proves tests actually exist where the instructions
  * claim (the pattern supports the usual `*` / `**` syntax). Compiles to the
  * inline form `` `pattern` ``.
+ *
+ * @public
  */
 export function glob(pattern: string): GlobRef {
   return { _ref: "glob", pattern: pattern as VerifiedGlob };
@@ -469,7 +568,7 @@ export function glob(pattern: string): GlobRef {
  * inside it the declared purity floor applies. The position-aware companion to
  * the per-call `purity` floor. See `research/effect-boundary-design.md`.
  *
- * @internal Experimental (parked P3) — NOT part of the frozen public surface;
+ * @beta Experimental (parked P3) — NOT part of the frozen public surface;
  * may change or be removed without a major bump pre-1.0.
  */
 export interface EffectRegion {
@@ -477,6 +576,7 @@ export interface EffectRegion {
   readonly body: InstructionFragment[];
 }
 
+/** @public */
 export type InstructionFragment = string | Ref | EffectRegion;
 
 /**
@@ -487,6 +587,8 @@ export type InstructionFragment = string | Ref | EffectRegion;
  *     Run ${cmd("npm test")} to verify.
  *     See ${ref("skills/other/SKILL.md")} for format.
  *   `
+ *
+ * @public
  */
 export function prose(
   strings: TemplateStringsArray,
@@ -519,6 +621,8 @@ export function prose(
  *
  * @experimental Experimental (parked P3) — NOT part of the frozen public surface;
  * may change or be removed without a major bump pre-1.0.
+ *
+ * @beta
  */
 export function experimental_effect(
   strings: TemplateStringsArray,
@@ -549,12 +653,19 @@ export function experimental_effect(
  *   the guardrail stands out in review. Omitting `purity` is the same
  *   (unenforced) default WITHOUT typing the loud word — you write it only when
  *   you mean to override a stricter level.
+ *
+ * @public
  */
 export type AuthoredPurity = "pure" | "bounded" | "dangerously-unrestricted";
 
-/** Known markdown instruction file targets. */
+/**
+ * Known markdown instruction file targets.
+ *
+ * @public
+ */
 export type InstructionTarget = "CLAUDE.md" | "AGENTS.md" | (string & {}); // escape hatch for custom targets
 
+/** @public */
 export interface ClaudeSpec {
   readonly _specType: "claude";
   /**
@@ -624,6 +735,8 @@ type ClaudeSpecInput = ClaudeSpecBase & ClaudeSpecSections;
  *
  *   // CLAUDE.md.spec.ts
  *   export default instructionFile({ commands: {...}, rules: {...} });
+ *
+ * @public
  */
 export function instructionFile(spec: ClaudeSpecInput): ClaudeSpec {
   return { _specType: "claude", ...spec } as ClaudeSpec;
@@ -639,13 +752,23 @@ export function instructionFile(spec: ClaudeSpecInput): ClaudeSpec {
  * the host project's real command at run time. cmd/file gates are verified
  * against the repo at author time; role gates are portable — a skill that runs
  * in other repos should prefer `project("test")` over a hard-coded `npm test`.
+ *
+ * @public
  */
 export type Gate = CmdRef | FileRef | RoleGate;
 
-/** Project command roles, resolved per host project at run time. */
+/**
+ * Project command roles, resolved per host project at run time.
+ *
+ * @public
+ */
 export type ProjectRole = "test" | "build" | "lint";
 
-/** A portable gate that resolves to the host project's command for a role. */
+/**
+ * A portable gate that resolves to the host project's command for a role.
+ *
+ * @public
+ */
 export interface RoleGate {
   readonly _ref: "role";
   readonly role: ProjectRole;
@@ -655,6 +778,8 @@ export interface RoleGate {
  * A portable gate that resolves to the host project's command for a role
  * (e.g. `project("test")` → `npm test` / `pytest` / `cargo test`). Use this
  * in skills meant to run across projects, instead of hard-coding a command.
+ *
+ * @public
  */
 export function project(role: ProjectRole): RoleGate {
   return { _ref: "role", role };
@@ -663,6 +788,8 @@ export function project(role: ProjectRole): RoleGate {
 /**
  * A declared skill input. Compiles to the `argument-hint` frontmatter and a
  * `## Arguments` section; referenced as `$1`/`$2`/`$ARGUMENTS` in the body.
+ *
+ * @public
  */
 export interface SkillInput {
   /** Argument name, e.g. "pattern". */
@@ -673,7 +800,11 @@ export interface SkillInput {
   readonly required?: boolean;
 }
 
-/** One step of a gated skill pipeline. */
+/**
+ * One step of a gated skill pipeline.
+ *
+ * @public
+ */
 export interface SkillStep {
   /** What the model should do — prose, optionally with typed refs. */
   readonly do: string | InstructionFragment[];
@@ -730,6 +861,7 @@ function step(
   return { do: instr, gate: opts.gate, retry: opts.retry };
 }
 
+/** @public */
 export interface SkillSpec {
   readonly _specType: "skill";
   /** Skill name (used in frontmatter). */
@@ -862,6 +994,8 @@ export interface SkillSpec {
  * The input to `skill()` — `SkillSpec` minus `_specType`, with `tools`
  * constrained by the declared `purity` and vocabulary `V` (same mechanism as
  * `AgentSpecInput`). The open default vocabulary leaves it unconstrained.
+ *
+ * @public
  */
 export type SkillSpecInput<
   P extends AuthoredPurity | undefined,
@@ -917,6 +1051,8 @@ function skillSpec<
 
 /**
  * @experimental
+ *
+ * @beta
  */
 export const experimental_skill = Object.assign(skillSpec, { input, step });
 
@@ -933,6 +1069,8 @@ export const experimental_skill = Object.assign(skillSpec, { input, step });
  * exactly the compile-time-verifiable surface vigiles owns: the body's
  * `file()`/`cmd()`/`symbol()` marks are checked like any instruction file, and
  * the tools list is verified against the real tool set.
+ *
+ * @public
  */
 export interface AgentSpec {
   readonly _specType: "agent";
@@ -1006,6 +1144,8 @@ export interface AgentSpec {
  *
  * With the open default vocabulary (core `experimental_agent()`) every level widens to
  * `string`, so any tools compile — backwards-compatible.
+ *
+ * @public
  */
 export type AgentSpecInput<
   P extends AuthoredPurity | undefined,
@@ -1036,7 +1176,11 @@ export type AgentSpecInput<
 
 declare const __outcome: unique symbol;
 
-/** Phantom carrier of an agent's success/error result shapes (type-level only). */
+/**
+ * Phantom carrier of an agent's success/error result shapes (type-level only).
+ *
+ * @public
+ */
 export interface TypedOutcome<Ok extends Shape, Err extends Shape> {
   readonly [__outcome]: { readonly ok: Ok; readonly err: Err };
 }
@@ -1044,6 +1188,7 @@ export interface TypedOutcome<Ok extends Shape, Err extends Shape> {
 /** An `AgentSpec` that REMEMBERS its `result()` ok/err shapes at the type level
  *  (via a phantom field). Still an `AgentSpec`, so it flows everywhere one does.
  *  The input to a typed `pipe` / `then`. */
+/** @public */
 export type TypedAgentSpec<Ok extends Shape, Err extends Shape> = AgentSpec &
   TypedOutcome<Ok, Err>;
 
@@ -1054,6 +1199,8 @@ export type TypedAgentSpec<Ok extends Shape, Err extends Shape> = AgentSpec &
  * literal `ok` shape `planner` produces, the producer side of a cross-file
  * `Handoff<>` check. A plain `AgentSpec` (no `result()` contract) carries no
  * phantom, so `OkOf` widens to the erased `Shape` — a no-op handoff, additive.
+ *
+ * @public
  */
 export type OkOf<T> = T extends TypedOutcome<infer Ok, Shape> ? Ok : Shape;
 
@@ -1129,6 +1276,8 @@ function agentSpec<
  * Declaring one throws rather than rendering an unsatisfiable schema, because the body of
  * a result is prose by decision: on those same 14 payloads, 23 scalar values carried
  * every assertion anyone made while 80,981 characters of prose carried none.
+ *
+ * @public
  */
 export type OutputFieldType =
   | "string"
@@ -1141,6 +1290,7 @@ export type OutputFieldType =
 /** A field SHAPE — a record of field-name → field-type, kept in the TYPE so a
  *  typed pipeline can cross-reference one agent's `ok` against the next agent's
  *  `needs`. The erased runtime form is `Record<string, OutputFieldType>`. */
+/** @public */
 export type Shape = Readonly<Record<string, OutputFieldType>>;
 
 /**
@@ -1154,6 +1304,8 @@ export type Shape = Readonly<Record<string, OutputFieldType>>;
  * the type level (the basis of typed composition — see `pipe`). The default
  * type parameters widen to the historical erased `Shape`, so an `OutputContract`
  * named with no arguments behaves exactly as before — backwards-compatible.
+ *
+ * @public
  */
 export interface OutputContract<
   Ok extends Shape = Shape,
@@ -1189,7 +1341,11 @@ function result<const Ok extends Shape, const Err extends Shape>(
   return { _ref: "output", ok, err };
 }
 
-/** One step on a railway: dispatch a flat subagent (the "activity"). */
+/**
+ * One step on a railway: dispatch a flat subagent (the "activity").
+ *
+ * @public
+ */
 export interface RailwayStep {
   readonly _step: "delegate";
   /** The subagent to dispatch — resolved against compiled agent names. */
@@ -1240,6 +1396,8 @@ function delegate(
  * optionally retries the failing step a *bounded* number of times before the
  * error track. There is intentionally no loop combinator — the value is a finite
  * tree, so it always terminates and is fully verifiable at compile time.
+ *
+ * @public
  */
 export interface Railway {
   readonly _specType: "railway";
@@ -1293,7 +1451,7 @@ function railway(spec: Omit<Railway, "_specType">): Railway {
  * cross-reference it. Independent of `result()` (the output) — an agent both
  * `needs` an input shape and produces an `ok`/`err` output shape.
  *
- * @internal Experimental typed-composition surface — NOT part of the frozen
+ * @beta Experimental typed-composition surface — NOT part of the frozen
  * public API (pre-1.0); may change without a major bump.
  */
 export type NeedsContract<N extends Shape> = N;
@@ -1318,7 +1476,7 @@ function experimental_needs<const N extends Shape>(shape: N): NeedsContract<N> {
  * reads from the prior step's `ok`. `step()` builds one; `pipe` checks that the
  * prior step's `ok` shape supplies this step's `needs`.
  *
- * @internal Experimental typed-composition surface — NOT part of the frozen
+ * @beta Experimental typed-composition surface — NOT part of the frozen
  * public API (pre-1.0); may change without a major bump.
  */
 export interface PipeStep<
@@ -1360,7 +1518,7 @@ function experimental_pipeStep<
  * `__mismatch`), which surfaces at the mismatched call. Shallow (a per-field
  * mapped type, not a recursion) to avoid TS2589.
  *
- * @internal Experimental typed-composition surface — NOT part of the frozen
+ * @beta Experimental typed-composition surface — NOT part of the frozen
  * public API (pre-1.0); may change without a major bump.
  */
 export type Supplies<Producer extends Shape, Consumer extends Shape> = {
@@ -1387,7 +1545,7 @@ export type Supplies<Producer extends Shape, Consumer extends Shape> = {
  * the per-field `Supplies` mapped type, no recursion); the generator emits one
  * assertion per consecutive step pair (O(N)), keeping clear of TS2589.
  *
- * @internal Experimental typed-composition surface — NOT part of the frozen
+ * @beta Experimental typed-composition surface — NOT part of the frozen
  * public API (pre-1.0); may change without a major bump.
  */
 export type Handoff<Producer extends Shape, Consumer extends Shape> =
@@ -1397,7 +1555,7 @@ export type Handoff<Producer extends Shape, Consumer extends Shape> =
 
 /** A typed pipeline value — carries the LAST step's `ok` and the UNION of every
  *  step's `err` (any step can short-circuit to the error track).
- *  @internal Experimental typed-composition surface — NOT part of the frozen
+ *  @beta Experimental typed-composition surface — NOT part of the frozen
  *  public API (pre-1.0); may change without a major bump. */
 export interface Pipeline<Ok extends Shape, Err extends Shape> {
   readonly _specType: "pipeline";
@@ -1604,7 +1762,7 @@ function experimental_pipe(
  * `true` to it is a `tsc` error at edit time. Shallow (one conditional, no
  * recursion); the generator emits one assertion per edge (O(N)).
  *
- * @internal Experimental whole-harness-codegen surface — NOT part of the frozen
+ * @beta Experimental whole-harness-codegen surface — NOT part of the frozen
  * public API (pre-1.0); may change without a major bump.
  */
 export type KnownAgentName<
@@ -1729,6 +1887,8 @@ export function defineConfig(config: VigilesV2Config): VigilesV2Config {
  * member of it, TYPES excluded (a type annotation is not a call site).
  *
  * @experimental
+ *
+ * @beta
  */
 export const experimental_agent = Object.assign(agentSpec, {
   result,

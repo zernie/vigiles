@@ -28,7 +28,11 @@
 
 import { join } from "node:path";
 
-/** "Any number of further tokens, including none." Only valid as the LAST token. */
+/**
+ * "Any number of further tokens, including none." Only valid as the LAST token.
+ *
+ * @public
+ */
 export interface ArgvRest {
   readonly kind: "rest";
 }
@@ -36,19 +40,29 @@ export interface ArgvRest {
 /** The `rest` marker. One frozen value, so a pattern carries no free-form object. */
 export const ARGV_REST: ArgvRest = Object.freeze({ kind: "rest" as const });
 
-/** One positional token: exact string, or a RegExp tested against that one token. */
+/**
+ * One positional token: exact string, or a RegExp tested against that one token.
+ *
+ * @public
+ */
 export type ArgvToken = string | Readonly<RegExp>;
 
 /**
  * A positional pattern: token i matches argv token i. Without a trailing
  * {@link ARGV_REST} the argv must have EXACTLY this many tokens, so a read rule
  * `["api", /^repos\//]` does not also answer `api repos/… -f title=x`.
+ *
+ * @public
  */
 export type ArgvPattern =
   | readonly ArgvToken[]
   | readonly [...ArgvToken[], ArgvRest];
 
-/** What the fake binary does when a rule answers. */
+/**
+ * What the fake binary does when a rule answers.
+ *
+ * @public
+ */
 export interface StubAnswer {
   /** Printed to stdout. Default "". */
   readonly stdout?: string;
@@ -62,6 +76,8 @@ export interface StubAnswer {
  * `always`: every matching call gets the answer. `inOrder`: the k-th matching
  * call gets `answers[k-1]`, and a call past the end is UNANSWERED — repetition
  * is something a rule says, never a default.
+ *
+ * @public
  */
 export type StubReply =
   | ({ readonly kind: "always" } & StubAnswer)
@@ -70,7 +86,11 @@ export type StubReply =
       readonly answers: readonly [StubAnswer, ...StubAnswer[]];
     };
 
-/** One rule: an argv pattern, optional order-free tokens, and a reply. */
+/**
+ * One rule: an argv pattern, optional order-free tokens, and a reply.
+ *
+ * @public
+ */
 export interface StubRule {
   readonly argv: ArgvPattern;
   /**
@@ -82,7 +102,11 @@ export interface StubRule {
   readonly reply: StubReply;
 }
 
-/** A stub for one binary: its name on PATH and its rules, first match wins. */
+/**
+ * A stub for one binary: its name on PATH and its rules, first match wins.
+ *
+ * @public
+ */
 export interface ToolStub {
   readonly name: string;
   readonly rules: readonly [StubRule, ...StubRule[]];
@@ -92,6 +116,8 @@ export interface ToolStub {
  * What happened to one invocation. Three cases, because the two ways a call goes
  * unanswered need different fixes: no rule matched (add a rule), or a rule
  * matched but its `inOrder` answers ran out (add an answer).
+ *
+ * @public
  */
 export type StubOutcome =
   | {
@@ -110,7 +136,11 @@ export type StubOutcome =
    */
   | { readonly kind: "unlogged" };
 
-/** One recorded invocation of a stub. */
+/**
+ * One recorded invocation of a stub.
+ *
+ * @public
+ */
 export interface StubCall {
   readonly tool: string;
   readonly argv: readonly string[];

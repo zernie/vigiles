@@ -23,7 +23,11 @@ import { compareStats, type Comparison } from "./stats.js";
 /** Bumped only on a breaking change to the on-disk shape. */
 export const BASELINE_VERSION = 1;
 
-/** The committed baseline: the recorded `EvalReport`s, keyed by report name. */
+/**
+ * The committed baseline: the recorded `EvalReport`s, keyed by report name.
+ *
+ * @public
+ */
 export interface BaselineFile {
   readonly version: number;
   /** ISO-8601 timestamp the baseline was recorded (provenance / future trend). */
@@ -57,6 +61,7 @@ export interface BaselineDiff {
   readonly passed: boolean;
 }
 
+/** @public */
 export interface DiffOptions {
   /** Significance level for the Welch test. Default 0.05. */
   readonly alpha?: number;
@@ -193,13 +198,21 @@ export function formatBaselineDiff(diff: BaselineDiff): string {
   return lines.join("\n");
 }
 
-/** Read + parse a baseline file, or null if it doesn't exist yet. */
+/**
+ * Read + parse a baseline file, or null if it doesn't exist yet.
+ *
+ * @public
+ */
 export function readBaseline(path: string): BaselineFile | null {
   if (!existsSync(path)) return null;
   return parseBaselineFile(readFileSync(path, "utf-8"));
 }
 
-/** Write reports as the committed baseline (pretty JSON, parent dirs created). */
+/**
+ * Write reports as the committed baseline (pretty JSON, parent dirs created).
+ *
+ * @public
+ */
 export function writeBaseline(
   path: string,
   reports: readonly EvalReport[],

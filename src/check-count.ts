@@ -138,6 +138,8 @@ function state(): CountState {
  * directly when you assert some OTHER way — `node:assert`, vitest's `expect`, a
  * hand-rolled comparison — and want those visible to `vigiles test` instead of
  * leaving it to conclude the file did nothing.
+ *
+ * @public
  */
 export function recordCheck(n = 1): void {
   state().count += n;

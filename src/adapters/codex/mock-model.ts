@@ -18,7 +18,11 @@ import type { AddressInfo } from "node:net";
 
 import { scriptOverrunMessage } from "../../core/script-overrun.js";
 
-/** One scripted assistant turn: the final text answer codex should emit. */
+/**
+ * One scripted assistant turn: the final text answer codex should emit.
+ *
+ * @public
+ */
 export interface CodexTurn {
   /** Final text answer for this turn. */
   readonly text: string;
@@ -28,6 +32,8 @@ export interface CodexTurn {
  * One `/v1/responses` request the mock received, parsed for assertions: the
  * user's prompt (last `input` item with `role:"user"`), the requested model,
  * and the declared function-tool names.
+ *
+ * @public
  */
 export interface CodexRequest {
   readonly prompt: string;
@@ -35,6 +41,7 @@ export interface CodexRequest {
   readonly toolNames: readonly string[];
 }
 
+/** @public */
 export interface CodexMockHandle {
   readonly url: string;
   readonly port: number;
@@ -238,6 +245,8 @@ export function parseResponsesRequest(body: string): {
  * script is a 400, never a copy of the last turn (#340); HEAD and any other path
  * get `{}`. Resolves to a handle
  * with the base `url`, the `port`, the recorded `requests`, and `close()`.
+ *
+ * @public
  */
 export function startCodexMock(
   script: readonly CodexTurn[],

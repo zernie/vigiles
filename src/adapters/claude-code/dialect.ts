@@ -228,17 +228,27 @@ export const claudeCodeDialect: HarnessDialect = {
 // read-only ∪ decidable side-effecting ∪ `Bash`.
 // ---------------------------------------------------------------------------
 
-/** Every Claude Code built-in subagent tool (literal union). */
+/**
+ * Every Claude Code built-in subagent tool (literal union).
+ *
+ * @public
+ */
 export type ClaudeCodeBuiltinTool =
   (typeof claudeCodeBuiltinAgentTools)[number];
 
-/** The side-effecting subset (literal union). */
+/**
+ * The side-effecting subset (literal union).
+ *
+ * @public
+ */
 export type ClaudeCodeSideEffectingTool =
   (typeof claudeCodeSideEffectingTools)[number];
 
 /**
  * Read-only built-in tools — the complement of the side-effecting set within
  * the built-in catalog. The tools a `pure` CC unit may declare.
+ *
+ * @public
  */
 export type ClaudeCodeReadOnlyTool = Exclude<
   ClaudeCodeBuiltinTool,
@@ -254,6 +264,8 @@ export type ClaudeCodeReadOnlyTool = Exclude<
  * `MultiEdit` was listed here until 2026-08-17. It is not a Claude Code tool —
  * it appears zero times across the vendor's documentation — so it is gone along
  * with `BashOutput`, `KillBash` and `LS`.
+ *
+ * @public
  */
 export type ClaudeCodeBoundedTool =
   | ClaudeCodeReadOnlyTool

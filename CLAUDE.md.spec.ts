@@ -192,14 +192,6 @@ BUILD + TOOLING + GENERATED:
       },
     ),
 
-    "prefer-existing-solutions": guidance(
-      "Before building any non-trivial capability — a tool, a check, a runtime, a parser — LOOK FOR EXISTING SOLUTIONS FIRST and PREFER adopting/composing/delegating over reinventing.",
-      {
-        details: file("docs/contributing/rules.md"),
-        anchor: "prefer-existing-solutions",
-      },
-    ),
-
     "parse-structured-input-with-a-real-parser": guidance(
       "Parse a structured language with its real parser, never a hand-rolled regex or line scanner; SKILL.md and subagent frontmatter go through `src/core/frontmatter-read.ts`.",
       {
@@ -222,10 +214,13 @@ BUILD + TOOLING + GENERATED:
       { render: "line" },
     ),
 
-    "public-exports-are-opt-in": guidance("Public exports are opt-in.", {
-      details: file("docs/contributing/rules.md"),
-      anchor: "public-exports-are-opt-in",
-    }),
+    "public-exports-are-opt-in": guidance(
+      "Public exports are opt-in and gated: a new export lives in ONE entry (`package.json` `exports`), carries a release tag, fits `api-surface/budget.json`, and a new entry gets a `STABILITY.md` row; `vigiles/hook` stays effect-free.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "public-exports-are-opt-in",
+      },
+    ),
 
     "dogfood-vendoring-policy": guidance(
       "The dogfood corpus follows one policy: SHA-pinned, MIT-only, vendored under `test/dogfood/<name>@<sha>/`.",

@@ -41,6 +41,8 @@ import { makeTmpDir } from "./core/tmp-root.js";
  * refuses. `false` is the dangerous opt-out — run unconfined (you audited it, or
  * you trust the outer container). `"strict"` forces confinement even for trusted
  * code and throws if no sandbox is available.
+ *
+ * @public
  */
 export type SandboxMode = "auto" | "strict" | false;
 
@@ -57,6 +59,8 @@ let cachedAvailable: boolean | undefined;
  * (rather than running it in a "sandbox" that doesn't actually sandbox), and the
  * sandbox-gated tests skip instead of failing. The result is cached because the
  * probe spawns a process and the answer can't change within a run.
+ *
+ * @public
  */
 export function sandboxAvailable(): boolean {
   if (cachedAvailable === undefined) cachedAvailable = probeSandbox();

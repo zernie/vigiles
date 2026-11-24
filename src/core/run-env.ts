@@ -90,13 +90,19 @@ function defined(
 
 // --- the run environment a spec declares ----------------------------------------
 
-/** Files to write under a throwaway HOME: HOME-relative POSIX path → contents. */
+/**
+ * Files to write under a throwaway HOME: HOME-relative POSIX path → contents.
+ *
+ * @public
+ */
 export type HomeFiles = Readonly<Record<string, string>>;
 
 /**
  * Where a throwaway HOME's starting contents come from. A FILE map, so an empty
  * directory cannot be expressed — Claude Code's startup housekeeping removes
  * empty task directories, and a seed that could hold one would lose it.
+ *
+ * @public
  */
 export interface HomeSeed {
   readonly kind: "files";
@@ -111,6 +117,8 @@ export interface HomeSeed {
  *   harness's own auth files) and a scrubbed environment.
  * - `inherit` — your real HOME and environment, minus the parent session's
  *   identity. `reason` says why, and is printed with the report.
+ *
+ * @public
  */
 export type RunEnv =
   | { readonly kind: "ephemeral"; readonly home?: HomeSeed }

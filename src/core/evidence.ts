@@ -16,7 +16,11 @@
  * shipped regression.
  */
 
-/** A Wilson score interval for k successes in n trials. */
+/**
+ * A Wilson score interval for k successes in n trials.
+ *
+ * @public
+ */
 export interface Interval {
   /** Lower bound of the true success rate, in [0, 1]. */
   readonly lo: number;
@@ -28,7 +32,11 @@ export interface Interval {
   readonly n: number;
 }
 
-/** Where an arm stands against its baseline on one metric. */
+/**
+ * Where an arm stands against its baseline on one metric.
+ *
+ * @public
+ */
 export type Verdict =
   /** A 0/1 metric: `better`/`worse` only when the two intervals are disjoint. */
   | {

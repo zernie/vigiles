@@ -64,7 +64,11 @@ import {
 /** The default tool name, when `options.name` is not given. */
 const DEFAULT_EMIT_TOOL = "emit_result";
 
-/** A JSON-Schema fragment for one declared field. */
+/**
+ * A JSON-Schema fragment for one declared field.
+ *
+ * @public
+ */
 export type EmitFieldSchema =
   | { readonly type: "string" }
   | { readonly type: "number" }
@@ -76,19 +80,31 @@ export type EmitFieldSchema =
   // discriminator silently widen every author's enum.
   | { readonly type: "string"; readonly enum: readonly string[] };
 
-/** The `track` discriminator's schema — the enum this module owns, not the author's. */
+/**
+ * The `track` discriminator's schema — the enum this module owns, not the author's.
+ *
+ * @public
+ */
 export interface EmitTrackSchema {
   readonly type: "string";
   readonly enum: readonly ["ok", "err"];
 }
 
-/** Anything that can sit under `properties`: a field, the discriminator, a track. */
+/**
+ * Anything that can sit under `properties`: a field, the discriminator, a track.
+ *
+ * @public
+ */
 export type EmitPropertySchema =
   | EmitFieldSchema
   | EmitTrackSchema
   | EmitObjectSchema;
 
-/** A JSON-Schema object node — one track's payload, or the whole argument. */
+/**
+ * A JSON-Schema object node — one track's payload, or the whole argument.
+ *
+ * @public
+ */
 export interface EmitObjectSchema {
   readonly type: "object";
   readonly properties: Readonly<Record<string, EmitPropertySchema>>;
@@ -96,14 +112,22 @@ export interface EmitObjectSchema {
   readonly additionalProperties: false;
 }
 
-/** An MCP tool definition, in the shape a `tools/list` response carries. */
+/**
+ * An MCP tool definition, in the shape a `tools/list` response carries.
+ *
+ * @public
+ */
 export interface EmitToolDefinition {
   readonly name: string;
   readonly description: string;
   readonly inputSchema: EmitObjectSchema;
 }
 
-/** What `experimental_emitTool` hands back: the tool, and the prose that asks for it. */
+/**
+ * What `experimental_emitTool` hands back: the tool, and the prose that asks for it.
+ *
+ * @public
+ */
 // eslint-disable-next-line local/no-group-names -- the type of the experimental_emitTool export, not a rule group
 export interface ExperimentalEmitTool {
   /** Serve this from your MCP server's `tools/list`. */
@@ -190,6 +214,8 @@ function renderShape(shape: Shape): string {
  * `experimental_parseEmitted`.
  *
  * @experimental
+ *
+ * @beta
  */
 export function experimental_emitTool(
   contract: OutputContract,
@@ -256,6 +282,8 @@ function isEmitCall(observed: string, name: string): boolean {
  * illustrative, so "exactly once" is checkable here and is not checkable there.
  *
  * @experimental
+ *
+ * @beta
  */
 export function experimental_parseEmitted(
   toolCalls: readonly ToolCall[],
@@ -358,6 +386,8 @@ export function experimental_parseEmitted(
  * three exports is the whole prototype.
  *
  * @experimental
+ *
+ * @beta
  */
 export function experimental_assertEmittedOk(
   toolCalls: readonly ToolCall[],

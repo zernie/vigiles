@@ -56,7 +56,7 @@ executor object, never a forked gate.
 
 We deliberately do **not** synthesize a pylint/astroid checker: that means a
 Python subprocess, a second test harness, and a synthesized _code_ artifact,
-where ast-grep gives a declarative _data_ artifact in-process. (`prefer-existing-solutions`:
+where ast-grep gives a declarative _data_ artifact in-process. (Adopt before build:
 the root already adopts ast-grep in `src/core/symbols.ts`.) This lane is
 synthesis-only — mapping Python prose to an _existing_ Ruff/Pylint rule is the
 root cross-referencing engine's job (`src/core/linters.ts`), not duplicated here.

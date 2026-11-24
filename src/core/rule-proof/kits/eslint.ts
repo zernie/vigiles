@@ -14,7 +14,11 @@ import {
   versionIn,
 } from "../node-install.js";
 
-/** One ESLint configuration of one rule. */
+/**
+ * One ESLint configuration of one rule.
+ *
+ * @public
+ */
 export interface EslintReading {
   readonly linter: "eslint";
   /** The rule id as ESLint spells it: `no-console`, `react/jsx-key`. */

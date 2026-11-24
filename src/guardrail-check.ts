@@ -45,7 +45,11 @@ import type { StateFact } from "./core/hook-state.js";
 import { runHook, type RunHookOptions } from "./run-hook.js";
 import { shellNeverLaunched } from "./run-script.js";
 
-/** A category of dangerous action a guard might be meant to block. */
+/**
+ * A category of dangerous action a guard might be meant to block.
+ *
+ * @public
+ */
 export type DisasterCategory =
   | "destructive-git"
   | "destructive-fs"
@@ -53,7 +57,11 @@ export type DisasterCategory =
   | "secret-exfiltration"
   | "remote-code";
 
-/** One dangerous tool event a safety hook is expected to deny. */
+/**
+ * One dangerous tool event a safety hook is expected to deny.
+ *
+ * @public
+ */
 export interface DisasterEvent {
   /** Stable id, e.g. "force-push". */
   readonly id: string;
@@ -72,6 +80,8 @@ export interface DisasterEvent {
  * destructive action a real safety hook in the wild claims to stop. Extend with
  * care — every entry must be unambiguously dangerous so a miss is a real finding,
  * never noise (the don't-cry-wolf rule).
+ *
+ * @public
  */
 export const DISASTER_CATALOG: readonly DisasterEvent[] = [
   {
@@ -130,6 +140,8 @@ export const DISASTER_CATALOG: readonly DisasterEvent[] = [
 /**
  * How a harmless case carries a disaster's text: a generated look-alike form, or
  * `custom` for a case you wrote yourself.
+ *
+ * @public
  */
 export type HarmlessForm =
   | "commit-message"
@@ -138,7 +150,11 @@ export type HarmlessForm =
   | "grep-pattern"
   | "custom";
 
-/** One tool event a guard is expected to ALLOW — the "must allow" half (#418). */
+/**
+ * One tool event a guard is expected to ALLOW — the "must allow" half (#418).
+ *
+ * @public
+ */
 export interface HarmlessEvent {
   /** Stable id; a generated look-alike is `<disaster id>#<form>`. */
   readonly id: string;
@@ -178,6 +194,8 @@ export interface HarmlessEvent {
  * these existed, a guard whose `if` only fires on a force push scored 7/7, and a
  * Python guard whose script was missing scored 7/7 too: Python exits 2, the deny
  * code, when it cannot open its script (#213).
+ *
+ * @public
  */
 export type GuardrailRun =
   | "ran"
@@ -186,7 +204,11 @@ export type GuardrailRun =
   | "crashed"
   | "unproven";
 
-/** One case of the battery and what the guard did with it. */
+/**
+ * One case of the battery and what the guard did with it.
+ *
+ * @public
+ */
 export interface GuardrailRow<
   E extends "block" | "allow",
   V extends DisasterEvent | HarmlessEvent,
@@ -206,11 +228,16 @@ export interface GuardrailRow<
   readonly reason: string;
 }
 
-/** A disaster row (`expect: "block"`) or a harmless row (`expect: "allow"`). */
+/**
+ * A disaster row (`expect: "block"`) or a harmless row (`expect: "allow"`).
+ *
+ * @public
+ */
 export type GuardrailResult =
   | GuardrailRow<"block", DisasterEvent>
   | GuardrailRow<"allow", HarmlessEvent>;
 
+/** @public */
 export interface VerifyGuardrailOptions extends RunHookOptions {
   /** Restrict the battery to these categories (default: the whole catalog). */
   readonly categories?: readonly DisasterCategory[];
@@ -302,6 +329,8 @@ function selectEvents(opts: VerifyGuardrailOptions): readonly DisasterEvent[] {
  * external use. The set of rewrite rules and the id-suffix shape are the parts most
  * likely to move; the prefix says so at every call site, which an import line or a
  * doc note cannot.
+ *
+ * @beta
  */
 export function experimental_alternateSpellings(
   events: readonly DisasterEvent[],
@@ -338,6 +367,8 @@ export function experimental_alternateSpellings(
  *
  * @experimental The set of forms and the id shape are the parts most likely to
  * move.
+ *
+ * @beta
  */
 export function experimental_harmlessTwins(
   events: readonly DisasterEvent[],
@@ -662,6 +693,8 @@ function markCrashed(spawned: readonly Spawned[]): readonly GuardrailResult[] {
  * A string is the exact shell the hook registers (e.g. `bash hooks/guard.sh`);
  * it receives each case as a PreToolUse event on stdin, as Claude Code delivers
  * it.
+ *
+ * @public
  */
 export function verifyGuardrail(
   hook: string | AnyHook,
@@ -714,6 +747,8 @@ function skippedNote(results: readonly GuardrailResult[]): string {
  *
  * The harmless half is on by default; turn it off with `harmless: []`, or pass
  * your own cases.
+ *
+ * @public
  */
 export function assertGuardrail(
   hook: string | AnyHook,

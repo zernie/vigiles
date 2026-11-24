@@ -25,6 +25,8 @@ export type { LoadedPlugin } from "../../plugin-loader.js";
  * internal would land in the published surface as a name no consumer can write.
  * In-repo callers that hold an ExcludeSet — `scan.ts` — import the composition
  * root directly, which is where the layout is required anyway.
+ *
+ * @public
  */
 export function loadPlugin(
   pluginPath: string,

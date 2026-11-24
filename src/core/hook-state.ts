@@ -202,7 +202,11 @@
  * testable against a fake store with no filesystem.
  */
 
-/** A duration a freshness test is measured against: `"90s"`, `"30m"`, `"1h"`, `"7d"`. */
+/**
+ * A duration a freshness test is measured against: `"90s"`, `"30m"`, `"1h"`, `"7d"`.
+ *
+ * @public
+ */
 export type Duration = `${number}${"s" | "m" | "h" | "d"}`;
 
 const UNIT_SECONDS: Readonly<Record<string, number>> = {
@@ -240,6 +244,8 @@ export interface StateEntry {
 /**
  * A recorded fact as a hook reads it — the typed replacement for "cat the stamp
  * file and clamp whatever comes back".
+ *
+ * @public
  */
 export interface StateFact {
   /** Has this key ever been recorded? The only way to distinguish "never" from "long ago". */
@@ -316,7 +322,11 @@ export function isValidStateKey(key: string): boolean {
   return STATE_KEY.test(key);
 }
 
-/** A declaration that the runtime should record a fact. Carries a key — never a path, never a namespace. */
+/**
+ * A declaration that the runtime should record a fact. Carries a key — never a path, never a namespace.
+ *
+ * @public
+ */
 export interface StateWrite {
   readonly kind: "record";
   readonly name: string;
@@ -334,6 +344,8 @@ export interface StateWrite {
  * Throws on an invalid key rather than returning a value that fails somewhere
  * later: a compiled hook's decision is a pure function that its own test calls
  * in-process, so this surfaces at the cheapest possible tier.
+ *
+ * @public
  */
 export function record(name: string, value = ""): StateWrite {
   if (!isValidStateKey(name)) {
@@ -346,7 +358,11 @@ export function record(name: string, value = ""): StateWrite {
   return { kind: "record", name, value };
 }
 
-/** A `needs` entry that reads a recorded fact: `needs: [state("calendar.synced")]`. */
+/**
+ * A `needs` entry that reads a recorded fact: `needs: [state("calendar.synced")]`.
+ *
+ * @public
+ */
 export interface StateNeed<Name extends string = string> {
   readonly kind: "state";
   readonly name: Name;
@@ -357,6 +373,8 @@ export interface StateNeed<Name extends string = string> {
  * `e.ctx["calendar.synced"]` a {@link StateFact}. Rides the existing `needs`
  * path on purpose — a second way to read external state would give up the
  * property that the dependency is declared and checkable from outside the hook.
+ *
+ * @public
  */
 export function state<const Name extends string>(name: Name): StateNeed<Name> {
   if (!isValidStateKey(name)) {
