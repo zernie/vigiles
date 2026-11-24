@@ -19,7 +19,10 @@
  *  3. A program with plain argv runs in the chain's directory, moved by its
  *     own row of {@link DIR_TABLE} or by a wrapper read through its option
  *     table. A `..` in a table value is unknown (the program resolves it
- *     physically, the model only lexically).
+ *     physically, the model only lexically). An option ahead of a
+ *     subcommand-scoped program's subcommand is read by that program's own
+ *     row or is unknown; a repeated option follows its row's declared
+ *     `repeat`, and `none` is unknown.
  *  4. Every `cd`/`pushd`/`popd` word in the RAW line — inside quotes, nested
  *     shells, heredocs, comments — must be one the grammar consumed, or the
  *     whole line is unknown (dcg's reconcile).
@@ -35,6 +38,7 @@ import {
   WRAPPERS,
   GIT_GLOBAL,
   type DirRow,
+  type Repeat,
   type WrapperSpec,
 } from "./bash-dirs-table.js";
 
@@ -255,6 +259,28 @@ function moveTo(at: LeafDir, value: string): LeafDir {
   return hasDotDot(value) ? UNREAD_OPTION : known(joinDir(at.dir, value));
 }
 
+/**
+ * A table option met for the `seen`-th time (from 0), by its declared repeat:
+ * the first moves from `at`; a later one moves from `at` (`cumulative`), from
+ * `base`, where the program started (`last-wins`), or is unknown (`none`).
+ */
+function repeated(
+  repeat: Repeat,
+  seen: number,
+  dirs: { readonly at: LeafDir; readonly base: LeafDir },
+  move: (from: LeafDir) => LeafDir,
+): LeafDir {
+  if (seen === 0) return move(dirs.at);
+  switch (repeat) {
+    case "cumulative":
+      return move(dirs.at);
+    case "last-wins":
+      return dirs.at.kind === "unknown" ? dirs.at : move(dirs.base);
+    case "none":
+      return UNREAD_OPTION;
+  }
+}
+
 /** An option's value, and the index of the word after it. */
 interface Valued {
   readonly value: string;
@@ -293,6 +319,9 @@ const UNREAD: Unwrapped = { kind: "unread" };
 interface WrapState {
   readonly i: number;
   readonly at: LeafDir;
+  /** Where the wrapper started, and how many `chdir` options it has read. */
+  readonly base: LeafDir;
+  readonly seen: number;
   readonly operands: number;
   readonly env: readonly string[];
 }
@@ -306,8 +335,12 @@ function wrapperOption(
   if (spec.flags.includes(argv[s.i] ?? "")) return { ...s, i: s.i + 1 };
   const chdir = valueOf(argv, s.i, spec.chdir);
   if (chdir === "missing") return null;
-  if (chdir !== null)
-    return { ...s, i: chdir.next, at: moveTo(s.at, chdir.value) };
+  if (chdir !== null) {
+    const at = repeated(spec.repeat, s.seen, s, (from) =>
+      moveTo(from, chdir.value),
+    );
+    return { ...s, i: chdir.next, at, seen: s.seen + 1 };
+  }
   const val = valueOf(argv, s.i, spec.valued);
   return val === null || val === "missing" ? null : { ...s, i: val.next };
 }
@@ -344,17 +377,33 @@ function wrapScan(
     : done(s.i);
 }
 
-/** git's global options, read from `i` up to its subcommand by {@link GIT_GLOBAL}. */
-function readGit(argv: readonly string[], i: number, at: LeafDir): LeafDir {
-  const arg = argv[i] ?? "";
-  if (!arg.startsWith("-")) return at;
+interface GitState {
+  readonly i: number;
+  readonly at: LeafDir;
+  readonly base: LeafDir;
+  readonly seen: number;
+}
+
+/**
+ * git's global options, read from `s.i` up to its subcommand by
+ * {@link GIT_GLOBAL}: an option not listed there makes the leaf unknown.
+ */
+function readGit(argv: readonly string[], s: GitState): LeafDir {
+  const arg = argv[s.i] ?? "";
+  if (!arg.startsWith("-")) return s.at;
   if (GIT_GLOBAL.refuse.some((r) => arg === r || arg.startsWith(`${r}=`)))
     return UNREAD_OPTION;
-  if (GIT_GLOBAL.flags.includes(arg)) return readGit(argv, i + 1, at);
-  const val = valueOf(argv, i, [...GIT_GLOBAL.chdir, ...GIT_GLOBAL.valued]);
+  if (GIT_GLOBAL.flags.includes(arg))
+    return readGit(argv, { ...s, i: s.i + 1 });
+  const val = valueOf(argv, s.i, [...GIT_GLOBAL.chdir, ...GIT_GLOBAL.valued]);
   if (val === null || val === "missing") return UNREAD_OPTION;
   if (/^core\.worktree(?:=|$)/i.test(val.value)) return UNREAD_OPTION;
-  return readGit(argv, val.next, arg === "-C" ? moveTo(at, val.value) : at);
+  if (!GIT_GLOBAL.chdir.includes(arg))
+    return readGit(argv, { ...s, i: val.next });
+  const at = repeated(GIT_GLOBAL.repeat, s.seen, s, (from) =>
+    moveTo(from, val.value),
+  );
+  return readGit(argv, { ...s, i: val.next, at, seen: s.seen + 1 });
 }
 
 /** Does `arg` spell `flag` a way the row does not read (cluster, attached, abbreviated)? */
@@ -420,6 +469,8 @@ function otherWord(
 interface RowState {
   readonly i: number;
   readonly at: LeafDir;
+  /** Where the program started, for a `last-wins` repeat. */
+  readonly base: LeafDir;
   readonly seen: number;
   readonly operand: boolean;
 }
@@ -432,16 +483,18 @@ function applyRow(row: DirRow, at: LeafDir, value: string): LeafDir {
     : UNREAD_OPTION;
 }
 
-/** The row's option met at `s.i`: read it, or refuse a second or late one. */
+/** The row's option met at `s.i`: read it by its declared repeat, or refuse a late one. */
 function readRowOption(
   row: DirRow,
   args: readonly string[],
   s: RowState,
   opt: Valued | "missing",
 ): LeafDir {
-  const again = s.seen > 0 && !row.cumulative;
-  if (opt === "missing" || s.operand || again) return UNREAD_OPTION;
-  const at = applyRow(row, s.at, opt.value);
+  if (opt === "missing" || s.operand) return UNREAD_OPTION;
+  const at = repeated(row.repeat, s.seen, s, (from) =>
+    applyRow(row, from, opt.value),
+  );
+  if (at.kind === "unknown") return at;
   return readRow(row, args, { ...s, i: opt.next, at, seen: s.seen + 1 });
 }
 
@@ -461,18 +514,26 @@ function readRow(row: DirRow, args: readonly string[], s: RowState): LeafDir {
   });
 }
 
-/** The row for a program call and the words after its program (and subcommand). */
+/**
+ * The row for a program call and the words after its program (and
+ * subcommand). A program with rows scoped to subcommands reads an option
+ * ahead of its subcommand only through its own row; with none, the leaf is
+ * unknown rather than run where it started (`go -C /x test`, `docker -H h exec`).
+ */
 function rowFor(
   argv: readonly string[],
-): { readonly row: DirRow; readonly args: readonly string[] } | null {
+):
+  | { readonly row: DirRow; readonly args: readonly string[] }
+  | "unread"
+  | null {
   const head = basename(argv[0] ?? "");
-  const row = DIR_TABLE.find(
-    (r) =>
-      r.program === head &&
-      (r.sub === undefined || r.sub.includes(argv[1] ?? "")),
-  );
-  if (row === undefined) return null;
-  return { row, args: argv.slice(row.sub === undefined ? 1 : 2) };
+  const rows = DIR_TABLE.filter((r) => r.program === head);
+  const second = argv[1] ?? "";
+  const sub = rows.find((r) => r.sub?.includes(second) === true);
+  if (sub !== undefined) return { row: sub, args: argv.slice(2) };
+  const own = rows.find((r) => r.sub === undefined);
+  if (own !== undefined) return { row: own, args: argv.slice(1) };
+  return rows.length > 0 && second.startsWith("-") ? "unread" : null;
 }
 
 /** Wrappers a reader elsewhere strips that the directory table does not read. */
@@ -490,6 +551,8 @@ function unwrap(
   const r = wrapScan(spec, argv, {
     i: 1,
     at,
+    base: at,
+    seen: 0,
     operands: spec.operands ?? 0,
     env,
   });
@@ -515,11 +578,17 @@ function readProgram(words: readonly string[], at: LeafDir): CallRead {
   if (OUTSIDE_PROGRAMS.has(head)) return OUT;
   if (u.env.some((n) => n.startsWith("GIT_")) || UNREAD_WRAPPERS.has(head))
     return { kind: "leaf", argv: [], at: UNREAD_OPTION };
+  const from = { at: u.at, base: u.at, seen: 0 };
   if (head === "git")
-    return { kind: "leaf", argv: u.rest, at: readGit(u.rest, 1, u.at) };
+    return {
+      kind: "leaf",
+      argv: u.rest,
+      at: readGit(u.rest, { ...from, i: 1 }),
+    };
   const r = rowFor(u.rest);
+  if (r === "unread") return { kind: "leaf", argv: u.rest, at: UNREAD_OPTION };
   const dir = r
-    ? readRow(r.row, r.args, { i: 0, at: u.at, seen: 0, operand: false })
+    ? readRow(r.row, r.args, { ...from, i: 0, operand: false })
     : u.at;
   return { kind: "leaf", argv: u.rest, at: dir };
 }

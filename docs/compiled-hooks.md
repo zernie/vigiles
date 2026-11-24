@@ -186,25 +186,27 @@ export default experimental_defineHook({
 
 1. **A chain of simple commands** joined by `&&`, `;` or `||`; a plain pipeline `a | b` counts as one link, every part in the same directory. The directory carries **only across `&&`**: after a `;` or `||`, every later leaf is unknown, because a `cd` that failed leaves the old directory.
 2. **`cd <word>`** is read only when the word is plain text — no quotes, `\`, `$`, glob, brace or `~` — and is absolute or starts with `./` or `../`. CDPATH never applies to those forms. A bare `cd repo` (CDPATH may send it elsewhere), `cd ..`, `cd -`, a bare `cd` and any `cd` option make the later leaves unknown.
-3. **A program call** with plain argv runs in the chain's directory, moved by its own option from the table below or by a wrapper read through its option table. Any other wrapper option, a `..` in a table option's value (the program resolves it through symlinks, the model only by text), or a word that is not plain makes that leaf unknown.
+3. **A program call** with plain argv runs in the chain's directory, moved by its own option from the table below or by a wrapper read through its option table. Any other wrapper option, a `..` in a table option's value (the program resolves it through symlinks, the model only by text), or a word that is not plain makes that leaf unknown. Two more rules hold for every row:
+   - **An option before a subcommand** (`go -C /x test`, `docker -H h exec …`) is read through the program's own row, or the leaf is unknown. It never counts as running where the line started.
+   - **A repeated directory option** follows what that program really does, as noted in the table: _cumulative_ (each relative to the one before), _last wins_ (only the last, relative to where the program started), or, for every row without a note, unknown.
 4. **Every `cd`, `pushd` and `popd` word in the raw line** — inside quotes, nested shells, here-docs and comments — must be one the grammar read. Otherwise the whole line is unknown: `echo "cd /x" && git pull` asks.
 5. **Any other construct** anywhere makes the whole line unknown: functions, loops, `if`/`case`, subshells, `{ }`, `|&`, `bash -c`/`sh -c` (any shell), `eval`, `source`/`.`, redirects, assignments (`X=1 git pull`, `CDPATH=/x …`), command substitution, `pushd`/`popd`, `trap`, `exec`, `builtin`, `set`, `shopt`, `!`, `&`.
 
 | program                                         | its "run in directory" option      | notes                                                                            |
 | ----------------------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------- |
 | `git`                                           | `-C <dir>`, before the subcommand  | cumulative, in order; `--git-dir`, `--work-tree`, `-c core.worktree=…` → unknown |
-| `env`                                           | `-C`/`--chdir`                     | wrapper; a `GIT_*=…` operand → unknown                                           |
+| `env`                                           | `-C`/`--chdir`                     | wrapper; last wins; a `GIT_*=…` operand → unknown                                |
 | `sudo`                                          | `-D`/`--chdir`                     | wrapper; `-i`, `-s` and other unlisted options → unknown                         |
 | `nice`, `timeout`, `command`, `xargs`           | —                                  | wrappers, read through their option tables                                       |
 | `make`                                          | `-C`/`--directory`                 | cumulative; a cluster (`-sC`) or abbreviation (`--dir`) → unknown                |
-| `npm`                                           | `--prefix`                         | `-C` → unknown                                                                   |
+| `npm`                                           | `--prefix`                         | last wins; `-C` → unknown                                                        |
 | `docker exec`, `docker run`                     | `-w`/`--workdir`                   | a directory **inside the container**; absolute only, and required                |
 | `terraform`, `tofu`                             | `-chdir=<dir>`                     | before the subcommand                                                            |
 | `cargo`                                         | `-C`                               | before the subcommand (nightly)                                                  |
 | `cargo watch`                                   | `-C`/`--workdir`                   |                                                                                  |
 | `bun`, `bun pm`                                 | `--cwd`                            | before the first operand for `bun` itself                                        |
 | `just`                                          | `--working-directory`/`-d`         | before the first recipe                                                          |
-| `go build`, `run`, `test`, `install`, `list`, … | `-C`                               | must be the first flag                                                           |
+| `go build`, `run`, `test`, `install`, `list`, … | `-C`                               | the first flag, after the subcommand or before it                                |
 | `hg`                                            | `--cwd`                            | `-R`/`--repository` → unknown                                                    |
 | `tig`, `terramate`                              | `-C` (`terramate`: also `--chdir`) |                                                                                  |
 | `turbo`                                         | `--cwd`                            |                                                                                  |

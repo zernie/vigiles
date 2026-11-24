@@ -10,7 +10,24 @@
  * subcommand with the same arity, or the row carries a reviewed exception.
  */
 
-/** One program's own "run in directory" option. */
+/**
+ * What a second occurrence of a "run in directory" option does. Declared per
+ * option, checked against the program itself or its manual (the source sits
+ * beside each row):
+ *  - `cumulative`: each is applied relative to the one before (`make -C a -C b`
+ *    runs in `a/b`);
+ *  - `last-wins`: only the last counts, relative to where the program started
+ *    (`env -C /a -C . cmd` runs in `.`);
+ *  - `none`: not declared, or the program refuses a repeat; the leaf is unknown.
+ */
+export type Repeat = "cumulative" | "last-wins" | "none";
+
+/**
+ * One program's own "run in directory" option. A program with rows scoped to
+ * subcommands reads the options before its subcommand only through its own
+ * row (`sub` absent, `beforeOperand: true`): with no such row, any option
+ * ahead of the subcommand makes the leaf unknown.
+ */
 export interface DirRow {
   readonly program: string;
   /** The subcommands the row is for (`docker exec`), else the whole program. */
@@ -19,8 +36,8 @@ export interface DirRow {
   readonly separate: readonly string[];
   /** Spellings that take it only attached by `=` (`terraform -chdir=dir`). */
   readonly equals: readonly string[];
-  /** Repeats apply in order, each relative to the last (`make -C a -C b`). */
-  readonly cumulative: boolean;
+  /** What a second occurrence of the option does. */
+  readonly repeat: Repeat;
   /**
    * The option is read only before the program's first operand, and only the
    * options in `flags`/`valued` may precede it; an occurrence after the first
@@ -51,7 +68,8 @@ export const DIR_TABLE: readonly DirRow[] = [
     program: "make",
     separate: ["-C", "--directory"],
     equals: [],
-    cumulative: true,
+    // GNU make manual, Options Summary: "If multiple -C options are specified, each is interpreted relative to the previous one"; make 4.3 run: `make -C a -C b` builds in a/b.
+    repeat: "cumulative",
     beforeOperand: false,
   },
   {
@@ -60,7 +78,8 @@ export const DIR_TABLE: readonly DirRow[] = [
     equals: [],
     // npm's config shorthand table may map `-C` to `--prefix`; unread, so unknown.
     refuse: ["-C"],
-    cumulative: false,
+    // npm 10.9.9 run: `npm --prefix a --prefix b run p` runs in ./b, and the other order in ./a.
+    repeat: "last-wins",
     beforeOperand: false,
     figException:
       "Fig's npm spec lists no npm config flags; --prefix is npm's `prefix` config, settable on any command (npm help config).",
@@ -70,7 +89,8 @@ export const DIR_TABLE: readonly DirRow[] = [
     sub: ["exec", "run"],
     separate: ["-w", "--workdir"],
     equals: [],
-    cumulative: false,
+    // Not run (no daemon here), and the docs do not say; a repeat is unknown.
+    repeat: "none",
     beforeOperand: true,
     flags: [
       "-i",
@@ -90,7 +110,8 @@ export const DIR_TABLE: readonly DirRow[] = [
     program: "terraform",
     separate: [],
     equals: ["-chdir"],
-    cumulative: false,
+    // Not installed here and the docs do not say; a repeat is unknown.
+    repeat: "none",
     beforeOperand: true,
   },
   {
@@ -98,7 +119,8 @@ export const DIR_TABLE: readonly DirRow[] = [
     program: "tofu",
     separate: [],
     equals: ["-chdir"],
-    cumulative: false,
+    // Not installed here; a repeat is unknown.
+    repeat: "none",
     beforeOperand: true,
     figException:
       "Fig has no tofu spec; carapace-bin's tofu completer has `-chdir`.",
@@ -109,7 +131,8 @@ export const DIR_TABLE: readonly DirRow[] = [
     sub: ["watch"],
     separate: ["-C", "--workdir"],
     equals: [],
-    cumulative: false,
+    // cargo-watch not installed here; a repeat is unknown.
+    repeat: "none",
     beforeOperand: false,
     figException:
       "Fig's cargo spec has no `watch` subcommand (a plugin); carapace-bin's cargo-watch completer has -C/--workdir.",
@@ -118,7 +141,8 @@ export const DIR_TABLE: readonly DirRow[] = [
     program: "cargo",
     separate: ["-C"],
     equals: [],
-    cumulative: false,
+    // cargo 1.97.0 run: "the argument '-C <DIRECTORY>' cannot be used multiple times".
+    repeat: "none",
     beforeOperand: true,
     valued: ["-Z"],
     figException:
@@ -130,7 +154,8 @@ export const DIR_TABLE: readonly DirRow[] = [
     sub: ["pm"],
     separate: ["--cwd"],
     equals: [],
-    cumulative: false,
+    // Not run for `pm`; a repeat is unknown.
+    repeat: "none",
     beforeOperand: false,
     figException:
       "Fig's bun spec has --cwd on i/add/rm only, not on pm; carapace-bin has it on pm.",
@@ -139,7 +164,8 @@ export const DIR_TABLE: readonly DirRow[] = [
     program: "bun",
     separate: ["--cwd"],
     equals: [],
-    cumulative: false,
+    // bun 1.4.4 run: a second --cwd printed `bun run` usage, neither semantics shown; unknown.
+    repeat: "none",
     beforeOperand: true,
     figException:
       "Fig's bun spec has --cwd on install/add/remove, not on bun itself; bun's root --help and carapace-bin's root completer have it.",
@@ -148,7 +174,8 @@ export const DIR_TABLE: readonly DirRow[] = [
     program: "just",
     separate: ["--working-directory", "-d"],
     equals: [],
-    cumulative: false,
+    // Not installed here; a repeat is unknown.
+    repeat: "none",
     beforeOperand: true,
     valued: ["--justfile", "-f"],
   },
@@ -171,10 +198,26 @@ export const DIR_TABLE: readonly DirRow[] = [
     ],
     separate: ["-C"],
     equals: [],
-    cumulative: false,
+    // go1.24.7 run: a second -C fails ("-C flag must be first flag on command line").
+    repeat: "none",
     beforeOperand: true,
     figException:
       "Fig's go spec predates go 1.20's `-C dir` (must be the first flag); carapace-bin's go completer has it.",
+  },
+  {
+    // go reads -C right after its command path, so also BEFORE the
+    // subcommand (cmd/go main.go, handleChdirFlag; go1.24.7 run:
+    // `go -C dir env GOMOD` and `go mod -C dir edit` both move). This row reads
+    // the options ahead of the subcommand: `-C` only, anything else unknown,
+    // and a -C after a deeper command path (`go mod edit -C`) is unknown.
+    program: "go",
+    separate: ["-C"],
+    equals: [],
+    // go1.24.7 run: a second -C fails ("flag provided but not defined: -C").
+    repeat: "none",
+    beforeOperand: true,
+    figException:
+      "Fig's go spec predates go 1.20's `-C dir`, which go reads before the subcommand as well as after it (cmd/go handleChdirFlag).",
   },
   {
     // carapace-bin: hg_completer, the global `--cwd`; `-R`/`--repository` points at another repository.
@@ -182,7 +225,8 @@ export const DIR_TABLE: readonly DirRow[] = [
     separate: ["--cwd"],
     equals: [],
     refuse: ["-R", "--repository"],
-    cumulative: false,
+    // Not installed here; a repeat is unknown.
+    repeat: "none",
     beforeOperand: false,
     figException:
       "Fig has no hg spec; carapace-bin's hg completer has the global --cwd.",
@@ -192,7 +236,8 @@ export const DIR_TABLE: readonly DirRow[] = [
     program: "tig",
     separate: ["-C"],
     equals: [],
-    cumulative: false,
+    // Not installed here; a repeat is unknown.
+    repeat: "none",
     beforeOperand: true,
     figException: "Fig has no tig spec; carapace-bin's tig completer has -C.",
   },
@@ -201,7 +246,8 @@ export const DIR_TABLE: readonly DirRow[] = [
     program: "turbo",
     separate: ["--cwd"],
     equals: [],
-    cumulative: false,
+    // Not installed here; a repeat is unknown.
+    repeat: "none",
     beforeOperand: false,
     figException:
       "Fig's turbo spec predates the persistent --cwd; carapace-bin's turbo completer has it.",
@@ -211,7 +257,8 @@ export const DIR_TABLE: readonly DirRow[] = [
     program: "terramate",
     separate: ["-C", "--chdir"],
     equals: [],
-    cumulative: false,
+    // Not installed here; a repeat is unknown.
+    repeat: "none",
     beforeOperand: true,
     figException:
       "Fig has no terramate spec; carapace-bin's terramate completer has -C/--chdir.",
@@ -226,6 +273,8 @@ export interface WrapperSpec {
   readonly valued: readonly string[];
   /** Options whose value is the directory the program runs in. */
   readonly chdir: readonly string[];
+  /** What a second `chdir` option does; `none` for a wrapper without one. */
+  readonly repeat: Repeat;
   /** Operands before the program (`timeout DURATION cmd`). */
   readonly operands?: number;
   /** `NAME=value` operands before the program (`env`). */
@@ -240,6 +289,10 @@ export const WRAPPERS: Readonly<Record<string, WrapperSpec | undefined>> = {
     flags: ["-i", "--ignore-environment", "-0", "--null", "-v", "--debug"],
     valued: ["-u", "--unset"],
     chdir: ["-C", "--chdir"],
+    // GNU coreutils env keeps the last -C and changes directory once, after
+    // parsing (env.c, `newdir = optarg`); coreutils 9.4 run:
+    // `env -C /tmp -C . pwd` prints the starting directory.
+    repeat: "last-wins",
     assigns: true,
     figException:
       "Fig's env spec predates coreutils 8.28's -C/--chdir; carapace-bin's env completer has --chdir/-C.",
@@ -285,17 +338,25 @@ export const WRAPPERS: Readonly<Record<string, WrapperSpec | undefined>> = {
       "--type",
     ],
     chdir: ["-D", "--chdir"],
+    // sudo 1.9.15p5 run: a second -D prints usage and runs nothing.
+    repeat: "none",
     figException:
       "Fig's sudo spec predates sudo 1.9.3's -D/--chdir (sudo(8)); carapace-bin has no sudo .Chdir.",
   },
-  nice: { flags: [], valued: ["-n", "--adjustment"], chdir: [] },
+  nice: {
+    flags: [],
+    valued: ["-n", "--adjustment"],
+    chdir: [],
+    repeat: "none",
+  },
   timeout: {
     flags: ["--preserve-status", "--foreground", "-v", "--verbose"],
     valued: ["-s", "--signal", "-k", "--kill-after"],
     chdir: [],
+    repeat: "none",
     operands: 1,
   },
-  command: { flags: ["-p"], valued: [], chdir: [] },
+  command: { flags: ["-p"], valued: [], chdir: [], repeat: "none" },
   xargs: {
     flags: [
       "-0",
@@ -328,13 +389,20 @@ export const WRAPPERS: Readonly<Record<string, WrapperSpec | undefined>> = {
       "-I",
     ],
     chdir: [],
+    repeat: "none",
   },
 };
 
-/** git's options before its subcommand. */
+/**
+ * git(1): "When multiple -C options are given, each subsequent non-absolute
+ * -C <path> is interpreted relative to the preceding -C <path>"; git 2.43 run.
+ */
+const GIT_CHDIR_REPEAT: Repeat = "cumulative";
+
+/** git's options before its subcommand: an option not listed here is unknown. */
 export const GIT_GLOBAL = {
-  /** `-C <dir>`: cumulative, applied in order. */
   chdir: ["-C"],
+  repeat: GIT_CHDIR_REPEAT,
   /** Point git at another repository or work tree: the leaf is unknown. */
   refuse: ["--git-dir", "--work-tree"],
   valued: [

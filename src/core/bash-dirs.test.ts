@@ -22,6 +22,7 @@ import {
   DIR_TABLE,
   WRAPPERS,
   GIT_GLOBAL,
+  type DirRow,
   type Repeat,
 } from "./bash-dirs-table.js";
 
@@ -54,6 +55,17 @@ function spellings(
   ];
 }
 
+/** For one subcommand row: every line with an unknown option ahead of a subcommand. */
+function unknownFirst(r: DirRow): readonly string[] {
+  const opts = spellings(r.separate, r.equals);
+  return (r.sub ?? []).flatMap((s) =>
+    UNKNOWN_OPTIONS.flatMap((u) => [
+      `${r.program} ${u} ${s} x`,
+      ...opts.map((opt) => `${r.program} ${u} ${s} ${opt("/r")} x`),
+    ]),
+  );
+}
+
 const subScoped = [
   ...new Set(DIR_TABLE.flatMap((r) => (r.sub ? [r.program] : []))),
 ];
@@ -82,18 +94,7 @@ describe("class 1: an option before the subcommand is read by the program's row,
   });
 
   test("every subcommand-scoped program, every subcommand, an unknown option first: unknown", () => {
-    const lines = subScoped.flatMap((p) =>
-      DIR_TABLE.filter((r) => r.program === p && r.sub).flatMap((r) =>
-        (r.sub ?? []).flatMap((s) =>
-          UNKNOWN_OPTIONS.flatMap((u) => [
-            `${p} ${u} ${s} x`,
-            ...spellings(r.separate, r.equals).map(
-              (opt) => `${p} ${u} ${s} ${opt("/r")} x`,
-            ),
-          ]),
-        ),
-      ),
-    );
+    const lines = DIR_TABLE.filter((r) => r.sub).flatMap(unknownFirst);
     assert.ok(lines.length > 40, `only ${String(lines.length)} lines`);
     const known = lines.filter((l) => !isUnknown(leafAt(l)));
     assert.deepEqual(known, [], "read as known past an unread option");
@@ -112,13 +113,13 @@ describe("class 1: an option before the subcommand is read by the program's row,
   });
 });
 
-/** Where `twice(first, second)` must run under `repeat`, from the start `.`. */
+/** Where `twice(first, second)` must run under `repeat`, from the start `.`; `null` is unknown. */
 function expected(
   repeat: Repeat,
   first: string,
   second: string,
-): string | "unknown" {
-  if (repeat === "none") return "unknown";
+): string | null {
+  if (repeat === "none") return null;
   const base = repeat === "cumulative" ? joinDir(".", first) : ".";
   return joinDir(base, second);
 }
@@ -186,12 +187,12 @@ describe("class 2: a repeated directory option follows its declared semantics, o
       const [first, second] = c.container ? ["/a", "/b"] : ["/a", "sub"];
       const line = c.twice(first, second);
       const at = leafAt(line);
+      // A container row reads absolute values only, so both repeats give `/b`.
+      const inContainer = c.repeat === "none" ? null : second;
       const want = c.container
-        ? c.repeat === "none"
-          ? "unknown"
-          : "/b"
+        ? inContainer
         : expected(c.repeat, first, second);
-      if (want === "unknown") assert.ok(isUnknown(at), line);
+      if (want === null) assert.ok(isUnknown(at), line);
       else assert.deepEqual(at, { kind: "dir", dir: want }, line);
     },
   );
