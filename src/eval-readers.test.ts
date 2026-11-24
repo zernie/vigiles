@@ -312,3 +312,85 @@ test("compare refuses a mixed call instead of guessing which reader was meant", 
     /needs a baseline and an arm/,
   );
 });
+
+// --- metric direction: a lower-is-better metric (cost, turns) must not read
+// backwards. Both verdict tests decide on `arm − baseline > 0`, so without
+// `lowerIsBetter` a cheaper arm was a LOSS to `assertImproves` and `compare`.
+
+/** Two arms on `cost`: the `lean` arm costs clearly less than `base`. */
+const costReport: EvalReport = {
+  name: "cost",
+  trials: 20,
+  totalCostUsd: 0,
+  aborted: false,
+  arms: {
+    base: {
+      runs: 20,
+      metrics: { cost: 0.5 },
+      stats: { cost: stat(0.5, 0.02, 20) },
+      ...NO_MISSES,
+    },
+    lean: {
+      runs: 20,
+      metrics: { cost: 0.2 },
+      stats: { cost: stat(0.2, 0.02, 20) },
+      ...NO_MISSES,
+    },
+  },
+};
+
+test("assertImproves({ lowerIsBetter }) passes a cheaper arm and fails a dearer one", () => {
+  const gate = {
+    baseline: "base",
+    arm: "lean",
+    metric: "cost",
+    lowerIsBetter: true,
+  } as const;
+  assertImproves(costReport, gate);
+  assertImproves(costReport, { ...gate, by: 0.25 });
+  assert.throws(() => {
+    assertImproves(costReport, { ...gate, by: 0.4 });
+  }, /lean to beat base on cost \(lower is better\) by > 0\.4, got 0\.300/);
+  assertImproves(costReport, { ...gate, significant: true });
+  // The dearer direction fails both ways.
+  const back = { ...gate, baseline: "lean", arm: "base" } as const;
+  assert.throws(() => {
+    assertImproves(costReport, back);
+  }, /got -0\.300/);
+  assert.throws(() => {
+    assertImproves(costReport, { ...back, significant: true });
+  }, /significantly beat lean on cost \(lower is better\).*WORSE/);
+  // Without the flag the old reading stands: a higher cost "beats".
+  assertImproves(costReport, { baseline: "lean", arm: "base", metric: "cost" });
+});
+
+test("assertImproves refuses a lowerIsBetter that is not a boolean (the DiffOptions list shape)", () => {
+  const listShape = {
+    baseline: "base",
+    arm: "lean",
+    metric: "cost",
+    lowerIsBetter: ["cost"],
+  } as unknown as Parameters<typeof assertImproves>[1];
+  assert.throws(() => {
+    assertImproves(costReport, listShape);
+  }, /`lowerIsBetter` is true or false here/);
+});
+
+test("compare(…, { lowerIsBetter }) flips the verdict of the listed metrics only", () => {
+  const plain = compare(costReport, "base", "lean").cost;
+  assert.equal(plain?.verdict.kind, "worse");
+  const flipped = compare(costReport, "base", "lean", {
+    lowerIsBetter: ["cost"],
+  }).cost;
+  assert.ok(flipped);
+  assert.equal(flipped.verdict.kind, "better");
+  assert.equal(flipped.significant, true);
+  // The gap stays `arm − baseline`: the number does not change meaning.
+  assert.equal(flipped.gap.toFixed(2), "-0.30");
+  // A metric not listed keeps the higher-is-better reading.
+  assert.equal(
+    compare(costReport, "base", "lean", { lowerIsBetter: ["turns"] }).cost
+      ?.verdict.kind,
+    "worse",
+  );
+});
