@@ -1,0 +1,84 @@
+{
+  "$comment": "Function budget per public entry: a ceiling on RUNTIME function/const exports (the members of the root's `check` count, spelled `check.tool`). `grandfathered` names sit above the ceiling today and may only be REMOVED from this list, never added; scripts/export-gates.test.ts enforces it. See STABILITY.md and the `public-exports-are-opt-in` rule.",
+  "entries": {
+    ".": {
+      "ceiling": 33,
+      "grandfathered": [
+        "experimental_assertEmittedOk",
+        "experimental_eachReply",
+        "experimental_emitTool",
+        "experimental_parseEmitted",
+        "experimental_replyCount",
+        "sandboxAvailable",
+        "skip",
+        "vigilesMatchers"
+      ]
+    },
+    "./spec": {
+      "ceiling": 14,
+      "grandfathered": [
+        "experimental_agent",
+        "experimental_assertAgentErr",
+        "experimental_assertAgentOk",
+        "experimental_assertAgentResult"
+      ]
+    },
+    "./eval": {
+      "ceiling": 12,
+      "grandfathered": [
+        "experimental_outputStyleArms",
+        "readBaseline",
+        "writeBaseline"
+      ]
+    },
+    "./rule-proof": {
+      "ceiling": 3,
+      "grandfathered": []
+    },
+    "./hook": {
+      "ceiling": 19,
+      "grandfathered": [
+        "experimental_defineFileGate",
+        "experimental_defineHook",
+        "experimental_defineInject",
+        "experimental_definePromptGate",
+        "experimental_defineReact"
+      ]
+    },
+    "./hook-test": {
+      "ceiling": 6,
+      "grandfathered": []
+    },
+    "./battery": {
+      "ceiling": 7,
+      "grandfathered": []
+    },
+    "./fixtures": {
+      "ceiling": 3,
+      "grandfathered": []
+    },
+    "./claude-code": {
+      "ceiling": 10,
+      "grandfathered": [
+        "experimental_agent",
+        "experimental_skill"
+      ]
+    },
+    "./codex": {
+      "ceiling": 5,
+      "grandfathered": []
+    },
+    "./adapter": {
+      "ceiling": 8,
+      "grandfathered": []
+    },
+    "./vitest": {
+      "ceiling": 0,
+      "grandfathered": []
+    },
+    "./jest": {
+      "ceiling": 0,
+      "grandfathered": []
+    }
+  }
+}

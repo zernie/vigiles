@@ -29,7 +29,11 @@ export interface ExpectedInstruction {
   readonly text: string;
 }
 
-/** Why a trial's context could not be checked. */
+/**
+ * Why a trial's context could not be checked.
+ *
+ * @public
+ */
 export type UnobservableWhy =
   /** The harness has a channel, but this run wrote no request body to read. */
   | "no-request-body"
@@ -43,6 +47,8 @@ export type UnobservableWhy =
 /**
  * What one trial shows about its instruction files. A tagged union, because
  * "not seen" has more than one reason and none of them may read as "passed".
+ *
+ * @public
  */
 export type ContextEvidence =
   /** Every expected file is in the model's first request. */

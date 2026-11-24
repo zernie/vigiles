@@ -22,18 +22,18 @@ export interface DisasterEvent {
     readonly tool: string;
 }
 
-// @public
+// @beta
 export function experimental_alternateSpellings(events: readonly DisasterEvent[]): readonly DisasterEvent[];
 
-// @public
+// @beta
 export function experimental_harmlessTwins(events: readonly DisasterEvent[]): readonly HarmlessEvent[];
 
-// @public
+// @beta
 export function experimental_hookState(hookFile: string, opts?: {
     readonly cwd?: string;
 }): HookStateHandle;
 
-// @public
+// @beta
 export function experimental_verifyPluginGuards(dir: string, opts?: VerifyPluginGuardsOptions): PluginGuardReport;
 
 // @public

@@ -282,6 +282,8 @@ export const CODEX_TRIGGER_RATE_EXPERIMENTAL =
  * The Codex eval driver — pass to `measureTriggerRate(spec, { evalDriver:
  * codexEvalDriver })` to run a trigger-rate eval natively on `codex exec`. Pair
  * the spec's `fired` with `codexSkillFired` (Codex has no Skill-tool event).
+ *
+ * @public
  */
 export const codexEvalDriver: EvalDriver = {
   runner: codexEvalAgentRunner,
@@ -301,6 +303,8 @@ export const codexEvalDriver: EvalDriver = {
  * It is the object `scan-behavioral.ts:buildProbe` used to build from
  * `harness === "codex"`: the same four answers, now carried by the adapter that
  * knows them instead of switched on by a name in the application layer.
+ *
+ * @public
  */
 export const codexLiveDriver: HarnessLiveDriver = {
   evalDriver: codexEvalDriver,

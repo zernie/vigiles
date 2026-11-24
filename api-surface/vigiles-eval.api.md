@@ -23,7 +23,7 @@ export function assertImproves(report: EvalReport, opts: ImprovesGate): void;
 // @public
 export function assertNoRegression(current: EvalReport | readonly EvalReport[], baseline: BaselineFile, opts?: DiffOptions): void;
 
-// @public
+// @public (undocumented)
 export function assertRates(report: CheckReport, opts: CheckRateGate): void;
 
 // @public (undocumented)
@@ -59,7 +59,7 @@ export interface DiffOptions {
     readonly lowerIsBetter?: readonly string[];
 }
 
-// @public
+// @beta
 export function experimental_outputStyleArms(path: string): Promise<OutputStyleArms>;
 
 // @public

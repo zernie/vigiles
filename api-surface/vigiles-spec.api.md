@@ -73,7 +73,7 @@ export interface DirRef {
     readonly _ref: "dir";
 }
 
-// @internal
+// @beta
 export interface EffectRegion {
     // (undocumented)
     readonly body: InstructionFragment[];
@@ -103,7 +103,7 @@ export interface EnforceRule {
     readonly why: string;
 }
 
-// @public
+// @beta
 export const experimental_agent: typeof agentSpec & {
     result: typeof result;
     delegate: typeof delegate;
@@ -115,19 +115,19 @@ export const experimental_agent: typeof agentSpec & {
     pipe: typeof experimental_pipe;
 };
 
-// @public
+// @beta
 export function experimental_assertAgentErr(output: string, contract?: OutputContract): Record<string, unknown>;
 
-// @public
+// @beta
 export function experimental_assertAgentOk(output: string, contract?: OutputContract): Record<string, unknown>;
 
-// @public
+// @beta
 export function experimental_assertAgentResult(output: string, predicate: (r: ParsedAgentResult) => boolean, contract?: OutputContract): void;
 
-// @public
+// @beta
 export function experimental_effect(strings: TemplateStringsArray, ...values: InstructionFragment[]): EffectRegion;
 
-// @public (undocumented)
+// @beta (undocumented)
 export const experimental_skill: typeof skillSpec & {
     input: typeof input;
     step: typeof step;
@@ -188,7 +188,7 @@ export interface GuidanceRule {
     readonly text: string;
 }
 
-// @internal
+// @beta
 export type Handoff<Producer extends Shape, Consumer extends Shape> = Supplies<Producer, Consumer> extends true ? true : {
     readonly __handoff_error: Supplies<Producer, Consumer>;
 };
@@ -202,7 +202,7 @@ export type InstructionFragment = string | Ref | EffectRegion;
 // @public
 export type InstructionTarget = "CLAUDE.md" | "AGENTS.md" | (string & {});
 
-// @internal
+// @beta
 export type KnownAgentName<Target extends string, Names extends string, From extends string = string> = [Target] extends [Names] ? true : {
     readonly __dangling_delegate: Target;
     readonly from: From;
@@ -223,7 +223,7 @@ export interface KnownProjectFiles {
 // @public
 export type LinterRule = `${BuiltinLinter}/${string}` | ScopedPlugin;
 
-// @internal
+// @beta
 export type NeedsContract<N extends Shape> = N;
 
 // @public
@@ -262,7 +262,7 @@ export type ParsedAgentResult<S = Record<string, unknown>, E = Record<string, un
     readonly reason: string;
 };
 
-// @internal
+// @beta
 export interface Pipeline<Ok extends Shape, Err extends Shape> {
     readonly agents: readonly string[];
     readonly err: Err;
@@ -272,7 +272,7 @@ export interface Pipeline<Ok extends Shape, Err extends Shape> {
     readonly _specType: "pipeline";
 }
 
-// @internal
+// @beta
 export interface PipeStep<Needs extends Shape, Ok extends Shape, Err extends Shape> {
     // (undocumented)
     readonly agent: TypedAgentSpec<Ok, Err>;
@@ -352,7 +352,7 @@ export type RuleDetailsOptions = {
 // @public
 export type RuleRender = "full" | "line" | "id";
 
-// @public
+// @public (undocumented)
 export type Shape = Readonly<Record<string, OutputFieldType>>;
 
 // @public
@@ -418,7 +418,7 @@ export type StrictLinterRule = [keyof KnownLinterRules] extends [never] ? Linter
     [K in keyof KnownLinterRules]: `${K & string}/${KnownLinterRules[K] & string}`;
 }[keyof KnownLinterRules];
 
-// @internal
+// @beta
 export type Supplies<Producer extends Shape, Consumer extends Shape> = {
     [K in keyof Consumer]: K extends keyof Producer ? Producer[K] extends Consumer[K] ? true : {
         readonly __mismatch: K;
@@ -449,7 +449,7 @@ export interface ToolVocabulary {
     readonly readOnly: string;
 }
 
-// @public
+// @public (undocumented)
 export type TypedAgentSpec<Ok extends Shape, Err extends Shape> = AgentSpec & TypedOutcome<Ok, Err>;
 
 // @public

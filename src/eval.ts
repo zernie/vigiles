@@ -183,7 +183,11 @@ import { editDistance } from "./core/edit-distance.js";
  */
 const EVAL_RUNTIME: HarnessRuntime = claudeCodeRuntime;
 
-/** One arm of the comparison: fixture overrides + settings (hooks) for this arm. */
+/**
+ * One arm of the comparison: fixture overrides + settings (hooks) for this arm.
+ *
+ * @public
+ */
 export interface EvalArm {
   /** Files written on top of the base fixture for this arm. */
   readonly files?: Record<string, string>;
@@ -250,6 +254,8 @@ export interface EvalArm {
  * a `Trace` (so every check — `check.tool`, `check.skill`, a custom
  * `check(name, fn)` — evaluates over it, the same as over a
  * `runHarnessTest` result) plus the eval-only `sh` end-state probe and `usage`.
+ *
+ * @public
  */
 export interface RunContext extends Trace {
   readonly cwd: string;
@@ -272,8 +278,10 @@ export interface RunContext extends Trace {
   sh(command: string): string;
 }
 
+/** @public */
 export type Metrics = Record<string, number | boolean>;
 
+/** @public */
 export interface EvalSpec<M extends Metrics> {
   readonly name?: string;
   /** Base fixture files (path → contents), written fresh for every run. */
@@ -707,6 +715,7 @@ function warnUnregisteredSkillArms(arms: Record<string, EvalArm>): void {
   }
 }
 
+/** @public */
 export async function runEval<M extends Metrics>(
   spec: EvalSpec<M>,
 ): Promise<EvalReport> {
@@ -718,7 +727,11 @@ export async function runEval<M extends Metrics>(
 // measure() — the SCORED evaluator (Phase 3 of testing-api-design.md)
 // ---------------------------------------------------------------------------
 
-/** A task run N times, scored against a `Trace` check vocabulary. */
+/**
+ * A task run N times, scored against a `Trace` check vocabulary.
+ *
+ * @public
+ */
 export interface MeasureSpec {
   /** Base fixture files written for every run (path → contents). */
   readonly fixture?: Record<string, string>;
@@ -784,7 +797,11 @@ const INHERITED_BY_MEASURE: RunEnv = {
   reason: MEASURE_INHERIT_REASON,
 };
 
-/** One check's measured rate across the trials. */
+/**
+ * One check's measured rate across the trials.
+ *
+ * @public
+ */
 export interface CheckRate {
   readonly check: CheckJSON;
   /** Fraction of trials the check passed (0..1). */
@@ -797,6 +814,7 @@ export interface CheckRate {
   readonly n: number;
 }
 
+/** @public */
 export interface CheckReport {
   readonly n: number;
   readonly perCheck: readonly CheckRate[];
@@ -906,7 +924,11 @@ function checkReportOf(
 }
 
 /* v8 ignore start -- real claude subprocess; thin wrapper over measureWith */
-/** Score a check vocabulary across trials against the real `claude` CLI. */
+/**
+ * Score a check vocabulary across trials against the real `claude` CLI.
+ *
+ * @public
+ */
 export async function measure(spec: MeasureSpec): Promise<CheckReport> {
   const report = await measureWith(spec, spawnAgent);
   emitCostSummary(costFromArm(report.usage));
@@ -921,7 +943,11 @@ export async function measure(spec: MeasureSpec): Promise<CheckReport> {
 // (reusing stats.ts) so a gap reads as real-or-noise, not a hand-fed delta.
 // ---------------------------------------------------------------------------
 
-/** A task scored against checks across NAMED arms (the harness variable on/off). */
+/**
+ * A task scored against checks across NAMED arms (the harness variable on/off).
+ *
+ * @public
+ */
 export interface ArmsMeasureSpec {
   readonly fixture?: Record<string, string>;
   /** The arms to compare (settings / plugin / pluginDir per arm). */
@@ -951,7 +977,11 @@ export interface ArmsMeasureSpec {
   readonly spacingSec?: number;
 }
 
-/** Per-arm {@link CheckReport}s — `arms[name].perCheck[i]` aligns across arms. */
+/**
+ * Per-arm {@link CheckReport}s — `arms[name].perCheck[i]` aligns across arms.
+ *
+ * @public
+ */
 export interface ArmsCheckReport {
   readonly arms: Record<string, CheckReport>;
 }
@@ -1009,7 +1039,11 @@ export async function measureArmsWith(
 }
 
 /* v8 ignore start -- real claude subprocess; thin wrapper over measureArmsWith */
-/** Score checks across arms against the real `claude` CLI. */
+/**
+ * Score checks across arms against the real `claude` CLI.
+ *
+ * @public
+ */
 export async function measureArms(
   spec: ArmsMeasureSpec,
 ): Promise<ArmsCheckReport> {
@@ -1151,17 +1185,27 @@ function checkRateThreshold(
  * The threshold half of an {@link assertRates} gate: an average floor (`min`),
  * the every-trial floor (`passK: 1`, τ-bench pass^k), or both. At least one —
  * a gate with neither would pass anything.
+ *
+ * @public
  */
 export type RateGate =
   | { readonly min: number; readonly passK?: 1 }
   | { readonly min?: number; readonly passK: 1 };
 
-/** {@link assertRates} over a check report: every check, `per` overriding `min` by check kind. */
+/**
+ * {@link assertRates} over a check report: every check, `per` overriding `min` by check kind.
+ *
+ * @public
+ */
 export type CheckRateGate = RateGate & {
   readonly per?: Readonly<Record<string, number>>;
 };
 
-/** {@link assertRates} over one arm × metric of an eval report. */
+/**
+ * {@link assertRates} over one arm × metric of an eval report.
+ *
+ * @public
+ */
 export type ArmRateGate = RateGate & {
   readonly arm: string;
   readonly metric: string;
@@ -1183,7 +1227,9 @@ export type ArmRateGate = RateGate & {
  */
 /* eslint-disable no-redeclare -- TypeScript function overloads (the base
    no-redeclare rule, unlike @typescript-eslint/no-redeclare, flags them) */
+/** @public */
 export function assertRates(report: CheckReport, opts: CheckRateGate): void;
+/** @public */
 export function assertRates(report: EvalReport, opts: ArmRateGate): void;
 export function assertRates(
   report: CheckReport | EvalReport,
@@ -1320,7 +1366,11 @@ function streamUsage(stdout: string): EvalUsage {
   };
 }
 
-/** Parse Claude Code's stream-json stdout into the common trace fields. */
+/**
+ * Parse Claude Code's stream-json stdout into the common trace fields.
+ *
+ * @public
+ */
 export function parseClaudeRun(out: RunOut): ParsedModelRun {
   const result = parseResultEvent(out.stdout);
   const costObserved = typeof result?.total_cost_usd === "number";
@@ -2905,6 +2955,8 @@ export function formatEvalReport(
  * deterministic tier already proves). Install the plugin natively (`pluginDir`),
  * give a set of varied `prompts`, and a `fired` predicate over the run's `Trace`
  * (reuse the bare predicates, e.g. `(t) => check.skill(t, "x:y")`).
+ *
+ * @public
  */
 export interface TriggerRateSpec {
   /**
@@ -3052,6 +3104,8 @@ export interface TriggerRateSpec {
  * this into the adapter would make `eval.ts → adapters/claude-code → eval.ts` a
  * circular import (the shared `EvalDriver`/`ModelOutputParser` types live here).
  * The asymmetry reflects default-vs-injected, not a hexagonal violation.
+ *
+ * @public
  */
 export const claudeEvalDriver: EvalDriver = {
   runner: spawnAgent,
@@ -3824,6 +3878,8 @@ export async function measureTriggerRateWith(
  * second harness — e.g. `measureTriggerRate(spec, { evalDriver: codexEvalDriver })`
  * from `vigiles/codex` (the eval-tier analog of `runHarnessTest`'s `{ adapter }`).
  * Requires that harness's binary + auth.
+ *
+ * @public
  */
 export async function measureTriggerRate(
   spec: TriggerRateSpec,

@@ -23,7 +23,7 @@ export interface EslintReading {
     readonly scope: ReadingScope;
 }
 
-// @public
+// @beta
 export const experimental_ruleProof: {
     install: <N extends "eslint" | "ruff">(linter: N, dir: string, options: InstallOptions) => Installed<    {
     eslint: EslintReading;
@@ -92,23 +92,10 @@ export type NotRunStage = "pair-outside-scope" | "pair-path-taken" | "scratch-pa
 
 // @public
 export class PinnedLinter<R extends BaseReading> {
-    // @internal
-    constructor(linter: R["linter"], version: string, dir: string,
-    run: {
-        readonly kit: ProofKit<R>;
-        readonly command: readonly string[];
-        readonly options: Settled;
-    });
     // (undocumented)
     readonly dir: string;
     // (undocumented)
     readonly linter: R["linter"];
-    // @internal
-    readonly run: {
-        readonly kit: ProofKit<R>;
-        readonly command: readonly string[];
-        readonly options: Settled;
-    };
     // (undocumented)
     readonly version: string;
 }
@@ -141,8 +128,6 @@ export type Proof<R extends BaseReading> = {
 
 // @public
 export class ProvedReading<R extends BaseReading> {
-    // @internal
-    constructor(pinned: PinnedLinter<R>, reading: R);
     // (undocumented)
     readonly pinned: PinnedLinter<R>;
     // (undocumented)

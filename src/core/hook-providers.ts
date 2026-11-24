@@ -27,7 +27,11 @@ import {
   type StateNeed,
 } from "./hook-state.js";
 
-/** The closed set of built-in facts a gate may declare via `needs`, with value types. */
+/**
+ * The closed set of built-in facts a gate may declare via `needs`, with value types.
+ *
+ * @public
+ */
 export interface ProviderResults {
   /** The current git branch, or "" outside a git repo / on an unborn HEAD. */
   readonly "git.branch": string;
@@ -43,7 +47,11 @@ export interface ProviderResults {
   readonly "env.isCI": boolean;
 }
 
-/** A declarable built-in provider name. */
+/**
+ * A declarable built-in provider name.
+ *
+ * @public
+ */
 export type ProviderName = keyof ProviderResults;
 
 /**
@@ -51,6 +59,8 @@ export type ProviderName = keyof ProviderResults;
  * file), run by the trusted runtime, its stdout becoming `e.ctx[name]` (a string).
  * `dangerous` marks the loud escape — a command not provably read-only. Built via
  * {@link provide} (read-only) or {@link dangerously} (acknowledged).
+ *
+ * @public
  */
 export interface InlineProvider<Name extends string = string> {
   readonly kind: "inline";
@@ -67,6 +77,8 @@ export interface InlineProvider<Name extends string = string> {
  * a hook's external inputs stay in one declared list: the dependency is auditable
  * from outside the hook, and reading an undeclared one is a `tsc` error. See the
  * design note in `hook-state.ts`.
+ *
+ * @public
  */
 export type NeedSpec =
   | ProviderName
@@ -79,6 +91,8 @@ export type NeedSpec =
  * The command MUST be provably read-only (compile rejects it otherwise — use
  * {@link dangerously} to acknowledge a side-effecting/undecidable one). Its stdout
  * is `e.ctx[name]`.
+ *
+ * @public
  */
 export const provide = <const Name extends string>(
   name: Name,
@@ -90,6 +104,8 @@ export const provide = <const Name extends string>(
  * greppable escape hatch (the `dangerouslySetInnerHTML` / `unsafe` / `http.send`
  * convention; sibling of `purity:'dangerously-unrestricted'`). A security review
  * searches for this one word.
+ *
+ * @public
  */
 export const dangerously = <const Name extends string>(
   name: Name,
@@ -101,6 +117,8 @@ export const dangerously = <const Name extends string>(
  * `.vigiles/providers/<name>.provider.{mjs,ts}` (default-exported via {@link defineProvider})
  * and referenced from many hooks by {@link provider} name. The reusable sibling of
  * the one-off inline {@link provide}; same read-only-by-default rule.
+ *
+ * @public
  */
 export interface RegisteredProvider<Name extends string = string> {
   readonly kind: "provider-def";
@@ -109,7 +127,11 @@ export interface RegisteredProvider<Name extends string = string> {
   readonly dangerous: boolean;
 }
 
-/** Author a registered provider: `export default defineProvider({ name, run })`. */
+/**
+ * Author a registered provider: `export default defineProvider({ name, run })`.
+ *
+ * @public
+ */
 export const defineProvider = <const Name extends string>(p: {
   readonly name: Name;
   readonly run: string;
@@ -122,18 +144,30 @@ export const defineProvider = <const Name extends string>(p: {
   dangerous: p.dangerous ?? false,
 });
 
-/** A reference to a registered provider, used in a hook's `needs`: `provider("myFact")`. */
+/**
+ * A reference to a registered provider, used in a hook's `needs`: `provider("myFact")`.
+ *
+ * @public
+ */
 export interface RegisteredRef<Name extends string = string> {
   readonly kind: "provider-ref";
   readonly name: Name;
 }
 
-/** Reference a registered provider (from `.vigiles/providers/`) by name in `needs`. */
+/**
+ * Reference a registered provider (from `.vigiles/providers/`) by name in `needs`.
+ *
+ * @public
+ */
 export const provider = <const Name extends string>(
   name: Name,
 ): RegisteredRef<Name> => ({ kind: "provider-ref", name });
 
-/** name → its registered provider; the runtime resolves a `provider(name)` ref against this. */
+/**
+ * name → its registered provider; the runtime resolves a `provider(name)` ref against this.
+ *
+ * @public
+ */
 export type ProviderRegistry = Record<string, RegisteredProvider>;
 
 type NeedName<E extends NeedSpec> = E extends ProviderName
@@ -159,6 +193,8 @@ type NeedValue<E extends NeedSpec> = E extends ProviderName
  * shape (built-ins only — an inline `string` name would force an index signature
  * that clashes with `git.isDirty: boolean`; concrete authored inline names are
  * literals, so they never clash).
+ *
+ * @public
  */
 export type HookCtx<N extends readonly NeedSpec[] = readonly ProviderName[]> = {
   readonly [E in N[number] as NeedName<E>]: NeedValue<E>;

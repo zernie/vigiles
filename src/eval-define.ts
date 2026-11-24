@@ -77,7 +77,11 @@ import type {
  */
 export const EVAL_DEFINITION = Symbol.for("vigiles.eval.definition");
 
-/** `measureSelectionMatrix`'s two arguments as one declarable object. */
+/**
+ * `measureSelectionMatrix`'s two arguments as one declarable object.
+ *
+ * @public
+ */
 export interface SelectionMatrixSpec extends SelectionMatrixOptions {
   /** The plugin root whose skills are measured against each other. */
   readonly pluginDir: string;
@@ -88,6 +92,8 @@ export interface SelectionMatrixSpec extends SelectionMatrixOptions {
  * exist, keyed by their own names, so migrating is renaming a call to a key.
  * EXACTLY ONE must be present: zero is a file that declares nothing, and two is
  * a file whose author expected both to run.
+ *
+ * @public
  */
 export interface EvalMeasurements {
   /** A/B across arms with derived metrics — `paid_runEval`. */
@@ -106,7 +112,11 @@ export interface EvalMeasurements {
   readonly measureSelectionMatrix?: SelectionMatrixSpec;
 }
 
-/** The report type produced by each declared measurement. */
+/**
+ * The report type produced by each declared measurement.
+ *
+ * @public
+ */
 export interface EvalReports {
   readonly runEval: EvalReport;
   readonly measure: CheckReport;
@@ -115,10 +125,18 @@ export interface EvalReports {
   readonly measureSelectionMatrix: SelectionReport;
 }
 
-/** The measurement names, as a type. */
+/**
+ * The measurement names, as a type.
+ *
+ * @public
+ */
 export type EvalKind = keyof EvalMeasurements;
 
-/** Everything an eval file declares beyond the measurement itself. */
+/**
+ * Everything an eval file declares beyond the measurement itself.
+ *
+ * @public
+ */
 export interface EvalHooks<K extends EvalKind> {
   /**
    * A lazy precondition. Return a reason to SKIP (exit 77, loud — never a silent
@@ -147,14 +165,22 @@ export interface EvalHooks<K extends EvalKind> {
   readonly evalDriver?: EvalDriver;
 }
 
-/** One measurement + its hooks: what an eval file default-exports. */
+/**
+ * One measurement + its hooks: what an eval file default-exports.
+ *
+ * @public
+ */
 export type EvalDefinitionInput<K extends EvalKind> = Pick<
   EvalMeasurements,
   K
 > &
   EvalHooks<K>;
 
-/** The branded value {@link defineEval} returns. */
+/**
+ * The branded value {@link defineEval} returns.
+ *
+ * @public
+ */
 export type EvalDefinition<K extends EvalKind = EvalKind> =
   EvalDefinitionInput<K> & {
     readonly [EVAL_DEFINITION]: true;
@@ -286,6 +312,8 @@ export function ranAsEntryRefusal(argv1: string): string {
  * @throws if node was pointed straight at the eval file — see the module doc.
  *   That is the ONE thing this function does besides build a value, and it is
  *   here rather than in each file precisely so that no author can forget it.
+ *
+ * @public
  */
 export function defineEval<K extends EvalKind>(
   def: EvalDefinitionInput<K>,

@@ -82,6 +82,7 @@ export const DEFAULT_INSTRUCTION_TARGETS: readonly string[] = [
   "AGENTS.md",
 ];
 
+/** @public */
 export interface HarnessDialect {
   /** Stable identifier, e.g. "claude-code". */
   readonly name: string;

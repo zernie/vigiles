@@ -50,6 +50,8 @@ import type {
  * tool (mirrors the runtime ladder in `core/effects.ts`):
  * - `readOnly`: tools a `pure` unit may declare (Read/Grep/Glob/LS).
  * - `bounded`:  read-only ∪ Write/Edit/MultiEdit/NotebookEdit ∪ `Bash`.
+ *
+ * @public
  */
 export interface ClaudeCodeToolVocabulary extends ToolVocabulary {
   readonly readOnly: ClaudeCodeReadOnlyTool;
@@ -75,6 +77,8 @@ function agentSpec<const P extends AuthoredPurity | undefined = undefined>(
  * way to reach them — the same asymmetry `experimental_skill.input()` closed.
  *
  * @experimental
+ *
+ * @beta
  */
 export const experimental_agent = Object.assign(agentSpec, {
   result: coreAgent.result,
@@ -110,6 +114,8 @@ function skillSpec<const P extends AuthoredPurity | undefined = undefined>(
 
 /**
  * @experimental
+ *
+ * @beta
  */
 export const experimental_skill = Object.assign(skillSpec, {
   input: coreSkill.input,

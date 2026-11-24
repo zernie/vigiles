@@ -235,6 +235,8 @@ function clearOwnState(file: string, cwd: string): void {
  * also what makes `{ ago, at }` — two disagreeing answers to "when" — a tsc
  * error; `seedInstant` throws on it as well, because harness tests are `.mjs`
  * and a type does not run there.
+ *
+ * @public
  */
 export type SeedStateOptions =
   /** Recorded that long ago — the reason this exists (a throttle needs an OLD fact). */
@@ -260,6 +262,8 @@ export type SeedStateOptions =
  * A handle on ONE hook's recorded facts — what {@link experimental_hookState}
  * returns. Every method goes through the runtime's own store functions, so a
  * seeded fact is indistinguishable from one the hook recorded itself.
+ *
+ * @public
  */
 export interface HookStateHandle {
   /**
@@ -324,6 +328,8 @@ export interface HookStateHandle {
  * st.seed("retro.nagged", { ago: "4d" });
  * const r = runHook(`npx vigiles hook-runtime run-program ${hookFile}`, event, { cwd });
  * ```
+ *
+ * @beta
  */
 export function experimental_hookState(
   hookFile: string,

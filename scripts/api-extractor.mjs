@@ -16,10 +16,11 @@
  * `temp/*.api.json` doc models feed `npm run docs:api` (API Documenter →
  * api-reference/, a gitignored derived artifact). Pure Node, no per-entry configs.
  */
-import { Extractor, ExtractorConfig } from "@microsoft/api-extractor";
+import { Extractor } from "@microsoft/api-extractor";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { configFor } from "./lib/api-extractor-config.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -76,55 +77,9 @@ const ENTRIES = [
 
 const localBuild = process.argv.includes("--local");
 
-/** Build an in-memory API Extractor config for one entry (no per-entry JSON). */
-function configFor(entry) {
-  return ExtractorConfig.prepare({
-    configObject: {
-      projectFolder: root,
-      mainEntryPointFilePath: path.join(root, entry.dts),
-      compiler: { tsconfigFilePath: path.join(root, "tsconfig.json") },
-      apiReport: {
-        enabled: true,
-        reportFolder: path.join(root, "api-surface"),
-        reportFileName: `${entry.name}.api.md`,
-        reportTempFolder: path.join(root, "temp"),
-      },
-      docModel: {
-        enabled: true,
-        apiJsonFilePath: path.join(root, "temp", `${entry.name}.api.json`),
-      },
-      dtsRollup: { enabled: false },
-      tsdocMetadata: { enabled: false },
-      // The repo's TSDoc comments predate API Extractor; their `>`/backtick/brace
-      // quirks are non-fatal noise here. Silence parser + release-tag chatter so
-      // the gate reports only real SURFACE changes.
-      messages: {
-        compilerMessageReporting: { default: { logLevel: "warning" } },
-        extractorMessageReporting: {
-          default: { logLevel: "none" },
-          "ae-missing-release-tag": { logLevel: "none" },
-        },
-        tsdocMessageReporting: { default: { logLevel: "none" } },
-      },
-    },
-    // A virtual config path — the file need not exist; only its directory is used
-    // to resolve the (already-absolute) tokens above.
-    configObjectFullPath: path.join(
-      root,
-      "config",
-      `api-extractor.${entry.name}.json`,
-    ),
-    packageJsonFullPath: path.join(root, "package.json"),
-    // Give each entry a DISTINCT package identity (every export otherwise reports
-    // as "vigiles", which collides when API Documenter merges the doc models into
-    // one reference site). The name is cosmetic — it only labels the report/page.
-    packageJson: { name: entry.name, version: "1.0.0" },
-  });
-}
-
 let failed = 0;
 for (const entry of ENTRIES) {
-  const result = Extractor.invoke(configFor(entry), {
+  const result = Extractor.invoke(configFor(root, entry), {
     localBuild,
     showVerboseMessages: false,
   });

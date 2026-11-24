@@ -36,7 +36,11 @@ import type {
 
 type Settled = Required<InstallOptions>;
 
-/** A repository's own linter at its pinned version. Only `install` makes one. */
+/**
+ * A repository's own linter at its pinned version. Only `install` makes one.
+ *
+ * @public
+ */
 export class PinnedLinter<R extends BaseReading> {
   declare private readonly brand: "pinned";
   /** @internal */
@@ -53,7 +57,11 @@ export class PinnedLinter<R extends BaseReading> {
   ) {}
 }
 
-/** A reading that passed its planted pair on one PinnedLinter. Only `prove` makes one. */
+/**
+ * A reading that passed its planted pair on one PinnedLinter. Only `prove` makes one.
+ *
+ * @public
+ */
 export class ProvedReading<R extends BaseReading> {
   declare private readonly brand: "proved";
   /** @internal */
@@ -63,12 +71,20 @@ export class ProvedReading<R extends BaseReading> {
   ) {}
 }
 
-/** The install's outcome. */
+/**
+ * The install's outcome.
+ *
+ * @public
+ */
 export type Installed<R extends BaseReading> =
   | { readonly kind: "installed"; readonly linter: PinnedLinter<R> }
   | NotInstalled;
 
-/** The verdict on one reading's planted pair. */
+/**
+ * The verdict on one reading's planted pair.
+ *
+ * @public
+ */
 export type Proof<R extends BaseReading> =
   | { readonly kind: "proved"; readonly reading: ProvedReading<R> }
   | {
@@ -361,7 +377,11 @@ function flagged<R extends BaseReading>(
   return stopped ?? { kind: "ran", ...summarize(reports) };
 }
 
-/** A kit set keyed by linter name, each kit typed by its own reading. */
+/**
+ * A kit set keyed by linter name, each kit typed by its own reading.
+ *
+ * @public
+ */
 export type KitSet<M extends Record<string, BaseReading>> = {
   readonly [N in keyof M]: ProofKit<M[N]>;
 };

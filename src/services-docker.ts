@@ -27,7 +27,11 @@ import type {
   ServiceSpec,
 } from "./services.js";
 
-/** A synchronous docker CLI call — the injected real-IO seam. */
+/**
+ * A synchronous docker CLI call — the injected real-IO seam.
+ *
+ * @public
+ */
 export type DockerExec = (args: readonly string[]) => {
   readonly stdout: string;
   readonly stderr: string;
@@ -316,6 +320,8 @@ const containerNames = new WeakMap<ServiceHandle, string>();
  * The default Docker-backed runtime — pass to `experimental_startServices`.
  *
  * @experimental
+ *
+ * @beta
  */
 export const experimental_dockerRuntime: ContainerRuntime =
   experimental_makeDockerRuntime();

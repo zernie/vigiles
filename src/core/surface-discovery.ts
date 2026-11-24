@@ -249,6 +249,8 @@ export function layoutLocations(layout: PluginLayout): {
  * The ONE answer behind every adapter's `claims`, so an adapter cannot express a
  * claim its own layout contradicts. Pure: a string question about a string, with
  * no filesystem and no knowledge of what else exists.
+ *
+ * @public
  */
 export function layoutClaims(layout: PluginLayout, path: string): boolean {
   const { dirs, files } = layoutLocations(layout);

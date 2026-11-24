@@ -14,6 +14,8 @@
  * a `string`/`number`/`boolean` is an **exact** match (use this for "equals", e.g.
  * a push target). All keys must match (AND). Serializable, so anything carrying
  * one still round-trips through `toJSON`.
+ *
+ * @public
  */
 export type ArgMatcher = Record<string, string | number | boolean | RegExp>;
 

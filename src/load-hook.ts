@@ -70,6 +70,8 @@ function isTypeScriptRuntimeError(e: unknown): boolean {
  *
  * @experimental Loads the experimental compiled-hook vocabulary
  * (`experimental_define*`), so it moves with it.
+ *
+ * @beta
  */
 export async function experimental_loadHook(
   file: string,

@@ -58,6 +58,8 @@ export function buildCodexArgs(ctx: HarnessDriverContext): string[] {
  * Extract the final assistant text from codex stdout. Codex `exec` prints the
  * assistant message as plain text (no `--json` here); we return the trimmed
  * stdout as the output. Pure, so it's unit-tested without spawning codex.
+ *
+ * @public
  */
 export function parseCodexRun(stdout: string): ParsedRun {
   return {

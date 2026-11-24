@@ -11,7 +11,11 @@ import type { ProofKit } from "../port.js";
 import { jsonArray, toRelative, unreadable } from "../report.js";
 import type { FileReport, LintParse, ReadingScope } from "../types.js";
 
-/** One Ruff configuration of one rule. */
+/**
+ * One Ruff configuration of one rule.
+ *
+ * @public
+ */
 export interface RuffReading {
   readonly linter: "ruff";
   /** The rule code: `E501`. */

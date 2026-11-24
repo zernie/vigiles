@@ -145,6 +145,7 @@ const PARALLEL = [
   // above rather than as its own — see the rule's header for why the move was
   // possible only after the re-export aliasing went away.
   { name: "internal-tag", cmd: "node scripts/check-internal-tag.mjs" },
+  { name: "dist-types", cmd: "node scripts/check-dist-types.mjs" },
   { name: "typedoc", cmd: "npx typedoc" },
   {
     name: "corpus-guards",

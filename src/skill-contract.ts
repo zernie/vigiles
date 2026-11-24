@@ -31,6 +31,7 @@ import type { Trace } from "./harness-test.js";
 import { readFrontmatter, frontmatterScalar } from "./core/frontmatter-read.js";
 import { parseAgentToolList } from "./adapters/claude-code/agent-tools.js";
 
+/** @public */
 export interface SkillContractOptions {
   /**
    * The plugin namespace, so activation is asserted on the real `<plugin>:<skill>`
@@ -39,6 +40,7 @@ export interface SkillContractOptions {
   readonly plugin?: string;
 }
 
+/** @public */
 export interface SkillContract {
   /** The skill's `name:` (falls back to its directory name). */
   readonly name: string;

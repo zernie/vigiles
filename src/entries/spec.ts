@@ -130,6 +130,8 @@ function fail(message: string): never {
  *
  * @experimental It reads `experimental_agent`'s result contract, so it is no
  * more settled than that contract.
+ *
+ * @beta
  */
 export function experimental_assertAgentOk(
   output: string,
@@ -147,6 +149,8 @@ export function experimental_assertAgentOk(
  * (not that it crashed or returned prose). A malformed or success result throws.
  *
  * @experimental Reads `experimental_agent`'s result contract.
+ *
+ * @beta
  */
 export function experimental_assertAgentErr(
   output: string,
@@ -163,6 +167,8 @@ export function experimental_assertAgentErr(
  * checking rich detail (e.g. `(r) => r.kind === "ok" && r.value.files.length > 0`).
  *
  * @experimental Reads `experimental_agent`'s result contract.
+ *
+ * @beta
  */
 export function experimental_assertAgentResult(
   output: string,

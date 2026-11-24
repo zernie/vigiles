@@ -18,7 +18,11 @@ import type { HarnessAdapter } from "./core/adapter.js";
 import type { EvalArm } from "./eval.js";
 import { outputStyleFixture, runHarnessTestIn } from "./harness-test.js";
 
-/** The style on and the style off, ready for `paid_measureArms({ arms })`. */
+/**
+ * The style on and the style off, ready for `paid_measureArms({ arms })`.
+ *
+ * @public
+ */
 export interface OutputStyleArms {
   /** The style file at its place in the work dir, selected in the settings. */
   readonly with: EvalArm;
@@ -35,6 +39,8 @@ export interface OutputStyleArms {
  *
  * @experimental One real-model run behind it; how arms are built may change
  * once a style can be authored as a compiled spec with its checks attached.
+ *
+ * @beta
  */
 export async function experimental_outputStyleArms(
   path: string,

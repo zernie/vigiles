@@ -14,7 +14,11 @@
 import type { StubCall } from "./stub-rules.js";
 import type { ContextEvidence } from "./context-evidence.js";
 
-/** Per-metric summary statistics across an arm's runs. */
+/**
+ * Per-metric summary statistics across an arm's runs.
+ *
+ * @public
+ */
 export interface MetricStat {
   /** Mean (numbers) / fraction-true (booleans). */
   readonly mean: number;
@@ -41,7 +45,11 @@ export interface MetricStat {
   readonly passK: number;
 }
 
-/** Aggregated cost / latency / tokens across an arm's runs. */
+/**
+ * Aggregated cost / latency / tokens across an arm's runs.
+ *
+ * @public
+ */
 export interface ArmUsage {
   readonly totalCostUsd: number;
   readonly meanCostUsd: number;
@@ -52,6 +60,7 @@ export interface ArmUsage {
   readonly totalCacheReadTokens: number;
 }
 
+/** @public */
 export interface ArmReport {
   readonly runs: number;
   /** Aggregated metrics: mean for numbers, fraction-true (0..1) for booleans. */
@@ -74,6 +83,7 @@ export interface ArmReport {
   readonly context?: readonly ContextEvidence[];
 }
 
+/** @public */
 export interface EvalReport {
   readonly name: string;
   readonly trials: number;
@@ -101,7 +111,11 @@ export interface EvalReport {
     | { readonly kind: "inherit"; readonly reason: string };
 }
 
-/** Per-prompt trigger result: how many of its trials fired. */
+/**
+ * Per-prompt trigger result: how many of its trials fired.
+ *
+ * @public
+ */
 export interface PromptTriggerStat {
   readonly prompt: string;
   readonly fired: number;
@@ -110,6 +124,7 @@ export interface PromptTriggerStat {
   readonly rate: number;
 }
 
+/** @public */
 export interface TriggerRateReport {
   /** Overall fraction of relevant runs in which the behaviour fired (recall, 0..1). */
   readonly rate: number;
