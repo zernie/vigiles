@@ -390,10 +390,11 @@ export interface ShellCommand {
    *
    * Read on a small CLOSED grammar (docs/compiled-hooks.md, "Where a command
    * runs"): a chain of simple commands, `cd` to a plain absolute or `./`/`../`
-   * path carried across `&&` only, and each program's own directory option
-   * from a table. Anything else is `unresolved`, with the reason, when a leaf
-   * that may run the program is in it — and a gate that called `dirs()` and
-   * then ALLOWED is turned into an `ask`, as with a command it cannot read.
+   * path carried across `&&` only, and git's argv read word by word (`-C`,
+   * known flags, a listed subcommand), optionally behind `env`. Every other
+   * program is unknown. Anything else is `unresolved`, with the reason, when a
+   * leaf that may run the program is in it — and a gate that called `dirs()`
+   * and then ALLOWED is turned into an `ask`, as with a command it cannot read.
    *
    * Built for an ALLOW decision that needs every candidate trusted
    * (`dirs.every(trusted)`); the paths are normalized lexically (no `..`, no

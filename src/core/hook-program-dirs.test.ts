@@ -147,6 +147,9 @@ describe("rule 3: git, read word by word; any word it does not know is unknown",
     unknown("git -C /r log --output=/x", "git log");
     unknown("git -C /r pul", EVERY);
   });
+});
+
+describe("rule 3: env, the one wrapper read around git", () => {
   test("the reported case: env -- FOO=bar git -C /foreign pull is unknown", () => {
     // GNU env reads NAME=VALUE operands after `--` too; any assignment may
     // steer git (GIT_*, HOME, XDG_CONFIG_HOME, PATH), so the leaf is unknown.

@@ -16,13 +16,13 @@
  *  2. `cd <word>` is read only when the word is plain text and absolute or
  *     starts with `./` or `../` — forms CDPATH never applies to. Any other
  *     `cd` makes the later leaves unknown.
- *  3. A program with plain argv runs in the chain's directory, moved by its
- *     own row of {@link DIR_TABLE} or by a wrapper read through its option
- *     table. A `..` in a table value is unknown (the program resolves it
- *     physically, the model only lexically). An option ahead of a
- *     subcommand-scoped program's subcommand is read by that program's own
- *     row or is unknown; a repeated option follows its row's declared
- *     `repeat`, and `none` is unknown.
+ *  3. A program call is read word by word, CLOSED: every word is one the
+ *     table lists, or the leaf is unknown. Only git is read — its global
+ *     options by {@link GIT_GLOBALS} (`-C` cumulative, a `..` in its value
+ *     unknown, since git resolves it physically and the model lexically), then
+ *     a subcommand from {@link GIT_SUBCOMMANDS} — and only `env` around it
+ *     (any assignment makes the git leaf unknown). Every other program and
+ *     every other wrapper is unknown (`unread-program`).
  *  4. Every `cd`/`pushd`/`popd` word in the RAW line — inside quotes, nested
  *     shells, heredocs, comments — must be one the grammar consumed, or the
  *     whole line is unknown (dcg's reconcile).
@@ -34,12 +34,11 @@
  */
 import { shellSyntax, type ShellSyntaxNode } from "./bash-effects.js";
 import {
-  DIR_TABLE,
-  WRAPPERS,
-  GIT_GLOBAL,
-  type DirRow,
+  ENV,
+  GIT_GLOBALS,
+  GIT_CHDIR_REPEAT,
+  GIT_SUBCOMMANDS,
   type Repeat,
-  type WrapperSpec,
 } from "./bash-dirs-table.js";
 
 /** Why a leaf's directory is not known. */
@@ -54,8 +53,10 @@ export type UnresolvedDir =
   | "after-break"
   /** A word of the leaf is not plain text (quotes, `$`, glob, `~`, …). */
   | "unplain-word"
-  /** An option outside its table, a `..` in a table value, a repository override. */
-  | "unread-option";
+  /** A git or env word outside its table, a `..` in a `-C` value, an env assignment. */
+  | "unread-option"
+  /** A program other than git, or a git subcommand outside the list: its argv is not read. */
+  | "unread-program";
 
 /** Where one leaf runs. */
 export type LeafDir =
@@ -242,6 +243,7 @@ const unknown = (reason: UnresolvedDir): LeafDir => ({
 });
 const known = (dir: string): LeafDir => ({ kind: "dir", dir });
 const UNREAD_OPTION = unknown("unread-option");
+const UNREAD_PROGRAM = unknown("unread-program");
 
 /** Where the chain is after `cd <args>`, from `at`. */
 function cdTo(args: readonly Node[], at: LeafDir): LeafDir {
@@ -253,16 +255,16 @@ function cdTo(args: readonly Node[], at: LeafDir): LeafDir {
   return at.kind === "dir" ? known(joinDir(at.dir, word)) : at;
 }
 
-/** A value read off a table option, applied to the directory so far. */
+/** A `-C` value, applied to the directory so far. */
 function moveTo(at: LeafDir, value: string): LeafDir {
   if (at.kind === "unknown") return at;
   return hasDotDot(value) ? UNREAD_OPTION : known(joinDir(at.dir, value));
 }
 
 /**
- * A table option met for the `seen`-th time (from 0), by its declared repeat:
- * the first moves from `at`; a later one moves from `at` (`cumulative`), from
- * `base`, where the program started (`last-wins`), or is unknown (`none`).
+ * A directory option met for the `seen`-th time (from 0), by its declared
+ * repeat: the first moves from `at`; a later one moves from `at`
+ * (`cumulative`) or from `base`, where the program started (`last-wins`).
  */
 function repeated(
   repeat: Repeat,
@@ -276,8 +278,6 @@ function repeated(
       return move(dirs.at);
     case "last-wins":
       return dirs.at.kind === "unknown" ? dirs.at : move(dirs.base);
-    case "none":
-      return UNREAD_OPTION;
   }
 }
 
@@ -304,77 +304,79 @@ function valueOf(
     : null;
 }
 
-/** What a wrapper read off its argv: the program after it, and where it runs. */
+/** What `env` read off its argv: the program after it, and where it runs. */
 type Unwrapped =
   | {
       readonly kind: "ok";
       readonly at: LeafDir;
       readonly rest: readonly string[];
-      readonly env: readonly string[];
+      /** Did it set a variable? Any one may steer git (`GIT_DIR`, `HOME`, `PATH`). */
+      readonly assigns: boolean;
     }
   | { readonly kind: "unread" };
 
 const UNREAD: Unwrapped = { kind: "unread" };
 
-interface WrapState {
+interface EnvState {
   readonly i: number;
   readonly at: LeafDir;
-  /** Where the wrapper started, and how many `chdir` options it has read. */
+  /** Where env started, and how many `-C` options it has read. */
   readonly base: LeafDir;
   readonly seen: number;
-  readonly operands: number;
-  readonly env: readonly string[];
 }
 
-/** One option of a wrapper, by its row: where the scan goes next, or `null`. */
-function wrapperOption(
-  spec: WrapperSpec,
-  argv: readonly string[],
-  s: WrapState,
-): WrapState | null {
-  if (spec.flags.includes(argv[s.i] ?? "")) return { ...s, i: s.i + 1 };
-  const chdir = valueOf(argv, s.i, spec.chdir);
+/** One option of env, by its row: where the scan goes next, or `null`. */
+function envOption(argv: readonly string[], s: EnvState): EnvState | null {
+  if (ENV.flags.includes(argv[s.i] ?? "")) return { ...s, i: s.i + 1 };
+  const chdir = valueOf(argv, s.i, ENV.chdir);
   if (chdir === "missing") return null;
   if (chdir !== null) {
-    const at = repeated(spec.repeat, s.seen, s, (from) =>
+    const at = repeated(ENV.repeat, s.seen, s, (from) =>
       moveTo(from, chdir.value),
     );
     return { ...s, i: chdir.next, at, seen: s.seen + 1 };
   }
-  const val = valueOf(argv, s.i, spec.valued);
+  const val = valueOf(argv, s.i, ENV.valued);
   return val === null || val === "missing" ? null : { ...s, i: val.next };
 }
 
 const ASSIGN = /^[A-Za-z_][A-Za-z0-9_]*=/;
 
-/** Scan a wrapper's words from `s` to the program it runs. */
-function wrapScan(
-  spec: WrapperSpec,
+/** env's operands from `i`: an optional lone `-`, the assignments, then the program. */
+function envOperands(
   argv: readonly string[],
-  s: WrapState,
+  i: number,
+  at: LeafDir,
 ): Unwrapped {
+  const from = argv[i] === "-" ? i + 1 : i;
+  const program = argv.findIndex((a, k) => k >= from && !ASSIGN.test(a));
+  const end = program === -1 ? argv.length : program;
+  return { kind: "ok", at, rest: argv.slice(end), assigns: end > from };
+}
+
+/** env's options from `s`, up to its first operand. */
+function envScan(argv: readonly string[], s: EnvState): Unwrapped {
   const arg = argv[s.i];
-  const done = (from: number): Unwrapped => ({
-    kind: "ok",
-    at: s.at,
-    rest: argv.slice(from),
-    env: s.env,
-  });
-  if (arg === undefined) return done(s.i);
-  if (arg === "--") return done(s.i + 1);
-  if (arg.startsWith("-") && arg !== "-") {
-    const next = wrapperOption(spec, argv, s);
-    return next === null ? UNREAD : wrapScan(spec, argv, next);
-  }
-  if (spec.assigns === true && ASSIGN.test(arg))
-    return wrapScan(spec, argv, {
-      ...s,
-      i: s.i + 1,
-      env: [...s.env, arg.slice(0, arg.indexOf("="))],
-    });
-  return s.operands > 0
-    ? wrapScan(spec, argv, { ...s, i: s.i + 1, operands: s.operands - 1 })
-    : done(s.i);
+  if (arg === "--") return envOperands(argv, s.i + 1, s.at);
+  if (arg === undefined || !arg.startsWith("-") || arg === "-")
+    return envOperands(argv, s.i, s.at);
+  const next = envOption(argv, s);
+  return next === null ? UNREAD : envScan(argv, next);
+}
+
+/** Strip every `env` off `argv` through its row; `UNREAD` on a word outside it. */
+function unwrap(
+  argv: readonly string[],
+  at: LeafDir,
+  assigns: boolean,
+): Unwrapped {
+  if (basename(argv[0] ?? "") !== "env" || argv.length < 2)
+    return { kind: "ok", at, rest: argv, assigns };
+  const r = envScan(argv, { i: 1, at, base: at, seen: 0 });
+  if (r.kind === "unread") return r;
+  return r.rest.length === 0
+    ? { kind: "ok", at, rest: argv, assigns: assigns || r.assigns }
+    : unwrap(r.rest, r.at, assigns || r.assigns);
 }
 
 interface GitState {
@@ -385,181 +387,25 @@ interface GitState {
 }
 
 /**
- * git's global options, read from `s.i` up to its subcommand by
- * {@link GIT_GLOBAL}: an option not listed there makes the leaf unknown.
+ * git's argv from `s.i`: each global option by its row of
+ * {@link GIT_GLOBALS}, then the subcommand, which must be one of
+ * {@link GIT_SUBCOMMANDS}. Any other word, and any option whose row says
+ * `unknown`, makes the leaf unknown.
  */
 function readGit(argv: readonly string[], s: GitState): LeafDir {
-  const arg = argv[s.i] ?? "";
-  if (!arg.startsWith("-")) return s.at;
-  if (GIT_GLOBAL.refuse.some((r) => arg === r || arg.startsWith(`${r}=`)))
-    return UNREAD_OPTION;
-  if (GIT_GLOBAL.flags.includes(arg))
-    return readGit(argv, { ...s, i: s.i + 1 });
-  const val = valueOf(argv, s.i, [...GIT_GLOBAL.chdir, ...GIT_GLOBAL.valued]);
-  if (val === null || val === "missing") return UNREAD_OPTION;
-  if (/^core\.worktree(?:=|$)/i.test(val.value)) return UNREAD_OPTION;
-  if (!GIT_GLOBAL.chdir.includes(arg))
-    return readGit(argv, { ...s, i: val.next });
-  const at = repeated(GIT_GLOBAL.repeat, s.seen, s, (from) =>
-    moveTo(from, val.value),
+  const arg = argv[s.i];
+  if (arg === undefined) return s.at;
+  if (!arg.startsWith("-"))
+    return GIT_SUBCOMMANDS.includes(arg) ? s.at : UNREAD_PROGRAM;
+  const row = GIT_GLOBALS.find((g) => g.names.includes(arg));
+  if (row === undefined || row.effect === "unknown") return UNREAD_OPTION;
+  if (row.effect === "none") return readGit(argv, { ...s, i: s.i + 1 });
+  const value = argv[s.i + 1];
+  if (value === undefined) return UNREAD_OPTION;
+  const at = repeated(GIT_CHDIR_REPEAT, s.seen, s, (from) =>
+    moveTo(from, value),
   );
-  return readGit(argv, { ...s, i: val.next, at, seen: s.seen + 1 });
-}
-
-/** Does `arg` spell `flag` a way the row does not read (cluster, attached, abbreviated)? */
-function otherSpelling(arg: string, flag: string): boolean {
-  if (arg === flag || arg.startsWith(`${flag}=`)) return false;
-  if (/^-[A-Za-z]$/.test(flag))
-    return (
-      /^-[A-Za-z0-9]/.test(arg) &&
-      !arg.startsWith("--") &&
-      arg.slice(1).includes(flag.slice(1))
-    );
-  const name = arg.split("=")[0] ?? arg;
-  return (
-    arg.startsWith("--") &&
-    name.length >= 3 &&
-    name !== flag &&
-    flag.startsWith(name)
-  );
-}
-
-/** Does `arg` spell `flag` in any form: exact, `=value`, or another spelling? */
-const spells = (arg: string, flag: string): boolean =>
-  arg === flag || arg.startsWith(`${flag}=`) || otherSpelling(arg, flag);
-
-/** An occurrence of the row's option at `i`: its value and the next index. */
-function rowOption(
-  row: DirRow,
-  args: readonly string[],
-  i: number,
-): Valued | "missing" | null {
-  const sep = valueOf(args, i, row.separate);
-  if (sep !== null) return sep;
-  const arg = args[i] ?? "";
-  const eq = row.equals.find((f) => arg.startsWith(`${f}=`));
-  return eq === undefined
-    ? null
-    : { value: arg.slice(eq.length + 1), next: i + 1 };
-}
-
-/** Is `arg` an option the row lists as allowed before its option? */
-function listedBefore(row: DirRow, arg: string): "value" | "ok" | "unread" {
-  if ((row.valued ?? []).includes(arg)) return "value";
-  const listed =
-    (row.flags ?? []).includes(arg) ||
-    (row.valued ?? []).some((v) => arg.startsWith(`${v}=`));
-  return listed ? "ok" : "unread";
-}
-
-/** What a word other than the row's option does to the scan. */
-function otherWord(
-  row: DirRow,
-  arg: string,
-  operand: boolean,
-): "operand" | "value" | "ok" | "unread" {
-  if ([...row.separate, ...row.equals].some((f) => otherSpelling(arg, f)))
-    return "unread";
-  if ((row.refuse ?? []).some((f) => spells(arg, f))) return "unread";
-  if (arg === "--") return "operand";
-  if (operand || !row.beforeOperand) return "ok";
-  return arg.startsWith("-") ? listedBefore(row, arg) : "operand";
-}
-
-interface RowState {
-  readonly i: number;
-  readonly at: LeafDir;
-  /** Where the program started, for a `last-wins` repeat. */
-  readonly base: LeafDir;
-  readonly seen: number;
-  readonly operand: boolean;
-}
-
-/** The directory a row's option names, applied to where the leaf is so far. */
-function applyRow(row: DirRow, at: LeafDir, value: string): LeafDir {
-  if (row.container !== true) return moveTo(at, value);
-  return value.startsWith("/") && !hasDotDot(value)
-    ? known(joinDir("/", value))
-    : UNREAD_OPTION;
-}
-
-/** The row's option met at `s.i`: read it by its declared repeat, or refuse a late one. */
-function readRowOption(
-  row: DirRow,
-  args: readonly string[],
-  s: RowState,
-  opt: Valued | "missing",
-): LeafDir {
-  if (opt === "missing" || s.operand) return UNREAD_OPTION;
-  const at = repeated(row.repeat, s.seen, s, (from) =>
-    applyRow(row, from, opt.value),
-  );
-  if (at.kind === "unknown") return at;
-  return readRow(row, args, { ...s, i: opt.next, at, seen: s.seen + 1 });
-}
-
-/** The leaf's directory under one row of {@link DIR_TABLE}, scanning from `s`. */
-function readRow(row: DirRow, args: readonly string[], s: RowState): LeafDir {
-  if (s.i >= args.length)
-    return row.container === true && s.seen === 0 ? UNREAD_OPTION : s.at;
-  const opt = rowOption(row, args, s.i);
-  if (opt !== null) return readRowOption(row, args, s, opt);
-  const w = otherWord(row, args[s.i] ?? "", s.operand);
-  if (w === "unread") return UNREAD_OPTION;
-  const step = w === "value" ? 2 : 1;
-  return readRow(row, args, {
-    ...s,
-    i: s.i + step,
-    operand: s.operand || w === "operand",
-  });
-}
-
-/**
- * The row for a program call and the words after its program (and
- * subcommand). A program with rows scoped to subcommands reads an option
- * ahead of its subcommand only through its own row; with none, the leaf is
- * unknown rather than run where it started (`go -C /x test`, `docker -H h exec`).
- */
-function rowFor(
-  argv: readonly string[],
-):
-  | { readonly row: DirRow; readonly args: readonly string[] }
-  | "unread"
-  | null {
-  const head = basename(argv[0] ?? "");
-  const rows = DIR_TABLE.filter((r) => r.program === head);
-  const second = argv[1] ?? "";
-  const sub = rows.find((r) => r.sub?.includes(second) === true);
-  if (sub !== undefined) return { row: sub, args: argv.slice(2) };
-  const own = rows.find((r) => r.sub === undefined);
-  if (own !== undefined) return { row: own, args: argv.slice(1) };
-  return rows.length > 0 && second.startsWith("-") ? "unread" : null;
-}
-
-/** Wrappers a reader elsewhere strips that the directory table does not read. */
-const UNREAD_WRAPPERS = new Set(["nohup"]);
-
-/** Strip every wrapper off `argv` through its row; `UNREAD` on an option outside it. */
-function unwrap(
-  argv: readonly string[],
-  at: LeafDir,
-  env: readonly string[],
-): Unwrapped {
-  const spec = WRAPPERS[basename(argv[0] ?? "")];
-  if (spec === undefined || argv.length < 2)
-    return { kind: "ok", at, rest: argv, env };
-  const r = wrapScan(spec, argv, {
-    i: 1,
-    at,
-    base: at,
-    seen: 0,
-    operands: spec.operands ?? 0,
-    env,
-  });
-  if (r.kind === "unread") return r;
-  return r.rest.length === 0
-    ? { kind: "ok", at, rest: argv, env }
-    : unwrap(r.rest, r.at, r.env);
+  return readGit(argv, { ...s, i: s.i + 2, at, seen: s.seen + 1 });
 }
 
 type CallRead =
@@ -570,27 +416,16 @@ type CallRead =
     }
   | Out;
 
-/** A plain call's program and directory: its wrappers, then its own row. */
+/** A plain call's program and directory: `env`, then git's argv; any other program is unknown. */
 function readProgram(words: readonly string[], at: LeafDir): CallRead {
-  const u = unwrap(words, at, []);
+  const u = unwrap(words, at, false);
   if (u.kind === "unread") return { kind: "leaf", argv: [], at: UNREAD_OPTION };
   const head = basename(u.rest[0] ?? "");
   if (OUTSIDE_PROGRAMS.has(head)) return OUT;
-  if (u.env.some((n) => n.startsWith("GIT_")) || UNREAD_WRAPPERS.has(head))
-    return { kind: "leaf", argv: [], at: UNREAD_OPTION };
+  if (head !== "git") return { kind: "leaf", argv: u.rest, at: UNREAD_PROGRAM };
+  if (u.assigns) return { kind: "leaf", argv: u.rest, at: UNREAD_OPTION };
   const from = { at: u.at, base: u.at, seen: 0 };
-  if (head === "git")
-    return {
-      kind: "leaf",
-      argv: u.rest,
-      at: readGit(u.rest, { ...from, i: 1 }),
-    };
-  const r = rowFor(u.rest);
-  if (r === "unread") return { kind: "leaf", argv: u.rest, at: UNREAD_OPTION };
-  const dir = r
-    ? readRow(r.row, r.args, { ...from, i: 0, operand: false })
-    : u.at;
-  return { kind: "leaf", argv: u.rest, at: dir };
+  return { kind: "leaf", argv: u.rest, at: readGit(u.rest, { ...from, i: 1 }) };
 }
 
 // ---------------------------------------------------------------------------

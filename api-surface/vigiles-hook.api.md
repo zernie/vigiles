@@ -421,8 +421,10 @@ export type UnresolvedDir =
 | "after-break"
 /** A word of the leaf is not plain text (quotes, `$`, glob, `~`, …). */
 | "unplain-word"
-/** An option outside its table, a `..` in a table value, a repository override. */
-| "unread-option";
+/** A git or env word outside its table, a `..` in a `-C` value, an env assignment. */
+| "unread-option"
+/** A program other than git, or a git subcommand outside the list: its argv is not read. */
+| "unread-program";
 
 // (No @packageDocumentation comment for this package)
 
