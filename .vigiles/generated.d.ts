@@ -172,7 +172,7 @@ declare module "vigiles/generated" {
   /** All enabled linter rules across all detected linters. */
   export type LinterRule = EslintRule;
 
-  /** 22 npm scripts from package.json. */
+  /** 23 npm scripts from package.json. */
   export type NpmScript = 
     | "build"
     | "build:core"
@@ -188,6 +188,7 @@ declare module "vigiles/generated" {
     | "test:eval"
     | "test:vitest"
     | "test:jest"
+    | "test:node-runner"
     | "test:types"
     | "api:report"
     | "api:check"
@@ -197,7 +198,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 644 project files. */
+  /** 650 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -273,6 +274,8 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/skill-runtime.test.ts"
     | "src/adapters/claude-code/skill-runtime.ts"
     | "src/adapters/claude-code/skills-dogfood.test.ts"
+    | "src/adapters/claude-code/trace-facts.test.ts"
+    | "src/adapters/claude-code/trace-facts.ts"
     | "src/adapters/claude-code/typed-spec.ts"
     | "src/adapters/claude-code/untested-output-style.test.ts"
     | "src/adapters/claude-code/vendor-coverage.test.ts"
@@ -282,6 +285,7 @@ declare module "vigiles/generated" {
     | "src/adapters/codex/always-loaded-lint.test.ts"
     | "src/adapters/codex/always-loaded.test.ts"
     | "src/adapters/codex/codex.test.ts"
+    | "src/adapters/codex/command-facts.ts"
     | "src/adapters/codex/context-check.test.ts"
     | "src/adapters/codex/dialect.ts"
     | "src/adapters/codex/driver.ts"
@@ -302,6 +306,7 @@ declare module "vigiles/generated" {
     | "src/adapters/codex/skill-listing-delivery.test.ts"
     | "src/adapters/codex/skill-listing.test.ts"
     | "src/adapters/codex/skill-listing.ts"
+    | "src/adapters/codex/trace-facts.test.ts"
     | "src/adapters/opencode/adapter.ts"
     | "src/adapters/opencode/dialect.ts"
     | "src/adapters/opencode/instruction-chain.test.ts"
@@ -331,6 +336,8 @@ declare module "vigiles/generated" {
     | "src/audit-verdict.ts"
     | "src/check-count.test.ts"
     | "src/check-count.ts"
+    | "src/check-object.test.ts"
+    | "src/check-parity.test.ts"
     | "src/check-replies.test.ts"
     | "src/check.test.ts"
     | "src/check.ts"
@@ -1086,6 +1093,8 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/skill-runtime.test.ts"
       | "src/adapters/claude-code/skill-runtime.ts"
       | "src/adapters/claude-code/skills-dogfood.test.ts"
+      | "src/adapters/claude-code/trace-facts.test.ts"
+      | "src/adapters/claude-code/trace-facts.ts"
       | "src/adapters/claude-code/typed-spec.ts"
       | "src/adapters/claude-code/untested-output-style.test.ts"
       | "src/adapters/claude-code/vendor-coverage.test.ts"
@@ -1095,6 +1104,7 @@ declare module "vigiles/spec" {
       | "src/adapters/codex/always-loaded-lint.test.ts"
       | "src/adapters/codex/always-loaded.test.ts"
       | "src/adapters/codex/codex.test.ts"
+      | "src/adapters/codex/command-facts.ts"
       | "src/adapters/codex/context-check.test.ts"
       | "src/adapters/codex/dialect.ts"
       | "src/adapters/codex/driver.ts"
@@ -1115,6 +1125,7 @@ declare module "vigiles/spec" {
       | "src/adapters/codex/skill-listing-delivery.test.ts"
       | "src/adapters/codex/skill-listing.test.ts"
       | "src/adapters/codex/skill-listing.ts"
+      | "src/adapters/codex/trace-facts.test.ts"
       | "src/adapters/opencode/adapter.ts"
       | "src/adapters/opencode/dialect.ts"
       | "src/adapters/opencode/instruction-chain.test.ts"
@@ -1144,6 +1155,8 @@ declare module "vigiles/spec" {
       | "src/audit-verdict.ts"
       | "src/check-count.test.ts"
       | "src/check-count.ts"
+      | "src/check-object.test.ts"
+      | "src/check-parity.test.ts"
       | "src/check-replies.test.ts"
       | "src/check.test.ts"
       | "src/check.ts"
@@ -1673,6 +1686,7 @@ declare module "vigiles/spec" {
       | "test:eval"
       | "test:vitest"
       | "test:jest"
+      | "test:node-runner"
       | "test:types"
       | "api:report"
       | "api:check"

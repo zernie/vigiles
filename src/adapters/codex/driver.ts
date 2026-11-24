@@ -60,7 +60,18 @@ export function buildCodexArgs(ctx: HarnessDriverContext): string[] {
  * stdout as the output. Pure, so it's unit-tested without spawning codex.
  */
 export function parseCodexRun(stdout: string): ParsedRun {
-  return { toolCalls: [], hooks: [], output: stdout.trim() };
+  return {
+    toolCalls: [],
+    hooks: [],
+    output: stdout.trim(),
+    // Plain-text `exec` carries no command, so the fact is honestly unknown —
+    // never "no skill fired". The eval tier (`--json`) observes it.
+    skills: {
+      observable: false,
+      harness: "codex",
+      why: "the harness tier runs `codex exec` without `--json`, so no command is captured — measure skill firing on the eval tier",
+    },
+  };
 }
 
 /* v8 ignore start -- spawns the real codex CLI; exercised by the gated

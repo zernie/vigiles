@@ -159,6 +159,7 @@ test("parseCodexEvalRun is tolerant + returns the Claude-shaped contract", () =>
     "costObserved",
     "hooks",
     "output",
+    "skills",
     "subagents",
     "toolCalls",
     "turns",
