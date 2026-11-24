@@ -6,8 +6,8 @@
  * HTML report and `--json` also render from — and never from terminal text, so
  * a change to the terminal layout cannot break the comment.
  *
- * The section carries the grade, the four graded rings (the two advisory ones
- * marked as advisory), the fixes worth the most points (from the verdict
+ * The section carries the grade, the four graded rings as coloured badges (the
+ * two advisory ones grey, on their own line), the fixes worth the most points (from the verdict
  * engine's real re-score) or, when the report has no fix list, the graded
  * rings' own findings, everything in a collapsed list, and — on a pull request
  * — each ring's change against an `audit --json` report of the PR base. It ends
@@ -26,6 +26,7 @@ import {
   parseAuditSnapshot,
   type AuditSnapshot,
 } from "./core/audit-snapshot.js";
+import { gradeFor } from "./score-core.js";
 
 /** The first line of every rendered section. */
 export const AUDIT_SUMMARY_MARKER = "<!-- vigiles-audit-summary -->";
@@ -111,13 +112,37 @@ function scoreText(c: Readonly<CategoryScore>): string {
   return c.notMeasured === true ? "not measured" : "n/a";
 }
 
-function ringRow(
+/** shields.io colours by grade band: the same A–F bands the headline uses. */
+const BAND_COLOUR = {
+  A: "brightgreen",
+  B: "green",
+  C: "yellow",
+  D: "orange",
+  F: "red",
+} as const;
+
+/**
+ * Text for a shields.io static-badge path segment: `-` and `_` doubled, then
+ * URL-encoded, parentheses too, so the markdown image link stays one token.
+ */
+const shieldsText = (s: string): string =>
+  encodeURIComponent(s.replaceAll("-", "--").replaceAll("_", "__"))
+    .replaceAll("(", "%28")
+    .replaceAll(")", "%29");
+
+/**
+ * One ring as a coloured badge. The alt text carries the plain value, so a
+ * reader without images (an email notification, a screen reader) reads the
+ * same `Safety: 90 → 82 ▼` the badge shows. Advisory and unscored rings are
+ * grey: they are not graded, so they get no band colour.
+ */
+function ringBadge(
   c: Readonly<CategoryScore>,
   base: Readonly<BaseAudit>,
 ): string {
-  const name = c.advisory === true ? `${c.key} _(advisory)_` : c.key;
+  const name = c.advisory === true ? `${c.key} (advisory)` : c.key;
   const now = scoreText(c);
-  const cell =
+  const value =
     base.kind === "report"
       ? change(
           base.score.categories.find((b) => b.key === c.key)?.score ?? null,
@@ -125,7 +150,24 @@ function ringRow(
           now,
         )
       : now;
-  return `| ${name} | ${cell} |`;
+  const colour =
+    c.score === null || c.advisory === true
+      ? "lightgrey"
+      : BAND_COLOUR[gradeFor(c.score)];
+  return `![${name}: ${value}](https://img.shields.io/badge/${shieldsText(name)}-${shieldsText(value)}-${colour})`;
+}
+
+/** The graded rings on one line, the advisory ones on the next. */
+function ringBadges(
+  report: AuditReport,
+  base: Readonly<BaseAudit>,
+): readonly string[] {
+  const row = (advisory: boolean): string =>
+    report.score.categories
+      .filter((c) => (c.advisory === true) === advisory)
+      .map((c) => ringBadge(c, base))
+      .join(" ");
+  return [row(false), "", row(true)];
 }
 
 function headline(report: AuditReport, base: Readonly<BaseAudit>): string {
@@ -202,11 +244,22 @@ function fitted(items: readonly string[], budget: number): readonly string[] {
       ];
 }
 
-/** The top items numbered, then as many as fit collapsed. */
+/**
+ * The top items numbered, then as many as fit collapsed. When the top already
+ * shows every item, it shows them whole and folds nothing: the same lines twice
+ * is noise (`tidy-output`).
+ */
 function listed(
   noun: "fixes" | "findings",
   items: readonly string[],
 ): readonly string[] {
+  if (items.length <= TOP)
+    return [
+      `**${noun === "fixes" ? "Fixes" : "Findings"}**`,
+      "",
+      ...items.map((f, i) => `${String(i + 1)}. ${f}`),
+      "",
+    ];
   return [
     `**Top ${noun}**`,
     "",
@@ -246,9 +299,7 @@ export function renderAuditPrSummary(
     ...(base.kind === "unavailable"
       ? [`_No comparison with the PR base: ${base.why}._`, ""]
       : []),
-    base.kind === "report" ? "| Ring | Base → now |" : "| Ring | Score |",
-    "| :-- | --: |",
-    ...report.score.categories.map((c) => ringRow(c, base)),
+    ...ringBadges(report, base),
     "",
     ...whatToFix(report),
     HEADLESS,

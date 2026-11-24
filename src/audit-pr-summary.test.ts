@@ -120,9 +120,23 @@ const BASE: BaseAudit = {
   },
 };
 
-/** The table row (or line) that names a ring. */
+/** A ring's badge alt text: its plain value, as a reader without images sees it. */
 const lineFor = (md: string, key: string): string =>
-  md.split("\n").find((l) => l.includes(key)) ?? "";
+  new RegExp(`!\\[${key}[^\\]]*\\]`).exec(md)?.[0] ?? "";
+
+describe("ring badges", () => {
+  it("colours a graded ring by its band, an advisory one grey", () => {
+    const md = renderAuditPrSummary(headReport(), { kind: "none" });
+    const url = (key: string): string =>
+      new RegExp(`!\\[${key}[^\\]]*\\]\\(([^)]+)\\)`).exec(md)?.[1] ?? "";
+    // Structure 70 is a C, Truthfulness 100 an A: different bands, different colours.
+    expect(url("Structure").endsWith("-yellow")).toBe(true);
+    expect(url("Truthfulness").endsWith("-brightgreen")).toBe(true);
+    expect(url("Tested").endsWith("-lightgrey")).toBe(true);
+    // A dash in the value would end the badge's label segment early.
+    expect(url("Tested")).not.toMatch(/\(advisory\)/);
+  });
+});
 
 describe("renderAuditPrSummary", () => {
   it("starts with the marker the Action looks for", () => {
