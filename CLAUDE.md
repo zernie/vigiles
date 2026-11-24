@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:3a9f3cc320914f01 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:3aa99dc0a5dcc173 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -160,10 +160,6 @@ BUILD + TOOLING + GENERATED:
 ### Dont Reimplement Linters
 
 **Guidance only** — Architectural linting belongs in ast-grep/Dependency Cruiser/Steiger. [Details](docs/contributing/rules.md#dont-reimplement-linters)
-
-### Prefer Existing Solutions
-
-**Guidance only** — Before building any non-trivial capability — a tool, a check, a runtime, a parser — LOOK FOR EXISTING SOLUTIONS FIRST and PREFER adopting/composing/delegating over reinventing. [Details](docs/contributing/rules.md#prefer-existing-solutions)
 
 ### Parse Structured Input With A Real Parser
 

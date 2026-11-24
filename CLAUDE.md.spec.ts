@@ -192,14 +192,6 @@ BUILD + TOOLING + GENERATED:
       },
     ),
 
-    "prefer-existing-solutions": guidance(
-      "Before building any non-trivial capability — a tool, a check, a runtime, a parser — LOOK FOR EXISTING SOLUTIONS FIRST and PREFER adopting/composing/delegating over reinventing.",
-      {
-        details: file("docs/contributing/rules.md"),
-        anchor: "prefer-existing-solutions",
-      },
-    ),
-
     "parse-structured-input-with-a-real-parser": guidance(
       "Parse a structured language with its real parser, never a hand-rolled regex or line scanner; SKILL.md and subagent frontmatter go through `src/core/frontmatter-read.ts`.",
       {
