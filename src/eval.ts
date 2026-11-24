@@ -24,7 +24,7 @@
  */
 import { refuseUnderForeignRunner } from "./core/foreign-runner.js";
 import { refuseDuringEvalLoad } from "./core/eval-load-phase.js";
-import { spawn, execSync } from "node:child_process";
+import { spawn, execSync, type ChildProcess } from "node:child_process";
 import {
   mkdirSync,
   writeFileSync,
@@ -618,6 +618,24 @@ export const spawnAgent: AgentRunner = withEffortGuard(
   withStartGuard(spawnAgentRaw),
 );
 
+/**
+ * Kill `child` when `signal` fires: the eval no longer needs the run, because
+ * another trial failed (#527). Returns whether it fired, so a cancelled run is
+ * not read as a timeout and charged its whole budget cap (#416).
+ */
+export function killOnAbort(
+  child: Readonly<Pick<ChildProcess, "kill">>,
+  signal: Readonly<AbortSignal> | undefined,
+): () => boolean {
+  if (signal === undefined) return () => false;
+  const kill = (): void => {
+    child.kill("SIGKILL");
+  };
+  if (signal.aborted) kill();
+  else signal.addEventListener("abort", kill, { once: true });
+  return () => signal.aborted;
+}
+
 /* v8 ignore start -- real claude subprocess; exercised by bench/, not the unit gate */
 /** The unguarded spawn itself; wrapped by {@link spawnAgent}, never bound raw. */
 function spawnAgentRaw(a: AgentRunArgs): Promise<RunOut> {
@@ -637,10 +655,12 @@ function spawnAgentRaw(a: AgentRunArgs): Promise<RunOut> {
     child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
     child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
     const timer = setTimeout(() => child.kill("SIGKILL"), a.timeoutMs);
+    const cancelled = killOnAbort(child, a.signal);
     child.on("close", (code, signal) => {
       clearTimeout(timer);
-      // The only kill is the timer's, so `killed` says the timeout fired.
-      const timedOut = child.killed;
+      // Two kills: the timer's and a cancel's, so a kill is a timeout only
+      // when the run was not cancelled.
+      const timedOut = child.killed && !cancelled();
       resolvePromise(closedRun({ code, signal, timedOut, stdout, stderr }));
     });
   });

@@ -30,6 +30,7 @@ import {
   parseUsage,
   runEvalWith,
   runPool,
+  killOnAbort,
   isRateLimited,
   measureTriggerRateWith,
   measureTriggerRate,
@@ -2755,6 +2756,31 @@ test("runEvalWith signals an in-flight run to stop when another trial fails (#52
     /the other trial failed/,
   );
   assert.equal(inFlight?.signal?.aborted, true);
+});
+
+// The built-in runner's half of #527: the signal kills the agent process, and
+// a kill that came from a cancel is not read as a timeout (#416 charges those).
+test("killOnAbort kills the child when the signal fires, and says it did", () => {
+  const kills: string[] = [];
+  const child = {
+    kill: (s?: NodeJS.Signals | number) => kills.push(String(s)) > 0,
+  };
+  const stop = new AbortController();
+  const cancelled = killOnAbort(child, stop.signal);
+  assert.deepEqual([kills, cancelled()], [[], false]);
+  stop.abort();
+  assert.deepEqual([kills, cancelled()], [["SIGKILL"], true]);
+});
+
+test("killOnAbort kills at once on a signal that already fired, and never without one", () => {
+  const kills: string[] = [];
+  const child = {
+    kill: (s?: NodeJS.Signals | number) => kills.push(String(s)) > 0,
+  };
+  const cancelled = killOnAbort(child, AbortSignal.abort());
+  assert.deepEqual([kills, cancelled()], [["SIGKILL"], true]);
+  const unsignalled = killOnAbort(child, undefined);
+  assert.deepEqual([kills, unsignalled()], [["SIGKILL"], false]);
 });
 
 // vigiles#416 (the timeout-cost note): a run the timeout killed has no `result`
