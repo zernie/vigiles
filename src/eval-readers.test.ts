@@ -8,13 +8,10 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 
 import { compare, assertImproves } from "./eval-readers.js";
-import {
-  assertRates,
-  type CheckReport,
-  type EvalReport,
-  type TriggerRateReport,
-} from "./eval.js";
+import type { EvalReport, TriggerRateReport } from "./eval.js";
 import { aggregateStats } from "./core/eval-aggregate.js";
+import { assertRates } from "./eval-rate-gate.js";
+import type { CheckReport } from "./eval-check-report.js";
 
 const NO_USAGE = {
   totalCostUsd: 0,

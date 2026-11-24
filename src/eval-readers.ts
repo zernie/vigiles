@@ -14,7 +14,8 @@
  *     change gained and lost. Replaces `compareContainment`.
  *   - `assertImproves(report, { …, significant: true })` — the gate on that,
  *     replacing `assertSignificant`.
- *   - `assertRates` (in `src/eval.ts`, beside the check report it reads) with
+ *   - `assertRates` (in `src/eval-rate-gate.ts`, over the check report of
+ *     `src/eval-check-report.ts`) with
  *     `passK: 1` replacing `reliable` / `assertReliable`. Since v52 it also
  *     gates a trigger-rate report, replacing `assertTriggerRate` (the gate
  *     itself is {@link assertTriggerRateReport} here).

@@ -54,16 +54,15 @@ import { basename } from "node:path";
 import { isEvalScript } from "./source-kinds.js";
 
 import type {
-  ArmsCheckReport,
   EvalDriver,
   ArmsMeasureSpec,
-  CheckReport,
   EvalReport,
   EvalSpec,
   MeasureSpec,
   TriggerRateReport,
   TriggerRateSpec,
 } from "./eval.js";
+import type { ArmsCheckReport, CheckReport } from "./eval-check-report.js";
 import type { Metrics } from "./core/eval-aggregate.js";
 import type {
   SelectionMatrixOptions,

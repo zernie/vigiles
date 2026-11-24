@@ -46,13 +46,7 @@ import {
   measureArms,
   measureTriggerRate,
   runEval,
-  formatCheckReport,
-  formatArmsCheckReport,
-  formatEvalReport,
-  formatTriggerRateReport,
-  type ArmsCheckReport,
   type ArmsMeasureSpec,
-  type CheckReport,
   type EvalReport,
   type EvalSpec,
   type MeasureSpec,
@@ -60,6 +54,13 @@ import {
   type EvalDriver,
   type TriggerRateSpec,
 } from "./eval.js";
+import {
+  formatCheckReport,
+  formatArmsCheckReport,
+  type ArmsCheckReport,
+  type CheckReport,
+} from "./eval-check-report.js";
+import { formatEvalReport, formatTriggerRateReport } from "./eval-format.js";
 import type { Metrics } from "./core/eval-aggregate.js";
 import {
   unansweredInReport,
