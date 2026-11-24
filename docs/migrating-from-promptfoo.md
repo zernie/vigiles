@@ -79,8 +79,9 @@ tests:
 [`examples/harness/from-promptfoo.eval.mjs`](../examples/harness/from-promptfoo.eval.mjs)):
 
 ```javascript
-import { defineEval, output, cost, assertRates } from "vigiles"; // free: a description cannot spend
-import { paid_judged } from "vigiles/eval"; // a Check whose default judge calls a model
+import { defineEval, output, cost } from "vigiles"; // free: a description cannot spend
+// paid_judged: a Check whose default judge calls a model; assertRates reads the report (free)
+import { paid_judged, assertRates } from "vigiles/eval";
 
 export default defineEval({
   measure: {

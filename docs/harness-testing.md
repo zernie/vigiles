@@ -824,7 +824,8 @@ A `*.harness.mjs` is a **program**: it is free, so running it is the point. A
 to run itself.
 
 ```js
-import { defineEval, assertRates, skill } from "vigiles";
+import { defineEval, skill } from "vigiles";
+import { assertRates } from "vigiles/eval";
 
 export default defineEval({
   measure: {

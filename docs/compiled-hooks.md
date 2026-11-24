@@ -269,10 +269,11 @@ Throttling is not a separate feature — it is this one, read as "when did I las
 
 ### Testing a hook that remembers
 
-A throttle only does anything interesting against an **old** fact — and "old" is not something a test can produce by waiting. So the store is seedable, through one handle on the `vigiles` test surface:
+A throttle only does anything interesting against an **old** fact — and "old" is not something a test can produce by waiting. So the store is seedable, through one handle on `vigiles/battery`:
 
 ```js
-import { experimental_hookState, runHook } from "vigiles";
+import { runHook } from "vigiles";
+import { experimental_hookState } from "vigiles/battery";
 
 const st = experimental_hookState(hookFile, { cwd: projectRoot });
 st.clear(); // start from "never recorded"
@@ -905,7 +906,7 @@ that uses named state is archaeology today. The runtime derives the store's path
 from the hook's own location and validates the key charset, so a test that wants
 to seed 'this fact was recorded four days ago' must reconstruct a private path.
 The dogfood repo does exactly that, hard-coded, and it broke when the facts were
-renamed."_ `experimental_hookState` on the `vigiles` test surface is that API —
+renamed."_ `experimental_hookState` on `vigiles/battery` is that API —
 [Testing a hook that remembers](#testing-a-hook-that-remembers). It is a thin
 handle over the store functions the live runtime calls, not a second copy of the
 path rule, and both directions are pinned end to end against the real runtime: a

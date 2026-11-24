@@ -17,25 +17,30 @@ their exit codes. Most of the churn is in the library API underneath it.
   (`0` clean / `1` warn / `2` error). This is the narrowest, steadiest contract
   and the surface almost everyone touches — including the GitHub Action, which wraps it.
 - **The authoring + testing library entry points:**
-  - `vigiles/linting` — what a spec author imports: the builders, the
-    verified-reference constructors and their types. **Not the compiler**:
-    `compileClaude`/`compileSkill`/`compileAgent`/`compileRailway` left the public
-    surface in the major that ships #257 — compile with the CLI (`vigiles compile`).
-  - `vigiles/spec` — the core builders (`enforce`, `guidance`, `instructionFile`,
-    `file`, `cmd`, `ref`, `dir`, `glob`, `prose`, `result`,
-    `delegate`, `railway`). Skill authoring is **not** on this list — see
-    `experimental_skill` below, and neither is subagent authoring — see
-    `experimental_agent`.
+  - `vigiles/spec` — what a spec author imports: the core builders (`enforce`,
+    `guidance`, `instructionFile`, `file`, `cmd`, `ref`, `dir`, `glob`, `prose`),
+    the verified-reference types, and `assertAgentOk` / `assertAgentErr` /
+    `assertAgentResult`. Skill authoring is **not** on this list — see
+    `experimental_skill` below, and neither is subagent authoring (`result`,
+    `delegate`, `railway` hang off `experimental_agent`). **Not the compiler** —
+    compile with the CLI (`vigiles compile`). (`vigiles/linting`, a strict subset
+    of this door, was removed in v49.)
   - `vigiles` (the package root) — the free harness-test + check vocabulary,
-    plus `defineEval`, which declares what a `*.eval.mjs` file measures.
+    the report types, plus `defineEval`, which declares what a `*.eval.mjs` file
+    measures.
     **`*.eval.*` FILE SHAPE IS A CONTRACT** and it changed in a major release —
     an eval file DESCRIBES its eval, it does not run one; see
     [eval files describe their eval](docs/harness-testing.md#eval-files-describe-their-eval)
     for the migration.
-  - `vigiles/eval` — the model-calling measurement API; every runtime export
-    carries a `paid_` prefix (`paid_runEval`, `paid_measure`, `paid_measureArms`,
+  - `vigiles/eval` — the measurement API: the model-calling runners, each
+    carrying a `paid_` prefix (`paid_runEval`, `paid_measure`, `paid_measureArms`,
     `paid_measureTriggerRate`, `paid_judge`, `paid_judged`,
-    `paid_claudeEvalDriver`). Types are not prefixed.
+    `paid_claudeEvalDriver`), and the free readers of their report (`compare`,
+    `assertRates`, `assertTriggerRate`, `assertImproves`, `assertNoRegression`,
+    `readBaseline`, `writeBaseline`), which carry none.
+  - `vigiles/battery` — prove a guard blocks: `assertGuardrail`,
+    `verifyGuardrail`, `DISASTER_CATALOG` (the `experimental_*` names beside them
+    are not stable).
   - `vigiles/claude-code`, `vigiles/codex` — the per-harness surfaces.
   - `vigiles/adapter` — the adapter-authoring kit. This is a **deliberate
     extension point**: third-party harness adapters are an intended use, so the
@@ -61,7 +66,9 @@ A breaking change to any of the above is signalled with a Conventional-Commit
 **What earns a public export.** A symbol is public only if (a) a named external
 consumer uses it, or (b) it is a deliberate extension point listed above (the
 adapter kit is the example). Everything else is internal by default; the
-compiler (`compileClaude` & co.) left `vigiles/linting` on that rule. The
+compiler (`compileClaude` & co.) left the spec door on that rule, and v49 hid
+the report formatters, the hook compiler's internals and the adapter registry on
+it. Each name lives behind exactly one entry point. The
 per-entry reports in `api-surface/` are the review point: `npm run api:check`
 fails when the public surface changes without its report.
 
@@ -70,7 +77,8 @@ fails when the public surface changes without its report.
 - **The library API is 0.x.** Symbols outside the entry points above (and the
   internal modules under `dist/core/…` reached by deep import) may change in a
   minor release. Import from the published subpaths, not deep paths.
-- **`vigiles/hook`** (compiled hooks) is exported and usable but **not yet
+- **`vigiles/hook`** (compiled hooks, and since v49 the in-process hook tests
+  `loadHook` / `assertHookDenies` & co.) is exported and usable but **not yet
   frozen**. Its long-standing delivery caveat
   ([#34692](https://github.com/anthropics/claude-code/issues/34692) — a subagent's
   tool calls never reaching `PreToolUse`) is **fixed** as of Claude Code 2.1.241,

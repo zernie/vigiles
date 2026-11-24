@@ -53,7 +53,7 @@ Create `CLAUDE.md.spec.ts` (or the appropriate name based on the source file) wi
 
 ```typescript
 import {
-  claude,
+  instructionFile,
   enforce,
   guidance,
   file,
@@ -62,7 +62,7 @@ import {
   instructions,
 } from "vigiles/spec";
 
-export default claude({
+export default instructionFile({
   sections: {
     // Prose sections here
   },

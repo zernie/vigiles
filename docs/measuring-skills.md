@@ -27,7 +27,7 @@ It does that by running the thing under test on both sides of an A/B and reading
 
 The signal is the **delta** between arms, not an absolute. Absolutes drift with model and task; deltas are comparable.
 
-This is `runEval` / `measureArms` — arms × trials → mean ± se, and a delta only counts if it clears the noise floor (`assertSignificant`: Wilson intervals for a 0/1 metric, Welch's t-test for any other). It is **not** a prompt eval: the unit under test is the assembled harness, which a generic YAML-configured eval runner cannot reproduce.
+This is `runEval` / `measureArms` — arms × trials → mean ± se, and a delta only counts if it clears the noise floor (`compare` / `assertImproves({ significant: true })`: Wilson intervals for a 0/1 metric, Welch's t-test for any other). It is **not** a prompt eval: the unit under test is the assembled harness, which a generic YAML-configured eval runner cannot reproduce.
 
 ## The metric triple — bill, target, blast radius
 
