@@ -58,11 +58,11 @@ The docs are grouped by what you're trying to do:
 - **Validation rules:** the [full matrix](verifying-instruction-files.md#the-validation-rules--the-full-matrix) lives in the linting guide; each rule has a doc under [`rules/`](rules/).
 - **Library entry points** (grouped by concern so a future harness can sit beside the current one):
   - `vigiles/rule-proof` — `experimental_ruleProof`: run a linter configuration on a planted pair, then on a repository ([`rule-proof.md`](rule-proof.md)).
-  - `vigiles/spec` — what a spec author imports: the builders (`instructionFile`, `enforce`, `guidance`, `file`, `cmd`, `symbol`, …), their types, the subagent-outcome assertions (`assertAgentOk` & co.), and the module-augmentation target for generated types. Compiling and verifying is the CLI's job (`vigiles compile`, `vigiles lint`).
+  - `vigiles/spec` — what a spec author imports: the builders (`instructionFile`, `enforce`, `guidance`, `file`, `cmd`, `symbol`, …), their types, the subagent-outcome assertions (`experimental_assertAgentOk` & co.), and the module-augmentation target for generated types. Compiling and verifying is the CLI's job (`vigiles compile`, `vigiles lint`).
   - `vigiles` (the package root) — the free testing surface: the harness/hook runners, the `check` vocabulary, the runner-agnostic assertions and the report types.
   - `vigiles/eval` — the moment you measure: the runners that can spend money, every one prefixed `paid_` (`paid_runEval`, `paid_measure`, `paid_measureArms`, `paid_measureTriggerRate`, `paid_judge`, `paid_judged`, `paid_claudeEvalDriver`), and the free readers of their report (`compare`, `assertRates`, `assertTriggerRate`, `assertImproves`, `assertNoRegression`, `readBaseline` / `writeBaseline`).
   - `vigiles/battery` — prove a guard blocks every disaster: `assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState`.
-  - `vigiles/hook` — the compiled-hook vocabulary, and `loadHook` / `assertHookDenies` & co. to test a hook in-process.
+  - `vigiles/hook` — the compiled-hook vocabulary, and `experimental_loadHook` / `experimental_assertHookDenies` & co. to test a hook in-process.
   - `defineEval` is on the **free** root, not here, and that is the point: a `*.eval.mjs` file DESCRIBES its eval and `vigiles eval` runs it, so importing one cannot spend. See [eval files describe their eval](harness-testing.md#eval-files-describe-their-eval).
   - `vigiles/claude-code`, `vigiles/codex` — the per-harness adapters.
   - `vigiles/adapter` — the adapter-authoring kit.

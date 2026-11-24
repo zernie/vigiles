@@ -19,12 +19,12 @@ import assert from "node:assert/strict";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
-import { loadHook } from "./load-hook.js";
+import { experimental_loadHook as loadHook } from "./load-hook.js";
 import {
-  assertHookDenies,
-  assertHookAllows,
-  assertHookNotices,
-  assertHookSilent,
+  experimental_assertHookDenies as assertHookDenies,
+  experimental_assertHookAllows as assertHookAllows,
+  experimental_assertHookNotices as assertHookNotices,
+  experimental_assertHookSilent as assertHookSilent,
 } from "./hook-test.js";
 import { runHookProgram } from "./core/hook-program.js";
 import {

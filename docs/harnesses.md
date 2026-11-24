@@ -11,13 +11,13 @@ An agent is **Model + Harness**. The _harness_ is the machine around the model: 
 ```ts
 // Core — harness-agnostic. The stable API you write tests/evals against.
 import { paid_runEval } from "vigiles/eval";
-import { runHarnessTest, assertHookBlocked } from "vigiles";
+import { runHarnessTest, check, assertChecks } from "vigiles";
 
 // Adapter — the Claude Code-specific pieces, named explicitly.
 import { loadPlugin, scriptModel } from "vigiles/claude-code";
 ```
 
-The `vigiles` root (plus `vigiles/eval` for the model-calling half) is the part that never changes when the harness changes. It includes `runHarnessTest`, `paid_runEval`, `runHook`, the `Trace` predicates, and all assertions.
+The `vigiles` root (plus `vigiles/eval` for the model-calling half) is the part that never changes when the harness changes. It includes `runHarnessTest`, `paid_runEval`, `runHook`, the `check` vocabulary over a `Trace`, and its assertions.
 
 `vigiles/claude-code` is the adapter. It reads real Claude Code layouts (`.claude-plugin/plugin.json`, `.claude/settings.json`, `${CLAUDE_PLUGIN_ROOT}`, `skills/`, `agents/`) and provides the scriptable Anthropic Messages mock you point `claude` at.
 

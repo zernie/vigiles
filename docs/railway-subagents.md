@@ -292,9 +292,9 @@ no key.
 ```ts
 import {
   experimental_agent,
-  assertAgentOk,
-  assertAgentErr,
-  assertAgentResult,
+  experimental_assertAgentOk,
+  experimental_assertAgentErr,
+  experimental_assertAgentResult,
 } from "vigiles/spec";
 const { result } = experimental_agent;
 
@@ -305,11 +305,11 @@ const implementer = result(
 
 // r.output is the subagent's final text (a runHarnessTest turn, a Task sub-trace, or
 // recorded output). Assert the OUTCOME, not prose:
-const ok = assertAgentOk(r.output, implementer); // throws unless it's a valid ok block
+const ok = experimental_assertAgentOk(r.output, implementer); // throws unless it's a valid ok block
 assert.deepEqual(ok.files, ["src/parser.ts"]);
 
 // Rich predicate over either track, still model-free:
-assertAgentResult(
+experimental_assertAgentResult(
   r.output,
   (res) =>
     res.kind === "ok" && res.value.files.some((f) => f.endsWith(".test.ts")),

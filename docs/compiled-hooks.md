@@ -663,42 +663,51 @@ It **only prints and always exits `0`**. A check that could fail at session star
 
 **Because the decision is a pure function, you test it deterministically** — no model, and (cheapest) no subprocess. Three levels, by cost:
 
-**1. In-process (cheapest).** Load the hook FILE with `loadHook(path)` and pass it plus a raw event to the assertions — no `node` spawn, no CLI, milliseconds:
+**1. In-process (cheapest).** Load the hook FILE with `experimental_loadHook(path)` and pass it plus a raw event to the assertions — no `node` spawn, no CLI, milliseconds:
 
 ```ts
 import { it } from "vitest";
-import { loadHook, assertHookDenies, assertHookAllows } from "vigiles/hook";
+import {
+  experimental_loadHook,
+  experimental_assertHookDenies,
+  experimental_assertHookAllows,
+} from "vigiles/hook";
 
-const guard = await loadHook(".vigiles/hooks/guard.hook.mjs");
+const guard = await experimental_loadHook(".vigiles/hooks/guard.hook.mjs");
 
 it("blocks a force-push, even hidden in a compound command", () => {
-  assertHookDenies(guard, {
+  experimental_assertHookDenies(guard, {
     tool_name: "Bash",
     tool_input: { command: "cd x && git push -f" },
   });
-  assertHookAllows(guard, {
+  experimental_assertHookAllows(guard, {
     tool_name: "Bash",
     tool_input: { command: "git status" },
   });
 });
 ```
 
-`loadHook` is the same loader the runtime uses (so a hook that loads in a test loads identically in production) and it is what makes this tier reachable from a `.harness.mjs` file, which has a hook's PATH and not its object. A TypeScript hook (`guard.hook.ts`) loads the same way under tsx / Node ≥ 23.6. If you already have the object — a static `import guard from "./guard.hook.mjs"` — pass it directly.
+`experimental_loadHook` is the same loader the runtime uses (so a hook that loads in a test loads identically in production) and it is what makes this tier reachable from a `.harness.mjs` file, which has a hook's PATH and not its object. A TypeScript hook (`guard.hook.ts`) loads the same way under tsx / Node ≥ 23.6. If you already have the object — a static `import guard from "./guard.hook.mjs"` — pass it directly.
 
-**React hooks get their own pair.** A react can't block, so the gate assertions don't apply; use `assertHookNotices(hook, event, matcher?)` and `assertHookSilent(hook, event)`:
+**React hooks get their own pair.** A react can't block, so the gate assertions don't apply; use `experimental_assertHookNotices(hook, event, matcher?)` and `experimental_assertHookSilent(hook, event)`:
 
 ```ts
-import { assertHookNotices, assertHookSilent } from "vigiles/hook";
+import {
+  experimental_assertHookNotices,
+  experimental_assertHookSilent,
+} from "vigiles/hook";
 
-const warn = await loadHook(".vigiles/hooks/warn-on-failure.hook.mjs");
+const warn = await experimental_loadHook(
+  ".vigiles/hooks/warn-on-failure.hook.mjs",
+);
 const after = (isError) => ({
   tool_name: "Bash",
   tool_input: { command: "npm test" },
   tool_response: isError ? { error: "boom" } : { stdout: "ok" },
 });
 
-assertHookNotices(warn, after(true), /read the error/);
-assertHookSilent(warn, after(false));
+experimental_assertHookNotices(warn, after(true), /read the error/);
+experimental_assertHookSilent(warn, after(false));
 ```
 
 ### Where a notice arrives

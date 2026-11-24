@@ -96,11 +96,7 @@ model's request (`trace.modelRequests`) — the "fired ≠ landed" check a "did 
 run?" test can't make:
 
 ```ts
-import {
-  runHarnessTest,
-  assertHookFired,
-  assertRequestContains,
-} from "vigiles";
+import { runHarnessTest, check, assertChecks } from "vigiles";
 import { scriptModel } from "vigiles/claude-code";
 
 const r = await runHarnessTest({
@@ -115,8 +111,10 @@ const r = await runHarnessTest({
   transcript: true,
   model: scriptModel([{ text: "on it" }]),
 });
-assertHookFired(r, "UserPromptSubmit"); // fired
-assertRequestContains(r, "ULTRAWORK"); // …and landed
+assertChecks(r, [
+  check.hookFired("UserPromptSubmit"), // fired
+  check.received("ULTRAWORK"), // …and landed
+]);
 ```
 
 Wired via inline `settings` (code you authored → trusted → runs direct, no
@@ -132,7 +130,7 @@ answer. Install OMC natively (`pluginDir`) and measure how reliably its `verify`
 skill fires on prompts about confirming a change works:
 
 ```ts
-import { defineEval, skillResolved } from "vigiles";
+import { defineEval, check } from "vigiles";
 
 export default defineEval({
   measureTriggerRate: {
@@ -141,7 +139,7 @@ export default defineEval({
       "I think the pagination fix is done — can you confirm it actually works?",
       "Before I mark this complete, prove the new endpoint really behaves.",
     ],
-    fired: (t) => skillResolved(t, "oh-my-claudecode:verify"),
+    fired: check.skill("oh-my-claudecode:verify"),
     trials: 3,
   },
 });
@@ -208,7 +206,7 @@ internal references). Add `transcript: true` to capture the event stream so you
 can assert the skill's body was injected:
 
 ```ts
-import { assertSkillResolved, assertToolNotUsed } from "vigiles";
+import { check, assertChecks } from "vigiles";
 
 const r = await runHarnessTest({
   pluginDir: "./path/to/a/whole/plugin", // installs natively; skills activate
@@ -219,8 +217,10 @@ const r = await runHarnessTest({
     { text: "ok" },
   ]),
 });
-assertSkillResolved(r, "demo:greet"); // a non-error Skill tool_use by that name
-assertToolNotUsed(r, /^mcp__/); // the safety negative: no MCP tool was used
+assertChecks(r, [
+  check.skill("demo:greet"), // a non-error Skill activation by that name
+  check.notTool(/^mcp__/), // the safety negative: no MCP tool was used
+]);
 ```
 
 Two optional fields, two Claude Code flags:
@@ -261,9 +261,9 @@ a run there refuses `tools`, which has no equivalent.
 
 **Assert on the agent's _actions_, not stdout.** With `transcript: true`,
 `r.toolCalls` is the parsed list of tools the agent invoked (each paired with its
-result). The helpers `assertToolUsed(r, name|/regex/)`, `assertToolNotUsed(...)`
-(the safety negative — _"the destructive tool was never called"_), and
-`assertSkillResolved(r, "plugin:skill")` are correct invariants — unlike
+result). The checks `check.tool(name|/regex/)`, `check.notTool(...)` (the safety
+negative — _"the destructive tool was never called"_), and
+`check.skill("plugin:skill")` are correct invariants — unlike
 `r.stdout.includes(marker)`, which false-positives on echoes and needs a marker
 injected (so it can't test a _real_ plugin). The worked tests in
 `src/harness-test.test.ts` assert real **obra/superpowers** and **wshobson/agents**
@@ -271,8 +271,8 @@ skills this way — no marker needed. This is the deterministic **wiring** tier
 (does the skill resolve); whether the real model _chooses_ a skill is the eval
 tier.
 
-The action/sequence/argument assertions over `r.toolCalls` (`assertToolSequence`,
-`assertToolCount`, `assertToolUsedWith`, `assertToolCalls`) are harness-agnostic —
+The action/sequence/argument checks over `r.toolCalls` (`check.toolSequence`,
+`check.tool(name, { min, max })`, `check.toolWith`, `check(name, fn)`) are harness-agnostic —
 see the [`Trace` model](testing-api.md#the-trace-model)
 in the testing API reference.
 
@@ -298,7 +298,7 @@ behaves the same way.
 
 ```ts
 import { test } from "node:test";
-import { runHarnessTest, assertCreated } from "vigiles";
+import { runHarnessTest, check, assertChecks } from "vigiles";
 import { scriptModel } from "vigiles/claude-code";
 
 test("Stop hook forces more work", async () => {
@@ -320,7 +320,7 @@ test("Stop hook forces more work", async () => {
       { text: "done" },
     ]),
   });
-  assertCreated(r, "DONE");
+  assertChecks(r, [check.wrote("DONE")]);
 });
 ```
 
@@ -341,13 +341,13 @@ context never _landed_.
 
 So don't check that the hook ran. Check what the model actually received.
 `trace.modelRequests` is the real request sent to the model (its system prompt
-and messages), captured by the scripted mock, and `assertRequestContains` asserts
-your text is in it:
+and messages), captured by the scripted mock, and `check.received` asserts your
+text is in it:
 
 ```ts
-import { assertRequestContains } from "vigiles";
+import { check, assertChecks } from "vigiles";
 
-assertRequestContains(r, "You have superpowers"); // the injected context is really there
+assertChecks(r, [check.received("You have superpowers")]); // the injected context is really there
 ```
 
 This is a real bug vigiles caught: `obra/superpowers` puts `additionalContext` at

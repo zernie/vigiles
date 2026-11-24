@@ -16,10 +16,10 @@ The two tiers ask the same question of an agent and differ in **who plays the
 model** — so a passing deterministic test does not make the eval tier redundant,
 and this is the split the coverage nudge now reflects:
 
-| tier                             | model          | what it establishes                                                                  |
-| -------------------------------- | -------------- | ------------------------------------------------------------------------------------ |
-| deterministic (`runHarnessTest`) | scripted mock  | the contract parses and the rail holds — `subagent(...)`, `notTool`, `assertAgentOk` |
-| eval (`runEval` / `measure`)     | **real**, paid | a real model, handed this agent's prompt, stays inside the contract                  |
+| tier                             | model          | what it establishes                                                                               |
+| -------------------------------- | -------------- | ------------------------------------------------------------------------------------------------- |
+| deterministic (`runHarnessTest`) | scripted mock  | the contract parses and the rail holds — `subagent(...)`, `notTool`, `experimental_assertAgentOk` |
+| eval (`runEval` / `measure`)     | **real**, paid | a real model, handed this agent's prompt, stays inside the contract                               |
 
 Keep the same assertions across both; only the model changes. The typed-outcome
 helpers are model-free by design — see
@@ -37,7 +37,7 @@ measureTriggerRateWith({ pluginDir: <agents-only   → rate = 0 | competitors = 
 ```
 
 It installs `<name>/SKILL.md` **skills** and decides "fired" by skill
-**selection** (`skillResolved`), so an agent is not a surface it can address. The
+**selection** (`check.skill`), so an agent is not a surface it can address. The
 loose-skills form throws; the plugin form returns a _number_ for a surface it
 never installed, which is worse than an error. "Does Claude pick this subagent
 when it should?" is a real question — vigiles has no API for it yet.

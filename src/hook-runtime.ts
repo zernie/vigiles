@@ -90,7 +90,7 @@ import {
   VIGILES_DIR,
   ensureLocalFilesIgnored,
 } from "./local-files.js";
-import { loadHook } from "./load-hook.js";
+import { experimental_loadHook as loadHook } from "./load-hook.js";
 import { injectableEventsOf } from "./core/event-capability.js";
 import { checkHookStamp, stampFixCommand } from "./core/hook-stamp.js";
 import {
@@ -123,7 +123,7 @@ function injectableEventsFor(root: string): readonly string[] {
 
 /**
  * Load a compiled-hook program's default export — the SHARED loader, also the
- * public `vigiles` `loadHook` a `.harness.mjs` test uses, so a hook that
+ * public `vigiles` `experimental_loadHook` a `.harness.mjs` test uses, so a hook that
  * loads in a test loads identically here (one loader, no drift).
  */
 export const loadHookProgram = loadHook;

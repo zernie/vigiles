@@ -19,8 +19,8 @@ their exit codes. Most of the churn is in the library API underneath it.
 - **The authoring + testing library entry points:**
   - `vigiles/spec` — what a spec author imports: the core builders (`enforce`,
     `guidance`, `instructionFile`, `file`, `cmd`, `ref`, `dir`, `glob`, `prose`),
-    the verified-reference types, and `assertAgentOk` / `assertAgentErr` /
-    `assertAgentResult`. Skill authoring is **not** on this list — see
+    the verified-reference types, and `experimental_assertAgentOk` / `experimental_assertAgentErr` /
+    `experimental_assertAgentResult`. Skill authoring is **not** on this list — see
     `experimental_skill` below, and neither is subagent authoring (`result`,
     `delegate`, `railway` hang off `experimental_agent`). **Not the compiler** —
     compile with the CLI (`vigiles compile`). (`vigiles/linting`, a strict subset
@@ -78,7 +78,7 @@ fails when the public surface changes without its report.
   internal modules under `dist/core/…` reached by deep import) may change in a
   minor release. Import from the published subpaths, not deep paths.
 - **`vigiles/hook`** (compiled hooks, and since v49 the in-process hook tests
-  `loadHook` / `assertHookDenies` & co.) is exported and usable but **not yet
+  `experimental_loadHook` / `experimental_assertHookDenies` & co.) is exported and usable but **not yet
   frozen**. Its long-standing delivery caveat
   ([#34692](https://github.com/anthropics/claude-code/issues/34692) — a subagent's
   tool calls never reaching `PreToolUse`) is **fixed** as of Claude Code 2.1.241,

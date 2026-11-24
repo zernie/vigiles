@@ -11,7 +11,7 @@
  * door's.
  *
  * A package entry, and so a COMPOSITION ROOT: the builders are core
- * (`src/core/spec.ts`), and `assertAgentOk` & co. read a subagent's result block
+ * (`src/core/spec.ts`), and `experimental_assertAgentOk` & co. read a subagent's result block
  * through the Claude Code adapter — core cannot import that, an entry can.
  *
  * Curated (named, not `export *`) so the compiler's phase types, the internal
@@ -107,8 +107,10 @@ export type {
 // vigiles:ok/err block; these wrap `parseAgentResult` (the Claude Code adapter's
 // reader of that block, which is why they live in this composition root and not
 // in core) so a test asserts the worker's outcome the way it asserts a hook
-// decision: `assertAgentOk(r.output)` instead of substring-matching prose. They
-// THROW, so after one TypeScript has narrowed the result.
+// decision: `experimental_assertAgentOk(r.output)` instead of substring-matching
+// prose. They THROW, so after one TypeScript has narrowed the result. Prefixed
+// because they read `experimental_agent`'s contract: a stable name resting on an
+// experimental one is the transitive hole the prefix rule exists to close.
 import type { OutputContract } from "../core/spec.js";
 import {
   parseAgentResult,
@@ -125,8 +127,11 @@ function fail(message: string): never {
  * Assert the worker's output is a success result, and return its `value`. With a
  * `contract`, the value is validated against the success shape (a wrong/missing
  * field fails the assertion). A malformed or error result throws.
+ *
+ * @experimental It reads `experimental_agent`'s result contract, so it is no
+ * more settled than that contract.
  */
-export function assertAgentOk(
+export function experimental_assertAgentOk(
   output: string,
   contract?: OutputContract,
 ): Record<string, unknown> {
@@ -140,8 +145,10 @@ export function assertAgentOk(
  * Assert the worker's output is an error result, and return its `error`. The
  * railway's error track — proves the worker reported failure with rich detail
  * (not that it crashed or returned prose). A malformed or success result throws.
+ *
+ * @experimental Reads `experimental_agent`'s result contract.
  */
-export function assertAgentErr(
+export function experimental_assertAgentErr(
   output: string,
   contract?: OutputContract,
 ): Record<string, unknown> {
@@ -154,8 +161,10 @@ export function assertAgentErr(
 /**
  * Assert the parsed result satisfies `predicate` — the general form, for
  * checking rich detail (e.g. `(r) => r.kind === "ok" && r.value.files.length > 0`).
+ *
+ * @experimental Reads `experimental_agent`'s result contract.
  */
-export function assertAgentResult(
+export function experimental_assertAgentResult(
   output: string,
   predicate: (r: ParsedAgentResult) => boolean,
   contract?: OutputContract,

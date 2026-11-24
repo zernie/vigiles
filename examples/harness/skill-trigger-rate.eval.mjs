@@ -16,7 +16,7 @@
  * `"vigiles"`. An eval file declares its measurement; `vigiles eval` runs it.
  */
 import { defineEval } from "../../dist/test.js";
-import { skillResolved } from "../../dist/harness-assert.js";
+import { check } from "../../dist/check.js";
 import { fileURLToPath } from "node:url";
 
 // A real, pinned vendored plugin (no clone at test time). Its TDD skill should
@@ -52,7 +52,7 @@ export default defineEval({
       "Parse ISO durations into seconds — write the spec before the code.",
     ],
     // reuse a bare predicate: did the model activate the skill (no error)?
-    fired: (t) => skillResolved(t, skill),
+    fired: check.skill(skill),
     trials: 1,
   },
   assert: (report) => {

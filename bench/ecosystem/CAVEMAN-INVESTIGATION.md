@@ -79,5 +79,5 @@ in the `zernie/zernie.github.com` repo.
 ## The lesson for vigiles
 
 Never assume a skill was in context because a file was on disk. Verify activation — a
-`skillResolved` check, or a deterministic style marker (here: articles-per-100-words) — before
+`check.skill` check, or a deterministic style marker (here: articles-per-100-words) — before
 trusting a benchmark number. The tool now warns on the specific delivery footgun that caused this.

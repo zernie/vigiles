@@ -2777,7 +2777,7 @@ export function outcomeWrites(outcome: HookProgramOutcome): {
  * as equivalent to the parsed one. `commandRefs` (coverage-probe.ts) infers what
  * executed from an arbitrary command STRING — interpreter grammars, option
  * bundles, shell short-circuits — and has been wrong in five review rounds
- * because that grammar is unbounded. Here the path is the argument `loadHook`
+ * because that grammar is unbounded. Here the path is the argument `experimental_loadHook`
  * was called with and resolved itself. There is nothing to guess.
  *
  * A `WeakMap`, not a property on the hook: the object is the USER's, it is
@@ -2785,7 +2785,7 @@ export function outcomeWrites(outcome: HookProgramOutcome): {
  * up in their serialization and their equality checks. The map also lets the
  * entry die with the hook.
  *
- * ⚠️ REMEMBERING IS NOT RECORDING. `loadHook(file)` calls this and nothing else —
+ * ⚠️ REMEMBERING IS NOT RECORDING. `experimental_loadHook(file)` calls this and nothing else —
  * loading a hook to inspect its shape is not running it, and attributing a load
  * would be the "an empty file counts" disease the execution tier exists to cure.
  * The probe is emitted by `hook-test.ts` at the moment the hook is
@@ -2793,7 +2793,7 @@ export function outcomeWrites(outcome: HookProgramOutcome): {
  */
 const HOOK_SOURCE = new WeakMap<object, string>();
 
-/** Record where a hook program was loaded from. Called by `loadHook` ONLY. */
+/** Record where a hook program was loaded from. Called by `experimental_loadHook` ONLY. */
 export function rememberHookSource(hook: AnyHook, file: string): void {
   HOOK_SOURCE.set(hook, file);
 }
@@ -2807,7 +2807,7 @@ export function hookSource(hook: AnyHook): string | undefined {
  * Evaluate a compiled hook against a raw event, in-process, dispatching by role:
  * a gate → its `Decision`, an inject → the injected context text, a react → its
  * (effect-classified) `Reaction`. Pure — no subprocess, no model. The ergonomic
- * base for testing a compiled hook (see `assertHookDenies` / `assertHookAllows`).
+ * base for testing a compiled hook (see `experimental_assertHookDenies` / `experimental_assertHookAllows`).
  */
 export function runHookProgram(
   hook: AnyHook,

@@ -221,15 +221,18 @@ R3 runs your skill **for real**, and a skill is model-driven — the model picks
 
 ### Using it
 
-`experimental_withServices` starts the services, runs your block, and disposes them even on failure:
+`experimental_startServices` starts the services; tear them down in a `finally` so they go even on failure:
 
 ```typescript
 // R3 starts containers; it calls no model, so it is on the free door.
-import { experimental_withServices, experimental_dockerRuntime } from "vigiles";
+import {
+  experimental_startServices,
+  experimental_dockerRuntime,
+} from "vigiles";
 // The eval driver DOES call a model — hence the other door, and the `paid_`.
 import { paid_runEval } from "vigiles/eval";
 
-await experimental_withServices(
+const svc = await experimental_startServices(
   {
     db: {
       image: "postgres:16",
@@ -242,40 +245,42 @@ await experimental_withServices(
     },
   },
   experimental_dockerRuntime,
-  async (svc) => {
-    // runEval — it takes a measure(ctx) callback and an ephemeral `env`
-    return paid_runEval({
-      // migration.sql must be in the run FIXTURE for the agent to read it —
-      // a bare filename in the task doesn't materialize the file.
-      fixture: { "migration.sql": "ALTER TABLE users ADD COLUMN age int;" },
-      // single arm — a baseline arm would share this DB and leave `age` behind,
-      // crediting the skill for free (per-arm reset is a later increment).
-      arms: { skill: { pluginDir: "./skills/migrator" } },
-      // full connection string incl. password — an ephemeral env leaves no PGPASSWORD
-      task: `Apply migration.sql to postgresql://postgres:test@${svc.endpoints[0]}/app . Stop.`,
-      env: { kind: "ephemeral" }, // ⬅ recommended — scrub real creds from the run
-      measure: () => ({
-        // verify the REAL resulting DB state — R3's whole point
-        migrated: /(^|\n)age(\n|$)/.test(
-          svc.handles.db.exec(
-            "psql -U postgres -d app -tAc \"select column_name from information_schema.columns where table_name='users'\"",
-          ).stdout,
-        )
-          ? 1
-          : 0,
-      }),
-      // trials: 1 — per-RUN container lifecycle; a persistent side effect would
-      // make later trials pass for free until per-trial reset exists.
-      trials: 1,
-      model: "sonnet",
-    });
-  },
 );
+try {
+  // runEval — it takes a measure(ctx) callback and an ephemeral `env`
+  await paid_runEval({
+    // migration.sql must be in the run FIXTURE for the agent to read it —
+    // a bare filename in the task doesn't materialize the file.
+    fixture: { "migration.sql": "ALTER TABLE users ADD COLUMN age int;" },
+    // single arm — a baseline arm would share this DB and leave `age` behind,
+    // crediting the skill for free (per-arm reset is a later increment).
+    arms: { skill: { pluginDir: "./skills/migrator" } },
+    // full connection string incl. password — an ephemeral env leaves no PGPASSWORD
+    task: `Apply migration.sql to postgresql://postgres:test@${svc.endpoints[0]}/app . Stop.`,
+    env: { kind: "ephemeral" }, // ⬅ recommended — scrub real creds from the run
+    measure: () => ({
+      // verify the REAL resulting DB state — R3's whole point
+      migrated: /(^|\n)age(\n|$)/.test(
+        svc.handles.db.exec(
+          "psql -U postgres -d app -tAc \"select column_name from information_schema.columns where table_name='users'\"",
+        ).stdout,
+      )
+        ? 1
+        : 0,
+    }),
+    // trials: 1 — per-RUN container lifecycle; a persistent side effect would
+    // make later trials pass for free until per-trial reset exists.
+    trials: 1,
+    model: "sonnet",
+  });
+} finally {
+  await svc.teardown();
+}
 ```
 
 Runnable versions: [`side-effect-r3.mjs`](../examples/harness/side-effect-r3.mjs) (the primitive) and [`measure-with-service.mjs`](../examples/harness/measure-with-service.mjs) (the `runEval` composition above).
 
-**What ships today vs later.** Today: the types, the `ContainerRuntime` port, `experimental_startServices` / `experimental_withServices`, and a Docker backend — all on the package root, each name carrying the `experimental_` prefix. Deferred: a first-class `services` option on `measureArms` (+ `ctx.service(name)`), **per-trial** reset (today the container lives for the whole run — make your task self-contained or use `trials: 1`), and the egress wall. Requires Docker (Linux-first), stays an explicit opt-in, and is **never** part of `vigiles audit` — `audit` stays side-effect-free.
+**What ships today vs later.** Today: the types, the `ContainerRuntime` port, `experimental_startServices`, and a Docker backend — all on the package root, each name carrying the `experimental_` prefix. Deferred: a first-class `services` option on `measureArms` (+ `ctx.service(name)`), **per-trial** reset (today the container lives for the whole run — make your task self-contained or use `trials: 1`), and the egress wall. Requires Docker (Linux-first), stays an explicit opt-in, and is **never** part of `vigiles audit` — `audit` stays side-effect-free.
 
 ## See also
 

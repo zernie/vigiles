@@ -633,7 +633,7 @@
     "sonarjs/cognitive-complexity": 12
   },
   "src/verify-plugin-guards.test.ts": {
-    "max-lines-per-function": 110
+    "max-lines-per-function": 70
   },
   "src/verify-plugin-guards.ts": {
     "max-params": 5,

@@ -32,15 +32,6 @@ export type AgentSpecInput<P extends AuthoredPurity | undefined, V extends ToolV
 export type AllowedAt<P extends AuthoredPurity | undefined, V extends ToolVocabulary> = P extends "pure" ? V["readOnly"] : P extends "bounded" ? V["bounded"] : string;
 
 // @public
-export function assertAgentErr(output: string, contract?: OutputContract): Record<string, unknown>;
-
-// @public
-export function assertAgentOk(output: string, contract?: OutputContract): Record<string, unknown>;
-
-// @public
-export function assertAgentResult(output: string, predicate: (r: ParsedAgentResult) => boolean, contract?: OutputContract): void;
-
-// @public
 export type AuthoredPurity = "pure" | "bounded" | "dangerously-unrestricted";
 
 // @public (undocumented)
@@ -123,6 +114,15 @@ export const experimental_agent: typeof agentSpec & {
     andThen: typeof experimental_andThen;
     pipe: typeof experimental_pipe;
 };
+
+// @public
+export function experimental_assertAgentErr(output: string, contract?: OutputContract): Record<string, unknown>;
+
+// @public
+export function experimental_assertAgentOk(output: string, contract?: OutputContract): Record<string, unknown>;
+
+// @public
+export function experimental_assertAgentResult(output: string, predicate: (r: ParsedAgentResult) => boolean, contract?: OutputContract): void;
 
 // @public
 export function experimental_effect(strings: TemplateStringsArray, ...values: InstructionFragment[]): EffectRegion;

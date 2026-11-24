@@ -10,7 +10,7 @@
  *
  * or `vigiles:err` for the error track. This module extracts and validates that
  * block — the single primitive the railway orchestrator and the harness-test
- * assertions (`assertAgentOk`/`assertAgentErr`) both build on. Pure and
+ * assertions (`experimental_assertAgentOk`/`experimental_assertAgentErr`) both build on. Pure and
  * model-free: hand it the worker's text, get back a discriminated outcome.
  *
  * "Railway-oriented" is literal here: the parse is `text -> Result<S, E>` with a

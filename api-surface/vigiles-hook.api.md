@@ -14,18 +14,6 @@ export type AnyHook = HookProgram<ErasedNeeds> | FileGateHook<ErasedNeeds> | Pro
 export const ask: (reason: string) => Decision;
 
 // @public
-export function assertHookAllows(hook: AnyHook, event: RawHookEvent): void;
-
-// @public
-export function assertHookDenies(hook: AnyHook, event: RawHookEvent): void;
-
-// @public
-export function assertHookNotices(hook: AnyHook, event: RawHookEvent, matcher?: string | RegExp): void;
-
-// @public
-export function assertHookSilent(hook: AnyHook, event: RawHookEvent): void;
-
-// @public
 export interface BashReactEvent<N extends readonly NeedSpec[] = readonly ProviderName[]> extends ToolReactEvent<N> {
     readonly command: ShellCommand;
     readonly tool: "Bash";
@@ -70,6 +58,18 @@ export const deny: (reason: string) => Decision;
 export type Duration = `${number}${"s" | "m" | "h" | "d"}`;
 
 // @public
+export function experimental_assertHookAllows(hook: AnyHook, event: RawHookEvent): void;
+
+// @public
+export function experimental_assertHookDenies(hook: AnyHook, event: RawHookEvent): void;
+
+// @public
+export function experimental_assertHookNotices(hook: AnyHook, event: RawHookEvent, matcher?: string | RegExp): void;
+
+// @public
+export function experimental_assertHookSilent(hook: AnyHook, event: RawHookEvent): void;
+
+// @public
 export function experimental_defineFileGate<const N extends readonly NeedSpec[] = readonly []>(p: Omit<FileGateHook<N>, "role">): FileGateHook<N>;
 
 // @public
@@ -86,6 +86,9 @@ export function experimental_defineReact<const N extends readonly NeedSpec[] = r
 
 // @public
 export function experimental_defineStopGate<const N extends readonly NeedSpec[] = readonly []>(p: Omit<StopGateHook<N>, "role">): StopGateHook<N>;
+
+// @public
+export function experimental_loadHook(file: string, root?: string): Promise<AnyHook>;
 
 // @public (undocumented)
 export interface FileGateHook<N extends readonly NeedSpec[] = readonly ProviderName[]> {
@@ -196,9 +199,6 @@ export interface LeafRedirect {
     readonly target: string | null;
     readonly writes: boolean;
 }
-
-// @public
-export function loadHook(file: string, root?: string): Promise<AnyHook>;
 
 // @public
 export type NeedSpec = ProviderName | InlineProvider | RegisteredRef | StateNeed;

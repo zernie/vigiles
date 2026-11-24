@@ -842,7 +842,7 @@ export interface SkillSpec {
    * call→return boundary a typed outcome needs (compile errors if `output` is set
    * without `context: "fork"`). When valid, compiles to a `## Output contract`
    * with a `vigiles:ok` / `vigiles:err` block — parseable (`parseAgentResult`) and
-   * testable (`assertAgentOk`) via the existing subagent rail. An INLINE skill has
+   * testable (`experimental_assertAgentOk`) via the existing subagent rail. An INLINE skill has
    * no return, so a typed outcome there is a category error — hence the gate. See
    * `research/spec-syntax-and-railway-scope.md`.
    */
@@ -981,7 +981,7 @@ export interface AgentSpec {
    * The typed result contract — what this worker returns on success/error. When
    * set, compiles to an `## Output contract` section instructing the worker to
    * end with a `vigiles:ok` / `vigiles:err` block, so its outcome is parseable
-   * and testable (see `result()`, `parseAgentResult`, `assertAgentOk`).
+   * and testable (see `result()`, `parseAgentResult`, `experimental_assertAgentOk`).
    */
   readonly output?: OutputContract;
   /**
@@ -1148,7 +1148,7 @@ export type Shape = Readonly<Record<string, OutputFieldType>>;
  * (`ok`) and on failure (`err`). Rich on both tracks — an error is structured
  * detail, not a bare pass/fail bit. Compiles into the worker's system prompt
  * (the `vigiles:ok` / `vigiles:err` block it must emit) and is the schema the
- * `parseAgentResult` parser + the `assertAgentOk/Err` test helpers validate.
+ * `parseAgentResult` parser + the `experimental_assertAgentOk/Err` test helpers validate.
  *
  * Generic over its `ok`/`err` field shapes so a typed value REMEMBERS them at
  * the type level (the basis of typed composition — see `pipe`). The default

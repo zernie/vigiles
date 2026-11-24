@@ -23,7 +23,7 @@
  * template's defaults, not calibrated by a run.
  */
 import { defineEval } from "../../../dist/test.js";
-import { skillResolved } from "../../../dist/harness-assert.js";
+import { check } from "../../../dist/check.js";
 import { assertTriggerRate } from "../../../dist/eval-surface.js";
 import { fileURLToPath } from "node:url";
 
@@ -64,7 +64,7 @@ export default defineEval({
       "Screenshot the audit report at 390px and tell me if the rings overflow.",
       "Write the docs/rules page for the new mcp-hook-target-resolves rule.",
     ],
-    fired: (t) => skillResolved(t, skill),
+    fired: check.skill(skill),
     trials: 1,
   },
   assert: (report) => {

@@ -2850,21 +2850,12 @@
   },
   "src/harness-assert.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 3
+      "count": 1
     }
   },
   "src/harness-assert.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 3
-    },
-    "functional/no-let": {
-      "count": 1
-    },
-    "functional/no-loop-statements": {
-      "count": 1
-    },
     "functional/prefer-immutable-types": {
-      "count": 23
+      "count": 7
     },
     "no-restricted-globals": {
       "count": 1
@@ -2877,7 +2868,7 @@
   },
   "src/harness-test.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 2
+      "count": 1
     }
   },
   "src/harness-test.ts": {
@@ -4123,17 +4114,6 @@
       "count": 1
     }
   },
-  "src/trigger-containment.ts": {
-    "functional/immutable-data": {
-      "count": 7
-    },
-    "functional/no-loop-statements": {
-      "count": 3
-    },
-    "functional/prefer-immutable-types": {
-      "count": 5
-    }
-  },
   "src/ts-runner-caps.ts": {
     "boundaries/dependencies": {
       "count": 1
@@ -4155,7 +4135,7 @@
   },
   "src/verify-plugin-guards.test.ts": {
     "local/no-harness-names": {
-      "count": 59
+      "count": 54
     },
     "local/no-rule-ids": {
       "count": 1
@@ -4166,13 +4146,13 @@
       "count": 2
     },
     "functional/immutable-data": {
-      "count": 17
+      "count": 4
     },
     "functional/no-loop-statements": {
-      "count": 8
+      "count": 3
     },
     "functional/prefer-immutable-types": {
-      "count": 15
+      "count": 8
     },
     "local/no-harness-names": {
       "count": 3

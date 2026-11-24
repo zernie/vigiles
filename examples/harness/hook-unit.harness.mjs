@@ -18,10 +18,7 @@
  * External users import from the package: `from "vigiles"`.
  */
 import { runHook } from "../../dist/run-hook.js";
-import {
-  assertHookBlocked,
-  assertHookAllowed,
-} from "../../dist/harness-assert.js";
+import { check, assertChecks } from "../../dist/check.js";
 
 // A block-no-verify–style guard: deny any Bash command carrying --no-verify.
 // In a real plugin this is the shipped hook script; here it's inline so the
@@ -42,14 +39,14 @@ const blocked = runHook(guard, {
   tool_name: "Bash",
   tool_input: { command: "git commit --no-verify -m wip" },
 });
-assertHookBlocked(blocked);
+assertChecks(blocked, [check.blocked()]);
 
 const allowed = runHook(guard, {
   hook_event_name: "PreToolUse",
   tool_name: "Bash",
   tool_input: { command: "git commit -m wip" },
 });
-assertHookAllowed(allowed);
+assertChecks(allowed, [check.allowed()]);
 
 console.log(
   "  ✓ guard blocks --no-verify and allows a clean commit (no claude needed)",

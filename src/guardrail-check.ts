@@ -511,7 +511,7 @@ function decideCases(
 ): readonly GuardrailResult[] {
   const ctx = gateContext(hook, opts);
   return cases.map((c) => {
-    // Counted and attributed like `assertHookDenies` (see hook-test.ts
+    // Counted and attributed like `experimental_assertHookDenies` (see hook-test.ts
     // `runCountedHookProgram`): an in-process decision is a check.
     recordCheck();
     const source = hookSource(hook);
@@ -764,9 +764,7 @@ function passedUnasked(r: GuardrailResult): boolean {
  * Printing it as `allows` is what made a conditional guard look like it had
  * considered — and permitted — commands it can never see.
  *
- * @internal Shared by {@link formatGuardrailReport} and the directory-level
- * sweep's formatter (`experimental_formatPluginGuardReport`), so the two renderers
- * cannot drift into two vocabularies for the same outcomes.
+ * @internal Used by {@link formatGuardrailReport}.
  */
 export function guardrailRow(result: GuardrailResult): string {
   const what = `${result.event.id}: ${result.event.label}`;

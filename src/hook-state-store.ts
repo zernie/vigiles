@@ -43,7 +43,7 @@
  * `record()` returns a VALUE… this API hands out no writer". Exporting a store
  * writer there would hand out exactly that writer, to exactly the code the
  * guarantee is about. So the seeding handle lives on the `vigiles` TEST root,
- * beside `runHook`, `loadHook` and the `assertHook*` helpers, where a test can
+ * beside `runHook`, `experimental_loadHook` and the `assertHook*` helpers, where a test can
  * reach it and a hook cannot.
  */
 import {

@@ -21,7 +21,7 @@ Match what you're testing to the cheapest tier that can answer it:
 | -------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------ | --------------------------------------------------------------------------------------------- |
 | "Does this hook block/allow event X?" — pure hook logic, **every** event type (incl. Edit/Write, PreCompact, SessionEnd, SubagentStop) | **Unit**          | free, milliseconds, no `claude`                  | `runHook`                                                                                     |
 | "Is the hook actually **wired into** the assembled plugin and does it fire in a real session?"                                         | **Deterministic** | free, no API key (real `claude` + scripted mock) | `runHarnessTest` + `scriptModel`                                                              |
-| "Did the injected context (a SessionStart hook, a `/command`) actually **reach the model**?"                                           | **Deterministic** | free, no API key                                 | `runHarnessTest` → `trace.modelRequests` / `assertRequestContains`                            |
+| "Did the injected context (a SessionStart hook, a `/command`) actually **reach the model**?"                                           | **Deterministic** | free, no API key                                 | `runHarnessTest` → `trace.modelRequests` / `check.received`                                   |
 | "Does this skill's **description trigger** when it should (recall) **and stay quiet** when it shouldn't (precision)?"                  | **Eval**          | **paid** (real model)                            | `measureTriggerRate` (+ `irrelevantPrompts`) → `assertTriggerRate({ min, maxFalsePositive })` |
 | "Can I measure triggering on a **cheaper model** and trust it as a floor?"                                                             | **Eval**          | **paid** (two runs)                              | `compare(weak, strong)` (from `vigiles/eval`) → `.lost`                                       |
 | "Is this exact skill's **output any good**?" — absolute quality, no on/off baseline (the default for testing one skill)                | **Eval**          | **paid** (real model)                            | `measure({ checks: [judged(rubric)] })` → `assertRates({ min })`                              |
@@ -162,7 +162,7 @@ harness surface (Step 2), choose the cheapest meaningful test, write it, run it,
 and show the result. Good default picks, in order:
 
 1. A `PreToolUse` hook → **unit-test** that it blocks the thing it's meant to block (and allows a safe sibling).
-2. A `SessionStart` hook that injects context → **deterministic** test that the text actually reaches the model (`assertRequestContains`).
+2. A `SessionStart` hook that injects context → **deterministic** test that the text actually reaches the model (`check.received`).
 3. A skill → **deterministic** test that it resolves via `pluginDir`, then offer the paid `measureTriggerRate` eval as a follow-up.
 
 Then say which tier you used and why, and offer to climb a tier if the cheaper

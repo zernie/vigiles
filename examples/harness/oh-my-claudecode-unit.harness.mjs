@@ -23,7 +23,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { runHook } from "../../dist/run-hook.js";
-import { assertHookAllowed } from "../../dist/harness-assert.js";
+import { check, assertChecks } from "../../dist/check.js";
 
 const ROOT = fileURLToPath(
   new URL("../../test/dogfood/oh-my-claudecode@deee3a4", import.meta.url),
@@ -45,7 +45,7 @@ const hit = runHook(
   { hook_event_name: "UserPromptSubmit", prompt: "please ultrawork on this" },
   { env },
 );
-assertHookAllowed(hit); // a context hook never blocks
+assertChecks(hit, [check.allowed()]); // a context hook never blocks
 const injected = hit.json?.hookSpecificOutput?.additionalContext ?? "";
 if (!injected.includes("ULTRAWORK")) {
   throw new Error(
@@ -62,7 +62,7 @@ const miss = runHook(
   },
   { env },
 );
-assertHookAllowed(miss);
+assertChecks(miss, [check.allowed()]);
 if (miss.json?.hookSpecificOutput?.additionalContext) {
   throw new Error("a plain prompt should not inject skill routing");
 }

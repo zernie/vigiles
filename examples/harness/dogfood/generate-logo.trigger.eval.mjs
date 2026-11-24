@@ -16,7 +16,7 @@
  * Write-don't-run in a keyless env; runs where a key is.
  */
 import { defineEval } from "../../../dist/test.js";
-import { skillResolved } from "../../../dist/harness-assert.js";
+import { check } from "../../../dist/check.js";
 import { assertTriggerRate } from "../../../dist/eval-surface.js";
 import { fileURLToPath } from "node:url";
 
@@ -58,7 +58,7 @@ export default defineEval({
       "Convert the hero PNG to a WebP.",
       "Make a 404 illustration for the website.",
     ],
-    fired: (t) => skillResolved(t, skill),
+    fired: check.skill(skill),
     trials: 1,
   },
   assert: (report) => {

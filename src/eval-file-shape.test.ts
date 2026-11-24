@@ -208,7 +208,7 @@ describe("the gate fires on the shape it replaced", () => {
       importedNames(
         parse(
           "x.eval.mjs",
-          `import { defineEval, skillResolved } from "vigiles";\nimport { assertRates } from "vigiles/eval";\n`,
+          `import { defineEval, check } from "vigiles";\nimport { assertRates } from "vigiles/eval";\n`,
         ),
       ).filter((n) => (PAID as readonly string[]).includes(n)),
       [],

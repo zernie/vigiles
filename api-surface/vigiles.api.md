@@ -84,61 +84,13 @@ export interface ArmUsage {
 export function assertChecks<T>(target: T, checks: readonly Check<T>[]): void;
 
 // @public
-export function assertCreated(r: HarnessTestResult, path: string): void;
-
-// @public
 export function assertDelivered(r: HookRunResult): void;
 
 // @public
 export function assertEgressOnly(r: HasEgress, allowed: ReadonlyArray<string | RegExp>): void;
 
 // @public
-export function assertHookAllowed(r: HookRunResult): void;
-
-// @public
-export function assertHookBlocked(r: HookRunResult): void;
-
-// @public
-export function assertHookFired(trace: Trace, name: string | RegExp, opts?: {
-    blocked?: boolean;
-}): void;
-
-// @public
-export function assertNotCreated(r: HarnessTestResult, path: string): void;
-
-// @public
 export function assertNoWrite(r: HasWrites, pattern: string | RegExp): void;
-
-// @public
-export function assertOutputContains(trace: Trace, needle: string | RegExp): void;
-
-// @public
-export function assertRequestContains(trace: Trace, needle: string | RegExp): void;
-
-// @public
-export function assertSkillResolved(trace: Trace, skill: string): void;
-
-// @public
-export function assertToolCalls(trace: Trace, predicate: (calls: readonly ToolCall[]) => boolean, message?: string): void;
-
-// @public
-export function assertToolCount(trace: Trace, name: string | RegExp, bounds: {
-    min?: number;
-    max?: number;
-    exactly?: number;
-}): void;
-
-// @public
-export function assertToolNotUsed(trace: Trace, name: string | RegExp): void;
-
-// @public
-export function assertToolSequence(trace: Trace, names: ReadonlyArray<string | RegExp>): void;
-
-// @public
-export function assertToolUsed(trace: Trace, name: string | RegExp): void;
-
-// @public
-export function assertToolUsedWith(trace: Trace, name: string | RegExp, inputMatcher: (input: unknown) => boolean, message?: string): void;
 
 // @public
 export function assertWroteOnly(r: HasWrites, allowed: ReadonlyArray<string | RegExp>): void;
@@ -489,9 +441,6 @@ export const experimental_stub: typeof stubOf & {
 };
 
 // @public
-export function experimental_withServices<T>(services: Readonly<Record<string, ServiceSpec>>, runtime: ContainerRuntime, fn: (session: ServiceSession) => Promise<T>): Promise<T>;
-
-// @public
 export interface ExperimentalEmitTool {
     readonly instruction: string;
     readonly tool: EmitToolDefinition;
@@ -548,9 +497,6 @@ export interface HomeSeed {
     // (undocumented)
     readonly kind: "files";
 }
-
-// @public
-export function hookBlocked(trace: Trace, name: string | RegExp): boolean;
 
 // @public
 export type HookDelivery = {
@@ -731,9 +677,6 @@ export function onlyTools(allowed: readonly string[]): Check<Trace>;
 export function output(matcher: string | RegExp): Check<Trace>;
 
 // @public
-export function outputContains(trace: Trace, needle: string | RegExp): boolean;
-
-// @public
 export interface OutputStyleArms {
     readonly with: EvalArm;
     readonly without: EvalArm;
@@ -760,9 +703,6 @@ export function received(matcher: string | RegExp): Check<Trace>;
 
 // @public
 export function recordCheck(n?: number): void;
-
-// @public
-export function requestContains(trace: Trace, needle: string | RegExp): boolean;
 
 // @public
 export interface RunContext extends Trace {
@@ -928,9 +868,6 @@ export interface SkillFire {
 }
 
 // @public
-export function skillResolved(trace: Trace, skill: string): boolean;
-
-// @public
 export function skip(reason?: string): never;
 
 // @public
@@ -1033,18 +970,12 @@ export interface ToolCall {
 }
 
 // @public
-export function toolCount(trace: Trace, name: string | RegExp): number;
-
-// @public
 export interface ToolStub {
     // (undocumented)
     readonly name: string;
     // (undocumented)
     readonly rules: readonly [StubRule, ...StubRule[]];
 }
-
-// @public
-export function toolUsedWith(trace: Trace, name: string | RegExp, inputMatcher: (input: unknown) => boolean): boolean;
 
 // @public
 export function toolWith(name: string, args: ArgMatcher): Check<Trace>;
@@ -1119,9 +1050,6 @@ export type UnobservableWhy =
 | "opted-out"
 /** A cache entry recorded before this check existed was replayed. */
 | "replayed-without-evidence";
-
-// @public
-export function usedTool(trace: Trace, name: string | RegExp): boolean;
 
 // @public
 export const vigilesMatchers: {

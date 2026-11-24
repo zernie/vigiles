@@ -23,7 +23,8 @@ import {
   scriptModel,
   claudeAvailable,
 } from "../../dist/harness-test.js";
-import { assertCreated, skip } from "../../dist/harness-assert.js";
+import { skip } from "../../dist/harness-assert.js";
+import { check, assertChecks } from "../../dist/check.js";
 
 if (!claudeAvailable()) skip("`claude` CLI not found");
 
@@ -42,8 +43,10 @@ const r = await runHarnessTest({
   ]),
 });
 try {
-  assertCreated(r, "SETUP_DONE"); // SessionStart setup hook ran
-  assertCreated(r, "BLOCKED"); // PreToolUse gate blocked `rm -rf`
+  assertChecks(r, [
+    check.wrote("SETUP_DONE"), // SessionStart setup hook ran
+    check.wrote("BLOCKED"), // PreToolUse gate blocked `rm -rf`
+  ]);
   if (!(r.file("RESULT") ?? "").includes("ok")) {
     throw new Error("clean command did not run (RESULT missing 'ok')");
   }

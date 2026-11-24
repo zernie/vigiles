@@ -5,13 +5,17 @@
  * they already work inside any runner (node:test, vitest, jest, mocha). These
  * helpers remove the last bit of boilerplate without coupling to a runner:
  *
- *   - plain `assert*` helpers that throw — usable in every runner, including
- *     node:test which has no `expect.extend`.
+ *   - the throwing assertions NO `check.*` member covers — delivery of a nudge,
+ *     egress and file-write allowlists — usable in every runner, including
+ *     node:test which has no `expect.extend`. Everything else about a run is a
+ *     check: `assertChecks(r, [check.tool("Bash"), check.wrote("out.txt")])`
+ *     (src/check.ts). The flat `assertToolUsed`-style forms and the boolean
+ *     predicates (`usedTool`, `skillResolved`, …) left in v49.
  *   - `vigilesMatchers` — register with `expect.extend(vigilesMatchers)` for
  *     `expect(...).toHaveCreated(...)` sugar. The signature is identical for
  *     vitest and jest, so the same object supports both.
  */
-import type { HarnessTestResult, ToolCall, Trace } from "./harness-test.js";
+import type { HarnessTestResult } from "./harness-test.js";
 import type { EvalReport } from "./core/eval-report.js";
 import type { HookRunResult, EgressAttempt } from "./run-hook.js";
 import { evalChecks, type Check } from "./check.js";
@@ -38,34 +42,6 @@ export function skip(reason?: string): never {
 }
 /* v8 ignore stop */
 
-/** Assert the sandbox contains `path` (a hook/agent side-effect file). */
-export function assertCreated(r: HarnessTestResult, path: string): void {
-  if (r.file(path) === null) fail(`expected the run to create ${path}`);
-}
-
-/** Assert the sandbox does NOT contain `path` (e.g. a blocked action's output). */
-export function assertNotCreated(r: HarnessTestResult, path: string): void {
-  if (r.file(path) !== null) fail(`expected the run NOT to create ${path}`);
-}
-
-/** Assert a `runHook` result blocked (exit 2 / decision:block / permission:deny). */
-export function assertHookBlocked(r: HookRunResult): void {
-  if (!r.blocked) {
-    fail(
-      `expected the hook to block, but it allowed (exit ${String(r.exitCode)})`,
-    );
-  }
-}
-
-/** Assert a `runHook` result allowed (did not block). */
-export function assertHookAllowed(r: HookRunResult): void {
-  if (r.blocked) {
-    fail(
-      `expected the hook to allow, but it blocked (exit ${String(r.exitCode)}, decision ${String(r.decision)})`,
-    );
-  }
-}
-
 /**
  * Assert a `runHook` result's text REACHED THE MODEL — the assertion a nudge
  * test needs, because "the hook printed it" is not "the model received it".
@@ -78,7 +54,7 @@ export function assertHookAllowed(r: HookRunResult): void {
  *   bytes, and the cure.
  * - `silent` — nothing addressed to the model, or the hook never ran (its
  *   condition did not match).
- * - `blocked` — a veto, which is not a nudge; use {@link assertHookBlocked}.
+ * - `blocked` — a veto, which is not a nudge; check it with `check.blocked()`.
  * - `unknown` — the event has no row in the harness's capability table, so
  *   delivery cannot be judged. FAILS rather than passes (`no-silent-skips`):
  *   pass `capabilities` to `runHook`, or add the row.
@@ -103,7 +79,7 @@ export function assertDelivered(r: HookRunResult): void {
       );
     case "blocked":
       return fail(
-        `expected a delivered nudge, but the hook BLOCKED the action (exit ${String(r.exitCode)}) — a block is not a nudge; assert it with assertHookBlocked`,
+        `expected a delivered nudge, but the hook BLOCKED the action (exit ${String(r.exitCode)}) — a block is not a nudge; assert it with check.blocked()`,
       );
     case "unknown":
       return fail(
@@ -207,334 +183,6 @@ export function assertWroteOnly(
   );
   if (bad.length > 0) {
     fail(`run wrote file(s) outside the allowlist: ${bad.join(", ")}`);
-  }
-}
-
-function nameMatches(name: string, pat: string | RegExp): boolean {
-  return typeof pat === "string" ? name === pat : pat.test(name);
-}
-
-function toolNames(trace: Trace): string {
-  return trace.toolCalls.map((c) => c.name).join(", ") || "none";
-}
-
-// --- bare predicates over a Trace (the shared vocabulary, no throw) ---------
-//
-// Pure fns returning a value, so the SAME vocabulary runs in both consumers:
-// the throwing `assert*` helpers below wrap them for the testing tier, and an
-// eval `measure` reuses them directly as metrics (`measure: (t) => ({ safe:
-// !usedTool(t, /merge|delete/) })`). Never one dual-purpose function.
-
-/**
- * Did the agent invoke a tool whose name matches `name` (string = exact,
- * RegExp = test)? The predicate behind `assertToolUsed` / `assertToolNotUsed`.
- */
-export function usedTool(trace: Trace, name: string | RegExp): boolean {
-  return trace.toolCalls.some((c) => nameMatches(c.name, name));
-}
-
-/** How many tools matching `name` the agent invoked. Behind `assertToolCount`. */
-export function toolCount(trace: Trace, name: string | RegExp): number {
-  return trace.toolCalls.filter((c) => nameMatches(c.name, name)).length;
-}
-
-/**
- * Did the `Skill` tool resolve `skill` (e.g. `"superpowers:test-driven-development"`)
- * without error? The skill-activation predicate behind `assertSkillResolved`.
- */
-export function skillResolved(trace: Trace, skill: string): boolean {
-  const call = trace.toolCalls.find(
-    (c) =>
-      c.name === "Skill" && (c.input as { skill?: string })?.skill === skill,
-  );
-  return call !== undefined && !call.isError;
-}
-
-/**
- * Did the agent invoke a tool matching `name` whose INPUT satisfies
- * `inputMatcher` — a tool-ARGUMENT predicate (DeepEval-style), e.g. an `Edit`
- * that targeted the right file. The predicate behind `assertToolUsedWith`.
- */
-export function toolUsedWith(
-  trace: Trace,
-  name: string | RegExp,
-  inputMatcher: (input: unknown) => boolean,
-): boolean {
-  return trace.toolCalls.some(
-    (c) => nameMatches(c.name, name) && inputMatcher(c.input),
-  );
-}
-
-/**
- * Does the agent's final answer (`trace.output`) contain `needle` (string =
- * substring, RegExp = test)? The output predicate behind `assertOutputContains`
- * — the DeepEval-style "what did the agent actually say" check.
- */
-export function outputContains(trace: Trace, needle: string | RegExp): boolean {
-  return typeof needle === "string"
-    ? trace.output.includes(needle)
-    : needle.test(trace.output);
-}
-
-/** All text the model received across every request (system + every message). */
-function requestText(trace: Trace): string {
-  return trace.modelRequests
-    .map((r) => [r.system, ...r.messages.map((m) => m.text)].join("\n"))
-    .join("\n");
-}
-
-/**
- * Did ANY request the model received contain `needle` — searching the system
- * prompt and every message across all requests? The predicate that proves
- * injected context *reached the model*: a SessionStart hook's `additionalContext`
- * or a slash command's expansion.
- *
- * THIS IS A PROJECTION OF THE REQUEST, NOT THE REQUEST — state what it omits
- * before building a claim on it. Until 2026-09-10 this sentence was false: the
- * flattener read only `.text`, so the eight `ContentBlockParam` variants that
- * carry `content` were invisible, and a payload Claude Code had delivered inside
- * a `tool_result` read as "never arrived" (zernie/vigiles#231, a false finding).
- * It now covers every block type the pinned SDK union names, and serialises any
- * it does not. STILL OMITTED BY DESIGN: `tool_use` / `server_tool_use` inputs —
- * those are what the model SAID, not what it was TOLD, so a needle in a tool
- * argument must not read as delivery. See `flattenBlock` in mock-model.ts. Harness tier only — the eval tier drives the
- * real API, so its `modelRequests` (and this) is empty. Behind `assertRequestContains`.
- */
-export function requestContains(
-  trace: Trace,
-  needle: string | RegExp,
-): boolean {
-  const text = requestText(trace);
-  return typeof needle === "string" ? text.includes(needle) : needle.test(text);
-}
-
-/**
- * Did a hook matching `name` fire? Matches against both the hook label
- * (`"PreToolUse:Edit"`) and the bare event (`"PreToolUse"`), so `/PreToolUse/`
- * or `"PreToolUse:Edit"` both work. The predicate behind `assertHookFired`.
- *
- * 🔴 NOT EXPORTED, ON PURPOSE (zernie/vigiles#502). It was exported as
- * `hookFired`, the same name as the `hookFired(event)` CHECK, and the barrel's
- * explicit re-export of the check shadowed it. The docs still showed the
- * two-argument predicate, so a JavaScript caller writing `if (hookFired(trace,
- * "PreToolUse"))` got a Check object back — always truthy — and every hook
- * "fired". One name, one meaning: the public `hookFired` is the check
- * (`hookFired(event).eval(trace).pass` is the boolean), and
- * `test/types/hook-fired.ts` keeps the two-argument call a type error.
- */
-function firedHook(trace: Trace, name: string | RegExp): boolean {
-  return trace.hooks.some(
-    (h) => nameMatches(h.name, name) || nameMatches(h.event, name),
-  );
-}
-
-/** Did a hook matching `name` fire AND block (exit ≠ 0 / outcome "error")? */
-export function hookBlocked(trace: Trace, name: string | RegExp): boolean {
-  return trace.hooks.some(
-    (h) =>
-      (nameMatches(h.name, name) || nameMatches(h.event, name)) && h.blocked,
-  );
-}
-
-/**
- * Assert the agent invoked a tool whose name matches `name` (string = exact,
- * RegExp = test) — e.g. a skill (`"Skill"`), an MCP tool (`/^mcp__github__/`), or
- * a subagent (`"Task"`). Needs `transcript: true`. The action invariant the
- * skill/MCP/command surfaces are really about.
- */
-export function assertToolUsed(trace: Trace, name: string | RegExp): void {
-  if (!usedTool(trace, name)) {
-    fail(
-      `expected a tool matching ${String(name)} to be used; tools used: [${toolNames(trace)}] (did you set transcript:true?)`,
-    );
-  }
-}
-
-/**
- * Assert the agent did NOT invoke any tool matching `name` — the safety negative
- * (e.g. a destructive MCP tool was never called). "File unchanged" can pass by
- * accident; "the tool was never used" is the real invariant. Needs `transcript`.
- */
-export function assertToolNotUsed(trace: Trace, name: string | RegExp): void {
-  // `find` is the negative of `usedTool` and narrows the hit for the message.
-  const hit = trace.toolCalls.find((c) => nameMatches(c.name, name));
-  if (hit) {
-    fail(
-      `expected no tool matching ${String(name)} to be used, but ${hit.name} was`,
-    );
-  }
-}
-
-/**
- * Assert the `Skill` tool resolved `skill` (e.g. `"superpowers:test-driven-development"`)
- * without error — the correct skill-activation invariant, vs. grepping the body.
- */
-export function assertSkillResolved(trace: Trace, skill: string): void {
-  if (skillResolved(trace, skill)) return;
-  // skillResolved is false → either no matching Skill call, or it errored.
-  // Reconstruct which, for a useful message.
-  const call = trace.toolCalls.find(
-    (c) =>
-      c.name === "Skill" && (c.input as { skill?: string })?.skill === skill,
-  );
-  if (!call) {
-    const seen = trace.toolCalls
-      .filter((c) => c.name === "Skill")
-      .map((c) => (c.input as { skill?: string })?.skill ?? "?")
-      .join(", ");
-    fail(
-      `expected the Skill tool to resolve "${skill}"; Skill calls: [${seen || "none"}]`,
-    );
-  }
-  fail(
-    `the Skill "${skill}" was invoked but errored: ${call.resultText.slice(0, 200)}`,
-  );
-}
-
-/**
- * Assert the agent invoked a tool matching `name` whose INPUT satisfies
- * `inputMatcher` — a tool-ARGUMENT invariant (DeepEval-style). Asserts not just
- * *that* a tool ran but *with what args*, e.g. an `Edit` that targeted the right
- * file: `assertToolUsedWith(r, "Edit", (i) => (i as { file_path?: string })
- * .file_path === "src/x.ts")`. Needs `transcript`.
- */
-export function assertToolUsedWith(
-  trace: Trace,
-  name: string | RegExp,
-  inputMatcher: (input: unknown) => boolean,
-  message?: string,
-): void {
-  if (!toolUsedWith(trace, name, inputMatcher)) {
-    const seen = trace.toolCalls
-      .filter((c) => nameMatches(c.name, name))
-      .map((c) => JSON.stringify(c.input))
-      .join(", ");
-    fail(
-      message ??
-        `expected a ${String(name)} call whose input matches; ${String(name)} inputs: [${seen || "none"}]`,
-    );
-  }
-}
-
-/** Assert the agent's final answer contains `needle` (string substring / RegExp). */
-export function assertOutputContains(
-  trace: Trace,
-  needle: string | RegExp,
-): void {
-  if (!outputContains(trace, needle)) {
-    const shown = trace.output.slice(0, 200) || "(empty)";
-    fail(
-      `expected the agent's final answer to contain ${String(needle)}; got: ${shown}`,
-    );
-  }
-}
-
-/**
- * Assert some request the model received contained `needle` — the "did the
- * injected context land" invariant (SessionStart `additionalContext`, slash
- * command expansion). Harness tier only; a zero-request trace fails with a hint
- * that the eval tier can't capture requests.
- */
-export function assertRequestContains(
-  trace: Trace,
-  needle: string | RegExp,
-): void {
-  if (!requestContains(trace, needle)) {
-    const n = trace.modelRequests.length;
-    const hint =
-      n === 0
-        ? " (no requests captured — modelRequests is harness-tier only)"
-        : "";
-    fail(
-      `expected a model request to contain ${String(needle)}; ${String(n)} request(s) captured${hint}`,
-    );
-  }
-}
-
-function hookNames(trace: Trace): string {
-  return trace.hooks.map((h) => h.name).join(", ") || "none";
-}
-
-/**
- * Assert a hook matching `name` fired (and, with `{ blocked: true }`, that it
- * blocked) — the honest hook-firing check, recorded from the run's stream rather
- * than inferred from a marker file the hook had to write. Needs `transcript`.
- */
-export function assertHookFired(
-  trace: Trace,
-  name: string | RegExp,
-  opts: { blocked?: boolean } = {},
-): void {
-  if (!firedHook(trace, name)) {
-    fail(
-      `expected a hook matching ${String(name)} to fire; hooks fired: [${hookNames(trace)}] (did you set transcript:true?)`,
-    );
-  }
-  if (opts.blocked === true && !hookBlocked(trace, name)) {
-    fail(
-      `expected a hook matching ${String(name)} to block, but none did; hooks fired: [${hookNames(trace)}]`,
-    );
-  }
-}
-
-// --- sequence / budget invariants over the agent's actions -----------------
-
-/**
- * Assert how many tools matching `name` the agent invoked is within bounds — a
- * budget invariant (e.g. `{ max: 1 }` = "at most one Write", `{ exactly: 0 }` =
- * "never touched it"). Catches runaway loops and wasted work. Needs `transcript`.
- */
-export function assertToolCount(
-  trace: Trace,
-  name: string | RegExp,
-  bounds: { min?: number; max?: number; exactly?: number },
-): void {
-  const n = toolCount(trace, name);
-  const ok =
-    (bounds.exactly === undefined || n === bounds.exactly) &&
-    (bounds.min === undefined || n >= bounds.min) &&
-    (bounds.max === undefined || n <= bounds.max);
-  if (!ok) {
-    fail(
-      `expected count of ${String(name)} to satisfy ${JSON.stringify(bounds)}, got ${String(n)} (tools: [${toolNames(trace)}])`,
-    );
-  }
-}
-
-/**
- * Assert the named tools occurred in this order (as a subsequence — gaps allowed)
- * — an ordering invariant. e.g. `["Read", "Edit"]` checks a Read came before an
- * Edit. For a stricter rule (every Edit preceded by a Read), use `assertToolCalls`.
- * Needs `transcript`.
- */
-export function assertToolSequence(
-  trace: Trace,
-  names: ReadonlyArray<string | RegExp>,
-): void {
-  let i = 0;
-  for (const c of trace.toolCalls) {
-    const want = names[i];
-    if (want !== undefined && nameMatches(c.name, want)) i++;
-  }
-  if (i < names.length) {
-    fail(
-      `expected tools in order [${names.map((n) => String(n)).join(" → ")}]; got [${toolNames(trace)}]`,
-    );
-  }
-}
-
-/**
- * The escape hatch: assert any custom invariant over the full list of tool calls
- * the agent made — for rules the helpers above don't express, e.g. "every Edit
- * was preceded by a Read of that file". Needs `transcript`.
- */
-export function assertToolCalls(
-  trace: Trace,
-  predicate: (calls: readonly ToolCall[]) => boolean,
-  message = "tool-call invariant failed",
-): void {
-  if (!predicate(trace.toolCalls)) {
-    fail(`${message}; tools used: [${toolNames(trace)}]`);
   }
 }
 

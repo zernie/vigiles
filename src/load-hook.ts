@@ -1,8 +1,8 @@
 /**
- * `loadHook` — load a compiled-hook program from a FILE.
+ * `experimental_loadHook` — load a compiled-hook program from a FILE.
  *
- * The in-process assertions (`assertHookDenies` / `assertHookAllows` /
- * `assertHookNotices` / `assertHookSilent`) take the hook OBJECT, but a
+ * The in-process assertions (`experimental_assertHookDenies` / `experimental_assertHookAllows` /
+ * `experimental_assertHookNotices` / `experimental_assertHookSilent`) take the hook OBJECT, but a
  * `.harness.mjs` test only has the hook's PATH — and the loader that turns one
  * into the other lived privately inside `cli.ts`. So the intended in-process test
  * path was unreachable from the file format `vigiles test` actually runs, and
@@ -53,10 +53,13 @@ function isTypeScriptRuntimeError(e: unknown): boolean {
  * reported as itself.
  *
  * ```js
- * import { loadHook, assertHookDenies } from "vigiles/hook";
+ * import {
+ *   experimental_loadHook,
+ *   experimental_assertHookDenies,
+ * } from "vigiles/hook";
  *
- * const guard = await loadHook(".vigiles/hooks/guard.hook.mjs");
- * assertHookDenies(guard, {
+ * const guard = await experimental_loadHook(".vigiles/hooks/guard.hook.mjs");
+ * experimental_assertHookDenies(guard, {
  *   tool_name: "Bash",
  *   tool_input: { command: "git push --force" },
  * });
@@ -64,8 +67,11 @@ function isTypeScriptRuntimeError(e: unknown): boolean {
  *
  * @throws {HookCompileError} when the file can't be imported, or has no
  * default-exported hook program.
+ *
+ * @experimental Loads the experimental compiled-hook vocabulary
+ * (`experimental_define*`), so it moves with it.
  */
-export async function loadHook(
+export async function experimental_loadHook(
   file: string,
   root: string = process.cwd(),
 ): Promise<AnyHook> {

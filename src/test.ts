@@ -36,9 +36,9 @@
  *     `paid_`, not the door, marks a call that can bill you.
  *   - the guard battery (`assertGuardrail`, `verifyGuardrail`, …) →
  *     `vigiles/battery`.
- *   - testing a compiled hook in-process (`loadHook`, `assertHookDenies`, …) →
+ *   - testing a compiled hook in-process (`experimental_loadHook`, `experimental_assertHookDenies`, …) →
  *     `vigiles/hook`.
- *   - a subagent's outcome (`assertAgentOk`, …) → `vigiles/spec`.
+ *   - a subagent's outcome (`experimental_assertAgentOk`, …) → `vigiles/spec`.
  *   - Claude Code's stream parsers (`parseToolCalls`, `parseClaudeRun`) →
  *     `vigiles/claude-code`; the driver PORT types (`HarnessTestDriver`,
  *     `EvalDriver`, …) → `vigiles/adapter`.
@@ -118,7 +118,7 @@ export * from "./harness-assert.js";
 // (the `experimental_` prefix already marks every call site; the subpath only
 // marked the import line). It belongs BESIDE the assertions above rather than in
 // a drawer of its own: `experimental_parseEmitted` / `experimental_assertEmittedOk`
-// are the emit-channel twins of `parseAgentResult` / `assertAgentOk`, and a reader
+// are the emit-channel twins of `parseAgentResult` / `experimental_assertAgentOk`, and a reader
 // comparing the two delivery shapes should not have to change doors to see both.
 // Read src/experimental-emit.ts's header before using it — it lists, by number,
 // what is unproven and what would have to be true to drop the prefix.
@@ -304,7 +304,6 @@ export type {
 // and keep real credentials out of the run. See the SAFETY note in src/services.ts.
 export {
   experimental_startServices,
-  experimental_withServices,
   type ServiceSpec,
   type ServiceReady,
   type ServiceReset,

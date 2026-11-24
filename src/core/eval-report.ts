@@ -140,7 +140,7 @@ export interface TriggerRateReport {
   readonly competitors: number;
   /**
    * The plugin namespace the skills actually installed under — the `<plugin>`
-   * half of the `<plugin>:<skill>` id `skillResolved` matches.
+   * half of the `<plugin>:<skill>` id `check.skill` matches.
    *
    * Reported because with `skillsDir` the name is chosen by the packager, not by
    * the caller, so the single most common cause of a 0% run was a value the

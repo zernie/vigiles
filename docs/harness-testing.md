@@ -25,7 +25,7 @@ code (`2` = block). `runHook` drives exactly that — no harness binary, no mode
 so a hook's logic is testable in milliseconds, in any runner:
 
 ```ts
-import { runHook, assertHookBlocked } from "vigiles";
+import { runHook, check, assertChecks } from "vigiles";
 
 const r = runHook(
   '"$GUARD"',
@@ -37,7 +37,7 @@ const r = runHook(
   { env: { GUARD: guardPath } },
 );
 
-assertHookBlocked(r); // exit 2 / decision:"block" / permissionDecision:"deny"
+assertChecks(r, [check.blocked()]); // exit 2 / decision:"block" / permissionDecision:"deny"
 ```
 
 A red ✗ means your guard silently lets `--no-verify` through. That's the whole
@@ -123,14 +123,14 @@ can't synthesize, because _you_ hand it the event JSON. It proves the hook's
 both).
 
 ```ts
-import { runHook, assertHookAllowed } from "vigiles";
+import { runHook, check, assertChecks } from "vigiles";
 
 const r = runHook(hookCmd, {
   hook_event_name: "PreToolUse",
   tool_name: "Edit",
   tool_input: { file_path: "README.md" },
 });
-assertHookAllowed(r);
+assertChecks(r, [check.allowed()]);
 ```
 
 ### Assert a nudge reaches the model (`assertDelivered`)
@@ -169,7 +169,7 @@ assertDelivered(r);
 | ------------- | ---------------------------------------------------------------------------------------------------------- |
 | `delivered`   | text reached the model — `via` lists how (`additional-context`, `plain-stdout`, `exit-code-feedback`, …)   |
 | `undelivered` | text was printed, none reached the model — `stranded` names each stream, its bytes, and the cure           |
-| `blocked`     | the hook vetoed the action; a block is not a nudge — use `assertHookBlocked`                               |
+| `blocked`     | the hook vetoed the action; a block is not a nudge — use `check.blocked()`                                 |
 | `silent`      | nothing addressed to the model (or the hook never ran — see `r.ran`)                                       |
 | `unknown`     | the harness's capability table has no row for this event, so delivery is not judged — and the assert fails |
 
@@ -260,9 +260,11 @@ exactly, by calling `decide()`; a command string runs the way the harness runs i
 
 ```ts
 import { assertGuardrail } from "vigiles/battery";
-import { loadHook } from "vigiles/hook";
+import { experimental_loadHook } from "vigiles/hook";
 
-assertGuardrail(await loadHook(".vigiles/hooks/safety-guard.hook.mjs"));
+assertGuardrail(
+  await experimental_loadHook(".vigiles/hooks/safety-guard.hook.mjs"),
+);
 assertGuardrail("bash hooks/safety-guard.sh");
 ```
 
@@ -477,7 +479,7 @@ model turns are fixed, no key, no cost. The unit under test is the _assembled_
 plugin: hooks + settings + instruction file + skills together.
 
 ```ts
-import { runHarnessTest, assertHookFired, assertOutputContains } from "vigiles";
+import { runHarnessTest, check, assertChecks } from "vigiles";
 
 const r = await runHarnessTest({
   plugin: "./", // load THIS repo's real hooks + instruction file + skills
@@ -486,13 +488,15 @@ const r = await runHarnessTest({
   model: [{ text: "on it" }], // the scripted model turns
 });
 
-assertHookFired(r, "UserPromptSubmit"); // it actually fired
-assertOutputContains(r, /on it/); // …and the run completed
+assertChecks(r, [
+  check.hookFired("UserPromptSubmit"), // it actually fired
+  check.output(/on it/), // …and the run completed
+]);
 ```
 
 The result is a `Trace` — the observable record of the run (`toolCalls`, `hooks`,
-`output`, `modelRequests`, `turns`, `file(p)`). Assert on it with the `assert*`
-helpers, or read its fields directly. The full predicate/assertion/check vocabulary
+`output`, `modelRequests`, `turns`, `file(p)`). Assert on it with checks in
+`assertChecks`, or read its fields directly. The full assertion/check vocabulary
 is in the **[reference](testing-api.md#the-trace-model)**.
 
 ## Assert a subagent's typed outcome (railway / Result)
@@ -501,14 +505,14 @@ When a subagent does real work, the question is _"did it succeed, with the right
 result?"_ — normally a job for an **LLM judge** (slow, costs tokens,
 non-deterministic). A **`result()` contract** turns it into a **deterministic
 assert** instead: the subagent ends its turn with a typed block — `vigiles:ok` on
-the success track, `vigiles:err` on the error track — and `assertAgentOk` /
-`assertAgentErr` / `assertAgentResult` parse and validate it against the contract.
+the success track, `vigiles:err` on the error track — and `experimental_assertAgentOk` /
+`experimental_assertAgentErr` / `experimental_assertAgentResult` parse and validate it against the contract.
 
 ```ts
 import {
   experimental_agent,
-  assertAgentOk,
-  assertAgentResult,
+  experimental_assertAgentOk,
+  experimental_assertAgentResult,
 } from "vigiles/spec";
 const { result } = experimental_agent;
 
@@ -520,11 +524,11 @@ const implementer = result(
 
 // `r.output` is the subagent's final text (a runHarnessTest run, a Task
 // sub-trace, or recorded output). Assert the OUTCOME, not prose:
-const ok = assertAgentOk(r.output, implementer); // throws unless it's a valid ok block
+const ok = experimental_assertAgentOk(r.output, implementer); // throws unless it's a valid ok block
 assert.deepEqual(ok.files, ["src/parser.ts"]);
 
 // The general form — assert RICH detail, still model-free:
-assertAgentResult(
+experimental_assertAgentResult(
   r.output,
   (res) =>
     res.kind === "ok" && res.value.files.some((f) => f.endsWith(".test.ts")),
@@ -582,7 +586,7 @@ tiers prove the _wiring_; this proves the _activation_.
 it (see [Eval files describe their eval](#eval-files-describe-their-eval)):
 
 ```ts
-import { defineEval, skillResolved } from "vigiles";
+import { defineEval, check } from "vigiles";
 import { assertTriggerRate } from "vigiles/eval";
 
 export default defineEval({
@@ -591,7 +595,7 @@ export default defineEval({
     stubSkillBodies: true, // measure SELECTION only (stub bodies → much cheaper)
     prompts: ["…≥10 varied tasks the skill should handle…"], // recall
     irrelevantPrompts: ["…≥10 unrelated tasks it should ignore…"], // precision
-    fired: (t) => skillResolved(t, "my-plugin:greet"),
+    fired: check.skill("my-plugin:greet"),
     trials: 2,
   },
   // the report is printed for you — this is the part only you can write
@@ -623,7 +627,7 @@ A total zero looks exactly like a result — the run executed, the report is
 well-formed, every line reads `0.00` — and it is usually a setup mistake. The
 report now says so and lists the three causes, in the order they bite:
 
-1. **the id in `fired`** — `skillResolved` matches the **namespaced** id
+1. **the id in `fired`** — `check.skill` matches the **namespaced** id
    (`<plugin>:<skill>`); a bare name silently never matches;
 2. **the install field** — a loose `.claude/skills` directory needs `skillsDir`,
    not `pluginDir` (which wants a full plugin manifest);
@@ -964,7 +968,7 @@ paying for a real model only at the eval tier.
 - [`hook-unit.harness.mjs`](../examples/harness/hook-unit.harness.mjs) — `runHook`, no harness CLI (the cheap base).
 - [`policy-gate.harness.mjs`](../examples/harness/policy-gate.harness.mjs) — a PreToolUse Bash gate + SessionStart setup, deterministic.
 - [`plugin-cohesion.harness.mjs`](../examples/harness/plugin-cohesion.harness.mjs) — load a whole plugin, assert multiple hooks fire together.
-- [`railway-result.harness.mjs`](../examples/harness/railway-result.harness.mjs) — assert a subagent's typed outcome (`assertAgentOk`/`Err`/`Result`), deterministic, no key.
+- [`railway-result.harness.mjs`](../examples/harness/railway-result.harness.mjs) — assert a subagent's typed outcome (`experimental_assertAgentOk`/`Err`/`Result`), deterministic, no key.
 - [`effect-boundary.harness.mjs`](../examples/harness/effect-boundary.harness.mjs) — assert a unit stayed inside its declared write surface (`wrote`/`didNotWrite`/`notTool`), deterministic, no key.
 - [`skill-trigger-rate.eval.mjs`](../examples/harness/skill-trigger-rate.eval.mjs) — does a skill's description _fire_? (`measureTriggerRate`)
 - [`skill-outcome.eval.mjs`](../examples/harness/skill-outcome.eval.mjs) — does a skill change the agent's output?

@@ -1,7 +1,7 @@
 # Testing API reference
 
 The complete surface behind [Testing your harness](harness-testing.md) — every
-predicate, assertion, check, matcher, and option. The guide has the task-first
+assertion, check, matcher, and option. The guide has the task-first
 how-to; this is the reference you reach for when you need the exact name or knob.
 
 ## Contents
@@ -9,7 +9,6 @@ how-to; this is the reference you reach for when you need the exact name or knob
 - [Picking a runner](#picking-a-runner)
 - [And one that asks about the tests themselves](#and-one-that-asks-about-the-tests-themselves)
 - [The `Trace` model](#the-trace-model)
-- [Predicates](#predicates)
 - [Assertions](#assertions)
 - [The `check` vocabulary](#the-check-vocabulary)
 - [vitest / jest matchers](#vitest--jest-matchers)
@@ -72,51 +71,46 @@ stream events, so a test asserts a hook _actually_ fired and blocked — no mark
 file the hook had to write. Capture it with `transcript: true` on the harness tier
 (always on at the eval tier).
 
-## Predicates
-
-Pure functions over a `Trace` — **no `assert` prefix, no throw**. Use them in a
-`measure` as metrics, or wherever you want a boolean.
-
-```ts
-import {
-  usedTool,
-  toolCount,
-  skillResolved,
-  toolUsedWith,
-  outputContains,
-  hookBlocked,
-  check, // the check vocabulary; a check's verdict is .eval(trace).pass
-} from "vigiles";
-
-usedTool(trace, "Skill"); // boolean
-usedTool(trace, /^mcp__github__merge/); // boolean (regex)
-toolCount(trace, "Write"); // number
-skillResolved(trace, "demo:greet"); // boolean
-toolUsedWith(trace, "Edit", (i) => isRightFile(i)); // boolean (tool argument)
-outputContains(trace, /done/i); // boolean (the final answer)
-check.hookFired("PreToolUse").eval(trace).pass; // boolean (recorded from the stream)
-hookBlocked(trace, "PreToolUse"); // boolean (fired AND exit ≠ 0)
-```
-
 ## Assertions
 
-Each `assert*` is a predicate wrapped in a throw (`assertToolUsed` is `usedTool`
-then throw; `assertSkillResolved` is `skillResolved` then throw). They're plain
-functions, so they work in `node:test`, vitest, jest, or any runner. Beyond a
-single tool you can assert on sequence and budget:
+**One form.** Everything you assert about a run is a **check** — a value that
+evaluates to pass/fail with an actionable message — and `assertChecks` throws,
+listing every check that failed. It works in `node:test`, vitest, jest, or any
+runner. Beyond a single tool you can assert on sequence, budget and arguments,
+and `check(name, fn)` names anything else:
 
 ```ts
-assertToolSequence(r, ["Read", "Edit"]); // ordering — Read before Edit
-assertToolCount(r, "Write", { max: 1 }); // budget — no runaway writes
-assertToolUsedWith(r, "Edit", (i) => i.file_path === "src/billing.ts"); // argument
-assertToolCalls(r, (calls) => /* any custom rule over the list */ true);
+import { runHarnessTest, check, assertChecks } from "vigiles";
 
-assertHookBlocked(r); // exit 2 / decision:"block" / permissionDecision:"deny"
-assertDelivered(r); // a runHook result's text REACHED the model (not just stderr) — see harness-testing.md
-assertHookFired(r, "UserPromptSubmit");
-assertOutputContains(r, /on it/);
-assertCreated(r, "DONE"); // a file was created
+assertChecks(r, [
+  check.toolSequence(["Read", "Edit"]), // ordering — Read before Edit
+  check.tool("Write", { max: 1 }), // budget — no runaway writes
+  check.toolWith("Edit", { file_path: "src/billing.ts" }), // argument
+  check.hookFired("UserPromptSubmit"),
+  check.output(/on it/),
+  check.wrote("DONE"), // a file was created
+  check(
+    "every Edit follows a Read",
+    (t) => /* any rule over t.toolCalls */ true,
+  ),
+]);
+
+assertChecks(hookResult, [check.blocked()]); // exit 2 / decision:"block" / permissionDecision:"deny"
 ```
+
+Want a boolean instead of a throw — in a `measure`, say? A check's verdict is
+`check.skill("demo:greet").eval(trace).pass`; `fired:` takes the check itself.
+
+Three assertions have no check yet and stay throwing functions: `assertDelivered`
+(a `runHook` result's text REACHED the model, not just stderr — see
+[harness-testing.md](harness-testing.md#assert-a-nudge-reaches-the-model-assertdelivered)),
+and `assertEgressOnly` / `assertNoWrite` / `assertWroteOnly` over a confined
+run's egress and file writes.
+
+The flat `assertToolUsed`-style functions and the boolean predicates (`usedTool`,
+`skillResolved`, `toolCount`, `toolUsedWith`, `outputContains`,
+`requestContains`, `hookBlocked`) were removed in v49 — each is one `check.*`
+member; the [migration table](#migrating-from-the-v48-assertion-forms) lists them.
 
 A `runHarnessTest` result owns its temp directory. Remove it in a `finally` with
 `r.cleanup()`, or let TypeScript (5.2+) or Node 24+ do it for you:
@@ -136,24 +130,24 @@ beside the vocabulary they test:
 
 ```ts
 import {
-  loadHook,
-  assertHookDenies,
-  assertHookAllows,
-  assertHookNotices,
-  assertHookSilent,
+  experimental_loadHook,
+  experimental_assertHookDenies,
+  experimental_assertHookAllows,
+  experimental_assertHookNotices,
+  experimental_assertHookSilent,
   runHookProgram,
 } from "vigiles/hook";
 
-// loadHook takes the hook's PATH — what a .harness.mjs file actually has. It is
+// experimental_loadHook takes the hook's PATH — what a .harness.mjs file actually has. It is
 // the same loader the runtime uses, and it handles a .hook.ts under tsx / Node
 // >= 23.6. Already holding the object (a static import)? Pass it directly.
-const guard = await loadHook(".vigiles/hooks/guard.hook.mjs");
+const guard = await experimental_loadHook(".vigiles/hooks/guard.hook.mjs");
 
-assertHookDenies(guard, {
+experimental_assertHookDenies(guard, {
   tool_name: "Bash",
   tool_input: { command: "git push -f" },
 });
-assertHookAllows(guard, {
+experimental_assertHookAllows(guard, {
   tool_name: "Bash",
   tool_input: { command: "git status" },
 });
@@ -161,9 +155,11 @@ assertHookAllows(guard, {
 // A REACT hook can't block, so it gets its own pair. Which STREAM carries a
 // `notice()` depends on the event (additionalContext on stdout where the event
 // injects, stderr only where it cannot), so these read the reaction itself.
-const warn = await loadHook(".vigiles/hooks/warn-on-failure.hook.mjs");
-assertHookNotices(warn, failedBashEvent, /read the error/); // message matcher optional
-assertHookSilent(warn, successfulBashEvent);
+const warn = await experimental_loadHook(
+  ".vigiles/hooks/warn-on-failure.hook.mjs",
+);
+experimental_assertHookNotices(warn, failedBashEvent, /read the error/); // message matcher optional
+experimental_assertHookSilent(warn, successfulBashEvent);
 // A react declared for Bash alone (`match: tools("Bash")`) also reads the
 // command: its event is a `BashReactEvent`, so feed it a Bash payload, and
 // add a non-Bash event to show it stays quiet there.
@@ -172,17 +168,17 @@ assertHookSilent(warn, successfulBashEvent);
 runHookProgram(guard, event); // → { kind: "decision" | "injection" | "reaction", … }
 ```
 
-`assertHookBlocked` / `assertHookAllowed` (above) are the sibling assertions over
-a `runHook` **result** (the hook run as a real subprocess); `assertHookDenies` /
-`assertHookAllows` evaluate the typed program **directly** — cheaper, and they
+`check.blocked()` / `check.allowed()` (above) are the sibling checks over a
+`runHook` **result** (the hook run as a real subprocess); `experimental_assertHookDenies` /
+`experimental_assertHookAllows` evaluate the typed program **directly** — cheaper, and they
 work for inject/react hooks too via `runHookProgram`. Which reacts see
 `e.command` (a `BashReactEvent`) and which do not (a `ToolReactEvent`):
 [A react that reads the command](compiled-hooks.md#a-react-that-reads-the-command).
 
 ### Assert a subagent's typed outcome
 
-For the railway/result subagent contract, `assertAgentOk` / `assertAgentErr` /
-`assertAgentResult` test a subagent's outcome via `parseAgentResult` — a
+For the railway/result subagent contract, `experimental_assertAgentOk` / `experimental_assertAgentErr` /
+`experimental_assertAgentResult` test a subagent's outcome via `parseAgentResult` — a
 **deterministic assert that replaces an LLM judge**. A subagent with a `result()`
 contract ends its turn with a `vigiles:ok` / `vigiles:err` block; these helpers
 parse it and validate it against the declared shape. They live on `vigiles/spec`,
@@ -191,9 +187,9 @@ beside the `experimental_agent` contract they read:
 ```ts
 import {
   experimental_agent,
-  assertAgentOk,
-  assertAgentErr,
-  assertAgentResult,
+  experimental_assertAgentOk,
+  experimental_assertAgentErr,
+  experimental_assertAgentResult,
 } from "vigiles/spec";
 const { result } = experimental_agent;
 
@@ -202,11 +198,11 @@ const contract = result(
   { reason: "string", step: "string" }, // the err track
 );
 
-const value = assertAgentOk(r.output, contract); // returns the validated `value`
-const error = assertAgentErr(r.output, contract); // returns the validated `error`
+const value = experimental_assertAgentOk(r.output, contract); // returns the validated `value`
+const error = experimental_assertAgentErr(r.output, contract); // returns the validated `error`
 
 // The general predicate form, for rich detail:
-assertAgentResult(
+experimental_assertAgentResult(
   r.output,
   (res) => res.kind === "ok" && res.value.files.length > 0,
   contract,
@@ -329,7 +325,7 @@ const report = await paid_measureTriggerRate({
   pluginDir: "./my-plugin", //    already-packaged plugin. XOR skillsDir.
   prompts: [...], //              recall set (≥ minPrompts, NCD-diverse)
   irrelevantPrompts: [...], //    precision set (→ falsePositiveRate / precision)
-  fired: (t) => skillResolved(t, "my-plugin:greet"),
+  fired: check.skill("my-plugin:greet"),
   stubSkillBodies: true, //       stop at SELECTION (frontmatter decides firing)
   fixture: { "path": "contents" }, // seed repo STATE a skill triggers on
   installSet: [otherPluginsOrDirs], // co-install the rest of the harness (release gate)
@@ -346,7 +342,7 @@ assertTriggerRate(report, { min: 0.8, maxFalsePositive: 0.1 });
   `.claude/skills` into a throwaway plugin for you.
 - **`fired`** — a check or a predicate over the run's trace.
   `check.skill("my-plugin:greet")` asks the harness's adapter, so it works on
-  every harness; `(t) => skillResolved(t, …)` still works. Switching between the
+  every harness; a function `(t) => boolean` still works. Switching between the
   two does not make a recorded lock stale: the lock pins what the model sees, not
   how the script reads the run.
 - **`stubSkillBodies`** — triggering is decided by frontmatter _before_ the body
@@ -615,13 +611,13 @@ them. A new arm/metric absent from the baseline is skipped (not a regression).
 
 **One door per reader** — every name lives behind exactly one of these:
 
-| Reader                        | Import            | What it holds                                                                                                                                                |
-| ----------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Test your harness             | `vigiles`         | the runners, every check and assertion over a run, the matchers, tool stubs, `defineEval`, and the report types — everything that costs nothing to run       |
-| Measure with a model          | `vigiles/eval`    | the `paid_*` runners, and the free readers of their report: `compare`, `assertRates`, `assertTriggerRate`, `assertImproves`, `assertNoRegression`, baselines |
-| Prove a guard blocks          | `vigiles/battery` | `assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState`                                        |
-| Write or test a compiled hook | `vigiles/hook`    | the hook vocabulary, and `loadHook` / `assertHookDenies` / `assertHookAllows` / `assertHookNotices` / `assertHookSilent`                                     |
-| Author a spec                 | `vigiles/spec`    | the spec builders and their types, and `assertAgentOk` / `assertAgentErr` / `assertAgentResult` (compiling is `vigiles compile` / `vigiles lint`)            |
+| Reader                        | Import            | What it holds                                                                                                                                                                             |
+| ----------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Test your harness             | `vigiles`         | the runners, every check and assertion over a run, the matchers, tool stubs, `defineEval`, and the report types — everything that costs nothing to run                                    |
+| Measure with a model          | `vigiles/eval`    | the `paid_*` runners, and the free readers of their report: `compare`, `assertRates`, `assertTriggerRate`, `assertImproves`, `assertNoRegression`, baselines                              |
+| Prove a guard blocks          | `vigiles/battery` | `assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState`                                                                     |
+| Write or test a compiled hook | `vigiles/hook`    | the hook vocabulary, and `experimental_loadHook` / `experimental_assertHookDenies` / `experimental_assertHookAllows` / `experimental_assertHookNotices` / `experimental_assertHookSilent` |
+| Author a spec                 | `vigiles/spec`    | the spec builders and their types, and `experimental_assertAgentOk` / `experimental_assertAgentErr` / `experimental_assertAgentResult` (compiling is `vigiles compile` / `vigiles lint`)  |
 
 **In a `*.eval.mjs` file the runners below are DECLARED, not called** —
 `export default defineEval({ measure: spec })` — because importing a file that
@@ -687,6 +683,26 @@ when the harness changes; unused adapters tree-shake out. The CLI can't take an
 import, so it **auto-detects** the harness from the repo. For the full
 adapter/import model and the capability matrix, see
 [`docs/harnesses.md`](harnesses.md).
+
+## Migrating from the v48 assertion forms
+
+| Removed in v49                                       | Write instead                                    |
+| ---------------------------------------------------- | ------------------------------------------------ |
+| `assertToolUsed(r, n)` / `usedTool(t, n)`            | `check.tool(n)`                                  |
+| `assertToolNotUsed(r, n)`                            | `check.notTool(n)`                               |
+| `assertToolCount(r, n, b)` / `toolCount(t, n)`       | `check.tool(n, { min, max })`                    |
+| `assertToolSequence(r, [a, b])`                      | `check.toolSequence([a, b])`                     |
+| `assertToolUsedWith(r, n, fn)` / `toolUsedWith`      | `check.toolWith(n, args)`, or `check(name, fn)`  |
+| `assertToolCalls(r, fn, msg)`                        | `check(msg, (t) => fn(t.toolCalls))`             |
+| `assertSkillResolved(r, id)` / `skillResolved`       | `check.skill(id)` — and `fired: check.skill(id)` |
+| `assertOutputContains(r, x)` / `outputContains`      | `check.output(x)`                                |
+| `assertRequestContains(r, x)` / `requestContains`    | `check.received(x)`                              |
+| `assertHookFired(r, e, { blocked })` / `hookBlocked` | `check.hookFired(e, { blocked })`                |
+| `assertCreated(r, p)` / `assertNotCreated(r, p)`     | `check.wrote(p)` / `check.didNotWrite(p)`        |
+| `assertHookBlocked(r)` / `assertHookAllowed(r)`      | `check.blocked()` / `check.allowed()`            |
+
+Each goes in `assertChecks(r, [ … ])`, `expect(r).toPass(…)`, or a `measure`'s
+`checks` / a trigger-rate `fired:`.
 
 ## See also
 

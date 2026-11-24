@@ -14,7 +14,7 @@
  *     .spec.ts).
  *
  * The claim being tested: the typed contract makes the outcome DETERMINISTICALLY
- * PARSEABLE (assertAgentOk, no LLM judge) at NO quality cost. So we read three
+ * PARSEABLE (experimental_assertAgentOk, no LLM judge) at NO quality cost. So we read three
  * per-arm rates:
  *   1. `subagentRan` — the reviewer dispatched + read the file (both arms; proves
  *      the A/B is fair — the only difference is the contract, not whether it runs).
@@ -48,7 +48,7 @@
  *   (2) found bug   100%    100%   ← QUALITY: identical, no regression
  *   (3) typed block   0%    100%   ← PAYOFF: only the contract arm is parseable
  * So the spec HELPED: it makes the subagent's outcome DETERMINISTICALLY PARSEABLE
- * (assertAgentOk, no LLM judge) at ZERO quality cost. Categorical (0 vs 100, no
+ * (experimental_assertAgentOk, no LLM judge) at ZERO quality cost. Categorical (0 vs 100, no
  * variance → no p-value needed). The "typed contracts make measurement affordable"
  * thesis, validated on vigiles's OWN contract. (NOTE: all three rows label as
  * "subagent(code-reviewer)" — they're nested checks; order is (1)/(2)/(3) above.)

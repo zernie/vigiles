@@ -24,7 +24,7 @@
  * template's defaults, not calibrated by a run.
  */
 import { defineEval } from "../../../dist/test.js";
-import { skillResolved } from "../../../dist/harness-assert.js";
+import { check } from "../../../dist/check.js";
 import { assertTriggerRate } from "../../../dist/eval-surface.js";
 import { fileURLToPath } from "node:url";
 
@@ -65,7 +65,7 @@ export default defineEval({
       "Which docs/ files are orphans according to vigiles lint?",
       "Review the design of the ExcludeSet API before we freeze it.",
     ],
-    fired: (t) => skillResolved(t, skill),
+    fired: check.skill(skill),
     trials: 1,
   },
   assert: (report) => {

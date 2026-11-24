@@ -210,7 +210,7 @@ export interface EvalArm {
    * throwaway `--plugin-dir` (manifest + `skills/<name>/`, each skill dir copied
    * whole) for the run and removes it afterward — the one-liner for repo-local
    * skills that aren't a published plugin. The skills install under the
-   * namespace `vigiles-loose-skills`, so a `skill()` check / `skillResolved`
+   * namespace `vigiles-loose-skills`, so a `skill()` check / `check.skill`
    * matches `vigiles-loose-skills:<name>` (the report's `namespace` says so).
    * Provide this OR {@link pluginDir}, not both.
    */
@@ -247,8 +247,8 @@ export interface EvalArm {
 
 /**
  * Context handed to `measure` after a run, to compute that run's metrics. It is
- * a `Trace` (so the bare predicates `usedTool` / `skillResolved` / `toolCount` /
- * `toolUsedWith` from `harness-assert.ts` run over it, the same as over a
+ * a `Trace` (so every check — `check.tool`, `check.skill`, a custom
+ * `check(name, fn)` — evaluates over it, the same as over a
  * `runHarnessTest` result) plus the eval-only `sh` end-state probe and `usage`.
  */
 export interface RunContext extends Trace {
@@ -1137,8 +1137,7 @@ function formatChecks(report: CheckReport): string {
 
 /**
  * The min rate a check must clear: its per-KIND override in `per`, else the
- * default `min`. Shared by `assertRates` (the throwing gate) and
- * `checkReportToJUnit` (the XML report) so the two never diverge on thresholds.
+ * default `min`.
  */
 function checkRateThreshold(
   check: CheckJSON,
@@ -1252,51 +1251,6 @@ function assertArmRate(report: EvalReport, opts: ArmRateGate): void {
       `expected ${opts.arm} to pass ${opts.metric} on every trial (pass^k=1), got pass^k=${String(stat.passK)}`,
     );
   }
-}
-
-function escapeXml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-/**
- * Serialize a {@link CheckReport} to JUnit XML (Phase 4) — each check a
- * `<testcase>`, failing when its rate is below its threshold. `min` is the
- * default; `per` overrides it by check KIND, matching `assertRates` exactly (one
- * shared threshold helper) so the gate and the report can never disagree about
- * which checks failed. Because a check is *data*, this falls out for free: CI
- * test reporters, regression baselines, and a promptfoo bridge all consume it.
- */
-export function checkReportToJUnit(
-  report: CheckReport,
-  opts: {
-    min?: number;
-    per?: Readonly<Record<string, number>>;
-    name?: string;
-  } = {},
-): string {
-  const min = opts.min ?? 0;
-  const thr = (c: CheckRate): number =>
-    checkRateThreshold(c.check, min, opts.per);
-  const failures = report.perCheck.filter((c) => c.rate < thr(c)).length;
-  const cases = report.perCheck
-    .map((c) => {
-      const name = escapeXml(checkLabel(c.check));
-      const body =
-        c.rate < thr(c)
-          ? `\n    <failure message="rate ${(c.rate * 100).toFixed(0)}% below min ${(thr(c) * 100).toFixed(0)}% (n=${String(c.n)})"/>\n  `
-          : "";
-      return `  <testcase classname="vigiles.checks" name="${name}">${body}</testcase>`;
-    })
-    .join("\n");
-  return (
-    `<?xml version="1.0" encoding="UTF-8"?>\n` +
-    `<testsuite name="${escapeXml(opts.name ?? "vigiles measure")}" tests="${String(report.perCheck.length)}" failures="${String(failures)}">\n` +
-    `${cases}\n</testsuite>\n`
-  );
 }
 
 const sleep = (ms: number): Promise<void> =>
@@ -1447,12 +1401,12 @@ function makeTrialContext(
 /**
  * The set of skills that RESOLVED (the `Skill` tool fired without error) in a run,
  * by their namespaced id (e.g. `superpowers:test-driven-development`). The
- * multi-skill generalization of {@link skillResolved}: where a trigger-rate run
+ * multi-skill generalization of {@link check.skill}: where a trigger-rate run
  * asks "did skill X fire?", a SELECTION-collision run asks "which skills fired?" —
  * so a single pass over the plugin's prompts reveals whether one skill's prompt
  * wrongly activates a SIBLING (the behavioral confirmation of the deterministic
  * `description-overlap` proxy). Errored Skill calls are excluded, like
- * `skillResolved`.
+ * `check.skill`.
  */
 export function whichSkillsFired(trace: Trace): string[] {
   const ids = new Set<string>();
@@ -2655,7 +2609,7 @@ export function contextInReport(
  * a test's fake share one path. Besides the run it prints, to stderr, what the
  * caller must not miss: a skill arm that never activates, a stub call no rule
  * answered (the same text `vigiles eval` fails with — a script that calls
- * `runEval` itself, as the `withServices` examples do, gets the report back and
+ * `runEval` itself, as the `experimental_startServices` examples do, gets the report back and
  * nothing else, so the library is not silent about it either), and what the
  * run spent.
  */
@@ -2950,7 +2904,7 @@ export function formatEvalReport(
  * and that's a property of the real model, not the wiring (which the
  * deterministic tier already proves). Install the plugin natively (`pluginDir`),
  * give a set of varied `prompts`, and a `fired` predicate over the run's `Trace`
- * (reuse the bare predicates, e.g. `(t) => skillResolved(t, "x:y")`).
+ * (reuse the bare predicates, e.g. `(t) => check.skill(t, "x:y")`).
  */
 export interface TriggerRateSpec {
   /**
@@ -2992,7 +2946,7 @@ export interface TriggerRateSpec {
   /**
    * Did the behaviour fire on this run? A check — `fired: skill("x:y")`, which
    * asks the harness's adapter and so works on every harness — or a predicate
-   * over the trace, `(t) => skillResolved(t, "x:y")`. Either form scores a trial
+   * over the trace, `(t) => check.skill(t, "x:y")`. Either form scores a trial
    * the same way, and neither is part of the eval lock's hash: the lock pins
    * what the MODEL sees, not how the script reads the run.
    */
@@ -3488,7 +3442,7 @@ interface ResolvedInstall {
 
 /**
  * The plugin namespace a source's skills install under — the `<plugin>` half of
- * the `<plugin>:<skill>` id `skill()` / `skillResolved` match. A loose dir gets
+ * the `<plugin>:<skill>` id `skill()` / `check.skill` match. A loose dir gets
  * the packager's name; a plugin its declared name, falling back to the same
  * synthetic one when its manifest has none. Pure (reads the manifest only).
  */
@@ -3968,9 +3922,9 @@ export function formatTriggerRateReport(report: TriggerRateReport): string {
         // value they had never seen.
         (report.namespace !== undefined
           ? "  1. the id in `fired` — your skills installed under " +
-            `\`${report.namespace}\`, so \`skillResolved\` matches ` +
+            `\`${report.namespace}\`, so \`check.skill\` matches ` +
             `\`${report.namespace}:<skill>\`; a bare name silently never matches;\n`
-          : "  1. the id in `fired` — `skillResolved` matches the NAMESPACED id " +
+          : "  1. the id in `fired` — `check.skill` matches the NAMESPACED id " +
             "(`<plugin>:<skill>`); a bare name silently never matches;\n") +
         "  2. the install field — a loose `.claude/skills` dir needs `skillsDir`, " +
         "not `pluginDir` (which wants a full plugin manifest);\n" +

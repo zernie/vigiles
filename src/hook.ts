@@ -99,17 +99,18 @@ export {
 } from "./core/hook-program.js";
 
 // ── testing a compiled hook in-process ────────────────────────────────────────
-// `loadHook(file)` loads it the way the runtime does; the assertions read its
+// `experimental_loadHook(file)` loads it the way the runtime does; the assertions read its
 // decision on a raw event, with no subprocess and no model. They sit here beside
 // the vocabulary they test (v49). Both modules are small on purpose: this barrel
 // is a compiled hook's import, so whatever it loads is paid on every tool call
 // (src/hook-runtime-graph.test.ts holds the graph).
-export { loadHook } from "./load-hook.js";
+// Experimental, like the `experimental_define*` vocabulary they test.
+export { experimental_loadHook } from "./load-hook.js";
 export {
-  assertHookDenies,
-  assertHookAllows,
-  assertHookNotices,
-  assertHookSilent,
+  experimental_assertHookDenies,
+  experimental_assertHookAllows,
+  experimental_assertHookNotices,
+  experimental_assertHookSilent,
 } from "./hook-test.js";
 
 export type {

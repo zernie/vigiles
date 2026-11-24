@@ -8,14 +8,14 @@ mistake that silently swallows failures.
 **Unit (`runHook`)** — hand a hook a synthesized event, assert the decision:
 
 ```ts
-import { runHook, assertHookBlocked } from "vigiles";
+import { runHook, check, assertChecks } from "vigiles";
 
 const r = runHook(hookCommand, {
   hook_event_name: "PreToolUse",
   tool_name: "Bash",
   tool_input: { command: "git commit --no-verify" },
 });
-assertHookBlocked(r); // exit 2 / decision:"block" / permissionDecision:"deny"
+assertChecks(r, [check.blocked()]); // exit 2 / decision:"block" / permissionDecision:"deny"
 ```
 
 Testing a hook you didn't write (a vendored third-party script)? Mark it
@@ -35,11 +35,7 @@ egress, but does NOT isolate reads of host files, and only under bwrap).
 mock model, assert the hook fired (or the context landed):
 
 ```ts
-import {
-  runHarnessTest,
-  assertHookFired,
-  assertRequestContains,
-} from "vigiles";
+import { runHarnessTest, check, assertChecks } from "vigiles";
 // `scriptModel` is the Claude-Code TRANSPORT, deliberately not re-exported from
 // the harness-agnostic root surface — import it from the harness package:
 import { scriptModel } from "vigiles/claude-code";
@@ -49,8 +45,10 @@ const r = await runHarnessTest({
   transcript: true,
   model: scriptModel([{ text: "ok" }]),
 });
-assertHookFired(r, "SessionStart");
-assertRequestContains(r, "expected injected text"); // did it actually land?
+assertChecks(r, [
+  check.hookFired("SessionStart"),
+  check.received("expected injected text"), // did it actually land?
+]);
 ```
 
 **Eval — absolute (`paid_measure` + `paid_judged`)** — testing _one_ skill, the usual case:

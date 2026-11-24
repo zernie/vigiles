@@ -44,7 +44,6 @@ import {
   formatCheckReport,
   formatArmsCheckReport,
   assertRates,
-  checkReportToJUnit,
   type CheckReport,
   packageSkillsDir,
   packageInstallSet,
@@ -72,7 +71,15 @@ import {
   buildAgentArgs,
   parseClaudeRun,
 } from "./eval.js";
-import { usedTool, skillResolved, outputContains } from "./harness-assert.js";
+import { check } from "./check.js";
+
+// The removed predicates, as the checks that replaced them.
+const usedTool = (t: Trace, name: string): boolean =>
+  check.tool(name).eval(t).pass;
+const skillResolved = (t: Trace, id: string): boolean =>
+  check.skill(id).eval(t).pass;
+const outputContains = (t: Trace, needle: string): boolean =>
+  check.output(needle).eval(t).pass;
 import { assertTriggerRate } from "./eval-readers.js";
 import { tool, output, turns, judged } from "./check.js";
 import { parseIntercepts } from "./tool-intercept.js";
@@ -1452,7 +1459,7 @@ test("measureArmsWith stubSkillBodies stubs each arm's pluginDir (and cleans up)
   cleanupTmpDir(dir);
 });
 
-test("assertRates + checkReportToJUnit gate and serialize a CheckReport", () => {
+test("assertRates gates a CheckReport", () => {
   const report: CheckReport = {
     n: 10,
     perCheck: [
@@ -1478,14 +1485,6 @@ test("assertRates + checkReportToJUnit gate and serialize a CheckReport", () => 
     assertRates(report, { min: 0.8 });
   }, /skill\(vig:x\): 40%/);
   assertRates(report, { min: 0.3 }); // both above → no throw
-
-  const xml = checkReportToJUnit(report, { min: 0.8, name: "demo" });
-  assert.match(xml, /<testsuite name="demo" tests="2" failures="1">/);
-  assert.match(
-    xml,
-    /<testcase classname="vigiles.checks" name="tool\(Bash\)">/,
-  );
-  assert.match(xml, /name="skill\(vig:x\)">[\s\S]*<failure message="rate 40%/);
 });
 
 test("assertRates: `per` overrides the threshold by check kind", () => {
@@ -1517,16 +1516,6 @@ test("assertRates: `per` overrides the threshold by check kind", () => {
   // A laxer per-kind threshold lets a low check pass while a strict global `min`
   // still gates the others — one call, two thresholds.
   assertRates(report, { min: 0.8, per: { skill: 0.3 } });
-
-  // checkReportToJUnit shares the same threshold helper, so `per` marks exactly
-  // the same testcase failed — the gate and the XML can't disagree.
-  const xml = checkReportToJUnit(report, { min: 0.3, per: { skill: 0.5 } });
-  assert.match(xml, /failures="1"/);
-  assert.match(
-    xml,
-    /name="skill\(vig:x\)">[\s\S]*<failure message="rate 40% below min 50%/,
-  );
-  assert.match(xml, /name="tool\(Bash\)"><\/testcase>/);
 });
 
 test("assertRates: throws on an empty report (a green that tested nothing)", () => {

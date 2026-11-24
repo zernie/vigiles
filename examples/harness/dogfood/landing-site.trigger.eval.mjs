@@ -23,7 +23,7 @@
  * template's defaults, not calibrated by a run.
  */
 import { defineEval } from "../../../dist/test.js";
-import { skillResolved } from "../../../dist/harness-assert.js";
+import { check } from "../../../dist/check.js";
 import { assertTriggerRate } from "../../../dist/eval-surface.js";
 import { fileURLToPath } from "node:url";
 
@@ -66,7 +66,7 @@ export default defineEval({
       "Write the changelog entry for the next release.",
       "Fix the mobile layout of the audit HTML report's leaderboard table.",
     ],
-    fired: (t) => skillResolved(t, skill),
+    fired: check.skill(skill),
     trials: 1,
   },
   assert: (report) => {
