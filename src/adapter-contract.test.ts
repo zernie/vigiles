@@ -187,6 +187,52 @@ describe("live driver contract (every implementation, shipped and prototype)", (
   }
 });
 
+/**
+ * The trace FACTS a harness-neutral check reads (`skill(id)` reads
+ * `Trace.skills`): every parser an executing adapter brings must ANSWER, in
+ * both tiers — "these skills fired (maybe none)" or "not observable here, and
+ * why" — never leave the field out. A parser that omitted it would send
+ * `skill()` back to reading one harness's tool name, which is the coupling the
+ * field exists to remove; and a "not observable" must carry the adapter's own
+ * name, because that name is what the failure prints.
+ *
+ * The positive half — a real activation in each harness's own output reads as a
+ * fire, and the measured false positives (reading or writing a `SKILL.md`,
+ * grepping for the name) do not — needs each harness's stream format, so it
+ * lives beside each adapter: `adapters/<harness>/trace-facts.test.ts`.
+ */
+describe("skill facts contract (every implementation, shipped and prototype)", () => {
+  for (const adapter of ALL_IMPLEMENTATIONS) {
+    const testableTest = adapter.harnessTesting ? it : it.skip;
+    testableTest(
+      adapter.harnessTesting
+        ? `${adapter.name}: both run parsers answer which skills fired, or say why they cannot`
+        : `${adapter.name}: skill facts — n/a (reference-only)`,
+      async () => {
+        const driver = await adapter.harnessTestDriver?.();
+        const live = await adapter.liveDriver?.();
+        if (!driver || !live) throw new Error(`${adapter.name}: no driver`);
+        const answers = [
+          ["harness tier", driver.parseRun("").skills],
+          ["eval tier", live.evalDriver.parse({ code: 0, stdout: "" }).skills],
+        ] as const;
+        for (const [tier, facts] of answers) {
+          expect(
+            facts,
+            `${adapter.name} ${tier}: the parser left Trace.skills out`,
+          ).toBeDefined();
+          if (facts !== undefined && !facts.observable) {
+            expect(facts.harness, `${adapter.name} ${tier}`).toBe(adapter.name);
+            expect(facts.why.length, `${adapter.name} ${tier}`).toBeGreaterThan(
+              0,
+            );
+          }
+        }
+      },
+    );
+  }
+});
+
 describe("adapter registry is complete", () => {
   it("every src/adapters/<dir> is registered in ADAPTERS (or a declared prototype)", () => {
     const dirs = readdirSync(resolve(__dirname, "adapters"), {

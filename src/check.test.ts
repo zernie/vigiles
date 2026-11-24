@@ -192,6 +192,59 @@ test("skill(): resolves on a non-error Skill call with the right id", () => {
   assert.deepEqual(skill("vig:x").toJSON(), { kind: "skill", id: "vig:x" });
 });
 
+test("skill(): an errored activation fails with what it returned", () => {
+  const errored = makeTrace({
+    toolCalls: [
+      toolCall("Skill", {
+        input: { skill: "vig:x" },
+        isError: true,
+        resultText: "Unknown skill: vig:x",
+      }),
+    ],
+  });
+  assert.match(
+    skill("vig:x").eval(errored).message,
+    /invoked but errored: Unknown skill: vig:x/,
+  );
+});
+
+test("skill(): reads the adapter's Trace.skills, not one harness's tool name", () => {
+  // A fire the adapter reported, with no `Skill` tool call anywhere (Codex).
+  const reported = makeTrace({
+    toolCalls: [toolCall("read-the-skill-file")],
+    skills: {
+      observable: true,
+      fired: [{ id: "x", isError: false, resultText: "" }],
+    },
+  });
+  assert.equal(skill("x").eval(reported).pass, true);
+
+  // The adapter's answer wins over a `Skill` call it did not count.
+  const overruled = makeTrace({
+    toolCalls: [toolCall("Skill", { input: { skill: "x" } })],
+    skills: { observable: true, fired: [] },
+  });
+  const miss = skill("x").eval(overruled);
+  assert.equal(miss.pass, false);
+  assert.match(miss.message, /skills invoked: none/);
+});
+
+test("skill(): not observable fails naming the harness — never as 'did not fire'", () => {
+  const blind = makeTrace({
+    skills: {
+      observable: false,
+      harness: "some-harness",
+      why: "its output carries no commands",
+    },
+  });
+  const r = skill("x").eval(blind);
+  assert.equal(r.pass, false);
+  assert.equal(r.score, 0);
+  assert.match(r.message, /not observable on some-harness/);
+  assert.match(r.message, /its output carries no commands/);
+  assert.doesNotMatch(r.message, /did not|expected skill/);
+});
+
 test("output(): substring and regex, with a truncated got-message", () => {
   const t = makeTrace({ output: "the answer is 42, done." });
   assert.equal(output("42").eval(t).pass, true);
