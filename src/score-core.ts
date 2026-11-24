@@ -178,6 +178,10 @@ export function confidentBreakages(
     },
     { n: r.hookEventIssues.length, label: "hook on an unknown event" },
     {
+      n: r.hookStampIssues.length,
+      label: "compiled hook edited without a recompile (stale stamp)",
+    },
+    {
       n: r.agents.reduce((n, a) => n + a.toolIssues.length, 0),
       label: "unavailable agent tool",
     },
@@ -354,6 +358,27 @@ function trifectaDeductions(r: ScanReport): readonly Deduction[] {
   ];
 }
 
+/** The hook rows of {@link reportDeductions}: each is a hook that does not run as wired. */
+function hookDeductions(r: ScanReport): readonly Deduction[] {
+  return [
+    {
+      n: r.hooks.filter((h) => h.status === "missing").length,
+      weight: W_MISSING_HOOK,
+      label: "hook script(s) MISSING",
+    },
+    {
+      n: r.hookEventIssues.length,
+      weight: W_MISSING_HOOK,
+      label: "hook(s) on an unknown event (never fire)",
+    },
+    {
+      n: r.hookStampIssues.length,
+      weight: W_MISSING_HOOK,
+      label: "compiled hook(s) edited without a recompile (stale stamp)",
+    },
+  ];
+}
+
 /**
  * The COMPLETE graded-penalty list a report incurs — the single source of truth
  * BOTH the leaderboard's single health number and the audit's category rings
@@ -362,7 +387,6 @@ function trifectaDeductions(r: ScanReport): readonly Deduction[] {
  * surfaced separately, never scored).
  */
 export function reportDeductions(r: ScanReport): Deduction[] {
-  const missingHooks = r.hooks.filter((h) => h.status === "missing").length;
   const deadTools = r.agents.reduce((n, a) => n + a.toolIssues.length, 0);
   const deadMcpTools = r.agents.reduce((n, a) => n + a.mcpToolIssues.length, 0);
   const deadDisallowed = r.agents.reduce(
@@ -374,16 +398,7 @@ export function reportDeductions(r: ScanReport): Deduction[] {
   // inherit the session are one row, charged once. See trifectaExposure.
   return [
     ...trifectaDeductions(r),
-    {
-      n: missingHooks,
-      weight: W_MISSING_HOOK,
-      label: "hook script(s) MISSING",
-    },
-    {
-      n: r.hookEventIssues.length,
-      weight: W_MISSING_HOOK,
-      label: "hook(s) on an unknown event (never fire)",
-    },
+    ...hookDeductions(r),
     importDeduction(r),
     {
       n: r.skills.filter((s) => !s.hasDescription).length,

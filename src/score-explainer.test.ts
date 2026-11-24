@@ -37,6 +37,7 @@ function report(over: Partial<ScanReport> = {}): ScanReport {
     trifectaFindings: [],
     skillFenceIssues: [],
     instructionImportIssues: [],
+    hookStampIssues: [],
     pluginLayoutIssues: [],
     unclaimedSurfaces: [],
     delegationTrifecta: [],

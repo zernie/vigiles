@@ -15,6 +15,8 @@ import { join, resolve } from "node:path";
 import type { PluginLayout } from "./core/layout.js";
 import { hookLinePlan } from "./core/hook-command.js";
 import { HOOKS_DIR } from "./core/hook-paths.js";
+import { stampHook } from "./core/hook-program.js";
+import { staleHookStamps, type StaleHookStamp } from "./core/hook-stamp.js";
 import { readHookBlocks } from "./plugin-loader.js";
 import {
   hookInventory,
@@ -76,5 +78,28 @@ export function diskHookInventory(
       blocks: readHookBlocks(dir, layout),
       scan: diskHookScan(dir, layout, disk),
     })),
+  );
+}
+
+/**
+ * Every stamp sidecar in the repository at `dir` whose hook source was edited
+ * after `compile` — the detector `lint`, `audit` and the runtime share
+ * (`core/hook-stamp.ts`), over the disk. A sidecar names its source as `compile`
+ * was given it, relative to the project root, so it resolves against `dir`.
+ */
+export function diskStaleHookStamps(
+  dir: string,
+  disk: HookDisk,
+): readonly StaleHookStamp[] {
+  const hooksDir = join(dir, HOOKS_DIR);
+  if (!disk.exists(hooksDir)) return [];
+  const read = (ref: string): string | undefined => {
+    const abs = resolve(dir, ref);
+    return disk.exists(abs) ? disk.read(abs) : undefined;
+  };
+  return staleHookStamps(
+    disk.list(hooksDir).map((name) => `${HOOKS_DIR}/${name}`),
+    read,
+    stampHook,
   );
 }

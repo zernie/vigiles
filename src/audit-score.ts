@@ -188,6 +188,13 @@ function truthfulness(r: ScanReport): CategoryScore {
       weight: W_MISSING_HOOK,
       label: "hook script(s) missing (never run)",
     },
+    {
+      // The source is not what was compiled: a gate refuses, anything else is
+      // skipped — the hook no longer does what its stamp says it does.
+      n: r.hookStampIssues.length,
+      weight: W_MISSING_HOOK,
+      label: "compiled hook(s) edited without a recompile (stale stamp)",
+    },
   ]);
   return { key: "Truthfulness", score, weight: 1, findings };
 }

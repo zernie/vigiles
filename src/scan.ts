@@ -27,7 +27,12 @@ import { basename, dirname, join, resolve } from "node:path";
 // Claude Code default), and only the generic one takes the `ExcludeSet` that
 // makes `.vigilesrc.json#exclude` reach surface discovery.
 import { loadPlugins } from "./plugin-loader.js";
-import { diskHookInventory, diskHookScan } from "./hook-inventory.js";
+import {
+  diskHookInventory,
+  diskHookScan,
+  diskStaleHookStamps,
+  type HookDisk,
+} from "./hook-inventory.js";
 // 🔴 THIS MODULE NO LONGER IMPORTS AN ADAPTER, and that is the point of the
 // change rather than tidiness. It is listed as a harness-agnostic detector and
 // it used to import `claudeCodeLayout` + `claudeCodeDialect` to DEFAULT five
@@ -78,6 +83,7 @@ import {
 } from "./core/merge-conflict.js";
 import type { TrifectaFinding } from "./core/lethal-trifecta.js";
 import type { SkillResourceFinding } from "./core/skill-resources.js";
+import type { StaleHookStamp } from "./core/hook-stamp.js";
 import { instructionViews } from "./core/instruction-chain.js";
 import {
   unresolvedImports,
@@ -130,6 +136,7 @@ import {
   scanHookScripts,
   type HookInventory,
   type HookLine,
+  type HookScriptScan,
   frontmatterIssuesFor,
   frontmatterValueIssuesFor,
   skillMetaIssuesFor,
@@ -379,6 +386,12 @@ export interface ScanReport {
    * compiled by another version). `hook-script-exists` reports them.
    */
   readonly staleHooks: readonly StaleHook[];
+  /**
+   * Compiled hooks whose SOURCE was edited after `compile` stamped it — the
+   * runtime refuses such a tool gate and skips any other hook, so either way it
+   * no longer does what was compiled. `hook-stamp-matches` reports them.
+   */
+  readonly hookStampIssues: readonly StaleHookStamp[];
   readonly commands: number;
   /**
    * Output styles found, exempt ones aside, or `"not-supported"` when the
@@ -842,6 +855,30 @@ function scanInstructions(
   };
 }
 
+/** The report's hook fields on disk: the inventory, what is read off it, and stale stamps. */
+function diskHookFields(
+  dir: string,
+  inventory: HookInventory,
+  hookScan: HookScriptScan,
+  hookDisk: HookDisk,
+): Pick<
+  ScanReport,
+  | "hooks"
+  | "hookInventory"
+  | "handWrittenHooks"
+  | "staleHooks"
+  | "hookStampIssues"
+> {
+  const { hooks, handWritten, stale } = scanHookScripts(inventory, hookScan);
+  return {
+    hooks,
+    hookInventory: inventory,
+    handWrittenHooks: handWritten,
+    staleHooks: stale,
+    hookStampIssues: diskStaleHookStamps(dir, hookDisk),
+  };
+}
+
 /** Scan a plugin/repo directory and report its surfaces + structural issues. */
 export function scanPlugin(
   dir: string,
@@ -943,7 +980,6 @@ export function scanPlugin(
     declared.map((h) => h.layout),
     hookDisk,
   );
-  const { hooks, handWritten, stale } = scanHookScripts(inventory, hookScan);
   // Hook-event keys are a CLOSED platform set — an unrecognized one is a dead
   // registration (the hook never fires), so flag every unknown (not just typos).
   // ONLY for the canonical object-keyed-by-event shape: a plugin shipping a
@@ -1022,10 +1058,7 @@ export function scanPlugin(
     instructions,
     skills,
     agents,
-    hooks,
-    hookInventory: inventory,
-    handWrittenHooks: handWritten,
-    staleHooks: stale,
+    ...diskHookFields(dir, inventory, hookScan, hookDisk),
     ...inventoryCounts(
       loaded.files,
       cls.isCommand,

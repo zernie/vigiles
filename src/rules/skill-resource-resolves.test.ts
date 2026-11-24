@@ -21,6 +21,7 @@ describe("skill-resource-resolves", () => {
   it("a ref that resolves nowhere is a finding; one that resolves only from the repo root is a note (#382)", () => {
     const found = skillResourceResolves.findings({
       instructionImportIssues: [],
+      hookStampIssues: [],
       skills: [
         {
           ...SKILL,
@@ -59,6 +60,7 @@ describe("skill-resource-resolves", () => {
     expect(
       skillResourceResolves.findings({
         instructionImportIssues: [],
+        hookStampIssues: [],
         skills: [{ ...SKILL, resourceIssues: [] }],
       }),
     ).toEqual([]);

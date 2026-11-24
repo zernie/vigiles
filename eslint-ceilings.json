@@ -452,9 +452,9 @@
   },
   "src/hook-runtime.ts": {
     "max-params": 5,
-    "max-lines-per-function": 168,
-    "complexity": 19,
-    "sonarjs/cognitive-complexity": 18
+    "max-lines-per-function": 106,
+    "complexity": 11,
+    "sonarjs/cognitive-complexity": 12
   },
   "src/hook-state-store.test.ts": {
     "max-lines-per-function": 139
@@ -563,12 +563,12 @@
     "complexity": 11
   },
   "src/scan.ts": {
-    "max-lines-per-function": 171,
+    "max-lines-per-function": 167,
     "sonarjs/cognitive-complexity": 15,
     "complexity": 16
   },
   "src/score-core.ts": {
-    "max-lines-per-function": 94
+    "max-lines-per-function": 84
   },
   "src/segment.test.ts": {
     "max-nested-callbacks": 4

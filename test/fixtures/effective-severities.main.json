@@ -1,6 +1,6 @@
 {
   "_source": "effective severity of every rule on origin/main (2657b30), 2026-10-14 — before PR #387 moved the rule set into src/rules/",
-  "_added": "rules added after that snapshot carry their own shipped severity: instruction-import-resolves",
+  "_added": "rules added after that snapshot carry their own shipped severity: instruction-import-resolves, hook-stamp-matches",
   "{}": {
     "spec-refs": "error",
     "orphan-docs": "warn",
@@ -21,6 +21,7 @@
     "skill-frontmatter": "warn",
     "mcp-tool-resolves": "warn",
     "hook-script-exists": "warn",
+    "hook-stamp-matches": "error",
     "instruction-import-resolves": "warn",
     "hand-written-hook": false,
     "disallowed-tools-contract": "warn",
@@ -60,6 +61,7 @@
     "skill-frontmatter": "warn",
     "mcp-tool-resolves": "error",
     "hook-script-exists": "error",
+    "hook-stamp-matches": "error",
     "instruction-import-resolves": "error",
     "hand-written-hook": false,
     "disallowed-tools-contract": "error",

@@ -22,6 +22,7 @@ const findingsOf = (issues: readonly UnresolvedImport[]) =>
   instructionImportResolves.findings({
     skills: [],
     instructionImportIssues: issues,
+    hookStampIssues: [],
   });
 
 describe("instruction-import-resolves", () => {
@@ -38,6 +39,7 @@ describe("instruction-import-resolves", () => {
           {
             skills: [],
             instructionImportIssues: [ISSUE, { ...ISSUE, from: "kept.md" }],
+            hookStampIssues: [],
           },
           (path) => path === "kept.md",
         )
@@ -90,6 +92,7 @@ describe("instruction-import-resolves — scope and kinds", () => {
     const scan = {
       skills: [],
       instructionImportIssues: [ISSUE, local, hidden],
+      hookStampIssues: [],
     };
     expect(
       instructionImportResolves.scored

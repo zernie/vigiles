@@ -552,7 +552,7 @@ The `matcher` we _do_ emit is safe under the same rule: it is derived from the
 event type the role already implies (a bash gate matches `Bash`), so it cannot be
 narrower than the program behind it.
 
-`hook-runtime run-program` is a **hidden runtime entrypoint** — invoked by the harness on every matching event, never typed by hand. It loads your typed program, **verifies the stamp** (a hand-edited artifact is refused — fail closed), and dispatches by role: a gate `exit 2`s on `deny`, an inject prints `additionalContext`, a react runs its classified command. You wrote none of that protocol. (`compile` is the one-time _wiring_ step; `hook-runtime` is the per-event _executor_ the wiring points at — see the [CLI surface](cli.md) for why they're distinct.)
+`hook-runtime run-program` is a **hidden runtime entrypoint** — invoked by the harness on every matching event, never typed by hand. It loads your typed program, **verifies the stamp** (a hand-edited artifact is refused — fail closed — by a gate on a tool call; any other hook is warned about and skipped, see below), and dispatches by role: a gate `exit 2`s on `deny`, an inject prints `additionalContext`, a react runs its classified command. You wrote none of that protocol. (`compile` is the one-time _wiring_ step; `hook-runtime` is the per-event _executor_ the wiring points at — see the [CLI surface](cli.md) for why they're distinct.)
 
 Hooks can be authored in JavaScript (`.mjs`) or TypeScript (run under `tsx` / Node ≥ 23.6). `vigiles/hook` is the **only** import a compiled hook may use.
 
@@ -574,7 +574,16 @@ Hooks are **not** auto-discovered by sitting just anywhere — they must be `.ho
 
 ### Editing a compiled hook (the stamp, and the way out)
 
-The stamp makes the runtime **refuse** a hook whose source no longer matches what was compiled. That's the point — but it also applies while **you** are editing the hook, and a stale `PreToolUse` Bash gate blocks _every_ Bash command, `vigiles compile` included. That would wedge the repo: you couldn't recompile, because the stale gate refused to let you.
+The stamp makes the runtime act on a hook whose source no longer matches what was compiled — and what it does depends on the hook:
+
+| The hook is                                                                                     | A stale stamp                                                                                   |
+| ----------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| a tool gate (`defineHook`, `defineFileGate`) on an event that vetoes a tool call (`PreToolUse`) | **Refused** (exit 2), with the file-write way out below.                                        |
+| anything else — an inject, a react, a prompt or stop gate                                       | **Skipped**: one stderr warning naming `vigiles compile <file>`, the body does not run, exit 0. |
+
+A prompt is never blocked by a stale stamp: nobody can repair a hook by typing a prompt, so blocking one would lock you out of your own session. `vigiles lint` reports the mismatch as an error ([`hook-stamp-matches`](rules/hook-stamp-matches.md)), so CI catches it before a session does.
+
+For a tool gate the refusal is the point — but it also applies while **you** are editing the hook, and a stale `PreToolUse` Bash gate blocks _every_ Bash command, `vigiles compile` included. That would wedge the repo: you couldn't recompile, because the stale gate refused to let you.
 
 **The way out is a file write, not a command.** A Bash gate never gated file tools, so both of these work while every command is refused:
 
@@ -606,7 +615,7 @@ If a hook stops **loading** entirely (a conflicted `package.json` so Node can't 
 
 > **Why `vigiles compile` is not in that list.** It used to be. Two things settled it, both measured rather than argued. During a load wedge `vigiles compile` exits 1 (`Cannot load hook …: Invalid package config`) — it loads the hook through the very resolver that just failed, so it could never repair that state. And it was the only escape that _ran code_: over five review rounds it was found to admit a payload through composition (`curl … | sh && vigiles compile`), through its operand (`vigiles compile /tmp/payload.spec.ts`, which the CLI dynamically imports), through its executable path (`/tmp/vigiles compile`), and through the working directory (`cd /tmp/evil && vigiles compile`). Recognising a trusted _action_ from an untrusted _string_ has unbounded degrees of freedom — argv, cwd, `PATH`, `node_modules` resolution, config discovery — so the primitive was removed rather than constrained a fifth time.
 
-Everything else still fails closed. This doesn't soften the tamper guarantee that matters: while the stamp is stale the hook is enforcing **nothing** (it refuses every call), and anyone able to rewrite a hook's source can equally rewrite `.claude/settings.json`. What the stamp buys is that a smuggled capability can never run **silently** — unchanged.
+Every other tool call still fails closed. This doesn't soften the tamper guarantee that matters: while the stamp is stale the hook is enforcing **nothing** (it refuses every call), and anyone able to rewrite a hook's source can equally rewrite `.claude/settings.json`. What the stamp buys is that a smuggled capability can never run **silently** — unchanged.
 
 ### When a hook cannot load
 

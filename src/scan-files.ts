@@ -607,13 +607,23 @@ function hookReportFields(
   found: HookLineFindings & { readonly inventory: HookInventory },
 ): Pick<
   ScanReport,
-  "hooks" | "hookInventory" | "handWrittenHooks" | "staleHooks"
+  | "hooks"
+  | "hookInventory"
+  | "handWrittenHooks"
+  | "staleHooks"
+  | "hookStampIssues"
 > {
   return {
     hooks: found.hooks,
     hookInventory: found.inventory,
     handWrittenHooks: found.handWritten,
     staleHooks: found.stale,
+    // NOT CHECKED HERE, and the reason is the bundle, not the map: the stamp is a
+    // SHA-256 (`stampHook`, `node:crypto`), which this browser-safe engine must
+    // not import, and WebCrypto's digest is async where this scan is not. The
+    // disk engine (`lint`, `audit`) reports it; a fetched-map report stays
+    // silent rather than guessing.
+    hookStampIssues: [],
   };
 }
 

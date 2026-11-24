@@ -25,6 +25,7 @@
 import type { z } from "zod";
 import type { SkillResourceFinding } from "./skill-resources.js";
 import type { UnresolvedImport } from "./instruction-imports.js";
+import type { StaleHookStamp } from "./hook-stamp.js";
 
 /**
  * The decidability class of a defect — the single fact that sets its ceiling.
@@ -110,6 +111,8 @@ export interface ScanInput {
   }[];
   /** Every `@path` import a loaded instruction file names that does not resolve. */
   readonly instructionImportIssues: readonly UnresolvedImport[];
+  /** Every compiled hook whose source was edited after `compile` stamped it. */
+  readonly hookStampIssues: readonly StaleHookStamp[];
 }
 
 /**

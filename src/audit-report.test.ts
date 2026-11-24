@@ -45,6 +45,7 @@ function makeReport(over: Partial<ScanReport> = {}): FilteredScan<ScanReport> {
     trifectaFindings: [],
     skillFenceIssues: [],
     instructionImportIssues: [],
+    hookStampIssues: [],
     pluginLayoutIssues: [],
     unclaimedSurfaces: [],
     delegationTrifecta: [],

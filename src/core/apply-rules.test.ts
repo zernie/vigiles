@@ -59,6 +59,7 @@ const SCAN = {
   graded: ["x"],
   count: 2,
   instructionImportIssues: [],
+  hookStampIssues: [],
 };
 const switchOf = (on: readonly string[]) => ({
   mayFire: (id: string) => on.includes(id),
