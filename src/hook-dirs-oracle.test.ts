@@ -1,22 +1,26 @@
 /**
- * The closed directory grammar behind `e.command.dirs()` against real bash.
+ * The closed directory grammar behind `e.command.dirs()` against real bash
+ * and git.
  *
  * Lines are generated from the forms the grammar reads — `cd` to absolute,
- * `./` and `../` words, `&&`, `;`, `||`, a plain `|`, `git -C`, `env -C`,
- * `timeout`, `command`, `make -C` (cumulative), a repeated `env -C` (only
- * the last counts) and git's options before its subcommand — and from forms it must call unknown: bare `cd b`
- * under a CDPATH, `cd -`, a bare `cd`, `cd -P`, quoted and backslashed words,
+ * `./` and `../` words, `&&`, `;`, `||`, a plain `|`, `git -C` (cumulative),
+ * `env -C` (a repeat keeps only the last) and git's options before its
+ * subcommand — and from forms it must call unknown: bare `cd b` under a
+ * CDPATH, `cd -`, a bare `cd`, `cd -P`, quoted and backslashed words,
  * `pushd`/`popd`, `command cd`, `builtin cd`, `eval`, `bash -c`, functions,
- * subshells, groups, `if`, a `CDPATH=` prefix, a redirect, `&`, and `..`
- * through a symlink, where a logical `cd` and a physical `env -C`/`git -C`
- * disagree. The tree has a directory that does not exist, so every `cd` can
- * fail as well as succeed.
+ * subshells, groups, `if`, a `CDPATH=` prefix, a redirect, `&`, every wrapper
+ * but `env`, an `env` assignment, an unknown git option, and `..` through a
+ * symlink, where a logical `cd` and a physical `env -C`/`git -C` disagree.
+ * The tree has a directory that does not exist, so every `cd` can fail as
+ * well as succeed.
  *
- * Every leaf is a plain program call that records where it ran — `rec L<k>`
- * for the shell's directory, `git -C D rec L<k>` (a `git-rec` on PATH) for
- * git's — so the marker needs no redirect, which the grammar refuses.
+ * Every leaf is a git call that prints where git ran: each directory holds a
+ * file `here` with the lines `L<k> <its real path>`, and the leaf is
+ * `git … grep --no-index -h -w -e L<k> -- here`, so the marker needs no
+ * redirect (which the grammar refuses) and no program but git (the only one
+ * whose directory it reads).
  *
- * The forbidden outcome: bash ran a leaf somewhere the model did not say, or
+ * The forbidden outcome: git ran a leaf somewhere the model did not say, or
  * ran a leaf of a line the model read that it does not list. `unknown` is
  * always allowed. Integration tier: needs bash and git; elsewhere it is
  * skipped LOUDLY.
@@ -24,16 +28,7 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import {
-  chmodSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  realpathSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { mkdirSync, realpathSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { lineDirs, joinDir } from "./core/bash-dirs.js";
@@ -79,24 +74,26 @@ function forms(
     ]);
   const unread = (): string =>
     pick(["b", "a", "-", "", "-P ./l/..", '"./a"', "./a\\/b", "'./b'", "~"]);
+  /** A git leaf that prints `L<k> <where git ran>`, with `pre` before `grep`. */
+  const git = (pre = ""): string =>
+    `git ${pre}grep --no-index -h -w -e ${mark()} -- here`;
   const leaf = (): string =>
     pick([
-      `rec ${mark()}`,
-      `rec ${mark()}`,
-      `git -C ${pick([".", "./a", "a/b", "nope", "l/..", "a/.."])} rec ${mark()}`,
-      `git -C ./a -C b rec ${mark()}`,
-      `env -C ${pick(["a", "b", "nope", "l/.."])} rec ${mark()}`,
+      git(),
+      git(),
+      git(`-C ${pick([".", "./a", "a/b", "nope", "l/..", "a/.."])} `),
+      git("-C ./a -C b "),
+      `env -C ${pick(["a", "b", "nope", "l/.."])} ${git()}`,
       // A repeated env -C: only the last counts, against where env started.
-      `env -C ${pick([abs, "a", "nope"])} -C ${pick([".", "b", "a/b"])} rec ${mark()}`,
-      // Git's options before its subcommand, read by its global table.
-      `git ${pick(["-c x.y=1", "--no-pager", "-P", "--bogus"])} -C ${pick(["a", "b"])} rec ${mark()}`,
-      // make -C is cumulative; `L<k>` is a target every tree Makefile records.
-      `make -s ${pick(["", "-C a", `-C ${abs}`, "-C a -C b", "-C nope"])} ${mark()}`,
-      `timeout 5 rec ${mark()}`,
-      `command rec ${mark()}`,
-      `env -i PATH=$PATH rec ${mark()}`,
+      `env -C ${pick([abs, "a", "nope"])} -C ${pick([".", "b", "a/b"])} ${git()}`,
+      // Git's options before its subcommand: read by its table, or unknown.
+      git(
+        `${pick(["-c x.y=1", "--no-pager", "-P", "--bogus", "--bare"])} -C ${pick(["a", "b"])} `,
+      ),
+      `env ${pick(["-i", "-", "--", "-- X=1", "X=1"])} ${git()}`,
+      `${pick(["timeout 5", "command", "nice"])} ${git()}`,
     ]);
-  return { read, unread, leaf };
+  return { read, unread, leaf, git };
 }
 
 /** The command generator: a seeded choice, and a fresh marker per leaf. */
@@ -107,7 +104,7 @@ function generator(seed: number, abs: string) {
   const pick = <T>(xs: readonly [T, ...T[]]): T =>
     xs[Math.floor(next() * xs.length)] ?? xs[0];
   const mark = (): string => `L${String(leaves++)}`;
-  const { read, unread, leaf } = forms(pick, mark, abs);
+  const { read, unread, leaf, git } = forms(pick, mark, abs);
   const atom = (depth: number): string => {
     const simple: [() => string, ...(() => string)[]] = [
       () => `cd ${read()}`,
@@ -117,11 +114,11 @@ function generator(seed: number, abs: string) {
       () => `command cd ${read()}`,
       () => `builtin cd ${read()}`,
       () => `eval "cd ${read()}"`,
-      () => `bash -c "cd ${read()} && rec ${mark()}"`,
+      () => `bash -c "cd ${read()} && ${git()}"`,
       () => `f(){ cd ${read()}; }; f`,
-      () => `CDPATH=${abs} rec ${mark()}`,
-      () => `rec ${mark()} > /dev/null`,
-      () => `rec ${mark()} | cat`,
+      () => `CDPATH=${abs} ${git()}`,
+      () => `${git()} > /dev/null`,
+      () => `${git()} | cat`,
       leaf,
       leaf,
       leaf,
@@ -163,31 +160,26 @@ function generator(seed: number, abs: string) {
 /** Where a tree under test sits. */
 interface Tree {
   readonly start: string;
-  readonly out: string;
-  readonly bin: string;
 }
 
 type Verdict = "known" | "several" | "unknown" | { readonly miss: string };
 
-/** Run one line under bash in a clean marker directory: marker → directory. */
+/** Run one line under bash: marker → the directory git printed for it. */
 function runLine(cmd: string, tree: Tree): ReadonlyMap<string, string> {
-  rmSync(tree.out, { recursive: true, force: true });
-  mkdirSync(tree.out);
-  spawnSync("bash", ["-c", `${cmd}\nwait`], {
+  const r = spawnSync("bash", ["-c", `${cmd}\nwait`], {
     cwd: tree.start,
     env: {
-      PATH: `${tree.bin}:${process.env["PATH"] ?? ""}`,
+      PATH: process.env["PATH"] ?? "",
       HOME: join(tree.start, "h"),
-      OUT: tree.out,
       CDPATH: join(tree.start, "a"),
     },
+    encoding: "utf8",
     timeout: 10_000,
   });
   const ran = new Map<string, string>();
-  for (let k = 0; k < 64; k++) {
-    const f = join(tree.out, `L${String(k)}`);
-    if (existsSync(f))
-      ran.set(`L${String(k)}`, readFileSync(f, "utf8").split("\n")[0] ?? "");
+  for (const line of r.stdout.split("\n")) {
+    const m = /^(L\d+) (\/\S*)$/.exec(line);
+    if (m?.[1] !== undefined && m[2] !== undefined) ran.set(m[1], m[2]);
   }
   return ran;
 }
@@ -219,27 +211,19 @@ test("every leaf bash ran is where the grammar said, or the grammar said unknown
   try {
     const root = realpathSync(tmp);
     const start = join(root, "s");
-    const tree: Tree = {
-      start,
-      out: join(root, "out"),
-      bin: join(root, "bin"),
-    };
+    const tree: Tree = { start };
     for (const d of ["a/b", "b", "c", "h"])
       mkdirSync(join(start, d), { recursive: true });
     symlinkSync("a/b", join(start, "l"));
     spawnSync("git", ["init", "-q", start]);
-    mkdirSync(tree.bin);
-    // `rec L<k>`: where the process runs. `git rec L<k>`: where git runs it.
-    // `make L<k>`: where make runs the recipe, in every directory of the tree.
-    for (const d of [".", "a", "a/b", "b", "c"])
-      writeFileSync(
-        join(start, d, "Makefile"),
-        'L%:\n\t@pwd -P > "$$OUT/$@"\n',
+    // `here` in every real directory: `L<k> <its real path>`, one line per marker.
+    for (const d of [".", "a", "a/b", "b", "c", "h"]) {
+      const real = realpathSync(join(start, d));
+      const lines = Array.from(
+        { length: 64 },
+        (_, k) => `L${String(k)} ${real}`,
       );
-    for (const name of ["rec", "git-rec"]) {
-      const p = join(tree.bin, name);
-      writeFileSync(p, '#!/bin/sh\npwd -P > "$OUT/$1"\n');
-      chmodSync(p, 0o755);
+      writeFileSync(join(start, d, "here"), `${lines.join("\n")}\n`);
     }
     const gen = generator(20261124, join(start, "c"));
     const verdicts = Array.from({ length: 1500 }, () => gen.line()).flatMap(

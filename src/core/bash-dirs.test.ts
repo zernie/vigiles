@@ -1,29 +1,29 @@
 /**
- * Two classes of the closed directory grammar, swept over the whole table
- * rather than pinned one program at a time (PR #514, Codex findings):
+ * git's argv, CLOSED, swept rather than pinned one option at a time (PR #514,
+ * Codex findings `make -f -C /trusted deploy` and `env -- FOO=bar git -C /x
+ * pull`, both of the class "the reader skipped a word it did not understand"):
  *
- *  1. OPTIONS BEFORE THE SUBCOMMAND. For a program whose rows are scoped to
- *     subcommands, any option ahead of the subcommand is read through that
- *     program's own row (its pre-subcommand options), or the leaf is unknown.
- *     It never falls through to the starting directory (`go -C /x test`).
- *  2. REPEATS. Every "run in directory" option declares what a second
- *     occurrence does — `cumulative` (each relative to the last), `last-wins`
- *     (only the last, against the directory the program started in), or
- *     `none` (the leaf is unknown). `env -C /a -C . cmd` runs in `.`.
+ *  1. EVERY GLOBAL OPTION git(1) lists, given before the subcommand, has the
+ *     effect its row in {@link GIT_GLOBALS} declares — no move, `-C`, or
+ *     unknown — and an option git(1) does not list is unknown.
+ *  2. THE SUBCOMMAND is one of {@link GIT_SUBCOMMANDS}, whose own options
+ *     cannot move git; any other word there is unknown.
+ *  3. REPEATS. `git -C` is cumulative; `env -C` keeps only the last, against
+ *     where env started.
+ *  4. EVERY OTHER PROGRAM is unknown.
  *
- * Unit tier: `lineDirs` is pure. Real bash, env, git and make as the oracle:
+ * Unit tier: `lineDirs` is pure. Real bash and git as the oracle:
  * `src/hook-dirs-oracle.test.ts`.
  */
 import { describe, test } from "vitest";
 import assert from "node:assert/strict";
 
-import { lineDirs, joinDir, type LeafDir } from "./bash-dirs.js";
+import { lineDirs, type LeafDir } from "./bash-dirs.js";
 import {
-  DIR_TABLE,
-  WRAPPERS,
-  GIT_GLOBAL,
-  type DirRow,
-  type Repeat,
+  GIT_GLOBALS,
+  GIT_CHDIR_REPEAT,
+  GIT_SUBCOMMANDS,
+  ENV,
 } from "./bash-dirs-table.js";
 
 /** Where the one leaf of `line` runs, or `"line"` when the whole line is unknown. */
@@ -39,134 +39,152 @@ function leafAt(line: string): LeafDir | "line" {
 const isUnknown = (at: LeafDir | "line"): boolean =>
   at === "line" || at.kind === "unknown";
 
-const UNKNOWN_OPTIONS = ["--vigiles-unknown", "-%"] as const;
-
-/** The spellings of an option the table reads: `-C v`, `--long v`, `--long=v`, `-chdir=v`. */
-function spellings(
-  separate: readonly string[],
-  equals: readonly string[],
-): readonly ((v: string) => string)[] {
-  return [
-    ...separate.map((f) => (v: string) => `${f} ${v}`),
-    ...separate
-      .filter((f) => f.startsWith("--"))
-      .map((f) => (v: string) => `${f}=${v}`),
-    ...equals.map((f) => (v: string) => `${f}=${v}`),
-  ];
-}
-
-/** For one subcommand row: every line with an unknown option ahead of a subcommand. */
-function unknownFirst(r: DirRow): readonly string[] {
-  const opts = spellings(r.separate, r.equals);
-  return (r.sub ?? []).flatMap((s) =>
-    UNKNOWN_OPTIONS.flatMap((u) => [
-      `${r.program} ${u} ${s} x`,
-      ...opts.map((opt) => `${r.program} ${u} ${s} ${opt("/r")} x`),
-    ]),
-  );
-}
-
-const subScoped = [
-  ...new Set(DIR_TABLE.flatMap((r) => (r.sub ? [r.program] : []))),
+/**
+ * git(1) "OPTIONS", git 2.43 plus the two later additions (`--no-lazy-fetch`
+ * 2.44, `--no-advice` 2.46) and the removed `--super-prefix` — copied here by
+ * hand, apart from the table, so an option missing from the table fails.
+ * Each with the words it takes: 0, or 1 (`-C <path>`, `--git-dir=<path>`).
+ */
+const GIT_1: readonly (readonly [string, 0 | 1])[] = [
+  ["-v", 0],
+  ["--version", 0],
+  ["-h", 0],
+  ["--help", 0],
+  ["-C", 1],
+  ["-c", 1],
+  ["--config-env", 1],
+  ["--exec-path", 0],
+  ["--html-path", 0],
+  ["--man-path", 0],
+  ["--info-path", 0],
+  ["-p", 0],
+  ["--paginate", 0],
+  ["-P", 0],
+  ["--no-pager", 0],
+  ["--git-dir", 1],
+  ["--work-tree", 1],
+  ["--namespace", 1],
+  ["--super-prefix", 1],
+  ["--bare", 0],
+  ["--no-replace-objects", 0],
+  ["--no-lazy-fetch", 0],
+  ["--no-optional-locks", 0],
+  ["--no-advice", 0],
+  ["--literal-pathspecs", 0],
+  ["--glob-pathspecs", 0],
+  ["--noglob-pathspecs", 0],
+  ["--icase-pathspecs", 0],
+  ["--list-cmds", 1],
+  ["--attr-source", 1],
 ];
 
-describe("class 1: an option before the subcommand is read by the program's row, or unknown", () => {
-  test("the reported case: go reads -C before its subcommand too", () => {
-    assert.deepEqual(leafAt("go -C /foreign test"), {
-      kind: "dir",
-      dir: "/foreign",
-    });
-    assert.deepEqual(leafAt("go -C /foreign test ./..."), {
-      kind: "dir",
-      dir: "/foreign",
-    });
+/** Every way to give `name` its value `v`: separate, and `--long=v`. */
+function spellings(name: string, arity: 0 | 1, v: string): readonly string[] {
+  if (arity === 0) return [name];
+  return name.startsWith("--")
+    ? [`${name} ${v}`, `${name}=${v}`]
+    : [`${name} ${v}`];
+}
+
+describe("class 1: every git global option gives its declared effect, or unknown", () => {
+  test("every option git(1) lists has a row", () => {
+    const rowed = new Set(GIT_GLOBALS.flatMap((g) => g.names));
+    const missing = GIT_1.map(([n]) => n).filter((n) => !rowed.has(n));
+    assert.deepEqual(missing, [], "git(1) options without a row");
   });
 
-  test("go reads -C after the whole command path, which the table does not track: unknown", () => {
-    for (const line of [
-      "go mod edit -C /x -json",
-      "go mod -C /x edit -json",
-      "go -C /a test -C /b",
-      "go --C /x test",
-      "go -C=/x test",
-    ])
-      assert.ok(isUnknown(leafAt(line)), line);
-  });
+  test.each(GIT_1.map(([n, a]) => [n, a] as const))(
+    "git %s before the subcommand",
+    (name, arity) => {
+      const row = GIT_GLOBALS.find((g) => g.names.includes(name));
+      assert.ok(row !== undefined, name);
+      for (const opt of spellings(name, arity, "/r")) {
+        const line = `git ${opt} pull`;
+        const at = leafAt(line);
+        if (row.effect === "unknown") assert.ok(isUnknown(at), line);
+        else if (row.effect === "none")
+          assert.deepEqual(at, { kind: "dir", dir: "." }, line);
+        else if (opt.includes("="))
+          // git reads `-C` only as a separate word.
+          assert.ok(isUnknown(at), line);
+        else assert.deepEqual(at, { kind: "dir", dir: "/r" }, line);
+      }
+    },
+  );
 
-  test("every subcommand-scoped program, every subcommand, an unknown option first: unknown", () => {
-    const lines = DIR_TABLE.filter((r) => r.sub).flatMap(unknownFirst);
-    assert.ok(lines.length > 40, `only ${String(lines.length)} lines`);
-    const known = lines.filter((l) => !isUnknown(leafAt(l)));
-    assert.deepEqual(known, [], "read as known past an unread option");
-  });
-
-  test("git, whose global options precede the subcommand: an unknown one is unknown", () => {
-    for (const u of UNKNOWN_OPTIONS)
-      for (const line of [`git ${u} status`, `git ${u} -C /r status`])
+  test("an option git(1) does not list is unknown, wherever it sits before the subcommand", () => {
+    for (const u of ["--bogus", "-%", "--", "-", "-Cx", "-C=/r", "--no-pagerx"])
+      for (const line of [
+        `git ${u} pull`,
+        `git ${u} -C /r pull`,
+        `git -C /r ${u} pull`,
+      ])
         assert.ok(isUnknown(leafAt(line)), line);
   });
 
-  test("a subcommand-scoped program's own row stops at the subcommand", () => {
-    for (const r of DIR_TABLE)
-      if (r.sub === undefined && subScoped.includes(r.program))
-        assert.equal(r.beforeOperand, true, `${r.program}: beforeOperand`);
+  test("a row git reads as a flag or -C takes the arity git(1) gives it", () => {
+    for (const g of GIT_GLOBALS)
+      if (g.effect !== "unknown")
+        for (const n of g.names)
+          assert.equal(
+            g.arity,
+            GIT_1.find(([x]) => x === n)?.[1],
+            `${n}: arity`,
+          );
   });
 });
 
-/** Where `twice(first, second)` must run under `repeat`, from the start `.`; `null` is unknown. */
-function expected(
-  repeat: Repeat,
-  first: string,
-  second: string,
-): string | null {
-  if (repeat === "none") return null;
-  const base = repeat === "cumulative" ? joinDir(".", first) : ".";
-  return joinDir(base, second);
-}
+describe("class 2: the subcommand is one whose own options cannot move git, or unknown", () => {
+  test("every listed subcommand, with options after it, runs where git's globals put it", () => {
+    for (const s of GIT_SUBCOMMANDS)
+      assert.deepEqual(
+        leafAt(`git -C /r ${s} -C x --git-dir=y --work-tree z`),
+        { kind: "dir", dir: "/r" },
+        s,
+      );
+  });
 
-interface RepeatCase {
-  readonly label: string;
-  readonly repeat: Repeat;
-  /** The line with the option given twice, the values in the middle. */
-  readonly twice: (first: string, second: string) => string;
-  /** A container row reads only absolute values. */
-  readonly container: boolean;
-}
+  test("a subcommand that can work elsewhere, an alias or an external is unknown", () => {
+    for (const s of [
+      "worktree",
+      "clone",
+      "init",
+      "submodule",
+      "config",
+      "log",
+      "diff",
+      "show",
+      "archive",
+      "bundle",
+      "format-patch",
+      "rebase",
+      "bisect",
+      "filter-branch",
+      "difftool",
+      "help",
+      "rec",
+      "co",
+    ])
+      assert.ok(isUnknown(leafAt(`git -C /r ${s} x`)), s);
+  });
 
-const repeatCases: readonly RepeatCase[] = [
-  ...DIR_TABLE.flatMap((r) =>
-    spellings(r.separate, r.equals).map(
-      (opt, k): RepeatCase => ({
-        label: `${r.program}${r.sub ? ` ${r.sub[0] ?? ""}` : ""} #${String(k)}`,
-        repeat: r.repeat,
-        twice: (a, b) =>
-          `${r.program}${r.sub ? ` ${r.sub[0] ?? ""}` : ""} ${opt(a)} ${opt(b)} x`,
-        container: r.container === true,
-      }),
-    ),
-  ),
-  ...Object.entries(WRAPPERS).flatMap(([w, spec]) =>
-    spec
-      ? spellings(spec.chdir, []).map(
-          (opt, k): RepeatCase => ({
-            label: `${w} #${String(k)}`,
-            repeat: spec.repeat,
-            twice: (a, b) => `${w} ${opt(a)} ${opt(b)} prog`,
-            container: false,
-          }),
-        )
-      : [],
-  ),
-  {
-    label: "git -C",
-    repeat: GIT_GLOBAL.repeat,
-    twice: (a, b) => `git -C ${a} -C ${b} status`,
-    container: false,
-  },
-];
+  test("git with no subcommand runs nothing, where its globals put it", () => {
+    assert.deepEqual(leafAt("git -C /r"), { kind: "dir", dir: "/r" });
+  });
+});
 
-describe("class 2: a repeated directory option follows its declared semantics, or is unknown", () => {
-  test("the reported case: env -C takes only the last, against where env started", () => {
+describe("class 3: a repeated directory option follows its declared semantics", () => {
+  test("git -C is cumulative", () => {
+    assert.equal(GIT_CHDIR_REPEAT, "cumulative");
+    assert.deepEqual(leafAt("git -C /a -C sub pull"), {
+      kind: "dir",
+      dir: "/a/sub",
+    });
+    assert.deepEqual(leafAt("git -C a -C /b pull"), { kind: "dir", dir: "/b" });
+  });
+
+  test("env -C takes only the last, against where env started", () => {
+    assert.equal(ENV.repeat, "last-wins");
     assert.deepEqual(leafAt("env -C /trusted -C . git pull"), {
       kind: "dir",
       dir: ".",
@@ -180,26 +198,47 @@ describe("class 2: a repeated directory option follows its declared semantics, o
       dir: "a/b",
     });
   });
+});
 
-  test.each(repeatCases.map((c) => [c.label, c] as const))(
-    "%s given twice",
-    (_label, c) => {
-      const [first, second] = c.container ? ["/a", "/b"] : ["/a", "sub"];
-      const line = c.twice(first, second);
-      const at = leafAt(line);
-      // A container row reads absolute values only, so both repeats give `/b`.
-      const inContainer = c.repeat === "none" ? null : second;
-      const want = c.container
-        ? inContainer
-        : expected(c.repeat, first, second);
-      if (want === null) assert.ok(isUnknown(at), line);
-      else assert.deepEqual(at, { kind: "dir", dir: want }, line);
-    },
-  );
+describe("class 4: every program but git is unknown", () => {
+  test("the reported case and every program an earlier table read", () => {
+    for (const line of [
+      "make -f -C /trusted deploy",
+      "make -C /r deploy",
+      "env -C /r make deploy",
+      "npm --prefix /r run build",
+      "go -C /r test",
+      "ls",
+    ])
+      assert.deepEqual(
+        leafAt(line),
+        { kind: "unknown", reason: "unread-program" },
+        line,
+      );
+  });
 
-  test("every repeat the table declares is exercised", () => {
-    const declared = new Set(repeatCases.map((c) => c.repeat));
-    for (const r of ["cumulative", "last-wins", "none"] as const)
-      assert.ok(declared.has(r), `no row declares ${r}`);
+  test("env's every option word is read by its row, or the leaf is unknown", () => {
+    for (const f of ENV.flags)
+      assert.deepEqual(
+        leafAt(`env ${f} git pull`),
+        { kind: "dir", dir: "." },
+        f,
+      );
+    for (const v of ENV.valued)
+      assert.deepEqual(
+        leafAt(`env ${v} X git pull`),
+        { kind: "dir", dir: "." },
+        v,
+      );
+    for (const line of [
+      "env -S git pull",
+      "env --split-string=git pull",
+      "env --ignore-signal git pull",
+      "env -0i git pull",
+      "env -uX git pull",
+      "env -- FOO=bar git pull",
+      "env FOO=bar -- git pull",
+    ])
+      assert.ok(isUnknown(leafAt(line)), line);
   });
 });

@@ -1,10 +1,11 @@
 /**
- * Every row of the directory table against Fig's completion specs
- * (`@withfig/autocomplete`, MIT, a devDependency): for each program (and
- * subcommand) the table reads a "run in directory" option of, Fig must know
- * that option with one argument — or the row must carry a reviewed
- * `figException` saying why Fig disagrees. An exception Fig no longer needs
- * fails too, so the list cannot go stale.
+ * The words the directory table READS, against Fig's completion specs
+ * (`@withfig/autocomplete`, MIT, a devDependency): every git global option the
+ * table reads (a flag, or `-C` with one argument) and env's `-C`/`--chdir`.
+ * Fig must know the option with the same arity — or the row must carry a
+ * reviewed `figException` saying why Fig disagrees. An exception Fig no longer
+ * needs fails too, so the list cannot go stale. Options the table calls
+ * unknown are not checked: their arity is never used.
  *
  * Fig is loaded HERE only. The hook runtime never imports it (vigiles rule
  * "Hook Startup Cost Is Watched"): the last test reads the compiled module
@@ -18,18 +19,15 @@ import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
-import { DIR_TABLE, WRAPPERS, GIT_GLOBAL } from "./bash-dirs-table.js";
+import { ENV, GIT_GLOBALS } from "./bash-dirs-table.js";
 
 interface FigOption {
   readonly name: string | readonly string[];
   readonly args?: unknown;
-  readonly requiresSeparator?: boolean | string;
-  readonly requiresEquals?: boolean;
 }
 interface FigCommand {
   readonly name?: string | readonly string[];
   readonly options?: readonly FigOption[];
-  readonly subcommands?: readonly FigCommand[];
 }
 
 const FIG_BUILD = dirname(
@@ -56,81 +54,50 @@ function names(n: string | readonly string[] | undefined): readonly string[] {
   return typeof n === "string" ? [n] : n;
 }
 
-/** Does Fig know `flag` on `cmd` with exactly one argument? */
-function knows(cmd: FigCommand, flag: string, equals: boolean): boolean {
+/** Does Fig know `flag` on `cmd` with exactly `arity` arguments? */
+function knows(cmd: FigCommand, flag: string, arity: 0 | 1): boolean {
   const opt = (cmd.options ?? []).find((o) => names(o.name).includes(flag));
   if (opt === undefined) return false;
   const one = opt.args !== undefined ? 1 : 0;
-  const arity = Array.isArray(opt.args) ? opt.args.length : one;
-  const attached =
-    opt.requiresEquals === true || opt.requiresSeparator !== undefined;
-  return arity === 1 && (!equals || attached);
+  return (Array.isArray(opt.args) ? opt.args.length : one) === arity;
 }
 
-/** One thing the table reads, as Fig would be asked about it. */
+/** One option the table reads, as Fig would be asked about it. */
 interface Claim {
   readonly label: string;
   readonly program: string;
-  readonly subs: readonly string[] | undefined;
-  readonly flags: readonly {
-    readonly flag: string;
-    readonly equals: boolean;
-  }[];
+  readonly flag: string;
+  readonly arity: 0 | 1;
   readonly figException: string | undefined;
 }
 
 const claims: readonly Claim[] = [
-  ...DIR_TABLE.map((r) => ({
-    label: `${r.program}${r.sub ? ` ${r.sub.join("|")}` : ""}`,
-    program: r.program,
-    subs: r.sub,
-    flags: [
-      ...r.separate.map((flag) => ({ flag, equals: false })),
-      ...r.equals.map((flag) => ({ flag, equals: true })),
-    ],
-    figException: r.figException,
-  })),
-  ...Object.entries(WRAPPERS).flatMap(([program, spec]) =>
-    spec && spec.chdir.length > 0
-      ? [
-          {
-            label: program,
-            program,
-            subs: undefined,
-            flags: spec.chdir.map((flag) => ({ flag, equals: false })),
-            figException: spec.figException,
-          },
-        ]
-      : [],
+  ...GIT_GLOBALS.filter((g) => g.effect !== "unknown").flatMap((g) =>
+    g.names.map((flag) => ({
+      label: `git ${flag}`,
+      program: "git",
+      flag,
+      arity: g.arity,
+      figException: g.figException,
+    })),
   ),
-  {
-    label: "git",
-    program: "git",
-    subs: undefined,
-    flags: GIT_GLOBAL.chdir.map((flag) => ({ flag, equals: false })),
-    figException: undefined,
-  },
+  ...ENV.chdir.map((flag) => ({
+    label: `env ${flag}`,
+    program: "env",
+    flag,
+    arity: 1 as const,
+    figException: ENV.figException,
+  })),
 ];
 
-/** Does Fig confirm every flag of the claim, on every subcommand it names? */
 async function figConfirms(c: Claim): Promise<boolean> {
   const spec = await figSpec(c.program);
-  if (spec === null) return false;
-  const cmds =
-    c.subs === undefined
-      ? [spec]
-      : c.subs.map((s) =>
-          (spec.subcommands ?? []).find((x) => names(x.name).includes(s)),
-        );
-  return cmds.every(
-    (cmd) =>
-      cmd !== undefined && c.flags.every((f) => knows(cmd, f.flag, f.equals)),
-  );
+  return spec !== null && knows(spec, c.flag, c.arity);
 }
 
-describe("the directory table against Fig", () => {
+describe("the words the table reads, against Fig", () => {
   test.each(claims.map((c) => [c.label, c] as const))(
-    "%s: Fig knows the option, or a reviewed exception says why not",
+    "%s: Fig knows the option with its arity, or a reviewed exception says why not",
     async (_label, c) => {
       const confirmed = await figConfirms(c);
       if (confirmed)
@@ -142,15 +109,15 @@ describe("the directory table against Fig", () => {
       else
         assert.ok(
           (c.figException ?? "").length > 20,
-          `${c.label}: Fig does not know ${c.flags.map((f) => f.flag).join(", ")} with one argument; fix the row or give a reviewed figException`,
+          `${c.label}: Fig does not know it with ${String(c.arity)} argument(s); fix the row or give a reviewed figException`,
         );
     },
   );
 
-  test("Fig confirms the core rows outright", async () => {
+  test("Fig confirms git -C and the common flags outright", async () => {
     const confirmed = await Promise.all(claims.map(figConfirms));
     const ok = claims.filter((_, i) => confirmed[i]).map((c) => c.label);
-    for (const label of ["git", "make", "docker exec|run", "terraform", "just"])
+    for (const label of ["git -C", "git --no-pager", "git -p"])
       assert.ok(ok.includes(label), `${label} not confirmed by Fig`);
   });
 });

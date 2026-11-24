@@ -87,7 +87,7 @@ describe("rule 1: a chain of simple commands; the directory carries only across 
     known("cd /r && git pull | cat", ["/r"]);
   });
   test("without a program, every leaf but the cd", () => {
-    known("cd /r && git pull && npm test", ["/r"], EVERY);
+    known("cd /r && git pull && git status", ["/r"], EVERY);
   });
   test("a leaf that does not run the program is not counted", () => {
     known("cd /r && git status", []);
@@ -113,70 +113,110 @@ describe("rule 2: cd is read only for a plain absolute or ./ ../ word", () => {
   });
 });
 
-describe("rule 3: a program moved by its own row of the table", () => {
+describe("rule 3: git, read word by word; any word it does not know is unknown", () => {
   test("git -C is cumulative and joins the chain's directory", () => {
     known("git -C /r pull", ["/r"]);
     known("git -C a -C b pull", ["/w/s/a/b"]);
     known("cd /r && git -C sub pull", ["/r/sub"]);
     known("/usr/bin/git -C /r pull", ["/r"]);
-    known("git -c user.name=x pull", [START]);
+    known("git -P --no-optional-locks -C /r pull --rebase", ["/r"]);
   });
-  test("a .. in a table value, and git's repository overrides, are unknown", () => {
+  test("a .. in -C, a repository override, config and environment are unknown", () => {
     for (const c of [
       "git -C ../o pull",
       "git --git-dir=/x pull",
       "git --work-tree /x pull",
       "git -c core.worktree=/x pull",
+      "git -c user.name=x pull",
+      "git -c alias.pull=!cd pull",
+      "git --config-env=core.worktree=X pull",
+      "git --namespace=x pull",
+      "git --bare pull",
+      "git --exec-path=/x pull",
       "env GIT_DIR=/x git pull",
       "env GIT_WORK_TREE=/x git pull",
     ])
       unknown(c);
   });
-  test("wrappers with options from their table", () => {
+  test("an unknown option, or a subcommand outside the list, is unknown", () => {
+    for (const c of ["git --bogus pull", "git -C/r pull", "git -- pull"])
+      unknown(c);
+    unknown("git -C /r worktree add ../x", "git worktree");
+    unknown("git -C /r clone u d", "git clone");
+    unknown("git -C /r submodule foreach pwd", "git submodule");
+    unknown("git -C /r log --output=/x", "git log");
+    unknown("git -C /r pul", EVERY);
+  });
+  test("the reported case: env -- FOO=bar git -C /foreign pull is unknown", () => {
+    // GNU env reads NAME=VALUE operands after `--` too; any assignment may
+    // steer git (GIT_*, HOME, XDG_CONFIG_HOME, PATH), so the leaf is unknown.
+    unknown("env -- FOO=bar git -C /foreign pull");
+    unknown("env FOO=bar git -C /foreign pull");
+    unknown("env - FOO=bar git pull");
+    known("env - git -C /r pull", ["/r"]);
+    known("env -- git -C /r pull", ["/r"]);
+  });
+  test("env, the one wrapper, is read through its whole option grammar", () => {
     known("env -C /r git pull", ["/r"]);
     known("env --chdir=/r git pull", ["/r"]);
-    known("sudo -D /r git pull", ["/r"]);
-    known("sudo -u bob git pull", [START]);
-    known("env -i -C a sudo --chdir=b git pull", ["/w/s/a/b"]);
-    known("nice -n 5 git pull", [START]);
-    known("timeout -k 5 10 git -C /r pull", ["/r"]);
+    known("env -i -u X -C a env -C b git pull", ["/w/s/a/b"]);
+    known("env -C /a -C b git pull", ["/w/s/b"]);
   });
-  test("anything else in a wrapper is unknown", () => {
+  test("any other env word, and every other wrapper around git, is unknown", () => {
     for (const c of [
       "env -X git pull",
       "env -C/r git pull",
+      "env --ch=/r git pull",
+      "env -iC /r git pull",
+      "env -S git pull",
       "nohup git pull",
-      "sudo -i git pull",
+      "sudo git pull",
+      "sudo -D /r git pull",
+      "nice -n 5 git pull",
+      "timeout 10 git -C /r pull",
+      "command git pull",
+      "xargs -I XX git -C XX pull",
+      "stdbuf -o0 git -C /r pull",
     ])
       unknown(c);
   });
 });
 
-describe("rule 3: the other rows of the table", () => {
-  test("other rows of the table", () => {
-    known("make -C /r deploy", ["/r"], "make");
-    known("make deploy -C /r", ["/r"], "make");
-    known("npm --prefix /r run build", ["/r"], "npm");
-    known("terraform -chdir=/r apply", ["/r"], "terraform");
-    known("cargo -C /r build", ["/r"], "cargo");
-    known("bun --cwd /r test", ["/r"], "bun");
-    known("just --working-directory /r build", ["/r"], "just");
-    known("docker exec -w /app c ls", ["/app"], "docker exec");
-    known("go build -C /r ./...", ["/r"], "go build");
-    known("tofu -chdir=/r plan", ["/r"], "tofu");
-    known("hg --cwd /r pull", ["/r"], "hg pull");
-    known("cargo watch -C /r -x check", ["/r"], "cargo watch");
+describe("rule 3: every program but git is unknown when the gate asks about it", () => {
+  test("the reported case: make -f -C /trusted deploy", () => {
+    unknown("make -f -C /trusted deploy", "make");
   });
-  test("an option that points a program at another repository is unknown", () => {
-    unknown("hg -R /x pull", "hg pull");
-    unknown("hg --repository=/x pull", "hg pull");
-    unknown("npm -C /x run build", "npm");
+  test("every program an earlier table read", () => {
+    for (const [c, program] of [
+      ["make -C /r deploy", "make"],
+      ["npm --prefix /r run build", "npm"],
+      ["terraform -chdir=/r apply", "terraform"],
+      ["cargo -C /r build", "cargo"],
+      ["bun --cwd /r test", "bun"],
+      ["just --working-directory /r build", "just"],
+      ["docker exec -w /app c ls", "docker exec"],
+      ["go build -C /r ./...", "go build"],
+      ["tofu -chdir=/r plan", "tofu"],
+      ["hg --cwd /r pull", "hg pull"],
+      ["cargo watch -C /r -x check", "cargo watch"],
+      ["tig -C /r", "tig"],
+      ["turbo --cwd /r run build", "turbo"],
+      ["terramate -C /r run", "terramate"],
+      ["cd /r && ls", "ls"],
+    ] as const)
+      unknown(c, program);
   });
-  test("a table option spelled any other way is unknown", () => {
-    unknown("make -sC /r deploy", "make");
-    unknown("make --dir=/r deploy", "make");
-    unknown("docker exec c ls", "docker exec");
+  test("without a program, a leaf of any program but git is unknown", () => {
+    unknown("cd /r && git pull && npm test", EVERY);
+    known("cd /r && git pull && git push", ["/r"], EVERY);
   });
+  test("asked about git, a program that cannot run git is not counted", () => {
+    known("cd /r && npm test && git pull", ["/r"]);
+    known("make -C /x && git pull", [START]);
+  });
+});
+
+describe("rule 3: a word that is not plain", () => {
   test("an unplain word makes its own leaf unknown, not its neighbours", () => {
     known('git commit -m "msg" && git pull', [START]);
     unknown('git commit -m "msg" && git pull', "git commit");
@@ -282,6 +322,8 @@ describe("rule 6: a gate that called dirs() asks on an unknown leaf", () => {
       "CDPATH=/x bash -c 'cd repo && git pull'",
       "exit >/dev/null/x; git -C /foreign pull",
       '"g"it -C /foreign pull',
+      "env -- FOO=bar git -C /foreign pull",
+      "sudo git -C /foreign pull",
     ])
       assert.equal(decide(c), "ask", c);
   });
