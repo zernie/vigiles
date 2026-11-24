@@ -82,6 +82,8 @@ test("the eval-report readers live on vigiles/eval, folded", () => {
 });
 
 test("compiled-hook tests live on vigiles/hook; subagent outcomes on vigiles/spec", () => {
+  // Both families are experimental: the hook tests ride on the experimental
+  // hook vocabulary, the outcome assertions on `experimental_agent`'s contract.
   for (const name of [
     "loadHook",
     "assertHookAllows",
@@ -89,12 +91,60 @@ test("compiled-hook tests live on vigiles/hook; subagent outcomes on vigiles/spe
     "assertHookNotices",
     "assertHookSilent",
   ]) {
-    assert.ok(has(hook, name), `vigiles/hook exports ${name}`);
+    assert.ok(
+      has(hook, `experimental_${name}`),
+      `vigiles/hook exports experimental_${name}`,
+    );
+    assert.ok(
+      !has(hook, name),
+      `vigiles/hook no longer exports the bare ${name}`,
+    );
     assert.ok(!has(root, name), `the root no longer exports ${name}`);
   }
   for (const name of ["assertAgentOk", "assertAgentErr", "assertAgentResult"]) {
-    assert.ok(has(spec, name), `vigiles/spec exports ${name}`);
+    assert.ok(
+      has(spec, `experimental_${name}`),
+      `vigiles/spec exports experimental_${name}`,
+    );
+    assert.ok(
+      !has(spec, name),
+      `vigiles/spec no longer exports the bare ${name}`,
+    );
     assert.ok(!has(root, name), `the root no longer exports ${name}`);
+  }
+});
+
+test("one form for an assertion over a run: the flat assertX and predicate forms a check.* member covers are gone", () => {
+  assert.ok(has(root, "check"));
+  assert.ok(has(root, "assertChecks"));
+  for (const gone of [
+    // predicates → check.* inside assertChecks / fired:
+    "usedTool",
+    "toolCount",
+    "skillResolved",
+    "toolUsedWith",
+    "outputContains",
+    "requestContains",
+    "hookBlocked",
+    // throwing forms → assertChecks(r, [check.*])
+    "assertToolUsed",
+    "assertToolNotUsed",
+    "assertSkillResolved",
+    "assertToolUsedWith",
+    "assertOutputContains",
+    "assertRequestContains",
+    "assertHookFired",
+    "assertToolCount",
+    "assertToolSequence",
+    "assertToolCalls",
+    "assertCreated",
+    "assertNotCreated",
+    "assertHookBlocked",
+    "assertHookAllowed",
+    // experimental_startServices + await using / finally covers it
+    "experimental_withServices",
+  ]) {
+    assert.ok(!has(root, gone), `the root no longer exports ${gone}`);
   }
 });
 
