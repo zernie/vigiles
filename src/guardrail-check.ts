@@ -213,6 +213,13 @@ export interface VerifyGuardrailOptions extends RunHookOptions {
   /** The PreToolUse event name to wrap each disaster in (default "PreToolUse"). */
   readonly event?: string;
   /**
+   * More cases the guard must BLOCK: other spellings of the selected disasters
+   * that the shell runs identically. Default: {@link experimental_alternateSpellings}
+   * of the selected events. `[]` turns them off; an array replaces them (spread
+   * `experimental_alternateSpellings(...)` to keep the generated ones beside yours).
+   */
+  readonly spellings?: readonly DisasterEvent[];
+  /**
    * The cases the guard must ALLOW. Default: the harmless look-alikes of every
    * selected disaster ({@link experimental_harmlessTwins}), so a custom `events`
    * battery gets its own. `[]` turns the half off; pass your own cases to
@@ -349,9 +356,13 @@ type BatteryCase =
 
 function selectCases(opts: VerifyGuardrailOptions): readonly BatteryCase[] {
   const events = selectEvents(opts);
+  const spellings = opts.spellings ?? experimental_alternateSpellings(events);
   const harmless = opts.harmless ?? experimental_harmlessTwins(events);
   return [
-    ...events.map((event) => ({ expect: "block" as const, event })),
+    ...[...events, ...spellings].map((event) => ({
+      expect: "block" as const,
+      event,
+    })),
     ...harmless.map((event) => ({ expect: "allow" as const, event })),
   ];
 }

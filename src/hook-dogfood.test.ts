@@ -87,14 +87,17 @@ test("a hand-written substring guard has the documented blind spots (the bug cla
   }
 });
 
+// COST: the battery now carries every generated spelling of each disaster by
+// default, and each case spawns the real CLI once — ~175 launches, measured
+// 26s alone. The timeout is raised deliberately, as for the rewrite test below.
 test("the COMPILED hook blocks all 7 disasters by construction (closes the gaps)", () => {
   // cwd = repo root so the example's `../../dist/hook.js` import resolves.
-  // No throw ⇒ every disaster in the battery is denied (exit 2).
+  // No throw ⇒ every disaster AND every spelling of it is denied (exit 2).
   assertGuardrail(`node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`, {
     cwd: REPO_ROOT,
     harmless: SAFE_GUARD_HARMLESS,
   });
-});
+}, 240_000);
 
 // ---------------------------------------------------------------------------
 // #174 — a guard that halts the turn instead of denying the call
@@ -213,6 +216,7 @@ test("every shell-equivalent rewrite of the battery is still blocked", () => {
       cwd: REPO_ROOT,
       events,
       harmless: [],
+      spellings: [], // these events ARE spellings already
     }),
   ).map((m) => String(m.event.input["command"]));
   assert.deepEqual(
@@ -243,6 +247,7 @@ test("g\\it push --force is blocked (a spelling the battery could not have found
         },
       ],
       harmless: [],
+      spellings: [], // these events ARE spellings already
     }),
   );
   assert.deepEqual(missed, []);
@@ -267,7 +272,7 @@ test("the guard did not become a blunt blocker", () => {
   }));
   const blocked = verifyGuardrail(
     `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`,
-    { cwd: REPO_ROOT, events: benign, harmless: [] },
+    { cwd: REPO_ROOT, events: benign, harmless: [], spellings: [] },
   )
     .filter((r) => r.blocked)
     .map((r) => r.event.label);

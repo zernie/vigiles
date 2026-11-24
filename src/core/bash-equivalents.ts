@@ -194,6 +194,16 @@ const FAMILIES: readonly Family[] = [
       return [`FOO=1 ${cmd}`, `GIT_TERMINAL_PROMPT=0 LC_ALL=C ${cmd}`];
     },
   },
+  {
+    // `( git push --force )` — a subshell runs the same command in a child
+    // shell. A guard anchored at the start of the string (`case "$cmd" in
+    // "git push"*`) sees `(` first. `bash -c '…'`, `sh -c '…'`, `eval '…'` and
+    // `git -C . …` were tried beside it and are NOT here: the one-level
+    // normalizer reads the handed-on string as a single word and `.` as an
+    // argument, so the self-check below cannot prove any of them equivalent.
+    name: "subshell",
+    rewrite: (c) => [`( ${c.trim()} )`],
+  },
 ];
 
 /** The first word of a command and everything after it, leading blanks dropped. */

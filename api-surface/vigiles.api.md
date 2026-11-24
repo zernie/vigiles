@@ -1683,6 +1683,7 @@ export interface VerifyGuardrailOptions extends RunHookOptions {
     readonly event?: string;
     readonly events?: readonly DisasterEvent[];
     readonly harmless?: readonly HarmlessEvent[];
+    readonly spellings?: readonly DisasterEvent[];
 }
 
 // @public
