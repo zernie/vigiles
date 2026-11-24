@@ -194,7 +194,7 @@ test("every directory bash ran a leaf in is among the candidates, else unresolve
     symlinkSync("a/b", join(start, "l"));
     spawnSync("git", ["init", "-q", start]);
     const gen = generator(20261124, tree.out, join(start, "c"));
-    const verdicts = Array.from({ length: 1000 }, () => gen.line()).flatMap(
+    const verdicts = Array.from({ length: 1400 }, () => gen.line()).flatMap(
       (cmd) =>
         runLine(cmd, tree).map((v) =>
           typeof v === "object" ? { miss: `${cmd}\n    ${v.miss}` } : v,

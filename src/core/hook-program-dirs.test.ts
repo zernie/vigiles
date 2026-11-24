@@ -70,7 +70,7 @@ describe("dirs() resolves each leaf against the event's cwd", () => {
     ["git pull", ["/work/repo"]],
     ["cd /foreign && git pull", ["/foreign"]],
     ["cd ../other && git pull", ["/work/other"]],
-    ["git -C ../other pull", ["/work/other"]],
+    ["git -C /work/other pull", ["/work/other"]],
     ["cd sub; git pull", ["/work/repo/sub", "/work/repo"]],
     ["(cd /foreign && ls); git pull", ["/work/repo"]],
   ])("%s → %j", (cmd, want) => {
@@ -202,8 +202,18 @@ describe("forms found in review on #508 are not judged in the start directory", 
     "builtin cd /foreign && git pull",
     "a(){ b; }; b(){ c; }; c(){ d; }; d(){ cd /foreign; }; a; git pull",
     "env -C/foreign git pull",
+    "env --block-signal git pull",
+    "git -C ../../foreign pull",
   ])("review on #508: %s is not judged in the start directory", (cmd) => {
     assert.notEqual(decide(cmd).kind, "allow");
+  });
+
+  test("an unread wrapper option that may take the program as its value: dirs() is unresolved", () => {
+    assert.equal(
+      parseShellCommand("sudo -Z x git pull", undefined, CWD).dirs("git pull")
+        .kind,
+      "unresolved",
+    );
   });
 
   test("review on #508: GIT_DIR on the launching shell asks", () => {

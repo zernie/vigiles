@@ -952,6 +952,26 @@ function maybeRunning(
 }
 
 /**
+ * Leaves behind a wrapper option the directory model does not read: the
+ * option may have taken the program as its value (`env -a x git pull` reads
+ * as the program `x`), so a leaf whose words contain the program anywhere is
+ * counted in — unresolved, so the gate asks.
+ */
+function behindUnknownOption(
+  normalized: readonly NormalizedLeaf[],
+  program: string | undefined,
+): readonly NormalizedLeaf[] {
+  if (program === undefined) return [];
+  const plain = program.split(/\s+/).filter((t) => t && !t.startsWith("-"));
+  return normalized.filter(
+    (l) =>
+      l.at.kind === "unresolved" &&
+      l.at.reason === "unsupported-option" &&
+      l.argv.some((_, i) => runsSeq(l.argv.slice(i), plain)),
+  );
+}
+
+/**
  * {@link ShellCommand.dirs} over a parse: the answer, and what the gate
  * runtime asks about — a leaf whose directory is not known, and a leaf that
  * may run the program through a word it cannot read. That second kind is
@@ -967,9 +987,13 @@ function dirsOfLeaves(
   readonly unknown: readonly HiddenCommand[];
 } {
   const maybe = maybeRunning(parsed.unknownWordLeaves, program);
+  const swallowed = behindUnknownOption(parsed.normalized, program);
   const leaves = parsed.normalized.filter(
     (leaf) =>
-      program === undefined || runsLeaf(leaf, program) || maybe.includes(leaf),
+      program === undefined ||
+      runsLeaf(leaf, program) ||
+      maybe.includes(leaf) ||
+      swallowed.includes(leaf),
   );
   const answers = leaves.map((leaf) => placeLeaf(leaf, start));
   const unknown = [

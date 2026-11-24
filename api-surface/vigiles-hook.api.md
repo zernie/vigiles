@@ -656,8 +656,12 @@ export type UnresolvedDir =
 | "git-dir-override"
 /** More than eight possible directories for one leaf. */
 | "too-many-candidates"
-/** A `cd` this model does not read: two operands, an unknown option. */
-| "unsupported-cd-form";
+/** A `cd`/`pushd`/`popd` this model does not read: an option, two operands. */
+| "unsupported-cd-form"
+/** A wrapper or git option outside `DIR_ALLOWLIST` (`env --argv0`, `git --bare`). */
+| "unsupported-option"
+/** A `..` that `git -C`/`env -C`/`sudo -D` resolves physically: a symlink redirects it. */
+| "physical-dotdot";
 
 // @public
 export function verifyHookStamp(source: string, stamp: SHA256Hash): boolean;

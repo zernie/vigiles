@@ -17,18 +17,13 @@ import assert from "node:assert/strict";
 
 import {
   BASH_BUILTINS,
-  DIR_ALLOWLIST,
+  dirAllowlisted,
   leafCommandsNormalized,
   readShell,
   type LeafDirs,
 } from "./bash-effects.js";
 
-/** Is a builtin read by the directory model (in any section of the allowlist)? */
-const allowlisted = (b: string): boolean =>
-  b in DIR_ALLOWLIST.moving ||
-  DIR_ALLOWLIST.staying.has(b) ||
-  DIR_ALLOWLIST.assigning.has(b) ||
-  b in DIR_ALLOWLIST.special;
+const allowlisted = dirAllowlisted;
 
 /** The `at` of the `n`-th leaf whose head is `head`, as the gate reads the line. */
 const at = (cmd: string, head = "git", n = 0): LeafDirs => {
@@ -54,7 +49,7 @@ const reason = (cmd: string, head = "git"): string => {
 describe("one known directory", () => {
   test.each([
     ["git push -f", "."],
-    ["git -C ../o push -f", "../o"],
+    ["git -C o push -f", "o"],
     ["git -C a -C b push", "a/b"],
     ['git -C "" push', "."],
     ["git -C /abs/o push", "/abs/o"],
@@ -63,12 +58,13 @@ describe("one known directory", () => {
     ["cd ../o || exit 1; git push", "../o"],
     ["cd ../o | git push", "."],
     ["cd ../o & git push", "."],
-    ["env -C ../o git push -f", "../o"],
+    ["env -C o git push -f", "o"],
     ["cd && git push", "~"],
     ["cd ~/o && git push", "~/o"],
     ['cd "$HOME/o" && git push', "~/o"],
     ["cd a/../b && git push", "b"],
-    ["cd a && git -C ../b push", "b"],
+    ["cd a && git -C b push", "a/b"],
+    ["cd .. && git push", ".."],
     ["pushd a && pushd b && popd && git push", "a"],
     ["cd a && cd - && git push", "."],
     ["if cd a; then git push; fi", "a"],
@@ -124,7 +120,9 @@ describe("unresolved, with the reason", () => {
     ["cd - && git push", "oldpwd"],
     ["popd && git push", "dir-stack"],
     ["pushd && git push", "dir-stack"],
-    ["f(){ cd a; }; f; git push", "opaque-dir-change"],
+    ['f(){ cd "$1"; }; f a; git push', "dynamic-dir"],
+    ["git -C ../o push -f", "physical-dotdot"],
+    ["env -C ../o git push -f", "physical-dotdot"],
     ["source x.sh; git push", "opaque-dir-change"],
     [". x.sh; git push", "opaque-dir-change"],
     ['eval "$X"; git push', "opaque-dir-change"],
@@ -228,6 +226,7 @@ describe("a function call runs its body where it is called", () => {
     ["( f(){ cd /x; } ); f; git pull", ["."]],
     ["f; f(){ cd /x; }; git pull", ["."]],
     ["f(){ cd /x; }; command f; git pull", ["."]],
+    ["cd(){ :; }; cd /x && git pull", ["."]],
   ])("%s → %j", (cmd, want) => {
     assert.deepEqual(dirs(cmd), want);
   });
@@ -237,7 +236,6 @@ describe("a function call runs its body where it is called", () => {
     "f(){ return; cd /x || exit; }; f; git pull",
     "f(){ cd /x; }; unset f; f; git pull",
     "f(){ cd /x; }; unset -f f; f; git pull",
-    "cd(){ :; }; cd /x && git pull",
   ])("%s → unresolved", (cmd) => {
     assert.equal(at(cmd).kind, "unresolved");
   });
@@ -259,8 +257,8 @@ describe("what changes cd's own inputs is not guessed", () => {
     assert.equal(at(cmd).kind, "unresolved");
   });
 
-  test("a trap that does not move keeps the directory", () => {
-    assert.deepEqual(dirs("trap 'rm -f t' EXIT; git pull"), ["."]);
+  test("any trap with an action, even one that does not cd", () => {
+    assert.equal(at("trap 'rm -f t' EXIT; git pull").kind, "unresolved");
   });
 });
 
@@ -307,8 +305,12 @@ describe("anything outside the allowlist is unresolved", () => {
   test.each(notListed)("the builtin %s → unresolved", (b) => {
     assert.equal(at(`${b} x y; git pull`).kind, "unresolved", b);
   });
+});
 
-  const letters = [..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ@"];
+describe("an option on cd, pushd or popd is never read", () => {
+  const letters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ@".split(
+    "",
+  );
   test.each(letters)("an option -%s on cd, pushd, popd → unresolved", (l) => {
     for (const cmd of [
       `cd -${l} /a && git pull`,
@@ -317,12 +319,13 @@ describe("anything outside the allowlist is unresolved", () => {
     ])
       assert.equal(at(cmd).kind, "unresolved", cmd);
   });
+});
 
+describe("other forms outside the allowlist, and some inside it", () => {
   test.each([
     "trap 'echo hi' EXIT; git pull",
     "trap '' INT; git pull",
-    "env --argv0=x git pull",
-    "env -a x git pull",
+    "env --default-signal=INT git pull",
     "env --block-signal git pull",
     "nice -5 git pull",
     "timeout --bogus 5 git pull",
@@ -342,11 +345,23 @@ describe("anything outside the allowlist is unresolved", () => {
     assert.equal(at(cmd).kind, "unresolved");
   });
 
+  test("an unknown wrapper option leaves every leaf of it unresolved", () => {
+    // `-Z` is in no grammar: whether it takes a value is unknown, so the
+    // leaf may be `x git pull` or `git pull`, and it is not placed.
+    const leaves = readShell("sudo -Z x git pull").effects.flatMap((e) =>
+      e.kind === "leaf" ? [e.leaf] : [],
+    );
+    assert.ok(leaves.length > 0);
+    for (const l of leaves) assert.equal(l.at.kind, "unresolved");
+  });
+
   test.each([
     ["trap; trap -p; trap -l; trap - EXIT; git pull", ["."]],
     ["set -e -o pipefail; cd a && git pull", ["a"]],
     ["GIT_TERMINAL_PROMPT=0 git pull", ["."]],
     ["/usr/bin/cd /foreign && git pull", ["."]],
+    ["env -a x git pull", ["."]],
+    ["sudo -T 5 git pull", ["."]],
     ["echo x; true; : ; pwd; git pull", ["."]],
     ["cd -- a && git pull", ["a"]],
     ["pushd -- a && git pull", ["a"]],
