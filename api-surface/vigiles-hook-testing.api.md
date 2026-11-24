@@ -55,7 +55,7 @@ export function experimental_verifyPluginGuards(dir: string, opts?: VerifyPlugin
 export type GuardrailResult = GuardrailRow<"block", DisasterEvent> | GuardrailRow<"allow", HarmlessEvent>;
 
 // @public
-export interface GuardrailRow<E extends "block" | "allow", V extends DisasterEvent | HarmlessEvent> {
+export interface GuardrailRow<E extends "block" | "allow", V extends DisasterEvent | HarmlessEvent | TargetRepoEvent> {
     readonly blocked: boolean;
     // (undocumented)
     readonly event: V;
@@ -67,7 +67,7 @@ export interface GuardrailRow<E extends "block" | "allow", V extends DisasterEve
 }
 
 // @public
-export type GuardrailRun = "ran" | "not-selected" | "never-launched" | "crashed" | "unproven";
+export type GuardrailRun = "ran" | "not-selected" | "never-launched" | "crashed" | "unproven" | "control-failed";
 
 // @public
 export interface HarmlessEvent {
@@ -188,8 +188,54 @@ export type SweptHookOutcome = {
     readonly reason: string;
 };
 
+// @beta
+export interface TargetRepoCases {
+    readonly allowed: (repo: TargetRepoFixture) => void;
+    readonly blocked: (repo: TargetRepoFixture) => void;
+    readonly command: string;
+    readonly forms?: readonly TargetRepoForm[];
+}
+
+// @beta
+export interface TargetRepoEvent {
+    readonly control: boolean;
+    readonly id: string;
+    readonly input: Record<string, unknown>;
+    readonly label: string;
+    readonly start: TargetRepoSide;
+    readonly target: TargetRepoSide;
+    readonly tool: string;
+    readonly via: TargetRepoForm;
+}
+
+// @beta
+export interface TargetRepoFixture {
+    branch(name: string): void;
+    readonly dir: string;
+    git(...args: readonly string[]): string;
+}
+
+// @beta
+export type TargetRepoForm = "cd" | "git-C" | "worktree";
+
+// @beta
+export type TargetRepoResult = GuardrailRow<"block" | "allow", TargetRepoEvent>;
+
+// @beta
+export type TargetRepoSide = "blocked" | "allowed";
+
 // @public
-export function verifyGuardrail(hook: string | AnyHook, opts?: VerifyGuardrailOptions): readonly GuardrailResult[];
+export function verifyGuardrail(hook: string | AnyHook, opts?: VerifyGuardrailOptions & {
+    readonly experimental_targetRepo?: undefined;
+}): readonly GuardrailResult[];
+
+// @public
+export function verifyGuardrail(hook: string | AnyHook, opts: VerifyGuardrailOptions & {
+    readonly experimental_targetRepo: TargetRepoCases;
+}): readonly TargetRepoResult[];
+
+// @public
+export function verifyGuardrail(hook: string | AnyHook, opts?: VerifyGuardrailOptions): readonly (GuardrailResult | TargetRepoResult)[];
 
 // @public (undocumented)
 export interface VerifyGuardrailOptions extends RunHookOptions {
@@ -197,6 +243,7 @@ export interface VerifyGuardrailOptions extends RunHookOptions {
     readonly ctx?: Readonly<Record<string, string | boolean | StateFact>>;
     readonly event?: string;
     readonly events?: readonly DisasterEvent[];
+    readonly experimental_targetRepo?: TargetRepoCases;
     readonly harmless?: readonly HarmlessEvent[];
     readonly spellings?: readonly DisasterEvent[];
 }

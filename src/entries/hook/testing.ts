@@ -62,8 +62,18 @@ export type {
   GuardrailRun,
   HarmlessEvent,
   HarmlessForm,
+  TargetRepoResult,
   VerifyGuardrailOptions,
 } from "../../guardrail-check.js";
+// The cross-repository cases (`experimental_targetRepo`, #418): the option's
+// shape, the repository handed to its setup callbacks, and each case's event.
+export type {
+  TargetRepoCases,
+  TargetRepoEvent,
+  TargetRepoFixture,
+  TargetRepoForm,
+  TargetRepoSide,
+} from "../../guardrail-target-repo.js";
 
 // The same battery pointed at a DIRECTORY: each hook's event, matcher, command
 // and condition are read off its own registration, so the pairing mistake a
