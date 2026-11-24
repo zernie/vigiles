@@ -84,8 +84,8 @@ import {
   skillResolved,
   toolUsedWith,
   outputContains,
-  hookFired,
   hookBlocked,
+  hookFired, // a check, not a predicate: read its verdict with .eval(trace).pass
 } from "vigiles";
 
 usedTool(trace, "Skill"); // boolean
@@ -94,7 +94,7 @@ toolCount(trace, "Write"); // number
 skillResolved(trace, "demo:greet"); // boolean
 toolUsedWith(trace, "Edit", (i) => isRightFile(i)); // boolean (tool argument)
 outputContains(trace, /done/i); // boolean (the final answer)
-hookFired(trace, "PreToolUse:Edit"); // boolean (recorded from the stream)
+hookFired("PreToolUse").eval(trace).pass; // boolean (recorded from the stream)
 hookBlocked(trace, "PreToolUse"); // boolean (fired AND exit ≠ 0)
 ```
 
@@ -242,20 +242,20 @@ regression baselines fall out for free.
 **The vocabulary** (from `vigiles` — except `paid_judged`, which calls a model and
 so lives on `vigiles/eval`):
 
-| Check                      | Holds when…                                       | Over             |
-| -------------------------- | ------------------------------------------------- | ---------------- |
-| `tool(name)`               | the agent used that tool                          | Trace            |
-| `skill(id)`                | a `Skill` resolved to `id` (no error)             | Trace            |
-| `mcp(server, tool)`        | the agent used `mcp__server__tool`                | Trace            |
-| `subagent(name, [checks])` | the `Task` subagent ran + passed nested checks    | Trace (nested)   |
-| `output(str \| /re/)`      | the final answer contains/matches                 | Trace            |
-| `received(str \| /re/)`    | text reached the model (slash-command / injected) | Trace (mock)     |
-| `hookFired(event)`         | a hook fired for that event                       | Trace            |
-| `turns({ min, max })`      | the agent took N turns (multi-turn)               | Trace            |
-| `wrote(path)`              | a file was created                                | Trace            |
-| `paid_judged(rubric, {…})` | a model grades the output ≥ `min` (LLM rubric)    | Trace (eval)     |
-| `cost/latency/tokens({…})` | the run stayed under budget                       | run usage (eval) |
-| `blocked()` / `allowed()`  | the hook blocked / allowed                        | `runHook` result |
+| Check                      | Holds when…                                                             | Over             |
+| -------------------------- | ----------------------------------------------------------------------- | ---------------- |
+| `tool(name)`               | the agent used that tool                                                | Trace            |
+| `skill(id)`                | the skill `id` resolved (no error), as the harness's adapter reports it | Trace            |
+| `mcp(server, tool)`        | the agent used `mcp__server__tool`                                      | Trace            |
+| `subagent(name, [checks])` | the `Task` subagent ran + passed nested checks                          | Trace (nested)   |
+| `output(str \| /re/)`      | the final answer contains/matches                                       | Trace            |
+| `received(str \| /re/)`    | text reached the model (slash-command / injected)                       | Trace (mock)     |
+| `hookFired(event)`         | a hook fired for that event (one argument — a check, not a predicate)   | Trace            |
+| `turns({ min, max })`      | the agent took N turns (multi-turn)                                     | Trace            |
+| `wrote(path)`              | a file was created                                                      | Trace            |
+| `paid_judged(rubric, {…})` | a model grades the output ≥ `min` (LLM rubric)                          | Trace (eval)     |
+| `cost/latency/tokens({…})` | the run stayed under budget                                             | run usage (eval) |
+| `blocked()` / `allowed()`  | the hook blocked / allowed                                              | `runHook` result |
 
 `paid_measureArms({ arms, checks })` scores the same checks per arm (a hook/skill/rule
 **on vs off**); `compareCheck(report, baseline, arm, i)` returns a Welch verdict.

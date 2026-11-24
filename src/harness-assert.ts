@@ -588,8 +588,17 @@ export function requestContains(
  * Did a hook matching `name` fire? Matches against both the hook label
  * (`"PreToolUse:Edit"`) and the bare event (`"PreToolUse"`), so `/PreToolUse/`
  * or `"PreToolUse:Edit"` both work. The predicate behind `assertHookFired`.
+ *
+ * 🔴 NOT EXPORTED, ON PURPOSE (zernie/vigiles#502). It was exported as
+ * `hookFired`, the same name as the `hookFired(event)` CHECK, and the barrel's
+ * explicit re-export of the check shadowed it. The docs still showed the
+ * two-argument predicate, so a JavaScript caller writing `if (hookFired(trace,
+ * "PreToolUse"))` got a Check object back — always truthy — and every hook
+ * "fired". One name, one meaning: the public `hookFired` is the check
+ * (`hookFired(event).eval(trace).pass` is the boolean), and
+ * `test/types/hook-fired.ts` keeps the two-argument call a type error.
  */
-export function hookFired(trace: Trace, name: string | RegExp): boolean {
+function firedHook(trace: Trace, name: string | RegExp): boolean {
   return trace.hooks.some(
     (h) => nameMatches(h.name, name) || nameMatches(h.event, name),
   );
@@ -732,7 +741,7 @@ export function assertHookFired(
   name: string | RegExp,
   opts: { blocked?: boolean } = {},
 ): void {
-  if (!hookFired(trace, name)) {
+  if (!firedHook(trace, name)) {
     fail(
       `expected a hook matching ${String(name)} to fire; hooks fired: [${hookNames(trace)}] (did you set transcript:true?)`,
     );

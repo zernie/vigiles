@@ -164,8 +164,8 @@ export type { StateFact, Duration } from "./core/hook-state.js";
 // module that belongs on the paid barrel (as `paid_judged`). Listing the members
 // makes "a free import that can bill you" unrepresentable here rather than merely
 // documented — the previous barrel carried a paragraph apologising for exactly
-// that. `hookFired` is re-exported explicitly so this `Check<Trace>` wins over the
-// legacy boolean predicate of the same name from harness-assert.
+// that. `hookFired` is the check; the boolean predicate that once shared its name
+// in harness-assert is no longer exported (zernie/vigiles#502).
 export {
   evalChecks,
   assertChecks,
@@ -308,6 +308,8 @@ export type {
   HarnessTestDriver,
   SandboxMode,
 } from "./harness-test.js";
+// Named in `Trace.skills`: which skills fired, as the harness's adapter tells.
+export type { SkillFire, SkillFacts } from "./core/harness-driver.js";
 
 // A document's own rule about its own COMMANDS, made checkable. vigiles cannot
 // infer "always pass -g" from prose; what was missing was a cheap way to declare

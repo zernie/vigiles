@@ -45,7 +45,12 @@ import type {
   RunOut,
   EvalDriver,
 } from "../../eval.js";
-import type { ToolCall } from "../../core/harness-driver.js";
+import type {
+  SkillFacts,
+  SkillFire,
+  ToolCall,
+} from "../../core/harness-driver.js";
+import { codexShell, skillsReadBy } from "./command-facts.js";
 
 /** A line of `codex exec --json` output. */
 interface CodexEvent {
@@ -82,12 +87,18 @@ function isToolItem(itemType: string): boolean {
 }
 
 function buildCall(item: Record<string, unknown>, itemType: string): ToolCall {
+  const command = str(item.command);
   return {
     // command_execution → the shell command; function-style → its name.
-    name: str(item.command) || str(item.name) || itemType,
+    name: command || str(item.name) || itemType,
     input: item,
     resultText: str(item.aggregated_output),
     isError: num(item.exit_code) !== 0 && item.exit_code != null,
+    // The harness-neutral fact `runs()` reads: a command_execution IS a shell
+    // command, whatever the call's display name.
+    ...(itemType === "command_execution" && command !== ""
+      ? { shell: codexShell(command) }
+      : {}),
   };
 }
 
@@ -134,6 +145,7 @@ export function parseCodexEvalRun(out: { stdout: string }): ParsedModelRun {
     output: texts.join("\n") || out.stdout.trim(),
     turns: texts.length,
     toolCalls,
+    skills: codexSkillFacts(out.stdout, toolCalls),
     hooks: [],
     subagents: [],
     usage,
@@ -160,17 +172,52 @@ export function codexRunError(out: { stdout: string }): string | null {
 }
 
 /**
- * Did Codex activate skill `name` on this run? Detected by the SKILL.md read —
- * Codex has no discrete skill-selection event, so when a skill triggers the model
- * reads its `…/<name>/SKILL.md` via a `command_execution`. Best-effort (a cached
- * skill might not be re-read); for the trigger-rate `fired` predicate over Codex.
+ * Every skill activation in a Codex run. Codex has no discrete skill-selection
+ * event: when a skill triggers, the model READS its `…/<name>/SKILL.md` with a
+ * `command_execution`. So an activation is a command, parsed by the shell parser
+ * the compiled hooks use, in which a file-printing program reads a `SKILL.md` —
+ * never a substring of the command line, which counted writing, grepping and
+ * listing the file as firing the skill. Best-effort by nature: a skill already in
+ * context is not re-read (see {@link CODEX_TRIGGER_RATE_EXPERIMENTAL}).
+ */
+export function codexSkillFires(
+  calls: readonly ToolCall[],
+): readonly SkillFire[] {
+  // `name` IS the command for a command_execution, so a call recorded before
+  // `shell` existed still reads; a function-style name parses to nothing.
+  return calls.flatMap((c) =>
+    skillsReadBy(c.shell ?? codexShell(str(c.name))).map((id) => ({
+      id,
+      isError: c.isError,
+      resultText: c.resultText,
+    })),
+  );
+}
+
+/** {@link codexSkillFires} as the trace fact; not observable on an empty stream. */
+function codexSkillFacts(
+  stdout: string,
+  calls: readonly ToolCall[],
+): SkillFacts {
+  return parseLines(stdout).length === 0
+    ? {
+        observable: false,
+        harness: "codex",
+        why: "the run printed no `codex exec --json` events, so no command was captured",
+      }
+    : { observable: true, fired: codexSkillFires(calls) };
+}
+
+/**
+ * Did Codex activate skill `name` on this run? The trigger-rate `fired`
+ * predicate over Codex — {@link codexSkillFires}, asked about one name. Prefer
+ * `skill(name)`, which reads the same fact off the trace.
  */
 export function codexSkillFired(
   run: { toolCalls: readonly ToolCall[] },
   name: string,
 ): boolean {
-  const needle = `${name}/SKILL.md`;
-  return run.toolCalls.some((c) => str(c.name).includes(needle));
+  return codexSkillFires(run.toolCalls).some((f) => f.id === name);
 }
 
 /**

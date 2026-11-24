@@ -23,6 +23,7 @@ import type {
   SubagentTrace,
 } from "./harness-test.js";
 import type { HookRunResult } from "./run-hook.js";
+import type { SkillFacts } from "./core/harness-driver.js";
 import { judge as runJudge } from "./judge.js";
 import {
   type ArgMatcher,
@@ -328,21 +329,57 @@ export function onlyTools(allowed: readonly string[]): Check<Trace> {
   };
 }
 
-/** A skill resolved to this id (`<plugin>:<skill>`) without erroring. */
+/**
+ * The skills a trace says fired. A trace from a runner carries the ADAPTER's
+ * answer in `skills`; one built by hand, or by a runner older than that field,
+ * is read the way this check always read it — `Skill` tool calls — so no
+ * existing test changes meaning.
+ */
+function skillFactsOf(t: Trace): SkillFacts {
+  if (t.skills !== undefined) return t.skills;
+  return {
+    observable: true,
+    fired: t.toolCalls.flatMap((c) => {
+      if (c.name !== "Skill") return [];
+      const id = (c.input as { readonly skill?: unknown } | null)?.skill;
+      return [
+        {
+          id: typeof id === "string" ? id : "?",
+          isError: c.isError,
+          resultText: c.resultText,
+        },
+      ];
+    }),
+  };
+}
+
+/**
+ * A skill resolved to this id without erroring — `<plugin>:<skill>` on Claude
+ * Code, the skill's directory name on Codex. Reads `trace.skills`, which the
+ * harness's adapter fills, so the same check works on every harness. When the
+ * adapter cannot observe skills in the run, the check FAILS naming the harness
+ * and why — never as "did not fire", which would be a claim about the skill
+ * the run has no evidence for.
+ */
 export function skill(id: string): Check<Trace> {
   return {
     kind: "skill",
     eval: (t) => {
-      const call = t.toolCalls.find(
-        (c) =>
-          c.name === "Skill" && (c.input as { skill?: string })?.skill === id,
-      );
-      if (call && !call.isError) return ok(`skill "${id}" resolved`);
-      const skills = t.toolCalls
-        .filter((c) => c.name === "Skill")
-        .map((c) => (c.input as { skill?: string })?.skill ?? "?");
+      const facts = skillFactsOf(t);
+      if (!facts.observable)
+        return no(
+          `cannot tell whether skill "${id}" fired: skill activations are not observable on ${facts.harness} in this run (${facts.why})`,
+        );
+      const fire = facts.fired.find((f) => f.id === id);
+      if (fire !== undefined && !fire.isError)
+        return ok(`skill "${id}" resolved`);
+      if (fire !== undefined)
+        return no(
+          `skill "${id}" was invoked but errored: ${fire.resultText.slice(0, 200) || "(no result text)"}`,
+        );
+      const ids = facts.fired.map((f) => f.id);
       return no(
-        `expected skill "${id}" to resolve; it did not (skills invoked: ${skills.length > 0 ? `[${skills.join(", ")}]` : "none"})`,
+        `expected skill "${id}" to resolve; it did not (skills invoked: ${ids.length > 0 ? `[${ids.join(", ")}]` : "none"})`,
       );
     },
     toJSON: () => ({ kind: "skill", id }),
