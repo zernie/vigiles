@@ -50,16 +50,16 @@ const forcePushGuard = experimental_defineHook({
     e.command.runs("git push", { force: true }) ? deny("force-push") : allow(),
 });
 
-const ev = (command: string, cwd: string | undefined = CWD) => ({
+const ev = (command: string, cwd: string | null = CWD) => ({
   tool_name: "Bash",
   tool_input: { command },
-  ...(cwd === undefined ? {} : { cwd }),
+  ...(cwd === null ? {} : { cwd }),
 });
 
 const decide = (
   command: string,
   guard = trustedPullGuard,
-  cwd: string | undefined = CWD,
+  cwd: string | null = CWD,
 ): Decision => decideProgram(guard, ev(command, cwd));
 
 describe("dirs() resolves each leaf against the event's cwd", () => {
@@ -169,7 +169,7 @@ describe("a directory the gate cannot know turns allow into ask", () => {
   });
 
   test("an event without cwd asks rather than placing a relative leaf", () => {
-    assert.equal(decide("git pull", trustedPullGuard, undefined).kind, "ask");
+    assert.equal(decide("git pull", trustedPullGuard, null).kind, "ask");
   });
 
   test("a gate that never asked where is not second-guessed", () => {
@@ -180,7 +180,9 @@ describe("a directory the gate cannot know turns allow into ask", () => {
   test("an unresolved leaf that does not run the program asked about is not counted", () => {
     assert.equal(decide('(cd "$X" && ls); git pull').kind, "allow");
   });
+});
 
+describe("asking where never overrides the gate", () => {
   test("the gate's own deny and ask are final", () => {
     const strict = experimental_defineHook({
       on: "PreToolUse",

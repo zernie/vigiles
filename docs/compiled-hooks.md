@@ -27,6 +27,7 @@ vigiles lets you author a hook as a **pure typed function** `(event) => Decision
 - [The roles](#the-roles)
 - [Role and event have to fit](#role-and-event-have-to-fit)
 - [The vocabulary](#the-vocabulary)
+  - [Where a command runs: `dirs()`](#where-a-command-runs-dirs)
   - [A react that reads the command](#a-react-that-reads-the-command)
 - [Testing a hook that remembers](#testing-a-hook-that-remembers)
 - [Observe mode (shadow rollout)](#observe-mode-shadow-rollout)
@@ -121,6 +122,7 @@ export default experimental_defineHook({
   - `writeTargets(prefixes)` — the same write targets as the **list of files** rather than a boolean, for a gate that has to tell _which_ file (`writeTargets(PAPER_SOURCES).some(isPaperSource)`); `writesTo` is exactly `writeTargets(prefixes).length > 0`. Spelling is as-written after normalization (quotes removed by the parser, `$HOME` canonicalized, a leaf's own `env -C` / `sudo -D` directory resolved), duplicates collapsed — so filter by basename or suffix. `prefixes` is required and there is no unfiltered form: a consumer holding the raw list has to re-implement prefix matching by hand, which is where every measured gate bypass came from.
   - `pipesToShell()` — pipes into a bare shell (`curl … | sh`) — remote-code execution. A shell _with_ a script file (`sh deploy.sh`) is **not** flagged.
   - `isSideEffecting()` — the deterministic Bash-effect classifier's verdict.
+  - `dirs(program?)` — the directories the leaves run in (with `program`, the leaves that run it, matched like `runs`), as absolute paths resolved against the directory the tool call starts in — the event's `cwd`. See [Where a command runs](#where-a-command-runs-dirs).
 
   > **`touches` ≠ `writesTo` — conflating them is the trap.** `touches` answers _mentioned_: `grep -c x notes/S.md` matches, and so does `rm -rf notes`. `isSideEffecting()` does not rescue it, because it classifies the **whole command line** — `grep -c x notes/S.md 2>/dev/null` is side-effecting (there's a redirection), so a `touches() && isSideEffecting()` gate blocks a plain read. Use `writesTo` to gate writes and `touches` for "don't even look at this path". Deletion is reported by neither — pair with `runs("rm")` if a gate needs it.
 
@@ -139,7 +141,46 @@ export default experimental_defineHook({
 
   > **A closed world, not "every execution".** The guarantee is about the programs listed above: each is either read or asked about. A program outside them can still run anything, and the gate does not look inside it: a script file (`bash deploy.sh`, `source x.sh`), another language's interpreter (`python -c`, `node -e`), a flag in a _quoted_ variable (`git push "$F"` with `F=-f`), a subcommand held in a variable (`git $SUB -f`), a remote or container command (`ssh host '…'`, `docker exec …`), `make`, `npx`, a git alias. Reading every option grammar of every runner is unbounded, so the plain forms are read and the rest are asked about rather than guessed at. Measured against real bash on 79 forms that try to force-push ([`src/hook-nested-shell-oracle.test.ts`](../src/hook-nested-shell-oracle.test.ts)): bash pushed in 64. A force-push guard blocks 22, asks on 37 and allows 5, every one of them a form named above as out of scope (before vigiles#460 it allowed 53 of the 61 forms measured then).
 
-  > **Why `F=-f; git push $F` asks instead of being read.** The value is right there, two words earlier, and propagating it would turn this one ask into a block. It is not done: a variable's value can come from the environment, an earlier command, `read`, a branch of an `if` or a loop, and following it is a data-flow analysis across statements and subshells, not a parse. Until that exists, the gate says it cannot tell.
+### Where a command runs: `dirs()`
+
+A guard that judges a repository — "no `git pull` outside the trusted checkout", "no force-push in `/srv/prod`" — needs the directory the command acts in, not the session's. `cd /foreign && git pull` pulls in `/foreign`; a guard that read only `runs("git pull")` and the session directory let it through. `e.command.dirs(program)` answers per leaf:
+
+```ts
+import { experimental_defineHook, deny, allow } from "vigiles/hook";
+
+const TRUSTED = "/home/me/work";
+
+export default experimental_defineHook({
+  on: "PreToolUse",
+  decide: (e) => {
+    if (!e.command.runs("git pull")) return allow();
+    const at = e.command.dirs("git pull");
+    if (at.kind === "unresolved") return allow(); // the runtime turns this into an ask
+    return at.dirs.every((d) => d === TRUSTED || d.startsWith(TRUSTED + "/"))
+      ? allow()
+      : deny("git pull outside the trusted checkout");
+  },
+});
+```
+
+| command (started in `/w/repo`)                                                                                       | `dirs("git pull")`                                                                                |
+| -------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `git pull`                                                                                                           | `/w/repo`                                                                                         |
+| `cd /foreign && git pull`, `git -C /foreign pull`, `pushd /foreign && git pull`                                      | `/foreign`                                                                                        |
+| `cd sub; git pull`                                                                                                   | `/w/repo/sub` and `/w/repo` — if `cd` fails, `;` still runs the pull, in the old directory        |
+| `cd sub \|\| exit 1; git pull`                                                                                       | `/w/repo/sub`                                                                                     |
+| `(cd /foreign && make); git pull`                                                                                    | `/w/repo` — a subshell's `cd` stays inside it, as does one on either side of a pipe or behind `&` |
+| `bash -c "cd /foreign && git pull"`                                                                                  | `/foreign` — the string is [read](#the-vocabulary) like a typed command                           |
+| `cd ~/x && git pull`                                                                                                 | `~/x` — the hook does not read `$HOME`                                                            |
+| `cd "$X" && git pull`, `cd - && git pull`, `source env.sh; git pull`, a function that may `cd`, `GIT_DIR=… git pull` | **unresolved**, with the reason                                                                   |
+
+**Every candidate, never a guess.** A leaf lists each directory it may run in, so a denylist reads `dirs.some(…)` and an allowlist `dirs.every(…)`. When the text does not fix the directory, `dirs()` says `unresolved` and why (`dynamic-dir`, `oldpwd`, `dir-stack`, `opaque-dir-change`, `conditional-dir-change`, `git-dir-override`, `too-many-candidates`, `unsupported-cd-form`, or `no-start-dir` when the event carried no `cwd`). A gate that asked `dirs()`, met one of those and then **allowed** gets an `ask` instead — the same rule as a command handed to a program the gate cannot read. A gate that never called `dirs()` is not affected, and its own `deny` or `ask` stands.
+
+**Where the start comes from.** Both Claude Code and Codex put `cwd` in the hook event. In Claude Code it follows the agent: after a `cd` in an earlier call, `cwd` is the new directory. Paths join the way bash's default `cd` does — `a/../b` is `b`, symlinks are not resolved — and `CDPATH` is not read, because the hook does not see the shell's environment. The model is checked against real bash on generated command lines ([`src/hook-dirs-oracle.test.ts`](../src/hook-dirs-oracle.test.ts)): every directory bash ran a leaf in is among the candidates, or the leaf is unresolved.
+
+**What it does not change.** `touches` and `writesTo` still resolve a relative path against the project root, not against a preceding `cd`; `git.branch` and the other providers still read the session's directory, not the leaf's.
+
+> **Why `F=-f; git push $F` asks instead of being read.** The value is right there, two words earlier, and propagating it would turn this one ask into a block. It is not done: a variable's value can come from the environment, an earlier command, `read`, a branch of an `if` or a loop, and following it is a data-flow analysis across statements and subshells, not a parse. Until that exists, the gate says it cannot tell.
 
 - **`e.path`** (Edit/Write) — a `FilePath` with `under(prefixes)` for path confinement, plus `raw` (the path as the tool sent it) and `rel` (the same path repo-relative, or `undefined` — see below).
 
@@ -751,6 +792,7 @@ None of these is an evasion trick. Quoting a flag is ordinary typing. The "7 of 
 - the full or backslash-escaped command path: `/usr/bin/git`, `/bin/git`, `\git`
 - a pass-through wrapper in front: `sudo`, `env`, `command`, `nice -n 5`, `timeout 30`
 - a subshell around the command: `( git push --force origin main )`
+- git's own option to run in a directory, naming the one it is already in: `git -C . push --force origin main` (a guard anchored on `git push` meets `-C` where it expects the subcommand)
 - the command handed to a shell as one string: `bash -c '…'`, `sh -c '…'`, `eval '…'` (the gate [reads inside them](#the-vocabulary), and so does the "same command" check)
 - a per-command environment assignment in front: `FOO=1 git push --force` (the shell strips the assignment and runs the rest)
 - a quote pair inside or around the command name: `g""it`, `"git"`, `gi"t"`
@@ -758,7 +800,7 @@ None of these is an evasion trick. Quoting a flag is ordinary typing. The "7 of 
 - a backslash before an ordinary letter: `g\it` (the shell drops it — `sh -c 'g\it --version'` prints git's version)
 - runs of spaces, or tabs, between words: `git   push    --force`
 
-Seven commands become 164 (today's count; it grows as rewrite rules are added). The last four are the shell's own obfuscations: `sh` removes them before the command runs, so a guard that matches the source text (a `grep`, a substring) sees a different string while the shell sees the same command. Against a guard that greps for each of the seven command strings, most of them get through. Which ones depends on how that guard matches, and the difference is sharp: an ANCHORED matcher (`case "$cmd" in "git push --force"*`, a `startsWith`) blocks **0 of the 14** environment-assignment spellings, because the prefix moves the start of the string. An unanchored `grep` blocks 12 of those 14 and falls to the quoting ones instead.
+Seven commands become 167 (today's count; it grows as rewrite rules are added). The last four are the shell's own obfuscations: `sh` removes them before the command runs, so a guard that matches the source text (a `grep`, a substring) sees a different string while the shell sees the same command. Against a guard that greps for each of the seven command strings, most of them get through. Which ones depends on how that guard matches, and the difference is sharp: an ANCHORED matcher (`case "$cmd" in "git push --force"*`, a `startsWith`) blocks **0 of the 14** environment-assignment spellings, because the prefix moves the start of the string. An unanchored `grep` blocks 12 of those 14 and falls to the quoting ones instead.
 
 `assertGuardrail` runs them **by default**, beside the originals (its `spellings` option; `[]` turns them off). The generator returns **only the rewrites**, so to add your own spelling, spread both:
 
@@ -784,7 +826,7 @@ assertGuardrail(guard, {
 
 Each rewrite keeps the original's id with a suffix (`force-push~4`), so a failure names the spelling that got through. **A compiled gate passes them by construction:** `runs()` reads the command with the same parser that proved each spelling the same command.
 
-On its first run the generated set found a miss the 30 hand-written cases had not: `git commit -n -m 'skip hooks'`. The guard asked for the literal `--no-verify`, and `-n` is git's short form of it. The matcher behind `runs()` was fixed to recognise both spellings, and the shipped guard now blocks all 164. [`src/hook-dogfood.test.ts`](../src/hook-dogfood.test.ts) keeps it that way in CI.
+On its first run the generated set found a miss the 30 hand-written cases had not: `git commit -n -m 'skip hooks'`. The guard asked for the literal `--no-verify`, and `-n` is git's short form of it. The matcher behind `runs()` was fixed to recognise both spellings, and the shipped guard now blocks all 167. [`src/hook-dogfood.test.ts`](../src/hook-dogfood.test.ts) keeps it that way in CI.
 
 **Nobody has to label the new cases.** Two questions decide whether a rewrite belongs in the battery, and both are already answered:
 
@@ -805,9 +847,9 @@ If a rewrite fails the second check, the generator throws instead of quietly dro
 | `retry` (re-run previously failed cases)                                   | none                                                                  | The battery is deterministic; a failed case fails the same way every run.                                                                                                                                               |
 | —                                                                          | the equivalence check (a rewrite that is not the same command throws) | promptfoo strategies are not required to preserve meaning. Here every emitted spelling provably contains the operation the guard must catch, so a miss is always a guard bug, never an ambiguous input.                 |
 
-**What it cannot find.** The generator decides "same command" with the same shell parser the compiled guard's `runs()` uses. That makes every spelling it emits trustworthy, and it sets the limit: it can only produce spellings that parser already understands. It tests whether your guard matches the _operation_ rather than one way of typing it; it cannot find a blind spot in the parser itself, because it would share it. `g\it` is the example: a reader tried it, the shell ran git, the parser read `g\it`, and the guard behind "7 of 7" let it through — while the 73-case battery of the day could not have produced it. The parser was fixed, the spelling joined the battery, and the shipped guard now blocks all 164. A spelling the parser does not understand still has to come from a person.
+**What it cannot find.** The generator decides "same command" with the same shell parser the compiled guard's `runs()` uses. That makes every spelling it emits trustworthy, and it sets the limit: it can only produce spellings that parser already understands. It tests whether your guard matches the _operation_ rather than one way of typing it; it cannot find a blind spot in the parser itself, because it would share it. `g\it` is the example: a reader tried it, the shell ran git, the parser read `g\it`, and the guard behind "7 of 7" let it through — while the 73-case battery of the day could not have produced it. The parser was fixed, the spelling joined the battery, and the shipped guard now blocks all 167. A spelling the parser does not understand still has to come from a person.
 
-**What it deliberately does not generate.** `eval "$(…)"`, `sh -c "$X"`, a command name held in a variable (`$CMD push --force`), a command decoded from base64. The parser cannot tell what those will run, so they are never emitted. That is on purpose: a guard built on `runs()` genuinely cannot see through `eval "$(echo … | base64 -d)"` either — the gate [asks on it](#the-vocabulary) rather than allowing it, and an ask is not a block. Emitting such cases would mark a correct guard as broken, and a check that flags correct guards gets switched off. A _literal_ `sh -c '…'`, `bash -c '…'` or `eval '…'` is a different case: the gate reads inside it, so does the "same command" check, and the generator emits it. It does not emit `git -C . …` yet, because that check reads `.` as an argument.
+**What it deliberately does not generate.** `eval "$(…)"`, `sh -c "$X"`, a command name held in a variable (`$CMD push --force`), a command decoded from base64. The parser cannot tell what those will run, so they are never emitted. That is on purpose: a guard built on `runs()` genuinely cannot see through `eval "$(echo … | base64 -d)"` either — the gate [asks on it](#the-vocabulary) rather than allowing it, and an ask is not a block. Emitting such cases would mark a correct guard as broken, and a check that flags correct guards gets switched off. A _literal_ `sh -c '…'`, `bash -c '…'` or `eval '…'` is a different case: the gate reads inside it, so does the "same command" check, and the generator emits it. Since `dirs()` it emits `git -C . …` too: the check drops a `-C` that names the directory the command already runs in, while `git -C ../other …` is another repository and stays a different command.
 
 ### The other direction — harmless look-alikes
 

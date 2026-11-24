@@ -37,6 +37,7 @@
  */
 import {
   flagAliases,
+  joinDir,
   leafCommandsNormalized,
   readShell,
   WRAPPER_HEADS,
@@ -47,9 +48,25 @@ import {
 function operationKey(leaf: NormalizedLeaf): string {
   return JSON.stringify([
     leaf.head,
-    leaf.args.filter((a) => a !== "" && !a.startsWith("-")),
+    withoutHereDir(leaf).filter((a) => a !== "" && !a.startsWith("-")),
     [...leaf.flags].sort(),
   ]);
+}
+
+/**
+ * A git leaf's args without a `-C` that names the directory it already runs
+ * in: `git -C . push` is `git push`, while `git -C ../o push` is another
+ * repository and keeps its operand, so it is never the same operation.
+ */
+function withoutHereDir(leaf: NormalizedLeaf): readonly string[] {
+  if (leaf.head !== "git") return leaf.args;
+  const here = (v: string | undefined): boolean =>
+    v !== undefined && joinDir(".", v) === ".";
+  const a = leaf.args;
+  return a.filter(
+    (w, i) =>
+      !((w === "-C" && here(a[i + 1])) || (a[i - 1] === "-C" && here(w))),
+  );
 }
 
 /**
@@ -233,10 +250,21 @@ const FAMILIES: readonly Family[] = [
     },
   },
   {
+    // `git -C . push --force` — git's own option to run in a directory, naming
+    // the one it is already in. A guard anchored on `git push` sees `-C`
+    // where it expects the subcommand. The self-check drops a `-C` naming the
+    // directory the leaf already runs in ({@link withoutHereDir}), so `-C .`
+    // proves the same operation and `-C ../o` — another repository — does not.
+    name: "git -C .",
+    rewrite: (c) => {
+      const { head, rest } = splitHead(c);
+      return head === "git" && rewritableHead(c) ? [`git -C .${rest}`] : [];
+    },
+  },
+  {
     // `bash -c '…'`, `sh -c '…'`, `eval '…'` — the command handed on as one
     // string, which the shell runs as written. A text guard sees a quoted word;
     // the gate reads inside it (#483), and so does the self-check below.
-    // `git -C . …` is still absent: the check reads `.` as an argument.
     name: "nested shell",
     rewrite: (c) => {
       const word = literalWord(c.trim());

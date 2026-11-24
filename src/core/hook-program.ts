@@ -38,9 +38,11 @@ import {
   leafCommandsNormalized,
   readShell,
   classifyBashCommand,
+  joinDir,
   type HiddenCommand,
   type BashEffect,
   type NormalizedLeaf,
+  type UnresolvedDir,
 } from "./bash-effects.js";
 import { sha256short, assertNever, type SHA256Hash } from "./hash.js";
 /**
@@ -373,7 +375,36 @@ export interface ShellCommand {
    * reading from stdin is, which only happens downstream of a pipe.
    */
   pipesToShell(): boolean;
+  /**
+   * The directories the leaves run in — every leaf, or with `program` (the
+   * same pattern as {@link runs}: `"git pull"`, `"git push --force"`) the
+   * leaves that run it. Absolute paths, resolved against the directory the
+   * tool call starts in (the event's `cwd`); a `~`-rooted path stays `~`.
+   * Each leaf contributes EVERY directory it may run in, after a preceding
+   * `cd`/`pushd`/`popd` in the line, a subshell, `env -C` and `git -C`: in
+   * `cd x; git pull` the `cd` may fail, so both directories are listed. In
+   * order of appearance, duplicates collapsed; empty when no leaf matches.
+   *
+   * `unresolved`, with the reason, when a matching leaf's directory is not in
+   * the text — `cd "$X"`, `cd -`, a function or `source` that may move, an
+   * overridden `GIT_DIR` — or the event carried no `cwd` (`no-start-dir`).
+   * Asking is enough: a gate that called `dirs()`, met an unresolved leaf and
+   * then ALLOWED is turned into an `ask`, as with a command it cannot read.
+   *
+   * A denylist reads `some` (`dirs.some(untrusted) ? deny : allow`), an
+   * allowlist `every`. The paths are normalized (no `..`, no trailing `/`), so
+   * `d === root || d.startsWith(root + "/")` places one under a directory.
+   */
+  dirs(program?: string): CommandDirs;
 }
+
+/** What {@link ShellCommand.dirs} answers. */
+export type CommandDirs =
+  | { readonly kind: "candidates"; readonly dirs: readonly string[] }
+  | {
+      readonly kind: "unresolved";
+      readonly reason: UnresolvedDir | "no-start-dir";
+    };
 
 const FORCE_FLAG = /^-(?:-force$|[a-z]*f[a-z]*$)/;
 const hasForce = (argv: readonly string[]): boolean =>
@@ -835,9 +866,97 @@ function parseCommand(raw: string): ParsedCommand {
  *   placeable, and {@link ShellCommand.touches} treats that as a match. It does
  *   cost precision: with a root, `/somewhere-else/notes/x` is provably not this
  *   repo's `notes`; without one it can only be over-blocked.
+ * @param start - the directory the command line starts in (the event's `cwd`),
+ *   which {@link ShellCommand.dirs} resolves against. Without it a relative
+ *   directory is `unresolved` (`no-start-dir`), never guessed.
  */
-export function parseShellCommand(raw: string, root?: string): ShellCommand {
-  return inspectShellCommand(raw, root).view;
+export function parseShellCommand(
+  raw: string,
+  root?: string,
+  start?: string,
+): ShellCommand {
+  return inspectShellCommand(raw, root, start).view;
+}
+
+/** The write targets under one of `prefixes` — denylist-biased, duplicates collapsed. */
+function writeTargetsUnder(
+  targets: readonly string[],
+  prefixes: readonly string[],
+  root: string | undefined,
+): readonly string[] {
+  return [
+    ...new Set(
+      targets.filter((t) =>
+        prefixes.some((p) => matchesPrefix(prefixVerdict(t, p, root), "match")),
+      ),
+    ),
+  ];
+}
+
+/**
+ * Does this normalized leaf run `program` — the normalized half of
+ * {@link ShellCommand.runs}, with a flag in the pattern asked of `hasFlag`?
+ */
+function runsLeaf(leaf: NormalizedLeaf, program: string): boolean {
+  const tokens = program.split(/\s+/).filter(Boolean);
+  return (
+    runsSeq(
+      leaf.argv,
+      tokens.filter((t) => !t.startsWith("-")),
+    ) &&
+    tokens
+      .filter((t) => t.startsWith("-"))
+      .every((t) => leaf.hasFlag(t.replace(/^-+/, "")))
+  );
+}
+
+/** One directory of a leaf, absolute; `null` when it is relative and there is no start. */
+function placeDir(d: string, start: string | undefined): string | null {
+  if (d.startsWith("/") || d === "~" || d.startsWith("~/")) return d;
+  return start === undefined ? null : joinDir(start, d);
+}
+
+/** One leaf's directories, placed under the directory the command starts in. */
+function placeLeaf(
+  leaf: NormalizedLeaf,
+  start: string | undefined,
+): CommandDirs {
+  if (leaf.at.kind === "unresolved") return leaf.at;
+  const placed = leaf.at.dirs.map((d) => placeDir(d, start));
+  return placed.some((d) => d === null)
+    ? { kind: "unresolved", reason: "no-start-dir" }
+    : {
+        kind: "candidates",
+        dirs: placed.flatMap((d) => (d === null ? [] : [d])),
+      };
+}
+
+/**
+ * {@link ShellCommand.dirs} over a parse: the answer, and the leaves whose
+ * directory is not known (which the gate runtime asks about).
+ */
+function dirsOfLeaves(
+  normalized: readonly NormalizedLeaf[],
+  program: string | undefined,
+  start: string | undefined,
+): {
+  readonly answer: CommandDirs;
+  readonly unknown: readonly HiddenCommand[];
+} {
+  const leaves = normalized.filter(
+    (leaf) => program === undefined || runsLeaf(leaf, program),
+  );
+  const answers = leaves.map((leaf) => placeLeaf(leaf, start));
+  const unknown = leaves.flatMap((leaf, i): readonly HiddenCommand[] =>
+    answers[i]?.kind === "unresolved"
+      ? [{ runner: leaf.head, reason: "unknown-directory" }]
+      : [],
+  );
+  const firstLost = answers.find((a) => a.kind === "unresolved");
+  const dirs = [
+    ...new Set(answers.flatMap((a) => (a.kind === "candidates" ? a.dirs : []))),
+  ];
+  return { answer: firstLost ?? { kind: "candidates", dirs }, unknown };
 }
 
 /**
@@ -854,7 +973,11 @@ interface InspectedCommand {
   readonly hidden: () => readonly HiddenCommand[];
 }
 
-function inspectShellCommand(raw: string, root?: string): InspectedCommand {
+function inspectShellCommand(
+  raw: string,
+  root?: string,
+  start?: string,
+): InspectedCommand {
   // 🔴 PARSED ON THE FIRST PREDICATE CALL, NOT HERE. Building the view used to
   // parse at once, which was harmless while only a Bash GATE built one — a gate
   // exists to ask about the command. Since #396 (a) a react declared for Bash
@@ -869,8 +992,8 @@ function inspectShellCommand(raw: string, root?: string): InspectedCommand {
   const parse = (): ParsedCommand => (parsed ??= parseCommand(raw));
   // eslint-disable-next-line functional/no-let -- set by the first predicate call
   let asked = false;
-  // eslint-disable-next-line functional/no-let -- appended by `runs` when a flag question meets a word it cannot read; only ever replaced by a longer copy
-  let unreadFlags: readonly HiddenCommand[] = [];
+  // eslint-disable-next-line functional/no-let -- appended by `runs` (a flag question meets a word it cannot read) and by `dirs` (a leaf runs where the text does not say); only ever replaced by a longer copy
+  let unseen: readonly HiddenCommand[] = [];
   const tracked =
     <A extends readonly unknown[], R>(f: (...a: A) => R): ((...a: A) => R) =>
     (...a) => {
@@ -879,15 +1002,15 @@ function inspectShellCommand(raw: string, root?: string): InspectedCommand {
     };
   const matchedWriteTargets = (
     prefixes: readonly string[],
-  ): readonly string[] => [
-    ...new Set(
-      parse().allWriteTargets.filter((t) =>
-        prefixes.some((p) => matchesPrefix(prefixVerdict(t, p, root), "match")),
-      ),
-    ),
-  ];
+  ): readonly string[] =>
+    writeTargetsUnder(parse().allWriteTargets, prefixes, root);
   const view: ShellCommand = {
     raw,
+    dirs: tracked((program?: string) => {
+      const r = dirsOfLeaves(parse().normalized, program, start);
+      unseen = [...unseen, ...r.unknown];
+      return r.answer;
+    }),
     runs: tracked((program: string, opts?: { readonly force?: boolean }) => {
       const { leaves, normalized } = parse();
       const tokens = program.split(/\s+/).filter(Boolean);
@@ -935,8 +1058,7 @@ function inspectShellCommand(raw: string, root?: string): InspectedCommand {
       const plainTokens = tokens.filter((t) => !t.startsWith("-"));
       const hit = normalized.some(
         (leaf) =>
-          runsSeq(leaf.argv, plainTokens) &&
-          flagTokens.every((t) => leaf.hasFlag(t.replace(/^-+/, ""))) &&
+          runsLeaf(leaf, program) &&
           (opts?.force ? leaf.hasFlag("force", "f") : true),
       );
       // 🔴 A FLAG QUESTION OVER A WORD THE PARSER CANNOT READ. `F=-f; git push
@@ -950,8 +1072,8 @@ function inspectShellCommand(raw: string, root?: string): InspectedCommand {
       // (`splitsWords` in bash-effects says why).
       const asksFlags = opts?.force === true || flagTokens.length > 0;
       if (!hit && asksFlags)
-        unreadFlags = [
-          ...unreadFlags,
+        unseen = [
+          ...unseen,
           ...parse()
             .unknownWordLeaves.filter((leaf) => runsSeq(leaf.argv, plainTokens))
             .map(
@@ -1040,7 +1162,7 @@ function inspectShellCommand(raw: string, root?: string): InspectedCommand {
   return {
     view,
     asked: () => asked,
-    hidden: () => (asked ? [...parse().hidden, ...unreadFlags] : []),
+    hidden: () => (asked ? [...parse().hidden, ...unseen] : []),
   };
 }
 
@@ -1063,20 +1185,26 @@ function askOnHidden(decision: Decision, cmd: InspectedCommand): Decision {
   if (hidden.length === 0) return decision;
   const named = (pick: (h: HiddenCommand) => boolean): string =>
     [...new Set(hidden.filter(pick).map((h) => `\`${h.runner}\``))].join(", ");
+  const own = new Set<HiddenCommand["reason"]>([
+    "dynamic-program",
+    "dynamic-argument",
+    "unknown-directory",
+  ]);
   const program = named((h) => h.reason === "dynamic-program");
   const argument = named((h) => h.reason === "dynamic-argument");
-  const handed = named(
-    (h) => h.reason !== "dynamic-program" && h.reason !== "dynamic-argument",
-  );
+  const directory = named((h) => h.reason === "unknown-directory");
+  const handed = named((h) => !own.has(h.reason));
   const why = [
     handed && `it hands a command to ${handed}`,
     program && `the program it runs is held in ${program}`,
     argument &&
       `${argument} gets words from an unquoted variable, which may be flags`,
+    directory &&
+      `${directory} runs in a directory the hook cannot know from the command`,
   ].filter(Boolean);
   return ask(
     `vigiles: the hook cannot see what this command does: ${why.join("; ")}. ` +
-      `Run it as a plain command, with the program and its flags spelled out (or as \`bash -c '<literal command>'\`), so the hook can check it.`,
+      `Run it as a plain command, with the program, its flags and its directory spelled out (\`cd /path && …\`, \`git -C /path …\`, or \`bash -c '<literal command>'\`), so the hook can check it.`,
   );
 }
 
@@ -1190,7 +1318,11 @@ export function decideProgram<N extends readonly NeedSpec[]>(
   // survived here on the flagship role. Removed 2026-09-08.
   const command = shellCommandOf(rawEvent);
   if (command === undefined) return allow();
-  const inspected = inspectShellCommand(command, root);
+  // The directory the call starts in is the event's own `cwd` — a payload
+  // field both harnesses send — not the project root: Claude Code moves it
+  // with the agent's `cd` between calls, and `dirs()` places leaves from it.
+  const start = typeof rawEvent.cwd === "string" ? rawEvent.cwd : undefined;
+  const inspected = inspectShellCommand(command, root, start);
   return askOnHidden(
     program.decide({
       event: program.on,
@@ -2607,7 +2739,14 @@ export function runReact<
   const event =
     command === undefined
       ? base
-      : { ...base, command: parseShellCommand(command, root) };
+      : {
+          ...base,
+          command: parseShellCommand(
+            command,
+            root,
+            typeof raw.cwd === "string" ? raw.cwd : undefined,
+          ),
+        };
   // `ReactEvent<N, T>` is a conditional type over a still-generic `T`, which tsc
   // cannot narrow from a value; the runtime half of the promise is the tool-name
   // check above, held by the adapter twins' payload tests.

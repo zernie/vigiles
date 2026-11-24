@@ -23,6 +23,8 @@
  * See `research/bash-effect-classification.md` for the full design rationale.
  */
 
+import { posix } from "node:path";
+
 // mvdan-sh is a CJS package (GopherJS build) with no bundled TypeScript types.
 // The project compiles to CommonJS (Node16, no "type":"module"), so plain
 // require() works and is the idiomatic pattern here (see linters.ts).
@@ -90,6 +92,30 @@ interface MvdanNode {
   Exp?: unknown;
   // Stmt fields
   Negated?: boolean;
+  // Compound commands, read by the directory model (`dirModel`).
+  /** IfClause / WhileClause condition. */
+  Cond?: MvdanNode[];
+  /** IfClause body. */
+  Then?: MvdanNode[];
+  /** IfClause `elif`/`else`: another IfClause, with an empty `Cond` for `else`. */
+  Else?: MvdanNode | null;
+  /** WhileClause / ForClause body. */
+  Do?: MvdanNode[];
+  /** CaseClause items, each with `Stmts` and a terminator `Op`. */
+  Items?: MvdanNode[];
+  /** DeclClause (`export`, `declare`, …): its variant word and its assignments. */
+  Variant?: MvdanNode;
+  /** TimeClause: the timed statement. FuncDecl: the function's name. */
+  Stmt?: MvdanNode;
+  Name?: MvdanNode;
+  /** FuncDecl body. */
+  Body?: MvdanNode;
+  /** ForClause `in …` words. CaseClause: the word matched. */
+  Loop?: MvdanNode;
+  Word?: MvdanWord;
+  /** Byte offsets of the node in the parsed source: how a statement is keyed. */
+  Pos?: () => { Offset: () => number };
+  End?: () => { Offset: () => number };
   /** `$'…'` on a SglQuoted (ANSI-C), `$"…"` on a DblQuoted. */
   Dollar?: boolean;
 }
@@ -667,6 +693,13 @@ export interface NormalizedLeaf {
    * whole leaf is already unnormalizable in that case.
    */
   readonly chdir: string | null;
+  /**
+   * Every directory this leaf may run in, relative to where its command line
+   * starts — after a preceding `cd`/`pushd`/`popd` in the line, a subshell,
+   * its own wrapper's {@link chdir} and `git -C` — or `unresolved` with the
+   * reason when the text does not fix it. See {@link LeafDirs}.
+   */
+  readonly at: LeafDirs;
 }
 
 /**
@@ -1088,6 +1121,675 @@ export function stripWrappers(argv: readonly string[]): {
   return { argv: cur, envAssigns, chdir };
 }
 
+// ===========================================================================
+// WHERE A LEAF RUNS. A guard that blocks `git pull` in an untrusted repository
+// let `cd /foreign && git pull` through: the leaf `git pull` carried no
+// directory, so the guard judged it by the session's. `NormalizedLeaf.at` is
+// every directory a leaf may run in, RELATIVE to where the command line starts
+// (`.`), or `unresolved` with the reason when the text does not fix it.
+//
+// The model is an abstract interpretation over SETS of directories: each
+// command yields the states after it SUCCEEDS and after it FAILS, and the
+// connectors pick between them — `cd x && c` runs `c` only where `cd` worked,
+// `cd x; c` runs it in either directory (ShellCheck SC2164: a failed `cd`
+// leaves the script in the old one), `cd x || exit; c` only in `x`. A subshell,
+// either side of a pipe, a `&` job and a command substitution start where the
+// shell is and leave it there. `pushd`/`popd` carry a stack, `cd -` the
+// previous directory. What the text does not fix is NEVER guessed: `cd "$X"`,
+// a function or `source` that may move, `GIT_DIR`, more than
+// {@link MAX_DIR_CANDIDATES} paths — the state becomes `unresolved` and stays
+// so until a subshell ends.
+//
+// Paths join LEXICALLY, as bash's default `cd -L` does; `CDPATH` is not read
+// (the gate never sees the tool's environment). Checked against real bash by a
+// differential test: `src/hook-dirs-oracle.test.ts`.
+// ===========================================================================
+
+/** Why a leaf's directory is not known from the command text. */
+export type UnresolvedDir =
+  /** `cd "$X"`, `git -C "$D"`, `env -C "$D"`, `cd ~user`: the path is not literal. */
+  | "dynamic-dir"
+  /** `cd -` with no earlier `cd` in this line: the previous directory came from before it. */
+  | "oldpwd"
+  /** `popd`, a bare `pushd`, `pushd +1` on a stack this line did not build. */
+  | "dir-stack"
+  /** A loop whose body changes directory: the number of turns is a runtime fact. */
+  | "conditional-dir-change"
+  /** A function, `source`/`.`, a dynamic `eval` or program that may move the shell. */
+  | "opaque-dir-change"
+  /** `GIT_DIR`, `GIT_WORK_TREE`, `--git-dir`, `--work-tree`: git ignores its directory. */
+  | "git-dir-override"
+  /** More than eight possible directories for one leaf. */
+  | "too-many-candidates"
+  /** A `cd` this model does not read: two operands, an unknown option. */
+  | "unsupported-cd-form";
+
+/**
+ * Where one leaf runs, relative to the directory its command line starts in:
+ * `.`, `../o`, an absolute path, or `~`-rooted. `candidates` lists EVERY
+ * directory it may run in (empty for a leaf that cannot be reached, after an
+ * `exit`); `unresolved` says why the text does not fix it.
+ */
+export type LeafDirs =
+  | { readonly kind: "candidates"; readonly dirs: readonly string[] }
+  | { readonly kind: "unresolved"; readonly reason: UnresolvedDir };
+
+/** One way the shell can stand at a point of the line. */
+interface DirConfig {
+  readonly dir: string;
+  /** `pushd`'s stack, top first, as built in this line. */
+  readonly stack: readonly string[];
+  /** The directory before the last change, for `cd -`; `null` when it predates the line. */
+  readonly old: string | null;
+  /** An exported `GIT_DIR`/`GIT_WORK_TREE` is in force. */
+  readonly gitDir: boolean;
+}
+
+type DirState =
+  | { readonly kind: "known"; readonly configs: readonly DirConfig[] }
+  | { readonly kind: "unresolved"; readonly reason: UnresolvedDir };
+
+/** The states after a command succeeds and after it fails. */
+interface DirOutcome {
+  readonly ok: DirState;
+  readonly fail: DirState;
+}
+
+/** The most directories one leaf is given before the model gives up. */
+const MAX_DIR_CANDIDATES = 8;
+
+/** Where a command line starts: `.`, no stack, no earlier directory. */
+const START_DIR: DirState = {
+  kind: "known",
+  configs: [{ dir: ".", stack: [], old: null, gitDir: false }],
+};
+
+/** No way to get here (after `exit`). */
+const NEVER: DirState = { kind: "known", configs: [] };
+
+const lostAt = (reason: UnresolvedDir): DirState => ({
+  kind: "unresolved",
+  reason,
+});
+
+/** The reasons most of the model reaches for. */
+const DYNAMIC: UnresolvedDir = "dynamic-dir";
+const DYNAMIC_DIR: DirState = lostAt(DYNAMIC);
+const OPAQUE_DIR: DirState = lostAt("opaque-dir-change");
+const STACK_UNKNOWN: DirState = lostAt("dir-stack");
+
+const same = (s: DirState): DirOutcome => ({ ok: s, fail: s });
+
+/** Either state: the union of their configurations; unresolved wins. */
+function joinStates(a: DirState, b: DirState): DirState {
+  if (a.kind === "unresolved") return a;
+  if (b.kind === "unresolved") return b;
+  const byKey = new Map(
+    [...a.configs, ...b.configs].map((c) => [JSON.stringify(c), c] as const),
+  );
+  return byKey.size > MAX_DIR_CANDIDATES
+    ? lostAt("too-many-candidates")
+    : { kind: "known", configs: [...byKey.values()] };
+}
+
+const joinOutcomes = (a: DirOutcome, b: DirOutcome): DirOutcome => ({
+  ok: joinStates(a.ok, b.ok),
+  fail: joinStates(a.fail, b.fail),
+});
+
+/** Run `step` from every configuration of `s` and join what it yields. */
+function eachConfig(
+  s: DirState,
+  step: (c: DirConfig) => DirOutcome,
+): DirOutcome {
+  if (s.kind === "unresolved") return same(s);
+  return s.configs.map(step).reduce(joinOutcomes, { ok: NEVER, fail: NEVER });
+}
+
+const knownOne = (c: DirConfig): DirState => ({ kind: "known", configs: [c] });
+
+/**
+ * `p` joined onto `base`, lexically, as `cd -L` does: `a` + `../b` is `b`. An
+ * absolute or `~`-rooted `p` replaces `base`. `null` when the result climbs
+ * out of `~` (`~/..`), which names a directory the gate cannot spell.
+ */
+export function joinDir(base: string, p: string): string | null {
+  if (p === "") return base;
+  const fresh = p.startsWith("/") || p === "~" || p.startsWith("~/");
+  const raw = fresh ? p : `${base}/${p}`;
+  const n = posix.normalize(raw);
+  const out = n.length > 1 ? n.replace(/\/+$/, "") : n;
+  return raw.startsWith("~") && !(out === "~" || out.startsWith("~/"))
+    ? null
+    : out;
+}
+
+/**
+ * Move one configuration to `target` — an operand joined onto where it stands,
+ * or (`placed`) a directory the model already holds, from the stack or `cd -`
+ * — remembering where it came from.
+ */
+function moveTo(
+  c: DirConfig,
+  target: string,
+  stack: readonly string[] = c.stack,
+  placed = false,
+): DirOutcome {
+  const dir = placed ? target : joinDir(c.dir, target);
+  if (dir === null) return same(DYNAMIC_DIR);
+  return { ok: knownOne({ ...c, dir, stack, old: c.dir }), fail: knownOne(c) };
+}
+
+/** A `cd` operand as written, or why it is not read. */
+type CdTarget =
+  | { readonly kind: "to"; readonly path: string }
+  | { readonly kind: "back" }
+  | { readonly kind: "lost"; readonly reason: UnresolvedDir };
+
+/** Read `cd [-L|-P|-e|-@]… [--] [dir]`. A word the parser cannot know is `null`. */
+function cdTarget(args: readonly (string | null)[]): CdTarget {
+  if (args.some((a) => a === null)) return { kind: "lost", reason: DYNAMIC };
+  const words = args.flatMap((a) => (a === null ? [] : [a]));
+  const end = words.findIndex((w) => !/^-[LPe@]+$/.test(w));
+  const rest = end < 0 ? [] : words.slice(end);
+  const operands = rest[0] === "--" ? rest.slice(1) : rest;
+  const [op, extra] = operands;
+  if (
+    extra !== undefined ||
+    (op !== undefined && op !== "-" && op.startsWith("-"))
+  )
+    return { kind: "lost", reason: "unsupported-cd-form" };
+  if (op === undefined) return { kind: "to", path: "~" };
+  if (op === "-") return { kind: "back" };
+  return op.startsWith("~") && op !== "~" && !op.startsWith("~/")
+    ? { kind: "lost", reason: DYNAMIC }
+    : { kind: "to", path: op };
+}
+
+function cdOutcome(args: readonly (string | null)[], s: DirState): DirOutcome {
+  const t = cdTarget(args);
+  if (t.kind === "lost") return same(lostAt(t.reason));
+  return eachConfig(s, (c) => {
+    if (t.kind === "to") return moveTo(c, t.path);
+    return c.old === null
+      ? same(lostAt("oldpwd"))
+      : moveTo(c, c.old, c.stack, true);
+  });
+}
+
+function pushdOutcome(
+  args: readonly (string | null)[],
+  s: DirState,
+): DirOutcome {
+  const [op, extra] = args;
+  if (op === null || extra !== undefined) return same(STACK_UNKNOWN);
+  if (op !== undefined && /^[-+]/.test(op)) return same(STACK_UNKNOWN);
+  return eachConfig(s, (c) => {
+    if (op !== undefined) return moveTo(c, op, [c.dir, ...c.stack]);
+    const [top, ...rest] = c.stack;
+    return top === undefined
+      ? same(STACK_UNKNOWN)
+      : moveTo(c, top, [c.dir, ...rest], true);
+  });
+}
+
+function popdOutcome(
+  args: readonly (string | null)[],
+  s: DirState,
+): DirOutcome {
+  if (args.length > 0) return same(STACK_UNKNOWN);
+  return eachConfig(s, (c) => {
+    const [top, ...rest] = c.stack;
+    return top === undefined ? same(STACK_UNKNOWN) : moveTo(c, top, rest, true);
+  });
+}
+
+/** Every configuration with `GIT_DIR` (or `GIT_WORK_TREE`) now exported. */
+function withGitDir(s: DirState): DirState {
+  return s.kind === "unresolved"
+    ? s
+    : {
+        kind: "known",
+        configs: s.configs.map((c) => ({ ...c, gitDir: true })),
+      };
+}
+
+const GIT_DIR_VARS: ReadonlySet<string> = new Set(["GIT_DIR", "GIT_WORK_TREE"]);
+
+const namesGitDir = (names: readonly (MvdanNode | undefined)[]): boolean =>
+  names.some((n) => GIT_DIR_VARS.has(n?.Value ?? ""));
+
+/** The source byte range of a statement: how the model keys what it saw. */
+const stmtKey = (n: Readonly<MvdanNode>): string =>
+  `${n.Pos?.().Offset() ?? -1}:${n.End?.().Offset() ?? -1}`;
+
+/** The heads that move the shell when run as builtins. */
+const DIR_BUILTINS: ReadonlySet<string> = new Set(["cd", "pushd", "popd"]);
+
+/**
+ * Names of functions declared in the line whose body may move the shell:
+ * a `cd`/`pushd`/`popd`, `source`/`.`, `eval`, or another such function.
+ */
+function dirMovingFunctions(file: Readonly<MvdanNode>): ReadonlySet<string> {
+  const decls = statements(file).flatMap((st) => {
+    const fn = st.Cmd;
+    return fn &&
+      sh().syntax.NodeType(fn) === "FuncDecl" &&
+      fn.Name?.Value &&
+      fn.Body
+      ? [[fn.Name.Value, fn.Body] as const]
+      : [];
+  });
+  const heads = (body: Readonly<MvdanNode>): readonly string[] =>
+    statements(body).flatMap((st) => {
+      const w =
+        st.Cmd && sh().syntax.NodeType(st.Cmd) === "CallExpr"
+          ? st.Cmd.Args?.[0]
+          : undefined;
+      const h = w ? normalizeParts(w.Parts, false, true) : null;
+      return h === null ? [] : [normalizeHead(h)];
+    });
+  const moves = (h: string, known: ReadonlySet<string>): boolean =>
+    DIR_BUILTINS.has(h) ||
+    h === "source" ||
+    h === "." ||
+    h === "eval" ||
+    known.has(h);
+  const moving = (known: ReadonlySet<string>): ReadonlySet<string> =>
+    new Set(
+      decls
+        .filter(([, body]) => heads(body).some((h) => moves(h, known)))
+        .map(([name]) => name),
+    );
+  // A function calling a moving one moves too; three passes reach a short
+  // chain, and a longer one only makes the answer more cautious, never less.
+  return moving(moving(moving(new Set())));
+}
+
+/**
+ * The state at every statement of `file`, from `start`. A statement the walk
+ * did not reach (none is expected) reads as `opaque-dir-change`.
+ */
+function dirModel(
+  file: Readonly<MvdanNode>,
+  start: DirState,
+): (stmt: Readonly<MvdanNode>) => DirState {
+  const seen = new Map<string, DirState>();
+  const record = (st: Readonly<MvdanNode>, s: DirState): void => {
+    const k = stmtKey(st);
+    const before = seen.get(k);
+    // eslint-disable-next-line functional/immutable-data -- the model's one accumulator: the state each statement was reached in, joined over every path
+    seen.set(k, before ? joinStates(before, s) : s);
+  };
+  interpret(file.Stmts ?? [], start, {
+    record,
+    funcs: dirMovingFunctions(file),
+  });
+  return (st) => seen.get(stmtKey(st)) ?? OPAQUE_DIR;
+}
+
+/** What the interpreter carries: where to note a state, which names move. */
+interface DirCtx {
+  readonly record: (st: Readonly<MvdanNode>, s: DirState) => void;
+  readonly funcs: ReadonlySet<string>;
+}
+
+/** A statement list, in order: each statement starts where the last ended. */
+function interpret(
+  stmts: readonly MvdanNode[],
+  s: DirState,
+  ctx: DirCtx,
+): DirOutcome {
+  const begin: DirOutcome = { ok: s, fail: NEVER };
+  return stmts.reduce(
+    (prev, st) => stmtOutcome(st, joinStates(prev.ok, prev.fail), ctx),
+    begin,
+  );
+}
+
+function stmtOutcome(
+  st: Readonly<MvdanNode>,
+  s: DirState,
+  ctx: DirCtx,
+): DirOutcome {
+  ctx.record(st, s);
+  (st.Redirs ?? []).forEach((r) => {
+    scanSubshells(r, s, ctx);
+  });
+  if (!st.Cmd) return same(s);
+  // `cmd &` runs in a background subshell: the shell stays where it was.
+  if (st.Background) {
+    cmdOutcome(st.Cmd, s, ctx);
+    return same(s);
+  }
+  const o = cmdOutcome(st.Cmd, s, ctx);
+  return st.Negated ? { ok: o.fail, fail: o.ok } : o;
+}
+
+/**
+ * Statements nested in WORDS — `$(…)`, `<(…)` — run in a subshell from `s`,
+ * in order within each substitution.
+ */
+function scanSubshells(
+  node: Readonly<MvdanNode>,
+  s: DirState,
+  ctx: DirCtx,
+): void {
+  sh().syntax.Walk(node, (n) => {
+    const t = sh().syntax.NodeType(n);
+    if (t === "CmdSubst" || t === "ProcSubst") {
+      interpret(n.Stmts ?? [], s, ctx);
+      return false;
+    }
+    if (t === "Stmt") {
+      stmtOutcome(n, s, ctx);
+      return false;
+    }
+    return true;
+  });
+}
+
+/** `&&` (10), `||` (11), `|` (12), `|&` (13) — mvdan's `BinaryCmd.Op`. */
+const AND_OP = 10;
+const OR_OP = 11;
+
+function binaryOutcome(
+  node: Readonly<MvdanNode>,
+  s: DirState,
+  ctx: DirCtx,
+): DirOutcome {
+  if (!node.X || !node.Y) return same(s);
+  if (node.Op !== AND_OP && node.Op !== OR_OP) {
+    // A pipeline: each side is its own subshell.
+    stmtOutcome(node.X, s, ctx);
+    stmtOutcome(node.Y, s, ctx);
+    return same(s);
+  }
+  const x = stmtOutcome(node.X, s, ctx);
+  if (node.Op === AND_OP) {
+    const y = stmtOutcome(node.Y, x.ok, ctx);
+    return { ok: y.ok, fail: joinStates(x.fail, y.fail) };
+  }
+  const y = stmtOutcome(node.Y, x.fail, ctx);
+  return { ok: joinStates(x.ok, y.ok), fail: y.fail };
+}
+
+function ifOutcome(
+  node: Readonly<MvdanNode>,
+  s: DirState,
+  ctx: DirCtx,
+): DirOutcome {
+  const cond = node.Cond ?? [];
+  // An `else` is an IfClause with no condition: its body always runs.
+  const c = cond.length > 0 ? interpret(cond, s, ctx) : { ok: s, fail: NEVER };
+  const then = interpret(node.Then ?? [], c.ok, ctx);
+  if (node.Else) return joinOutcomes(then, ifOutcome(node.Else, c.fail, ctx));
+  // No branch taken: the `if` exits 0 where the condition failed.
+  return { ok: joinStates(then.ok, c.fail), fail: then.fail };
+}
+
+/**
+ * A loop body runs any number of times. If one turn leaves the shell where
+ * it found it, every turn does; otherwise the turns are a runtime fact.
+ */
+function loopOutcome(
+  node: Readonly<MvdanNode>,
+  s: DirState,
+  ctx: DirCtx,
+): DirOutcome {
+  if (node.Loop) scanSubshells(node.Loop, s, ctx);
+  const once = joinOutcomes(
+    interpret(node.Cond ?? [], s, ctx),
+    interpret(node.Do ?? [], s, ctx),
+  );
+  const after = joinStates(once.ok, once.fail);
+  if (JSON.stringify(joinStates(s, after)) === JSON.stringify(s))
+    return same(s);
+  const lost = lostAt("conditional-dir-change");
+  interpret(node.Cond ?? [], lost, ctx);
+  interpret(node.Do ?? [], lost, ctx);
+  return same(lost);
+}
+
+function caseOutcome(
+  node: Readonly<MvdanNode>,
+  s: DirState,
+  ctx: DirCtx,
+): DirOutcome {
+  // `;&` and `;;&` run the next item too, from where this one ended: rare,
+  // and not modelled, so a case using them stops being known.
+  const items = node.Items ?? [];
+  if (items.some((i) => i.Op !== undefined && i.Op !== CASE_BREAK_OP)) {
+    const lost = lostAt("conditional-dir-change");
+    items.forEach((i) => interpret(i.Stmts ?? [], lost, ctx));
+    return same(lost);
+  }
+  return items
+    .map((i) => interpret(i.Stmts ?? [], s, ctx))
+    .reduce(joinOutcomes, { ok: s, fail: NEVER });
+}
+
+/** `;;` — mvdan's `CaseItem.Op` for an item that ends the `case`. */
+const CASE_BREAK_OP = 30;
+
+function declOutcome(node: Readonly<MvdanNode>, s: DirState): DirOutcome {
+  // `export GIT_DIR=…`, `declare -x GIT_DIR`, even `local GIT_DIR`: read as
+  // exported, the cautious side — a leaf that may not be git's own directory
+  // asks rather than being placed.
+  const names = (node.Args ?? []).map((a) => a.Name);
+  return same(namesGitDir(names) ? withGitDir(s) : s);
+}
+
+/** A function body runs where it is called, which this point cannot know. */
+function funcDeclOutcome(
+  node: Readonly<MvdanNode>,
+  s: DirState,
+  ctx: DirCtx,
+): DirOutcome {
+  if (node.Body) stmtOutcome(node.Body, OPAQUE_DIR, ctx);
+  return same(s);
+}
+
+function cmdOutcome(
+  node: Readonly<MvdanNode>,
+  s: DirState,
+  ctx: DirCtx,
+): DirOutcome {
+  switch (sh().syntax.NodeType(node)) {
+    case "CallExpr":
+      scanSubshells(node, s, ctx);
+      return callOutcome(node, s, ctx);
+    case "BinaryCmd":
+      return binaryOutcome(node, s, ctx);
+    case "Subshell":
+      interpret(node.Stmts ?? [], s, ctx);
+      return same(s);
+    case "Block":
+      return interpret(node.Stmts ?? [], s, ctx);
+    case "IfClause":
+      return ifOutcome(node, s, ctx);
+    case "WhileClause":
+    case "ForClause":
+      return loopOutcome(node, s, ctx);
+    case "CaseClause":
+      if (node.Word) scanSubshells(node.Word, s, ctx);
+      return caseOutcome(node, s, ctx);
+    case "TimeClause":
+      return node.Stmt ? stmtOutcome(node.Stmt, s, ctx) : same(s);
+    case "FuncDecl":
+      return funcDeclOutcome(node, s, ctx);
+    case "DeclClause":
+      scanSubshells(node, s, ctx);
+      return declOutcome(node, s);
+    default:
+      // `[[ … ]]`, `(( … ))`, `let`, a coprocess: none moves this shell.
+      scanSubshells(node, s, ctx);
+      return same(s);
+  }
+}
+
+/** A simple command: the three builtins move the shell; a few end or hide it. */
+function callOutcome(
+  node: Readonly<MvdanNode>,
+  s: DirState,
+  ctx: DirCtx,
+): DirOutcome {
+  const words = (node.Args ?? []).map((w) =>
+    normalizeParts(w.Parts, false, true),
+  );
+  if (words.length === 0)
+    return same(
+      namesGitDir((node.Assigns ?? []).map((a) => a.Name)) ? withGitDir(s) : s,
+    );
+  const [first, ...rest] = words;
+  // A dynamic program (`$CD x`) may be a builtin that moves the shell.
+  if (first === null || first === undefined) return same(OPAQUE_DIR);
+  const head = normalizeHead(first);
+  // `command cd x` runs the builtin; `sudo cd x` / `env cd x` run a program
+  // named cd in a child, which moves nothing here.
+  const viaCommand = head === "command" && DIR_BUILTINS.has(rest[0] ?? "");
+  const name = viaCommand ? (rest[0] ?? "") : head;
+  const args = viaCommand ? rest.slice(1) : rest;
+  return name === "eval"
+    ? evalOutcome(node, s, ctx)
+    : builtinOutcome(name, args, s, ctx);
+}
+
+function builtinOutcome(
+  name: string,
+  args: readonly (string | null)[],
+  s: DirState,
+  ctx: DirCtx,
+): DirOutcome {
+  switch (name) {
+    case "cd":
+      return cdOutcome(args, s);
+    case "pushd":
+      return pushdOutcome(args, s);
+    case "popd":
+      return popdOutcome(args, s);
+    case "exit":
+      return same(NEVER);
+    case "exec":
+      return args.length > 0 ? same(NEVER) : same(s);
+    case "source":
+    case ".":
+      return same(OPAQUE_DIR);
+    default:
+      return ctx.funcs.has(name) ? same(OPAQUE_DIR) : same(s);
+  }
+}
+
+/** A recorder that keeps nothing: for statements of another source text. */
+function ignoreRecord(): void {
+  // nothing to keep
+}
+
+/** `eval '<literal>'` runs in THIS shell: its `cd` moves the line. */
+function evalOutcome(
+  node: Readonly<MvdanNode>,
+  s: DirState,
+  ctx: DirCtx,
+): DirOutcome {
+  const argWords = (node.Args ?? []).slice(1);
+  const texts = argWords.map(literalText);
+  if (texts.some((t) => t === null) || texts[0]?.startsWith("-"))
+    return same(OPAQUE_DIR);
+  const file = parseOrNull(texts.join(" "));
+  // The inner statements are another source text: keyed apart, so they are
+  // interpreted for their effect on the line and not recorded here (readShell
+  // re-reads them, from the same state, for their own leaves).
+  return file
+    ? interpret(file.Stmts ?? [], s, {
+        record: ignoreRecord,
+        funcs: ctx.funcs,
+      })
+    : same(s);
+}
+
+/**
+ * The directory a leaf runs in, from the state its statement was reached in:
+ * its own wrapper's `env -C`/`sudo -D`, then each `git -C`, applied in turn.
+ */
+function leafDirsFrom(
+  s: DirState,
+  chdir: string | null,
+  program: ProgramDirs,
+): LeafDirs {
+  if (s.kind === "unresolved") return s;
+  if (program.kind === "lost")
+    return { kind: "unresolved", reason: program.reason };
+  if (program.gitDir && s.configs.some((c) => c.gitDir))
+    return { kind: "unresolved", reason: "git-dir-override" };
+  const steps = [...(chdir === null ? [] : [chdir]), ...program.dirs];
+  if (steps.some((d) => !isKnown(d)))
+    return { kind: "unresolved", reason: DYNAMIC };
+  const placed = s.configs.map((c) =>
+    steps.reduce<string | null>(
+      (d, step) => (d === null ? null : joinDir(d, step)),
+      c.dir,
+    ),
+  );
+  if (placed.some((d) => d === null))
+    return { kind: "unresolved", reason: DYNAMIC };
+  return {
+    kind: "candidates",
+    dirs: [...new Set(placed.flatMap((d) => (d === null ? [] : [d])))],
+  };
+}
+
+/**
+ * Where a child shell (`bash -c '…'`) starts: where its leaf runs, with a
+ * fresh directory stack and no previous directory of its own, and the
+ * environment (an exported `GIT_DIR`) inherited.
+ */
+function childShellStart(at: LeafDirs | undefined, parent: DirState): DirState {
+  if (at === undefined) return parent;
+  if (at.kind === "unresolved") return lostAt(at.reason);
+  const gitDir =
+    parent.kind === "known" && parent.configs.some((c) => c.gitDir);
+  return {
+    kind: "known",
+    configs: at.dirs.map((dir) => ({ dir, stack: [], old: null, gitDir })),
+  };
+}
+
+/** What a program's own options say about its directory: today, `git -C`. */
+type ProgramDirs =
+  | {
+      readonly kind: "dirs";
+      readonly dirs: readonly string[];
+      /** A git leaf: an exported `GIT_DIR` in the line overrides its directory. */
+      readonly gitDir: boolean;
+    }
+  | { readonly kind: "lost"; readonly reason: UnresolvedDir };
+
+const NO_PROGRAM_DIRS: ProgramDirs = { kind: "dirs", dirs: [], gitDir: false };
+
+/**
+ * `git -C <dir>` (each one relative to the last, git(1)), read off the
+ * leaf's argv with its dynamic slots still in place; `--git-dir`,
+ * `--work-tree` and a `GIT_DIR`/`GIT_WORK_TREE` assignment turn off the
+ * directory search, so the leaf's directory is no longer its repository.
+ */
+function programDirs(
+  argv: readonly string[],
+  assigns: ReadonlyMap<string, string | null>,
+): ProgramDirs {
+  if (normalizeHead(argv[0] ?? "") !== "git") return NO_PROGRAM_DIRS;
+  const args = argv.slice(1);
+  const sub = subcommandIndex("git", args);
+  const own = sub < 0 ? args : args.slice(0, sub);
+  const overrides =
+    [...assigns.keys()].some((k) => GIT_DIR_VARS.has(k)) ||
+    own.some((a) => /^--(git-dir|work-tree)(=|$)/.test(a));
+  if (overrides) return { kind: "lost", reason: "git-dir-override" };
+  const dirs = own.flatMap((a, i) =>
+    a === "-C" ? [own[i + 1] ?? DYNAMIC_WORD] : [],
+  );
+  return { kind: "dirs", dirs, gitDir: true };
+}
+
 /**
  * Extract every simple command as a {@link NormalizedLeaf} — the operation-level
  * twin of {@link leafCommands}. Same AST-backed structural coverage (a leaf nested
@@ -1144,7 +1846,9 @@ export type ShellEffect =
  */
 export function shellEffects(command: string): readonly ShellEffect[] {
   const file = parseOrNull(command);
-  return file ? statements(file).flatMap(stmtEffects) : [];
+  if (!file) return [];
+  const where = dirModel(file, START_DIR);
+  return statements(file).flatMap((st) => stmtEffects(st, where));
 }
 
 /** The command parsed, or `null` — mvdan-sh throws a Go error object on bad input. */
@@ -1167,9 +1871,14 @@ function statements(file: Readonly<MvdanNode>): readonly MvdanNode[] {
 }
 
 /** One statement's effects: its simple command, then its redirections. */
-function stmtEffects(stmt: Readonly<MvdanNode>): readonly ShellEffect[] {
+function stmtEffects(
+  stmt: Readonly<MvdanNode>,
+  where: (st: Readonly<MvdanNode>) => DirState,
+): readonly ShellEffect[] {
   const redirs = stmt.Redirs ?? [];
-  const leaf = stmt.Cmd ? normalizeCallExpr(stmt.Cmd, redirs) : null;
+  const leaf = stmt.Cmd
+    ? normalizeCallExpr(stmt.Cmd, redirs, where(stmt))
+    : null;
   return [
     ...(leaf
       ? [
@@ -1327,7 +2036,13 @@ export type HiddenReason =
   /** A nested string longer than {@link MAX_NESTED_LENGTH}. */
   | "too-large"
   /** A literal nested string the parser rejects. */
-  | "parse-error";
+  | "parse-error"
+  /**
+   * A leaf the gate asked about runs in a directory the text does not fix
+   * (`cd "$X" && git pull`). Reported by the gate runtime when a decision
+   * called `dirs()`, not by {@link readShell}.
+   */
+  | "unknown-directory";
 
 /** One place a command was handed on and could not be read. */
 export interface HiddenCommand {
@@ -1377,12 +2092,17 @@ export function readShell(command: string): ShellReading {
 
 const EMPTY_READING: ShellReading = { effects: [], inner: [], hidden: [] };
 
-function readFile(file: Readonly<MvdanNode>, depth: number): ShellReading {
+function readFile(
+  file: Readonly<MvdanNode>,
+  depth: number,
+  start: DirState = START_DIR,
+): ShellReading {
   const stmts = statements(file);
-  const nested = stmts.map((st) => followCarried(st, depth));
+  const where = dirModel(file, start);
+  const nested = stmts.map((st) => followCarried(st, depth, where));
   return {
     effects: [
-      ...stmts.flatMap(stmtEffects),
+      ...stmts.flatMap((st) => stmtEffects(st, where)),
       ...nested.flatMap((r) => r.effects),
     ],
     inner: nested.flatMap((r) => r.inner),
@@ -1391,7 +2111,11 @@ function readFile(file: Readonly<MvdanNode>, depth: number): ShellReading {
 }
 
 /** Read one statement's hand-off: parse a literal string, or say why not. */
-function followCarried(stmt: Readonly<MvdanNode>, depth: number): ShellReading {
+function followCarried(
+  stmt: Readonly<MvdanNode>,
+  depth: number,
+  where: (st: Readonly<MvdanNode>) => DirState,
+): ShellReading {
   const call = stmt.Cmd;
   const c =
     call && sh().syntax.NodeType(call) === "CallExpr" ? carriedBy(call) : NONE;
@@ -1405,10 +2129,17 @@ function followCarried(stmt: Readonly<MvdanNode>, depth: number): ShellReading {
   if (c.text.length > MAX_NESTED_LENGTH) return hide("too-large");
   const file = parseOrNull(c.text);
   if (file === null) return hide("parse-error");
-  const inner = readFile(file, depth + 1);
   // The inner command starts where the outer program was moved to
-  // (`env -C dir sh -c '…'`); a `cd` inside it stays inside it.
-  const dir = call ? (normalizeCallExpr(call, [])?.chdir ?? null) : null;
+  // (`cd x && env -C y sh -c '…'`); a `cd` inside a shell stays inside it,
+  // while `eval` runs in THIS shell, stack and previous directory included.
+  const outer = call ? normalizeCallExpr(call, [], where(stmt)) : null;
+  const here = where(stmt);
+  const inner = readFile(
+    file,
+    depth + 1,
+    c.runner === "eval" ? here : childShellStart(outer?.at, here),
+  );
+  const dir = outer?.chdir ?? null;
   return {
     effects: inner.effects.map((e) => underDirectory(e, dir)),
     inner: [c.text, ...inner.inner],
@@ -1865,6 +2596,7 @@ function collectAssigns(node: MvdanNode): Map<string, string | null> {
 function normalizeCallExpr(
   node: MvdanNode,
   redirs: readonly MvdanRedirect[],
+  where: DirState = START_DIR,
 ): NormalizedLeaf | null {
   if (sh().syntax.NodeType(node) !== "CallExpr" || !node.Args?.length)
     return null;
@@ -1917,5 +2649,10 @@ function normalizeCallExpr(
     hasAssign: (...names) => names.some((n) => assigns.has(n)),
     redirects: normalizeRedirects(redirs),
     chdir: stripped.chdir,
+    at: leafDirsFrom(
+      where,
+      stripped.chdir,
+      programDirs(stripped.argv, assigns),
+    ),
   };
 }

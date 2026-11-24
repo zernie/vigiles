@@ -129,6 +129,7 @@ export type {
   HookMode,
   GateAction,
   ShellCommand,
+  CommandDirs,
   FilePath,
   // eslint-disable-next-line @typescript-eslint/no-deprecated -- the pre-#465 alias, kept for one major
   CommandView,
@@ -215,4 +216,9 @@ export type {
 // generated spelling (143 cases) v1 and v2 both block 143/143, so v2 is no
 // longer the "hardened" one; see zernie/vigiles#193.
 export { leafCommandsNormalized } from "./core/bash-effects.js";
-export type { NormalizedLeaf, LeafRedirect } from "./core/bash-effects.js";
+export type {
+  NormalizedLeaf,
+  LeafRedirect,
+  LeafDirs,
+  UnresolvedDir,
+} from "./core/bash-effects.js";

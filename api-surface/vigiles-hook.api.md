@@ -39,6 +39,15 @@ export interface BashToolEvent<N extends readonly NeedSpec[] = readonly Provider
 // @public
 export function checkHookImports(source: string): string[];
 
+// @public
+export type CommandDirs = {
+    readonly kind: "candidates";
+    readonly dirs: readonly string[];
+} | {
+    readonly kind: "unresolved";
+    readonly reason: UnresolvedDir | "no-start-dir";
+};
+
 // @public @deprecated
 export type CommandView = ShellCommand;
 
@@ -315,6 +324,15 @@ export function isValidStateKey(key: string): boolean;
 export function leafCommandsNormalized(command: string): NormalizedLeaf[];
 
 // @public
+export type LeafDirs = {
+    readonly kind: "candidates";
+    readonly dirs: readonly string[];
+} | {
+    readonly kind: "unresolved";
+    readonly reason: UnresolvedDir;
+};
+
+// @public
 export interface LeafRedirect {
     readonly fd: number | null;
     readonly op: string;
@@ -333,6 +351,7 @@ export interface NormalizedLeaf {
     readonly args: readonly string[];
     readonly argv: readonly string[];
     readonly assigns: ReadonlyMap<string, string | null>;
+    readonly at: LeafDirs;
     readonly chdir: string | null;
     readonly flags: ReadonlySet<string>;
     hasAssign(...names: readonly string[]): boolean;
@@ -357,7 +376,7 @@ export function outcomeWrites(outcome: HookProgramOutcome): {
 export function parseFilePath(raw: string, root?: string): FilePath;
 
 // @public
-export function parseShellCommand(raw: string, root?: string): ShellCommand;
+export function parseShellCommand(raw: string, root?: string, start?: string): ShellCommand;
 
 // @public @deprecated
 export type PathView = FilePath;
@@ -530,6 +549,7 @@ export interface SessionEvent<N extends readonly NeedSpec[] = readonly ProviderN
 
 // @public
 export interface ShellCommand {
+    dirs(program?: string): CommandDirs;
     isSideEffecting(): boolean;
     pipesToShell(): boolean;
     readonly raw: string;
@@ -619,6 +639,25 @@ export interface ToolReactEvent<N extends readonly NeedSpec[] = readonly Provide
 export const tools: <const T extends readonly string[]>(...names: T) => {
     readonly tools: T;
 };
+
+// @public
+export type UnresolvedDir =
+/** `cd "$X"`, `git -C "$D"`, `env -C "$D"`, `cd ~user`: the path is not literal. */
+"dynamic-dir"
+/** `cd -` with no earlier `cd` in this line: the previous directory came from before it. */
+| "oldpwd"
+/** `popd`, a bare `pushd`, `pushd +1` on a stack this line did not build. */
+| "dir-stack"
+/** A loop whose body changes directory: the number of turns is a runtime fact. */
+| "conditional-dir-change"
+/** A function, `source`/`.`, a dynamic `eval` or program that may move the shell. */
+| "opaque-dir-change"
+/** `GIT_DIR`, `GIT_WORK_TREE`, `--git-dir`, `--work-tree`: git ignores its directory. */
+| "git-dir-override"
+/** More than eight possible directories for one leaf. */
+| "too-many-candidates"
+/** A `cd` this model does not read: two operands, an unknown option. */
+| "unsupported-cd-form";
 
 // @public
 export function verifyHookStamp(source: string, stamp: SHA256Hash): boolean;

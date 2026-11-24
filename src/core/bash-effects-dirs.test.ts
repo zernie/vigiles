@@ -15,11 +15,17 @@
 import { describe, test } from "vitest";
 import assert from "node:assert/strict";
 
-import { leafCommandsNormalized, type LeafDirs } from "./bash-effects.js";
+import {
+  leafCommandsNormalized,
+  readShell,
+  type LeafDirs,
+} from "./bash-effects.js";
 
-/** The `at` of the `n`-th leaf whose head is `head`. */
+/** The `at` of the `n`-th leaf whose head is `head`, as the gate reads the line. */
 const at = (cmd: string, head = "git", n = 0): LeafDirs => {
-  const leaf = leafCommandsNormalized(cmd).filter((l) => l.head === head)[n];
+  const leaf = readShell(cmd)
+    .effects.flatMap((e) => (e.kind === "leaf" ? [e.leaf] : []))
+    .filter((l) => l.head === head)[n];
   assert.ok(leaf, `no ${head} leaf #${n} in: ${cmd}`);
   return leaf.at;
 };

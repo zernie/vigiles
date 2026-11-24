@@ -27,7 +27,7 @@ import {
 } from "node:fs";
 import { join, posix } from "node:path";
 
-import { readShell } from "./core/bash-effects.js";
+import { readShell, type NormalizedLeaf } from "./core/bash-effects.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 const hasTools =
@@ -50,56 +50,109 @@ function rng(seed: number): () => number {
   };
 }
 
-interface Gen {
-  readonly next: () => number;
-  leaf: number;
+/** The command generator: a seeded choice, and a fresh marker per leaf. */
+function generator(seed: number, out: string, abs: string) {
+  const next = rng(seed);
+  let leaves = 0;
+  const pick = <T>(xs: readonly [T, ...T[]]): T =>
+    xs[Math.floor(next() * xs.length)] ?? xs[0];
+  const dir = (): string =>
+    pick(["a", "b", "a/b", "nope", "..", "~", abs, "a/..", "b/../a"]);
+  const leaf = (): string => {
+    const target = `${out}/L${String(leaves++)}`;
+    return pick([
+      `pwd >> ${target}`,
+      `pwd >> ${target}`,
+      `git -C ${pick([".", "a", "a/b", "nope", "b"])} rev-parse --show-prefix >> ${target}`,
+      `env -C ${pick(["a", "b", "nope"])} pwd >> ${target}`,
+    ]);
+  };
+  const atom = (depth: number): string => {
+    const simple: [() => string, ...(() => string)[]] = [
+      () => `cd ${dir()}`,
+      () => `pushd ${dir()} >/dev/null`,
+      () => "popd >/dev/null",
+      () => "cd -",
+      () => "cd",
+      leaf,
+      leaf,
+    ];
+    const nested: (() => string)[] = [
+      () => `( ${seq(depth + 1)} )`,
+      () => `{ ${seq(depth + 1)}; }`,
+      () => `if cd ${dir()}; then ${seq(depth + 1)}; fi`,
+      () => `if true; then cd ${dir()}; fi`,
+    ];
+    return pick(depth < 2 ? [...simple, ...nested] : simple)();
+  };
+  const seq = (depth: number): string => {
+    const n = 1 + Math.floor(next() * 4);
+    const first = atom(depth);
+    const rest = Array.from(
+      { length: n - 1 },
+      () => ` ${pick(["&&", "||", ";", ";", "|", "&"])} ${atom(depth)}`,
+    );
+    return first + rest.join("");
+  };
+  return { line: () => `${seq(0)}; wait` };
+}
+
+/** Where a tree under test sits: the start, its `$HOME`, the marker directory. */
+interface Tree {
+  readonly start: string;
+  readonly home: string;
   readonly out: string;
-  readonly abs: string;
 }
 
-const pick = <T>(g: Gen, xs: readonly T[]): T =>
-  xs[Math.floor(g.next() * xs.length)] as T;
+type Verdict =
+  | "skip"
+  | "unresolved"
+  | "exact"
+  | "several"
+  | { readonly miss: string };
 
-function dir(g: Gen): string {
-  return pick(g, ["a", "b", "a/b", "nope", "..", "~", g.abs, "a/..", "b/../a"]);
+/**
+ * One leaf against what bash recorded for it. The shell opens the marker file
+ * before the program runs, so an EMPTY file means the program did not get to
+ * print (a failed `env -C nope`, `git -C nope`); git at the top prints one
+ * empty line.
+ */
+function judge(leaf: NormalizedLeaf, tree: Tree): Verdict {
+  const target = leaf.redirects.find(
+    (r) => r.writes && r.target?.startsWith(`${tree.out}/`),
+  )?.target;
+  const text = target && existsSync(target) ? readFileSync(target, "utf8") : "";
+  if (text === "") return "skip";
+  if (leaf.at.kind === "unresolved") return "unresolved";
+  const line = text.split("\n")[0] ?? "";
+  const actual =
+    leaf.head === "git"
+      ? posix.normalize(`${tree.start}/${line}`).replace(/\/$/, "")
+      : line;
+  const placed = leaf.at.dirs.map((d) =>
+    d === "~" || d.startsWith("~/")
+      ? posix.normalize(tree.home + d.slice(1))
+      : posix.resolve(tree.start, d),
+  );
+  if (!placed.includes(actual))
+    return {
+      miss: `leaf ${leaf.argv.join(" ")} ran in ${actual}, model said ${JSON.stringify(leaf.at.dirs)}`,
+    };
+  return placed.length === 1 ? "exact" : "several";
 }
 
-function leafCmd(g: Gen): string {
-  const k = g.leaf++;
-  const target = `${g.out}/L${k}`;
-  return pick(g, [
-    `pwd >> ${target}`,
-    `pwd >> ${target}`,
-    `git -C ${pick(g, [".", "a", "a/b", "nope", "b"])} rev-parse --show-prefix >> ${target}`,
-    `env -C ${pick(g, ["a", "b", "nope"])} pwd >> ${target}`,
-  ]);
-}
-
-function atom(g: Gen, depth: number): string {
-  const simple = [
-    () => `cd ${dir(g)}`,
-    () => `pushd ${dir(g)} >/dev/null`,
-    () => "popd >/dev/null",
-    () => "cd -",
-    () => "cd",
-    () => leafCmd(g),
-    () => leafCmd(g),
-  ];
-  const nested = [
-    () => `( ${seq(g, depth + 1)} )`,
-    () => `{ ${seq(g, depth + 1)}; }`,
-    () => `if cd ${dir(g)}; then ${seq(g, depth + 1)}; fi`,
-    () => `if true; then cd ${dir(g)}; fi`,
-  ];
-  return pick(g, depth < 2 ? [...simple, ...nested] : simple)();
-}
-
-function seq(g: Gen, depth: number): string {
-  const n = 1 + Math.floor(g.next() * 4);
-  let s = atom(g, depth);
-  for (let i = 1; i < n; i++)
-    s += ` ${pick(g, ["&&", "||", ";", ";", "|", "&"])} ${atom(g, depth)}`;
-  return s;
+/** Run one line under bash in a clean marker directory; judge each leaf. */
+function runLine(cmd: string, tree: Tree): readonly Verdict[] {
+  rmSync(tree.out, { recursive: true, force: true });
+  mkdirSync(tree.out);
+  spawnSync("bash", ["-c", cmd], {
+    cwd: tree.start,
+    env: { PATH: process.env["PATH"] ?? "", HOME: tree.home },
+    timeout: 10_000,
+  });
+  return readShell(cmd).effects.flatMap((e) =>
+    e.kind === "leaf" ? [judge(e.leaf, tree)] : [],
+  );
 }
 
 test("every directory bash ran a leaf in is among the candidates, else unresolved", () => {
@@ -107,67 +160,41 @@ test("every directory bash ran a leaf in is among the candidates, else unresolve
   const tmp = makeTmpDir();
   try {
     const root = realpathSync(tmp);
-    const S = join(root, "s");
-    const home = join(S, "h");
-    const out = join(root, "out");
+    const start = join(root, "s");
+    const tree: Tree = {
+      start,
+      home: join(start, "h"),
+      out: join(root, "out"),
+    };
     for (const d of ["a/b", "b", "c", "h"])
-      mkdirSync(join(S, d), { recursive: true });
-    spawnSync("git", ["init", "-q", S]);
-    const g: Gen = { next: rng(20261124), leaf: 0, out, abs: join(S, "c") };
-
-    const misses: string[] = [];
-    let ran = 0;
-    let exact = 0;
-    let several = 0;
-    let unresolved = 0;
-    for (let i = 0; i < 600; i++) {
-      rmSync(out, { recursive: true, force: true });
-      mkdirSync(out);
-      const cmd = `${seq(g, 0)}; wait`;
-      spawnSync("bash", ["-c", cmd], {
-        cwd: S,
-        env: { PATH: process.env["PATH"] ?? "", HOME: home },
-        timeout: 10_000,
-      });
-      for (const e of readShell(cmd).effects) {
-        if (e.kind !== "leaf") continue;
-        const target = e.leaf.redirects.find((r) => r.writes)?.target;
-        if (!target || !existsSync(target)) continue;
-        const line = readFileSync(target, "utf8").split("\n")[0] ?? "";
-        const actual =
-          e.leaf.head === "git"
-            ? posix.normalize(`${S}/${line}`).replace(/\/$/, "")
-            : line;
-        ran++;
-        const at = e.leaf.at;
-        if (at.kind === "unresolved") {
-          unresolved++;
-          continue;
-        }
-        const placed = at.dirs.map((d) =>
-          d === "~" || d.startsWith("~/")
-            ? posix.normalize(home + d.slice(1))
-            : posix.resolve(S, d),
-        );
-        if (placed.includes(actual)) {
-          if (placed.length === 1) exact++;
-          else several++;
-        } else
-          misses.push(
-            `${cmd}\n    leaf ${e.leaf.argv.join(" ")} ran in ${actual}, model said ${JSON.stringify(at.dirs)}`,
-          );
-      }
-    }
+      mkdirSync(join(start, d), { recursive: true });
+    spawnSync("git", ["init", "-q", start]);
+    const gen = generator(20261124, tree.out, join(start, "c"));
+    const verdicts = Array.from({ length: 1000 }, () => gen.line()).flatMap(
+      (cmd) =>
+        runLine(cmd, tree).map((v) =>
+          typeof v === "object" ? { miss: `${cmd}\n    ${v.miss}` } : v,
+        ),
+    );
+    const count = (k: Verdict): number =>
+      verdicts.filter((v) => v === k).length;
+    const misses = verdicts.flatMap((v) =>
+      typeof v === "object" ? [v.miss] : [],
+    );
+    const ran = verdicts.length - count("skip");
     assert.deepEqual(
       misses,
       [],
-      `${misses.length} leaves ran outside the model`,
+      `${String(misses.length)} leaves ran outside the model`,
     );
     // The run must exercise the model, not only its `unresolved` exit.
-    assert.ok(ran > 500, `only ${ran} leaves ran`);
-    assert.ok(exact + several > ran / 2, `${unresolved}/${ran} unresolved`);
+    assert.ok(ran > 500, `only ${String(ran)} leaves ran`);
+    assert.ok(
+      count("exact") + count("several") > ran / 2,
+      `${String(count("unresolved"))}/${String(ran)} unresolved`,
+    );
     console.log(
-      `dirs oracle: ${ran} leaves ran — ${exact} one candidate, ${several} several, ${unresolved} unresolved, 0 outside`,
+      `dirs oracle: ${String(ran)} leaves ran — ${String(count("exact"))} one candidate, ${String(count("several"))} several, ${String(count("unresolved"))} unresolved, 0 outside`,
     );
   } finally {
     cleanupTmpDir(tmp);
