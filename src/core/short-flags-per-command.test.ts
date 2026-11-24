@@ -15,7 +15,13 @@ import { describe, test } from "vitest";
 import assert from "node:assert/strict";
 
 import { leafCommandsNormalized } from "./bash-effects.js";
-import { parseShellCommand } from "./hook-program.js";
+import {
+  allow,
+  decideProgram,
+  deny,
+  experimental_defineHook,
+  parseShellCommand,
+} from "./hook-program.js";
 
 const leaf = (cmd: string) => {
   const [l] = leafCommandsNormalized(cmd);
@@ -107,4 +113,44 @@ describe("a wrapper option's value is not the program", () => {
     );
     assert.equal(leaf(cmd).head, "git");
   });
+});
+
+// Codex on #508: a dynamic operand of git's own option used to be dropped
+// before the subcommand was found, so `git -C "$PWD" commit -n` read `commit`
+// as the value of `-C` and `-n` was no longer `--no-verify` — a regression
+// against the old single table. A dynamic word keeps its slot until the
+// subcommand is found, and a subcommand that cannot be found asks.
+describe("a dynamic word never moves the subcommand", () => {
+  const decide = (cmd: string) =>
+    decideProgram(noVerifyGuard, {
+      tool_name: "Bash",
+      tool_input: { command: cmd },
+    }).kind;
+
+  test.each(['git -C "$PWD" commit -n -m x', 'git -c "$K=$V" commit -n -m x'])(
+    "%s is a --no-verify commit",
+    (cmd) => {
+      assert.equal(parseShellCommand(cmd).runs("git commit --no-verify"), true);
+      assert.equal(decide(cmd), "deny");
+    },
+  );
+
+  test.each([
+    "git $OPTS commit -n -m x",
+    'git "$SUB" -n -m x',
+    "git --attr-source x commit -n -m x",
+    "git --some-new-option x commit -n -m x",
+  ])("%s may be a --no-verify commit: the gate asks", (cmd) => {
+    assert.notEqual(decide(cmd), "allow");
+  });
+
+  test("a literal subcommand after known options still decides", () => {
+    assert.equal(decide("git --no-pager -c a=b push -n origin main"), "allow");
+  });
+});
+
+const noVerifyGuard = experimental_defineHook({
+  on: "PreToolUse",
+  decide: (e) =>
+    e.command.runs("git commit --no-verify") ? deny("no-verify") : allow(),
 });
