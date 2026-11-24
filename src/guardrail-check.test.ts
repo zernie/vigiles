@@ -729,3 +729,42 @@ test("the seven seeds have a pinned number of spellings", () => {
   // the subshell and the three nested-shell forms among them.
   assert.equal(experimental_alternateSpellings(DISASTER_CATALOG).length, 164);
 });
+
+test("the assertion and the report name the spelling that got through by its id", () => {
+  const dir = makeTmpDir("guardrail-spelling-id");
+  try {
+    const guard = writeLiteralGuard(dir);
+    const opts = { events: FORCE_PUSH, harmless: [] };
+    assert.throws(() => {
+      assertGuardrail(guard, opts);
+    }, /force-push~\d+/);
+    assert.match(
+      formatGuardrailReport(guard, verifyGuardrail(guard, opts)),
+      /force-push~\d+/,
+    );
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("user events the spelling generator chokes on never throw at the user", () => {
+  const events = [
+    "git push --force-with-lease origin main",
+    "rm -rf / # cleanup",
+    "cat > f <<'EOF'\nrm -rf /\nEOF",
+    "[[ -d .git ]] && git push --force",
+    "DROP=1 psql -c 'drop table users'",
+    "",
+  ].map((command, i) => ({
+    id: `mine-${String(i)}`,
+    label: command,
+    category: "destructive-git" as const,
+    tool: "Bash",
+    input: { command },
+  }));
+  const guard = experimental_defineHook({
+    on: "PreToolUse",
+    decide: () => deny("everything"),
+  });
+  assert.doesNotThrow(() => verifyGuardrail(guard, { events, harmless: [] }));
+});

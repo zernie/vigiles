@@ -12,7 +12,11 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import { equivalentCommands, sameOperation } from "./bash-equivalents.js";
+import {
+  equivalentCommands,
+  equivalentSpellings,
+  sameOperation,
+} from "./bash-equivalents.js";
 
 const SEED = "git push --force origin main";
 
@@ -117,4 +121,57 @@ test("git -C . stays out of the generator: the check reads . as an argument", ()
   const form = "git -C . push --force origin main";
   assert.equal(sameOperation(SEED, form), false);
   assert.ok(!equivalentCommands(SEED).includes(form));
+});
+
+test("flag aliases are scoped by program and subcommand, never global", () => {
+  const out = (seed: string) => equivalentCommands(seed);
+  // git push -n is --dry-run, not --no-verify.
+  assert.ok(
+    !out("git push --no-verify origin main").includes(
+      "git push -n origin main",
+    ),
+  );
+  // kubectl -f is a file, sed -n is quiet: no table, so no alias spellings.
+  assert.ok(
+    !out("kubectl delete -f prod.yaml").some((v) => v.includes("--force")),
+  );
+  assert.ok(!out("sed -n p f").some((v) => v.includes("--no-verify")));
+  // Where the man page says so, the alias is emitted.
+  assert.ok(out("git commit --no-verify -m x").includes("git commit -n -m x"));
+  assert.ok(
+    out("git push --force origin main").includes("git push -f origin main"),
+  );
+  assert.ok(out("rm -r build").includes("rm --recursive build"));
+});
+
+test("seeds a user might write never break the generator", () => {
+  for (const seed of [
+    "git push --force-with-lease origin main",
+    "rm -rf / # cleanup",
+    "cat > f <<'EOF'\nrm -rf /\nEOF",
+    "[[ -d .git ]] && git push --force",
+    "DROP=1 psql -c 'drop table users'",
+  ]) {
+    const out = equivalentCommands(seed);
+    for (const v of out) assert.ok(sameOperation(seed, v), `${seed} → ${v}`);
+    assert.ok(!out.some((v) => v.includes("-f-with-lease")), seed);
+    assert.ok(
+      !out.some((v) => /^\S*\/?\\?DROP=|^\/usr\/bin\/\[\[/.test(v)),
+      seed,
+    );
+  }
+  assert.ok(
+    equivalentCommands("rm -rf / # cleanup").includes(
+      "( rm -rf / # cleanup\n)",
+    ),
+  );
+  assert.deepEqual(equivalentCommands(""), []);
+});
+
+test("a family that cannot prove a rewrite throws by default and is counted when lenient", () => {
+  const bogus = [{ name: "bogus", rewrite: () => ["git push origin main"] }];
+  assert.throws(() => equivalentCommands(SEED, { families: bogus }));
+  const lenient = equivalentSpellings(SEED, { families: bogus });
+  assert.deepEqual(lenient.proven, []);
+  assert.deepEqual(lenient.unproven, ["git push origin main"]);
 });
