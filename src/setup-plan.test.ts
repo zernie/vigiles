@@ -748,12 +748,32 @@ test("fullSetupFollowUps: names each missing piece, then the flag", () => {
 });
 
 test("starterHarnessName: TypeScript whenever something can run it, else JavaScript", () => {
-  assert.equal(starterHarnessName(true), "vigiles.harness.ts");
-  assert.equal(starterHarnessName(false), "vigiles.harness.mjs");
+  assert.equal(starterHarnessName(true, undefined), "vigiles.harness.ts");
+  assert.equal(starterHarnessName(true, "{}"), "vigiles.harness.ts");
+  assert.equal(
+    starterHarnessName(true, '{"type":"module"}'),
+    "vigiles.harness.ts",
+  );
+  assert.equal(starterHarnessName(false, undefined), "vigiles.harness.mjs");
   assert.deepEqual(STARTER_HARNESS_NAMES, [
     "vigiles.harness.ts",
+    "vigiles.harness.mts",
     "vigiles.harness.mjs",
   ]);
+});
+
+test("starterHarnessName: an explicit CommonJS package gets .mts, which Node runs as ESM", () => {
+  // Node reads `.ts` in a `"type": "commonjs"` package as CommonJS, and the
+  // starter's `import` then throws; `.mts` is ESM whatever the package says.
+  assert.equal(
+    starterHarnessName(true, '{"type":"commonjs"}'),
+    "vigiles.harness.mts",
+  );
+  // With nothing able to run TypeScript the answer stays JavaScript.
+  assert.equal(
+    starterHarnessName(false, '{"type":"commonjs"}'),
+    "vigiles.harness.mjs",
+  );
 });
 
 test("fullSetupFollowUps: names the starter file it would scaffold", () => {

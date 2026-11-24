@@ -25,7 +25,10 @@ import { canRunTypeScript, detectNodeCaps } from "./ts-runner-caps.js";
 
 // The starter `init` writes on THIS Node: a fresh project has no local tsx, so the
 // choice is Node's own type stripping — the same probe `init` makes.
-const STARTER = starterHarnessName(canRunTypeScript(detectNodeCaps(tmpdir())));
+const STARTER = starterHarnessName(
+  canRunTypeScript(detectNodeCaps(tmpdir())),
+  undefined,
+);
 
 const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 

@@ -12,6 +12,7 @@
 import { extendedPresets } from "./core/presets.js";
 import type { InitPolicy } from "./core/rule.js";
 import { INIT_NUDGE_COMMANDS } from "./core/hook-command.js";
+import { esmTypeScriptExt } from "./core/test-file-ext.js";
 
 /** What `vigiles init` will set up. */
 export interface SetupPlan {
@@ -709,15 +710,19 @@ export function missingVigilesDevDep(
   return declared ? null : { ...pkg.devDependencies, vigiles: spec };
 }
 
-/** The two names `init`'s starter harness test can have. */
-export type StarterHarnessName = "vigiles.harness.ts" | "vigiles.harness.mjs";
+/** The names `init`'s starter harness test can have. */
+export type StarterHarnessName =
+  | "vigiles.harness.ts"
+  | "vigiles.harness.mts"
+  | "vigiles.harness.mjs";
 
 /**
- * Both names, so a repo holding either one counts as already having a starter
+ * Every name, so a repo holding any one counts as already having a starter
  * (a re-run never adds a `.ts` beside an existing `.mjs`, or the reverse).
  */
 export const STARTER_HARNESS_NAMES: readonly StarterHarnessName[] = [
   "vigiles.harness.ts",
+  "vigiles.harness.mts",
   "vigiles.harness.mjs",
 ];
 
@@ -727,11 +732,17 @@ export const STARTER_HARNESS_NAMES: readonly StarterHarnessName[] = [
  * stripping) — the same question `vigiles test` asks before it runs one
  * (`canRunTypeScript`). Only where nothing can (Node 20 with no `tsx`) is it
  * JavaScript: a starter the runner then refused would be worse than a `.mjs`.
+ * The starter uses `import`, so a package that says `"type": "commonjs"` gets
+ * `.mts`, which Node runs as ESM whatever the package says (`esmTypeScriptExt`).
  */
 export function starterHarnessName(
   canRunTypeScript: boolean,
+  packageJson: string | undefined,
 ): StarterHarnessName {
-  return canRunTypeScript ? "vigiles.harness.ts" : "vigiles.harness.mjs";
+  if (!canRunTypeScript) return "vigiles.harness.mjs";
+  return esmTypeScriptExt(packageJson) === "mts"
+    ? "vigiles.harness.mts"
+    : "vigiles.harness.ts";
 }
 
 /** What a full setup would add on an adopted repo — the facts that decide it. */

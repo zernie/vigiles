@@ -4500,6 +4500,12 @@ assert.ok(!allowed.blocked, "guard should allow a safe command");
 console.log("\\u2713 hook blocks rm -rf / and allows safe commands");
 `;
 
+/** The raw package.json text at `cwd`, or undefined — for the starter's extension. */
+function readPackageJsonText(cwd: string): string | undefined {
+  const p = resolve(cwd, PACKAGE_JSON);
+  return existsSync(p) ? readFileSync(p, "utf8") : undefined;
+}
+
 /** Pillar 2 — scaffold a starter harness test the user adapts to their hooks.
  * TypeScript when this machine can run it, else JavaScript (`starterHarnessName`).
  * Returns the files it wrote (for the commit hint). */
@@ -4512,7 +4518,10 @@ function scaffoldPillar2(): string[] {
     console.log(`✓ ${existing} already exists`);
     return [];
   }
-  const name = starterHarnessName(canRunTypeScript(detectNodeCaps(cwd)));
+  const name = starterHarnessName(
+    canRunTypeScript(detectNodeCaps(cwd)),
+    readPackageJsonText(cwd),
+  );
   writeFileSync(resolve(cwd, name), STARTER_HARNESS);
   const why =
     name === "vigiles.harness.mjs"
@@ -5809,7 +5818,10 @@ function fullSetupGap(
     config: configGap(config, plan.lint),
     harnessTest:
       plan.test && !STARTER_HARNESS_NAMES.some(has)
-        ? starterHarnessName(canRunTypeScript(detectNodeCaps(cwd)))
+        ? starterHarnessName(
+            canRunTypeScript(detectNodeCaps(cwd)),
+            readPackageJsonText(cwd),
+          )
         : null,
     unspecced,
     generated: pillar1 && !(has(GENERATED_TYPES) && has(GENERATED_SCHEMA)),
