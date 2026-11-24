@@ -40,7 +40,7 @@
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolve, dirname, relative } from "node:path";
 import {
-  verifyHookStamp,
+  stampHook,
   HookCompileError,
   decideProgram,
   decideFileGate,
@@ -82,7 +82,6 @@ import {
   type ProviderRegistry,
   type RegisteredProvider,
 } from "./core/hook-providers.js";
-import type { SHA256Hash } from "./core/hash.js";
 import type { StateFact } from "./core/hook-state.js";
 import { readHookState, writeHookState } from "./hook-state-store.js";
 import { appendObservation } from "./observe.js";
@@ -92,7 +91,16 @@ import {
   ensureLocalFilesIgnored,
 } from "./local-files.js";
 import { loadHook } from "./load-hook.js";
-import { injectableEventsOf } from "./core/event-capability.js";
+import {
+  capabilityOf,
+  injectableEventsOf,
+  type CapabilityVerdict,
+} from "./core/event-capability.js";
+import {
+  checkHookStamp,
+  stampFixCommand,
+  staleStampResponse,
+} from "./core/hook-stamp.js";
 
 /**
  * Which events accept injected context, from the ACTIVE adapter — the one
@@ -442,43 +450,113 @@ function announceRepairEscape(file: string, why: string): boolean {
 }
 
 /**
- * Fail closed if a stamp sidecar exists and the on-disk source no longer
- * matches it — a hand-edit that smuggles in a capability breaks the stamp.
- * No sidecar → run uncompiled (e.g. a test fixture or a not-yet-compiled hook).
- *
- * ONE exception, and it is loud: the author's own REPAIR action
- * ({@link isStampRepairEvent}) is let through, or a repo WEDGES. A stale stamp on
- * a PreToolUse Bash gate blocks every Bash command — including `vigiles compile`,
- * the only command that regenerates the stamp — so a normal edit-compile cycle
- * could paint you into a corner whose only escape was hand-editing
- * `.claude/settings.json` to unwire the gate. Observed 2026-08-03.
+ * What a stale stamp leaves the runtime to do: `run` the hook as usual (fresh,
+ * unstamped, or a repair action let through), or `skip` it — warned about, the
+ * body never run, exit 0.
  */
-function verifyStampOrRefuse(file: string, event: HookEvent): void {
+type StampOutcome = "run" | "skip";
+
+/** The firing event's name: the payload's own, else the event the hook declares. */
+function liveEventName(payload: unknown, program: AnyHook): string {
+  const name = (payload as { hook_event_name?: unknown }).hook_event_name;
+  return typeof name === "string" && name !== "" ? name : program.on;
+}
+
+/**
+ * The live event's capability on the ACTIVE harness. LAZY, like
+ * {@link injectableEventsFor}: the adapter registry costs ~279 ms, and only a
+ * stale stamp on a tool gate — never the happy path — asks this.
+ */
+function capabilityFor(root: string, eventName: string): CapabilityVerdict {
+  const { resolveAdapter } =
+    require("./adapter-registry.js") as typeof import("./adapter-registry.js");
+  return capabilityOf(
+    resolveAdapter(root).dialect.eventCapabilities,
+    eventName,
+  );
+}
+
+/**
+ * Check the hook against its stamp sidecar and decide what a mismatch does.
+ * No sidecar, or a cleared one (`{}`) → run uncompiled (a test fixture, a
+ * not-yet-compiled hook, the documented manual clear).
+ *
+ * A STALE stamp blocks (exit 2) only where blocking is the hook's job AND the
+ * actor can repair it in the same loop — a tool gate on an event that vetoes a
+ * tool call ({@link staleStampResponse} decides; role first, event second).
+ * Everywhere else it is ONE loud warning naming the fix, and the unverified body
+ * is skipped. Observed 2026-11: an `inject` hook on `UserPromptSubmit`, edited
+ * and not recompiled, exited 2 on every prompt — the human could not type their
+ * way out, because no prompt is a repair action.
+ *
+ * Where it does refuse, ONE exception, and it is loud: the author's own REPAIR
+ * action ({@link isStampRepairEvent}) is let through, or a repo WEDGES. A stale
+ * stamp on a PreToolUse Bash gate blocks every Bash command — including `vigiles
+ * compile`, the only command that regenerates the stamp — so a normal
+ * edit-compile cycle could paint you into a corner whose only escape was
+ * hand-editing `.claude/settings.json` to unwire the gate. Observed 2026-08-03.
+ */
+function verifyStamp(
+  file: string,
+  event: HookEvent,
+  program: AnyHook,
+  payload: unknown,
+): StampOutcome {
   const { root } = event;
   const stampPath = hookStampPath(file, root);
-  if (!existsSync(stampPath)) return;
+  const check = checkHookStamp(
+    readIfPresent(stampPath),
+    readIfPresent(resolve(root, file)),
+    stampHook,
+  );
+  // Anything but `stale` runs: an unreadable sidecar or source must not block a
+  // live session on it — and a source that cannot be read already failed to load.
+  if (check.kind !== "stale") return "run";
+  const role = dispatchKind(program);
+  const eventName = liveEventName(payload, program);
+  const response = staleStampResponse(role, {
+    // Asked only for a tool gate: the role alone decides every other kind, and
+    // resolving the adapter is the one expensive read on this path.
+    capability:
+      role === "bash-gate" || role === "file-gate"
+        ? capabilityFor(root, eventName)
+        : { kind: "unknown", event: eventName },
+    carriesToolCall: typeof event.tool_name === "string",
+  });
+  if (response.kind === "skip") {
+    console.error(
+      `vigiles: hook ${file} does not match its compiled stamp — it was edited ` +
+        `after \`vigiles compile\`. SKIPPED on ${eventName}: its body did not run.\n` +
+        `vigiles: fix: run \`${stampFixCommand(file)}\` (a ${role} hook ` +
+        (response.reason === "not-a-tool-gate"
+          ? `never blocks on its own failure`
+          : `blocks only on an event that vetoes a tool call`) +
+        `, so this session is not stopped).`,
+    );
+    return "skip";
+  }
+  if (isStampRepairEvent(event, file, root)) {
+    announceRepairEscape(file, "does not match its compiled stamp");
+    return "run";
+  }
+  console.error(
+    `vigiles: hook ${file} does not match its compiled stamp (tampered).\n` +
+      `vigiles: if YOU edited it, the way out is a FILE WRITE, not a command — ` +
+      `this refusal blocks the recompile too. Either edit ${file} back to what ` +
+      `was compiled, or clear its stamp by writing \`{}\` into ` +
+      `${stampPath}. The hook then runs UNSTAMPED but still ENFORCES, so ` +
+      `\`${stampFixCommand(file)}\` goes through the normal gate.`,
+  );
+  process.exit(2);
+  return "skip";
+}
+
+/** A file's text, or `undefined` when it cannot be read. */
+function readIfPresent(abs: string): string | undefined {
   try {
-    const { stamp } = JSON.parse(readFileSync(stampPath, "utf-8")) as {
-      stamp?: string;
-    };
-    const source = readFileSync(resolve(root, file), "utf-8");
-    if (stamp && !verifyHookStamp(source, stamp as SHA256Hash)) {
-      if (isStampRepairEvent(event, file, root)) {
-        announceRepairEscape(file, "does not match its compiled stamp");
-        return;
-      }
-      console.error(
-        `vigiles: hook ${file} does not match its compiled stamp (tampered).\n` +
-          `vigiles: if YOU edited it, the way out is a FILE WRITE, not a command — ` +
-          `this refusal blocks the recompile too. Either edit ${file} back to what ` +
-          `was compiled, or clear its stamp by writing \`{}\` into ` +
-          `${stampPath}. The hook then runs UNSTAMPED but still ENFORCES, so ` +
-          `\`vigiles compile ${file}\` goes through the normal gate.`,
-      );
-      process.exit(2);
-    }
+    return readFileSync(abs, "utf-8");
   } catch {
-    /* unreadable sidecar → don't block a live session on it */
+    return undefined;
   }
 }
 
@@ -502,11 +580,14 @@ function warnIfPathUndecidable(
  * points at. Reads the live event on stdin, loads the typed program, verifies
  * its stamp, and dispatches by role: a gate exits 2 + reason on `deny`; an
  * inject prints `additionalContext`; a react runs its effect-classified
- * command. A hook that won't load — or whose stamp is stale — fails CLOSED
- * (exit 2), never silent-allow, with two loudly-announced exceptions: the repair
- * action itself ({@link isStampRepairEvent}), and — on a LOAD failure only — the
- * load-path repair WRITE ({@link isLoadPathRepairEvent}), or the repo wedges
- * with no way to fix whatever broke the load path.
+ * command. A hook that won't load fails CLOSED (exit 2; the `|| exit 0` ending
+ * `compile` writes on a nudge turns that into a pass), never silent-allow. A
+ * stale stamp fails closed only on a TOOL gate firing on an event that vetoes a
+ * tool call; any other hook is warned about and skipped (see {@link verifyStamp}).
+ * Two loudly-announced exceptions to a refusal: the repair action itself
+ * ({@link isStampRepairEvent}), and — on a LOAD failure only — the load-path
+ * repair WRITE ({@link isLoadPathRepairEvent}), or the repo wedges with no way to
+ * fix whatever broke the load path.
  *
  * INJECT-HOOK-SPECIFIC: An inject hook that fails to load is a harness failure,
  * not a decision failure. Unlike gates (which must be conservative and block on
@@ -648,8 +729,21 @@ export async function runHookProgramCommand(
     console.error(errorMsg);
     process.exit(2);
   }
-  verifyStampOrRefuse(file, event);
+  if (verifyStamp(file, event, program, payload) === "skip") return;
+  await dispatchVerified(program, file, event, declaredRoot);
+}
 
+/**
+ * Run a loaded, stamp-checked hook by its role — the half of the runtime that
+ * executes the author's code, reached only once {@link verifyStamp} says `run`.
+ */
+async function dispatchVerified(
+  program: AnyHook,
+  file: string,
+  event: HookEvent,
+  declaredRoot: string | undefined,
+): Promise<void> {
+  const { root } = event;
   switch (dispatchKind(program)) {
     case "inject": {
       const ctx = await gatherHookContext(program, file, root);
