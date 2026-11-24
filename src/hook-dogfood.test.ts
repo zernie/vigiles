@@ -29,6 +29,7 @@ import {
   type DisasterCategory,
 } from "./guardrail-check.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import { runHook } from "./run-hook.js";
 
 // The shipped guard's secret rule is `touches(["~/.ssh", …])`, a MENTION
 // matcher by design (an over-inclusive denylist), so it also blocks
@@ -278,3 +279,27 @@ test("the guard did not become a blunt blocker", () => {
     .map((r) => r.event.label);
   assert.deepEqual(blocked, [], "a benign command must still pass");
 });
+
+// Codex on #508: the shipped guard missed `git -C "$PWD" commit -n` once the
+// short-flag table became per command. It blocks or asks on every spelling
+// whose subcommand slot holds a dynamic word.
+test("the compiled hook does not allow a --no-verify commit behind a dynamic word", () => {
+  for (const [command, want] of [
+    ['git -C "$PWD" commit -n -m x', "block"],
+    ['git -c "$K=$V" commit -n -m x', "block"],
+    ["git $OPTS commit -n -m x", "ask"],
+    ['git "$SUB" -n -m x', "ask"],
+  ] as const) {
+    const r = runHook(
+      `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`,
+      {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command },
+      },
+      { cwd: REPO_ROOT },
+    );
+    if (want === "block") assert.equal(r.blocked, true, command);
+    else assert.equal(r.decision, "ask", command);
+  }
+}, 60_000);

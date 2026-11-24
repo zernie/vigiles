@@ -117,10 +117,21 @@ test("a handed-on command the gate cannot read is never the same operation", () 
     assert.equal(sameOperation(SEED, v), false, v);
 });
 
-test("git -C . stays out of the generator: the check reads . as an argument", () => {
+test("git -C . is a spelling: the same push in the same directory", () => {
   const form = "git -C . push --force origin main";
-  assert.equal(sameOperation(SEED, form), false);
-  assert.ok(!equivalentCommands(SEED).includes(form));
+  assert.equal(sameOperation(SEED, form), true);
+  assert.ok(equivalentCommands(SEED).includes(form));
+  // Another directory is another repository, not a spelling.
+  assert.equal(
+    sameOperation(SEED, "git -C ../o push --force origin main"),
+    false,
+  );
+  // The compound seed: `-C .` goes on its first git leaf.
+  assert.ok(
+    equivalentCommands(
+      "git commit -am wip && git push -f origin main",
+    ).includes("git -C . commit -am wip && git push -f origin main"),
+  );
 });
 
 test("flag aliases are scoped by program and subcommand, never global", () => {
