@@ -45,7 +45,7 @@ const hit = runHook(
   { hook_event_name: "UserPromptSubmit", prompt: "please ultrawork on this" },
   { env },
 );
-assertChecks(hit, [check.hookFired("UserPromptSubmit", { blocked: false })]); // a context hook never blocks
+assertChecks(hit, [check.hook("UserPromptSubmit", { blocked: false })]); // a context hook never blocks
 const injected = hit.json?.hookSpecificOutput?.additionalContext ?? "";
 if (!injected.includes("ULTRAWORK")) {
   throw new Error(
@@ -62,7 +62,7 @@ const miss = runHook(
   },
   { env },
 );
-assertChecks(miss, [check.hookFired("UserPromptSubmit", { blocked: false })]);
+assertChecks(miss, [check.hook("UserPromptSubmit", { blocked: false })]);
 if (miss.json?.hookSpecificOutput?.additionalContext) {
   throw new Error("a plain prompt should not inject skill routing");
 }

@@ -255,37 +255,37 @@ describe("check.tool(name, { max: 0 }) — a RegExp names the tool it caught", (
   });
 });
 
-describe("check.hookFired — event or label, a RegExp, { blocked }", () => {
+describe("check.hook — event or label, a RegExp, { blocked }", () => {
   const t = makeTrace({
     hooks: [hook("PreToolUse:Edit", true), hook("PostToolUse:Bash")],
   });
 
   test("matches the label as well as the event", () => {
-    assert.equal(check.hookFired("PreToolUse:Edit").eval(t).pass, true);
-    assert.equal(check.hookFired("PostToolUse").eval(t).pass, true);
-    assert.equal(check.hookFired(/^Pre/).eval(t).pass, true);
-    const miss = check.hookFired("Stop").eval(t);
+    assert.equal(check.hook("PreToolUse:Edit").eval(t).pass, true);
+    assert.equal(check.hook("PostToolUse").eval(t).pass, true);
+    assert.equal(check.hook(/^Pre/).eval(t).pass, true);
+    const miss = check.hook("Stop").eval(t);
     assert.match(miss.message, /\[PreToolUse:Edit, PostToolUse:Bash\]/);
     assert.match(
-      check.hookFired("Stop").eval(makeTrace()).message,
+      check.hook("Stop").eval(makeTrace()).message,
       /none \(did you set transcript: true\?\)/,
     );
   });
 
   test("{ blocked: true } demands a block", () => {
     assert.equal(
-      check.hookFired("PreToolUse", { blocked: true }).eval(t).pass,
+      check.hook("PreToolUse", { blocked: true }).eval(t).pass,
       true,
     );
-    const r = check.hookFired("PostToolUse", { blocked: true }).eval(t);
+    const r = check.hook("PostToolUse", { blocked: true }).eval(t);
     assert.equal(r.pass, false);
     assert.match(r.message, /to block, but none did/);
     assert.match(
-      check.hookFired("PreToolUse", { blocked: true }).eval(t).message,
+      check.hook("PreToolUse", { blocked: true }).eval(t).message,
       /fired and blocked/,
     );
-    assert.deepEqual(check.hookFired(/^Pre/, { blocked: true }).toJSON(), {
-      kind: "hookFired",
+    assert.deepEqual(check.hook(/^Pre/, { blocked: true }).toJSON(), {
+      kind: "hook",
       event: "/^Pre/",
       regex: true,
       blocked: true,
@@ -426,7 +426,7 @@ describe("check.delivered — a nudge's text reached the model", () => {
   });
 });
 
-describe("check.egressOnly / check.writes — a confined run's effects", () => {
+describe("check.egress / check.writes — a confined run's effects", () => {
   const reached = hookResult({
     egress: [
       { host: "registry.npmjs.org", port: 443, ts: 1 },
@@ -435,14 +435,15 @@ describe("check.egressOnly / check.writes — a confined run's effects", () => {
     filesWritten: [".omc/state/x.json", "out.txt"],
   });
 
-  test("egressOnly: [] means nowhere; an allowlist names the offender", () => {
-    assert.equal(check.egressOnly([]).eval(hookResult()).pass, true);
+  test("egress: { none: true } means nowhere; an allowlist names the offender", () => {
+    assert.equal(check.egress({ none: true }).eval(hookResult()).pass, true);
     assert.match(
-      check.egressOnly([]).eval(reached).message,
+      check.egress({ none: true }).eval(reached).message,
       /registry\.npmjs\.org:443, evil\.example:80/,
     );
     assert.equal(
-      check.egressOnly(["registry.npmjs.org", /evil\./]).eval(reached).pass,
+      check.egress({ only: ["registry.npmjs.org", /evil\./] }).eval(reached)
+        .pass,
       true,
     );
   });
@@ -479,7 +480,7 @@ describe("check.egressOnly / check.writes — a confined run's effects", () => {
   test("they compose with assertChecks", () => {
     assert.throws(() => {
       const effects: readonly Check<HookRunResult>[] = [
-        check.egressOnly([]),
+        check.egress({ none: true }),
         check.writes({ none: ["out.txt"] }),
       ];
       assertChecks(reached, effects);

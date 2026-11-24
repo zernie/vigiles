@@ -83,7 +83,7 @@ function unverifiable(kind: string, message: string): Check<Trace> {
 /**
  * The one surface check, chosen by how much of the declaration is actually
  * readable. Both degenerate states FAIL rather than pass vacuously — see
- * {@link skillContract}.
+ * {@link readSkillContract}.
  */
 function buildSurface(d: {
   readonly path: string;
@@ -215,7 +215,9 @@ function resolvePlugin(skillDir: string): string | undefined {
 }
 
 /**
- * Read `<skillDir>/SKILL.md` and return its declaration as checks.
+ * Read `<skillDir>/SKILL.md` and return its declaration as checks — a
+ * READER, so it is a root function and not a member of `check` (v53, it was
+ * `check.skillContract`): `assertChecks(trace, [c.activation, ...c.surface])`.
  *
  * Two states are FINDINGS rather than empty contracts, and both return a
  * `surface` that FAILS instead of passing vacuously:
@@ -228,8 +230,10 @@ function resolvePlugin(skillDir: string): string | undefined {
  *   salvage of it would be a guess. A declaration that does not parse is not an
  *   enforcement. (Observed live: a single unquoted `: ` inside the description
  *   silently voided a skill's whole tool contract.)
+ *
+ * @public
  */
-export function skillContract(
+export function readSkillContract(
   skillDir: string,
   options: SkillContractOptions = {},
 ): SkillContract {

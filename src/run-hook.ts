@@ -324,7 +324,7 @@ export interface HookOutput {
 export interface HookRunResult extends ScriptRunResult {
   /**
    * The event the hook was run for — the input's `hook_event_name` — or
-   * undefined when the input named none. `check.hookFired(event)` matches it.
+   * undefined when the input named none. `check.hook(event)` matches it.
    */
   readonly event?: string;
   /** Parsed stdout JSON if the hook emitted a JSON decision, else null. */
@@ -336,7 +336,7 @@ export interface HookRunResult extends ScriptRunResult {
    * {@link HookRunResult.haltsTurn}).
    *
    * The halt case was missing until 2026-08-31 (#174), and the shape of that bug
-   * is worth keeping written down: `verifyGuardrail` reads this field, so a real
+   * is worth keeping written down: `runGuardrail` reads this field, so a real
    * `PreToolUse` guard that stopped every one of the disaster battery's commands
    * was reported by `assertGuardrail` as blocking NONE of them. A tool
    * whose stated job is catching a guard that looks fine and silently does

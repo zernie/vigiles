@@ -78,7 +78,7 @@ import type {
 export const EVAL_DEFINITION = Symbol.for("vigiles.eval.definition");
 
 /**
- * `measureSelectionMatrix`'s two arguments as one declarable object.
+ * `paid_measureSelectionMatrix`'s two arguments as one declarable object.
  *
  * @public
  */
@@ -105,7 +105,7 @@ export interface EvalMeasurements {
   /** Does a skill's description actually fire — `paid_measureTriggerRate`. */
   readonly measureTriggerRate?: TriggerRateSpec;
   /**
-   * The N×N skill-selection collision matrix — `measureSelectionMatrix` from
+   * The N×N skill-selection collision matrix — `paid_measureSelectionMatrix` from
    * `vigiles/harness/claude-code`. Declared here because a description is a description
    * whatever harness answers it; only `eval-entry.ts` resolves it to a runner.
    */
@@ -153,7 +153,7 @@ export interface EvalHooks<K extends EvalKind> {
   /**
    * Drive the measurement with this harness instead of the real `claude` CLI —
    * the declarative home for the second argument of
-   * `measureTriggerRate(spec, { evalDriver })`, e.g. `codexEvalDriver` from
+   * `measureTriggerRate(spec, { evalDriver })`, e.g. `paid_codexEvalDriver` from
    * `vigiles/harness/codex`, or a fake runner in a test.
    *
    * ⚠️ `measureTriggerRate` ONLY. That is not a limitation of this shape but of

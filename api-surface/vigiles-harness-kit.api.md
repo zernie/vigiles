@@ -42,9 +42,6 @@ export function assertAdapterConformance(adapter: HarnessAdapter): void;
 // @public
 export function assertAdapterLoadsHooks(adapter: HarnessAdapter): void;
 
-// @public
-export function checkAdapterConformance(adapter: HarnessAdapter): ConformanceResult;
-
 // @public (undocumented)
 export interface ConformanceResult {
     // (undocumented)
@@ -368,6 +365,9 @@ export interface RequestChannel {
     firstRequest(): string | undefined;
     reset(): void;
 }
+
+// @public
+export function runAdapterConformance(adapter: HarnessAdapter): ConformanceResult;
 
 // @public
 export interface RunEnvPolicy {

@@ -6,8 +6,9 @@
  * codes, no JSON plumbing, no `claude` binary, milliseconds.
  *
  *   experimental_loadHook(path)  ->  the hook object
- *   experimental_assertHookDenies / experimental_assertHookAllows      (gates)
- *   experimental_assertHookNotices / experimental_assertHookSilent     (reacts)
+ *   runHookProgram(hook, event)  ->  its outcome
+ *   experimental_decision("deny" | "allow")        (gates)
+ *   experimental_decision("notice" | "silent")     (reacts)
  *
  * Contrast with `hook-unit.harness.mjs`, which drives a hook as a PROCESS via
  * `runHook`. That tier is still the right one for a hand-written shell hook, or
@@ -23,12 +24,11 @@
  * Node >= 23.6.
  */
 import {
+  experimental_decision,
   experimental_loadHook,
-  experimental_assertHookDenies,
-  experimental_assertHookAllows,
-  experimental_assertHookNotices,
-  experimental_assertHookSilent,
+  runHookProgram,
 } from "../../dist/entries/hook/testing.js";
+import { assertChecks } from "../../dist/entries/index.js";
 
 // --- a GATE: load it by path, assert over its decisions ---------------------
 
@@ -38,14 +38,20 @@ const guard = await experimental_loadHook(
 
 const bash = (command) => ({ tool_name: "Bash", tool_input: { command } });
 
-experimental_assertHookDenies(guard, bash("git push --force origin main"));
+assertChecks(runHookProgram(guard, bash("git push --force origin main")), [
+  experimental_decision("deny"),
+]);
 // The matcher is AST-backed, so the compound-command bypass is caught too.
-experimental_assertHookDenies(
-  guard,
-  bash("cd repo && git commit -am wip && git push -f"),
+assertChecks(
+  runHookProgram(guard, bash("cd repo && git commit -am wip && git push -f")),
+  [experimental_decision("deny")],
 );
-experimental_assertHookAllows(guard, bash("git push origin main"));
-experimental_assertHookAllows(guard, bash("git status"));
+assertChecks(runHookProgram(guard, bash("git push origin main")), [
+  experimental_decision("allow"),
+]);
+assertChecks(runHookProgram(guard, bash("git status")), [
+  experimental_decision("allow"),
+]);
 console.log("  ✓ gate: denies a force-push (however wrapped), allows the rest");
 
 // --- a REACT: its notice goes to stderr AND (on an injectable event) stdout
@@ -61,8 +67,12 @@ const afterBash = (isError) => ({
   tool_response: isError ? { error: "boom" } : { stdout: "ok" },
 });
 
-experimental_assertHookNotices(warn, afterBash(true), /read the error/);
-experimental_assertHookSilent(warn, afterBash(false));
+assertChecks(runHookProgram(warn, afterBash(true)), [
+  experimental_decision("notice", /read the error/),
+]);
+assertChecks(runHookProgram(warn, afterBash(false)), [
+  experimental_decision("silent"),
+]);
 console.log("  ✓ react: notices on a failure, stays silent on success");
 
 console.log("\n6 passed.");

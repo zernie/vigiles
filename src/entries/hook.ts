@@ -57,7 +57,7 @@
 export {
   // ── the six ENTRY POINTS carry the experimental marking ─────────────────────
   // Same shape as `experimental_skill`, and for the same stated reason: every
-  // other name in this file — `allow`, `deny`, `tool`, `parseFilePath`, `state`,
+  // other name in this file — `allow`, `deny`, `tool`, `state`,
   // `record` — is reachable ONLY from inside a `define*` call, so prefixing the
   // entry points makes the marking structural for the whole vocabulary. A
   // per-name prefix could not guarantee that; a chokepoint can.
@@ -83,8 +83,6 @@ export {
   allow,
   deny,
   ask,
-  parseShellCommand,
-  parseFilePath,
   // inject vocabulary
   experimental_defineInject,
   inject,
@@ -97,8 +95,8 @@ export {
 } from "../core/hook-program.js";
 
 // ── testing a compiled hook is NOT here ──────────────────────────────────────
-// `experimental_loadHook`, `runHookProgram` and the `experimental_assertHook*`
-// tests live on `vigiles/hook/testing`. This entry is the ONLY import a compiled
+// `experimental_loadHook`, `runHookProgram` and its check `experimental_decision`
+// live on `vigiles/hook/testing`. This entry is the ONLY import a compiled
 // hook may have, so whatever it exports, every hook can call: with the loader
 // here, a hook could load a second local module that no capability check reads
 // and no stamp covers (Codex P1 on #510). src/hook-entry-effects.test.ts holds
@@ -159,19 +157,10 @@ export type {
   ProviderRegistry,
 } from "../core/hook-providers.js";
 
-// Operation-normalized leaf extraction — the primitive `runs()`, `touches()`
-// and `pipesToShell()` match over, so a guard written against the closed
-// vocabulary sees the OPERATION rather than the literal tokens.
-//
-// It is exported because `examples/harness/safe-bash-guard-v2.hook.mjs` needs it —
-// and that need is the finding, not the feature. v2 is an UNRUN experiment (no
-// test executes it) covering three things the vocabulary cannot yet express: a
-// flag with a value (`--index-url`), an env-assignment prefix, and a
-// cross-leaf pipeline fact (`env | curl`). Reaching for this export is how a
-// guard author escapes the closed vocabulary — the thing `checkHookImports`
-// exists to prevent — so treat a new consumer as a request for vocabulary,
-// not as the intended path. Measured 2026-09-03: on the 7 seeds plus every
-// generated spelling (143 cases) v1 and v2 both block 143/143, so v2 is no
-// longer the "hardened" one; see zernie/vigiles#193.
-export { leafCommandsNormalized } from "../core/bash-effects.js";
-export type { NormalizedLeaf, LeafRedirect } from "../core/bash-effects.js";
+// v53 (#518): the parsers left this entry. `parseShellCommand`, `parseFilePath`
+// and `leafCommandsNormalized` (with its `NormalizedLeaf` / `LeafRedirect`
+// types) are internal now. No compiled hook, example or shipped hook called
+// them through here: a hook reads `e.command` / `e.path`, which the runtime
+// already parsed. The one consumer was an unrun experiment
+// (`safe-bash-guard-v2`, deleted), and reaching for the leaf extractor was how
+// a guard escaped the closed vocabulary — a need for vocabulary, not an export.

@@ -23,7 +23,7 @@ import {
   codexSkillFired,
   codexRunError,
   installCodexSkills,
-  codexEvalDriver,
+  paid_codexEvalDriver,
   CODEX_TRIGGER_RATE_EXPERIMENTAL,
 } from "./eval.js";
 
@@ -136,19 +136,25 @@ test("installCodexSkills materializes a plugin's skills into <cwd>/.codex/skills
   }
 });
 
-test("codexEvalDriver wires the codex parser + rate-limit detector", () => {
-  assert.equal(codexEvalDriver.parse, parseCodexEvalRun);
-  assert.equal(codexEvalDriver.runError, codexRunError);
-  assert.equal(typeof codexEvalDriver.runner, "function");
+test("paid_codexEvalDriver wires the codex parser + rate-limit detector", () => {
+  assert.equal(paid_codexEvalDriver.parse, parseCodexEvalRun);
+  assert.equal(paid_codexEvalDriver.runError, codexRunError);
+  assert.equal(typeof paid_codexEvalDriver.runner, "function");
 });
 
-test("codexEvalDriver flags trigger-rate EXPERIMENTAL (Codex-only, not supported)", () => {
-  assert.equal(codexEvalDriver.harness, "codex");
+test("paid_codexEvalDriver flags trigger-rate EXPERIMENTAL (Codex-only, not supported)", () => {
+  assert.equal(paid_codexEvalDriver.harness, "codex");
   // The caveat is present and explains the no-skill-event heuristic (both failure
   // directions), so the number never reads as a validated measurement.
-  assert.equal(codexEvalDriver.experimental, CODEX_TRIGGER_RATE_EXPERIMENTAL);
-  assert.match(codexEvalDriver.experimental ?? "", /experimental/i);
-  assert.match(codexEvalDriver.experimental ?? "", /SKILL\.md|skill-selection/);
+  assert.equal(
+    paid_codexEvalDriver.experimental,
+    CODEX_TRIGGER_RATE_EXPERIMENTAL,
+  );
+  assert.match(paid_codexEvalDriver.experimental ?? "", /experimental/i);
+  assert.match(
+    paid_codexEvalDriver.experimental ?? "",
+    /SKILL\.md|skill-selection/,
+  );
 });
 
 test("parseCodexEvalRun is tolerant + returns the Claude-shaped contract", () => {

@@ -13,26 +13,28 @@ import { chmodSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import {
-  assertGuardrail,
+  experimental_crossRepo,
   formatGuardrailReport,
-  verifyGuardrail,
-  type TargetRepoResult,
+  guardrail,
+  runGuardrail,
+  type CrossRepoRow,
 } from "./guardrail-check.js";
+import { assertChecks } from "./check.js";
 import type {
-  TargetRepoCases,
-  TargetRepoFixture,
+  CrossRepoFixture,
+  CrossRepoSetup,
 } from "./guardrail-target-repo.js";
 import { allow, deny, experimental_defineHook } from "./core/hook-program.js";
 import { ADAPTERS } from "./adapter-registry.js";
 import { cleanupTmpDir, makeTmpDir } from "./core/test-utils.js";
 
 /** The owner's sketch: a force push must be blocked on main, allowed on a feature branch. */
-const FORCE_PUSH_ON_MAIN: TargetRepoCases = {
+const FORCE_PUSH_ON_MAIN: CrossRepoSetup = {
   command: "git push -f origin HEAD",
-  blocked: (repo) => {
+  blockIn: (repo) => {
     repo.branch("main");
   },
-  allowed: (repo) => {
+  allowIn: (repo) => {
     repo.branch("feature/x");
   },
 };
@@ -84,7 +86,7 @@ function constantGuard(dir: string, exitCode: number): string {
   return `bash ${writeHook(dir, `const-${String(exitCode)}.sh`, `#!/usr/bin/env bash\ncat >/dev/null\nexit ${String(exitCode)}\n`)}`;
 }
 
-const byId = (rows: readonly TargetRepoResult[], id: string) => {
+const byId = (rows: readonly CrossRepoRow[], id: string) => {
   const r = rows.find((x) => x.event.id === id);
   assert.ok(r, `no row ${id} in ${rows.map((x) => x.event.id).join(", ")}`);
   return r;
@@ -97,10 +99,11 @@ test("a guard that reads its own folder's branch: controls pass, every crossing 
   try {
     const guard = naiveGuard(dir);
     for (const adapter of ADAPTERS) {
-      const rows = verifyGuardrail(guard, {
-        protocol: adapter.hookProtocol,
-        experimental_targetRepo: FORCE_PUSH_ON_MAIN,
-      });
+      const rows = runGuardrail(
+        guard,
+        experimental_crossRepo(FORCE_PUSH_ON_MAIN),
+        { protocol: adapter.hookProtocol },
+      ).rows;
       assert.equal(rows.length, 12, adapter.name);
       for (const form of FORMS) {
         const ok = (id: string, blocked: boolean) => {
@@ -116,9 +119,10 @@ test("a guard that reads its own folder's branch: controls pass, every crossing 
     }
     const report = formatGuardrailReport(
       guard,
-      verifyGuardrail(guard, {
-        experimental_targetRepo: { ...FORCE_PUSH_ON_MAIN, forms: ["cd"] },
-      }),
+      runGuardrail(
+        guard,
+        experimental_crossRepo({ ...FORCE_PUSH_ON_MAIN, forms: ["cd"] }),
+      ).rows,
     );
     assert.match(
       report,
@@ -134,7 +138,10 @@ test("a guard that reads its own folder's branch: controls pass, every crossing 
     );
     assert.throws(
       () => {
-        assertGuardrail(guard, { experimental_targetRepo: FORCE_PUSH_ON_MAIN });
+        assertChecks(
+          runGuardrail(guard, experimental_crossRepo(FORCE_PUSH_ON_MAIN)),
+          [guardrail()],
+        );
       },
       (e: unknown) =>
         e instanceof Error &&
@@ -152,10 +159,11 @@ test("a guard that resolves the target passes every row of every form, on every 
   try {
     const guard = targetAwareGuard(dir);
     for (const adapter of ADAPTERS) {
-      const rows = verifyGuardrail(guard, {
-        protocol: adapter.hookProtocol,
-        experimental_targetRepo: FORCE_PUSH_ON_MAIN,
-      });
+      const rows = runGuardrail(
+        guard,
+        experimental_crossRepo(FORCE_PUSH_ON_MAIN),
+        { protocol: adapter.hookProtocol },
+      ).rows;
       for (const r of rows) {
         assert.equal(r.run, "ran", `${adapter.name} ${r.event.id}`);
         assert.equal(
@@ -165,10 +173,12 @@ test("a guard that resolves the target passes every row of every form, on every 
         );
       }
       assert.doesNotThrow(() => {
-        assertGuardrail(guard, {
-          protocol: adapter.hookProtocol,
-          experimental_targetRepo: FORCE_PUSH_ON_MAIN,
-        });
+        assertChecks(
+          runGuardrail(guard, experimental_crossRepo(FORCE_PUSH_ON_MAIN), {
+            protocol: adapter.hookProtocol,
+          }),
+          [guardrail()],
+        );
       });
     }
   } finally {
@@ -181,9 +191,10 @@ test("a guard that ignores the repository fails a control, so its crossings are 
   try {
     for (const exitCode of [0, 2]) {
       const guard = constantGuard(dir, exitCode);
-      const rows = verifyGuardrail(guard, {
-        experimental_targetRepo: FORCE_PUSH_ON_MAIN,
-      });
+      const rows = runGuardrail(
+        guard,
+        experimental_crossRepo(FORCE_PUSH_ON_MAIN),
+      ).rows;
       for (const r of rows.filter((x) => !x.event.control)) {
         assert.equal(r.run, "control-failed", r.event.id);
         assert.equal(r.ran, false);
@@ -191,9 +202,10 @@ test("a guard that ignores the repository fails a control, so its crossings are 
       }
       assert.throws(
         () => {
-          assertGuardrail(guard, {
-            experimental_targetRepo: FORCE_PUSH_ON_MAIN,
-          });
+          assertChecks(
+            runGuardrail(guard, experimental_crossRepo(FORCE_PUSH_ON_MAIN)),
+            [guardrail()],
+          );
         },
         (e: unknown) =>
           e instanceof Error &&
@@ -224,9 +236,10 @@ const MAIN_PUSH_GATE = experimental_defineHook({
 });
 
 test("a compiled gate decides on facts gathered in the start repository", () => {
-  const rows = verifyGuardrail(MAIN_PUSH_GATE, {
-    experimental_targetRepo: FORCE_PUSH_ON_MAIN,
-  });
+  const rows = runGuardrail(
+    MAIN_PUSH_GATE,
+    experimental_crossRepo(FORCE_PUSH_ON_MAIN),
+  ).rows;
   assert.equal(rows.length, 12);
   for (const r of rows) {
     assert.equal(r.run, "ran", r.event.id);
@@ -234,43 +247,46 @@ test("a compiled gate decides on facts gathered in the start repository", () => 
     assert.equal(r.blocked, startedBlocked, r.event.id);
   }
   assert.throws(() => {
-    assertGuardrail(MAIN_PUSH_GATE, {
-      experimental_targetRepo: FORCE_PUSH_ON_MAIN,
-    });
+    assertChecks(
+      runGuardrail(MAIN_PUSH_GATE, experimental_crossRepo(FORCE_PUSH_ON_MAIN)),
+      [guardrail()],
+    );
   }, /judged the start folder/);
 });
 
 test("the repositories exist during setup, have a commit, and are removed afterwards — also when a setup throws", () => {
   const dir = makeTmpDir("target-fixture");
-  const seen: TargetRepoFixture[] = [];
+  const seen: CrossRepoFixture[] = [];
   try {
-    verifyGuardrail(constantGuard(dir, 0), {
-      experimental_targetRepo: {
+    runGuardrail(
+      constantGuard(dir, 0),
+      experimental_crossRepo({
         ...FORCE_PUSH_ON_MAIN,
         forms: ["cd"],
-        allowed: (repo) => {
+        allowIn: (repo) => {
           seen.push(repo);
           assert.ok(repo.git("rev-parse", "HEAD").length >= 7);
           repo.branch("feature/x");
           assert.equal(repo.git("branch", "--show-current"), "feature/x");
         },
-      },
-    });
+      }),
+    );
     assert.equal(seen.length, 1);
     assert.equal(existsSync(seen[0].dir), false);
 
     let kept = "";
     assert.throws(
       () =>
-        verifyGuardrail("true", {
-          experimental_targetRepo: {
+        runGuardrail(
+          "true",
+          experimental_crossRepo({
             ...FORCE_PUSH_ON_MAIN,
-            blocked: (repo) => {
+            blockIn: (repo) => {
               kept = repo.dir;
               repo.git("checkout", "no-such-branch");
             },
-          },
-        }),
+          }),
+        ).rows,
       /git checkout no-such-branch failed/,
     );
     assert.notEqual(kept, "");
@@ -281,9 +297,10 @@ test("the repositories exist during setup, have a commit, and are removed afterw
 });
 
 test("the worktree form aims at a linked worktree of the start repository", () => {
-  const rows = verifyGuardrail(MAIN_PUSH_GATE, {
-    experimental_targetRepo: { ...FORCE_PUSH_ON_MAIN, forms: ["worktree"] },
-  });
+  const rows = runGuardrail(
+    MAIN_PUSH_GATE,
+    experimental_crossRepo({ ...FORCE_PUSH_ON_MAIN, forms: ["worktree"] }),
+  ).rows;
   assert.deepEqual(
     rows.map((r) => r.event.id),
     [
@@ -305,9 +322,8 @@ test("the default forms follow the command, and a form that cannot spell it is r
   const dir = makeTmpDir("target-forms");
   const rows = (() => {
     try {
-      return verifyGuardrail(constantGuard(dir, 0), {
-        experimental_targetRepo: gh,
-      });
+      return runGuardrail(constantGuard(dir, 0), experimental_crossRepo(gh))
+        .rows;
     } finally {
       cleanupTmpDir(dir);
     }
@@ -318,36 +334,37 @@ test("the default forms follow the command, and a form that cannot spell it is r
   );
   assert.throws(
     () =>
-      verifyGuardrail("true", {
-        experimental_targetRepo: { ...gh, forms: ["git-C"] },
-      }),
+      runGuardrail("true", experimental_crossRepo({ ...gh, forms: ["git-C"] }))
+        .rows,
     (e: unknown) => e instanceof TypeError && e.message.includes("git-C"),
   );
   assert.throws(
     () =>
-      verifyGuardrail("true", {
-        experimental_targetRepo: { ...gh, forms: [] },
-      }),
+      runGuardrail("true", experimental_crossRepo({ ...gh, forms: [] })).rows,
     TypeError,
   );
 });
 
-test("the battery's own options cannot be combined with the cross-repository cases", () => {
-  for (const extra of [
-    { harmless: [] },
-    { spellings: [] },
-    { categories: ["destructive-git" as const] },
-    { cwd: "/tmp" },
-  ])
-    assert.throws(
-      () =>
-        verifyGuardrail("true", {
-          ...extra,
-          experimental_targetRepo: FORCE_PUSH_ON_MAIN,
-        }),
-      (e: unknown) =>
-        e instanceof TypeError && e.message.includes("experimental_targetRepo"),
-    );
+test("a cross-repository set refuses `cwd`: each case starts in the repository it built", () => {
+  // The disaster set's own fields (`events`, `harmless`, …) live on the
+  // disaster-set value, so combining them with this set cannot be written.
+  assert.throws(
+    () =>
+      runGuardrail("true", experimental_crossRepo(FORCE_PUSH_ON_MAIN), {
+        cwd: "/tmp",
+      }),
+    (e: unknown) => e instanceof TypeError && e.message.includes("`cwd`"),
+  );
+});
+
+test("experimental_crossRepo settles the forms when it is built, before any repository exists", () => {
+  const set = experimental_crossRepo(FORCE_PUSH_ON_MAIN);
+  assert.equal(set.kind, "cross-repo");
+  assert.deepEqual(set.forms, ["cd", "git-C", "worktree"]);
+  assert.throws(
+    () => experimental_crossRepo({ ...FORCE_PUSH_ON_MAIN, forms: [] }),
+    TypeError,
+  );
 });
 
 test("a compiled gate whose non-built-in need ctx does not supply is refused before any repository is built", () => {
@@ -359,8 +376,7 @@ test("a compiled gate whose non-built-in need ctx does not supply is refused bef
     decide: () => allow(),
   });
   assert.throws(
-    () =>
-      verifyGuardrail(gate, { experimental_targetRepo: FORCE_PUSH_ON_MAIN }),
+    () => runGuardrail(gate, experimental_crossRepo(FORCE_PUSH_ON_MAIN)).rows,
     (e: unknown) => e instanceof TypeError && e.message.includes("pr.state"),
   );
 });
@@ -368,19 +384,21 @@ test("a compiled gate whose non-built-in need ctx does not supply is refused bef
 test("a condition that never selects the aimed command fails the blocked control: no verdict, and the report says not selected", () => {
   const dir = makeTmpDir("target-condition");
   try {
-    const rows = verifyGuardrail(naiveGuard(dir), {
-      condition: "Bash(terraform apply*)",
-      experimental_targetRepo: { ...FORCE_PUSH_ON_MAIN, forms: ["cd"] },
-    });
+    const rows = runGuardrail(
+      naiveGuard(dir),
+      experimental_crossRepo({ ...FORCE_PUSH_ON_MAIN, forms: ["cd"] }),
+      { condition: "Bash(terraform apply*)" },
+    ).rows;
     assert.deepEqual(
       rows.map((r) => r.run),
       ["not-selected", "not-selected", "control-failed", "control-failed"],
     );
     assert.equal(
-      verifyGuardrail(naiveGuard(dir), {
-        condition: "Bash(git push *)",
-        experimental_targetRepo: { ...FORCE_PUSH_ON_MAIN, forms: ["cd"] },
-      }).filter((r) => r.run === "ran").length,
+      runGuardrail(
+        naiveGuard(dir),
+        experimental_crossRepo({ ...FORCE_PUSH_ON_MAIN, forms: ["cd"] }),
+        { condition: "Bash(git push *)" },
+      ).rows.filter((r) => r.run === "ran").length,
       4,
       "a condition matching the aimed command selects every case",
     );
@@ -397,9 +415,10 @@ test("a hook the shell never launched is reported as not run on every case, not 
   const dir = makeTmpDir("target-crashed");
   try {
     const guard = `bash ${join(dir, "missing.sh")}`;
-    const rows = verifyGuardrail(guard, {
-      experimental_targetRepo: { ...FORCE_PUSH_ON_MAIN, forms: ["cd"] },
-    });
+    const rows = runGuardrail(
+      guard,
+      experimental_crossRepo({ ...FORCE_PUSH_ON_MAIN, forms: ["cd"] }),
+    ).rows;
     assert.ok(rows.every((r) => !r.ran));
     assert.match(
       formatGuardrailReport(guard, rows),
@@ -411,9 +430,13 @@ test("a hook the shell never launched is reported as not run on every case, not 
     );
     assert.throws(
       () => {
-        assertGuardrail(guard, {
-          experimental_targetRepo: { ...FORCE_PUSH_ON_MAIN, forms: ["cd"] },
-        });
+        assertChecks(
+          runGuardrail(
+            guard,
+            experimental_crossRepo({ ...FORCE_PUSH_ON_MAIN, forms: ["cd"] }),
+          ),
+          [guardrail()],
+        );
       },
       (e: unknown) =>
         e instanceof Error &&
@@ -449,9 +472,7 @@ test("an inherited GIT_DIR (tests run from a git hook) never reaches the fixture
     git("commit", "-q", "--allow-empty", "-m", "caller");
     const head = git("rev-parse", "HEAD");
     process.env["GIT_DIR"] = join(caller, ".git");
-    verifyGuardrail(naiveGuard(dir), {
-      experimental_targetRepo: FORCE_PUSH_ON_MAIN,
-    });
+    runGuardrail(naiveGuard(dir), experimental_crossRepo(FORCE_PUSH_ON_MAIN));
     assert.equal(git("rev-parse", "--abbrev-ref", "HEAD"), "caller-branch");
     assert.equal(git("rev-parse", "HEAD"), head);
     assert.equal(git("branch", "--list", "main", "feature/x"), "");

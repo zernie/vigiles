@@ -48,7 +48,7 @@ function optionalPaths(
  *
  * @public
  */
-export function checkAdapterConformance(
+export function runAdapterConformance(
   adapter: HarnessAdapter,
 ): ConformanceResult {
   const failures: string[] = [];
@@ -324,7 +324,7 @@ export function checkAdapterConformance(
  * @public
  */
 export function assertAdapterConformance(adapter: HarnessAdapter): void {
-  const r = checkAdapterConformance(adapter);
+  const r = runAdapterConformance(adapter);
   if (!r.ok) {
     throw new Error(
       `Adapter "${adapter.name}" failed conformance:\n  - ${r.failures.join("\n  - ")}`,

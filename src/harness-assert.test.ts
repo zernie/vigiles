@@ -3,6 +3,7 @@
  * eval delta helpers and the jest/vitest matchers. The pure logic is exercised
  * here with fake result/report objects (no model, no claude).
  */
+import { experimental_decision, runHookProgram } from "./hook-assertions.js";
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -11,12 +12,6 @@ import { join } from "node:path";
 
 import { vigilesMatchers } from "./harness-assert.js";
 import { check, assertChecks } from "./check.js";
-import {
-  experimental_assertHookDenies as assertHookDenies,
-  experimental_assertHookAllows as assertHookAllows,
-  experimental_assertHookNotices as assertHookNotices,
-  experimental_assertHookSilent as assertHookSilent,
-} from "./hook-assertions.js";
 import { experimental_assertAgentOk as assertAgentOk } from "./entries/spec.js";
 import { assertNoRegression } from "./eval-readers.js";
 import { toBaselineFile } from "./eval-baseline.js";
@@ -45,10 +40,10 @@ const assertDelivered = (r: RunOf<typeof check.delivered>): void => {
   assertChecks(r, [check.delivered()]);
 };
 const assertEgressOnly = (
-  r: RunOf<typeof check.egressOnly>,
+  r: RunOf<typeof check.egress>,
   allowed: ReadonlyArray<string | RegExp>,
 ): void => {
-  assertChecks(r, [check.egressOnly(allowed)]);
+  assertChecks(r, [check.egress({ only: allowed })]);
 };
 // `assertNoWrite` / `assertWroteOnly` are `check.writes({ none })` / `({ only })` (v52).
 type RecordedWrites = { readonly filesWritten?: readonly string[] };
@@ -141,6 +136,15 @@ function fakeResult(
   };
 }
 
+/** Run a compiled hook in-process and check its outcome (throws on a miss). */
+function decides(
+  hook: Parameters<typeof runHookProgram>[0],
+  event: Parameters<typeof runHookProgram>[1],
+  ...expect: Parameters<typeof experimental_decision>
+): void {
+  assertChecks(runHookProgram(hook, event), [experimental_decision(...expect)]);
+}
+
 test("assertDelivered: passes only on delivered, and names the cause of every other verdict", () => {
   const withDelivery = (delivery: HookRunResult["delivery"], ran = true) => ({
     ...fakeHook(false),
@@ -173,7 +177,7 @@ test("assertDelivered: passes only on delivered, and names the cause of every ot
   }, /never ran: the if did not match/);
   assert.throws(() => {
     assertDelivered(withDelivery({ kind: "blocked", stranded: [] }));
-  }, /check\.hookFired\(event, \{ blocked: true \}\)/);
+  }, /check\.hook\(event, \{ blocked: true \}\)/);
   assert.throws(() => {
     assertDelivered(
       withDelivery({ kind: "unknown", event: "X", why: "no row" }),
@@ -422,7 +426,7 @@ test("assertNoRegression gates on a significant drop vs baseline", () => {
   }
 });
 
-test("assertHookDenies / assertHookAllows test a compiled hook in-process (no subprocess)", () => {
+test("experimental_decision deny / allow checks a compiled hook in-process (no subprocess)", () => {
   const guard = experimental_defineHook({
     on: "PreToolUse",
     decide: (e) =>
@@ -437,18 +441,18 @@ test("assertHookDenies / assertHookAllows test a compiled hook in-process (no su
 
   // No throw on the matching decision …
   assert.doesNotThrow(() => {
-    assertHookDenies(guard, ev("git push --force origin main"));
+    decides(guard, ev("git push --force origin main"), "deny");
   });
   assert.doesNotThrow(() => {
-    assertHookAllows(guard, ev("git status"));
+    decides(guard, ev("git status"), "allow");
   });
   // … and a loud throw on the wrong one (the message names what it got).
   assert.throws(() => {
-    assertHookDenies(guard, ev("git status"));
+    decides(guard, ev("git status"), "deny");
   }, /expected the hook to deny, got allow \(a gate decision\)/);
   // assertHookAllows throws on a deny (the other fail path + message).
   assert.throws(() => {
-    assertHookAllows(guard, ev("git push -f"));
+    decides(guard, ev("git push -f"), "allow");
   }, /expected the hook to allow, got deny \(a gate decision\)/);
 
   // A non-gate hook isn't a decision at all — the message names the role, so a
@@ -458,7 +462,7 @@ test("assertHookDenies / assertHookAllows test a compiled hook in-process (no su
     produce: () => inject("hi"),
   });
   assert.throws(() => {
-    assertHookDenies(briefing, { source: "startup" });
+    decides(briefing, { source: "startup" }, "deny");
   }, /got an injection/);
 
   const formatOnWrite = experimental_defineReact({
@@ -467,10 +471,13 @@ test("assertHookDenies / assertHookAllows test a compiled hook in-process (no su
     react: () => run("prettier --write x"),
   });
   assert.throws(() => {
-    assertHookDenies(formatOnWrite, {
-      tool_name: "Write",
-      tool_input: { file_path: "x.ts" },
-    });
+    assertChecks(
+      runHookProgram(formatOnWrite, {
+        tool_name: "Write",
+        tool_input: { file_path: "x.ts" },
+      }),
+      [experimental_decision("deny")],
+    );
   }, /got run \(a reaction\)/);
 });
 
@@ -479,7 +486,7 @@ test("assertHookDenies / assertHookAllows test a compiled hook in-process (no su
 // a probe built on `execFileSync` (stdout only) reported three perfectly healthy
 // react hooks as DEAD on 2026-08-03. These read the reaction in-process, so
 // stdout-vs-stderr never enters into it.
-test("assertHookNotices / assertHookSilent test a react hook in-process", () => {
+test("experimental_decision notice / silent checks a react hook in-process", () => {
   const warnOnFailure = experimental_defineReact({
     on: "PostToolUse",
     match: tools("Bash"),
@@ -492,33 +499,25 @@ test("assertHookNotices / assertHookSilent test a react hook in-process", () => 
     tool_response: isError ? { error: "boom" } : { stdout: "ok" },
   });
 
-  assert.doesNotThrow(() => {
-    assertHookNotices(warnOnFailure, ev(true));
-  });
-  assert.doesNotThrow(() => {
-    assertHookSilent(warnOnFailure, ev(false));
-  });
+  decides(warnOnFailure, ev(true), "notice"); // throws on a miss
+  decides(warnOnFailure, ev(false), "silent"); // throws on a miss
 
   // The message can be pinned by substring OR regexp.
-  assert.doesNotThrow(() => {
-    assertHookNotices(warnOnFailure, ev(true), "check the log");
-  });
-  assert.doesNotThrow(() => {
-    assertHookNotices(warnOnFailure, ev(true), /failed/);
-  });
+  decides(warnOnFailure, ev(true), "notice", "check the log"); // throws on a miss
+  decides(warnOnFailure, ev(true), "notice", /failed/); // throws on a miss
   assert.throws(() => {
-    assertHookNotices(warnOnFailure, ev(true), "totally different");
+    decides(warnOnFailure, ev(true), "notice", "totally different");
   }, /expected the notice to match totally different, got "that command failed/);
   assert.throws(() => {
-    assertHookNotices(warnOnFailure, ev(true), /^nope$/);
+    decides(warnOnFailure, ev(true), "notice", /^nope$/);
   }, /expected the notice to match/);
 
   // Each assertion throws loudly on the other outcome (never a silent pass).
   assert.throws(() => {
-    assertHookNotices(warnOnFailure, ev(false));
+    decides(warnOnFailure, ev(false), "notice");
   }, /expected the hook to notice, got none \(a reaction\)/);
   assert.throws(() => {
-    assertHookSilent(warnOnFailure, ev(true));
+    decides(warnOnFailure, ev(true), "silent");
   }, /expected the hook to stay silent, got notice \(a reaction\)/);
 
   // A `run(…)` reaction is not silence — the hook still reacted.
@@ -528,10 +527,13 @@ test("assertHookNotices / assertHookSilent test a react hook in-process", () => 
     react: () => run("prettier --write x"),
   });
   assert.throws(() => {
-    assertHookSilent(formatOnWrite, {
-      tool_name: "Write",
-      tool_input: { file_path: "x.ts" },
-    });
+    assertChecks(
+      runHookProgram(formatOnWrite, {
+        tool_name: "Write",
+        tool_input: { file_path: "x.ts" },
+      }),
+      [experimental_decision("silent")],
+    );
   }, /expected the hook to stay silent, got run \(a reaction\)/);
 
   // Aimed at the wrong ROLE, both name what they got instead of passing.
@@ -540,13 +542,16 @@ test("assertHookNotices / assertHookSilent test a react hook in-process", () => 
     decide: () => allow(),
   });
   assert.throws(() => {
-    assertHookNotices(guard, { tool_name: "Bash", tool_input: { command: "x" } }); // prettier-ignore
+    decides(guard, { tool_name: "Bash", tool_input: { command: "x" } }, "notice"); // prettier-ignore
   }, /expected the hook to notice, got allow \(a gate decision\)/);
   assert.throws(() => {
-    assertHookSilent(guard, {
-      tool_name: "Bash",
-      tool_input: { command: "x" },
-    });
+    assertChecks(
+      runHookProgram(guard, {
+        tool_name: "Bash",
+        tool_input: { command: "x" },
+      }),
+      [experimental_decision("silent")],
+    );
   }, /expected a react hook, got allow \(a gate decision\)/);
 });
 

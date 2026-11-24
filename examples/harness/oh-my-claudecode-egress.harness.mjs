@@ -59,7 +59,7 @@ scenario("oh-my-claudecode keyword-detector makes zero egress", () => {
   if (!/ULTRAWORK/.test(r.json?.hookSpecificOutput?.additionalContext ?? "")) {
     throw new Error("the hook should still inject its routing");
   }
-  assertChecks(r, [check.egressOnly([])]); // …and reach out to nothing
+  assertChecks(r, [check.egress({ none: true })]); // …and reach out to nothing
 });
 
 // 2. A REAL finding: OMC's session-start hook update-checks the npm registry on
@@ -93,7 +93,7 @@ if (Number(process.versions.node.split(".")[0]) < 22) {
         `expected the update check recorded; got ${JSON.stringify(r.egress)}`,
       );
     }
-    assertChecks(r, [check.egressOnly(["registry.npmjs.org"])]);
+    assertChecks(r, [check.egress({ only: ["registry.npmjs.org"] })]);
     console.log(
       `      (recorded ${hit.host}:${hit.port} — its update check — and blocked it)`,
     );

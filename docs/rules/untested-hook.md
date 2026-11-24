@@ -56,7 +56,7 @@ To check it works today, run it in a test (`runHook`).
 name the hook from the command line they executed, so a `vigiles test` run that
 fires this hook covers it wherever the test file happens to live — and coverage
 prints `MEASURED BY A RUN`; a harness that evaluates a compiled hook in-process
-(`experimental_loadHook` + `experimental_assertHookDenies`) records it too. **Colocation second**, as the
+(`experimental_loadHook` + `runHookProgram`) records it too. **Colocation second**, as the
 fallback: a test named after the program, beside it. A test elsewhere that
 merely NAMES the hook does not count (that tier was removed 2026-08-11; it was
 crediting these very hooks from the coverage detector's own fixtures). See

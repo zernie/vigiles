@@ -4,11 +4,67 @@
 
 ```ts
 
-// @public
-export function assertGuardrail(hook: string | AnyHook, opts?: VerifyGuardrailOptions): void;
+// @beta
+export interface CrossRepoCases extends CrossRepoSetup {
+    readonly forms: readonly CrossRepoForm[];
+    readonly kind: "cross-repo";
+}
+
+// @beta
+export interface CrossRepoEvent {
+    readonly control: boolean;
+    readonly id: string;
+    readonly input: Record<string, unknown>;
+    readonly label: string;
+    readonly start: CrossRepoSide;
+    readonly target: CrossRepoSide;
+    readonly tool: string;
+    readonly via: CrossRepoForm;
+}
+
+// @beta
+export interface CrossRepoFixture {
+    branch(name: string): void;
+    readonly dir: string;
+    git(...args: readonly string[]): string;
+}
+
+// @beta
+export type CrossRepoForm = "cd" | "git-C" | "worktree";
+
+// @beta
+export type CrossRepoRow = GuardrailRow<"block" | "allow", CrossRepoEvent>;
+
+// @beta
+export interface CrossRepoSetup {
+    readonly allowIn: (repo: CrossRepoFixture) => void;
+    readonly blockIn: (repo: CrossRepoFixture) => void;
+    readonly command: string;
+    readonly forms?: readonly CrossRepoForm[];
+}
+
+// @beta
+export type CrossRepoSide = "blocked" | "allowed";
 
 // @public
 export const DISASTER_CATALOG: readonly DisasterEvent[];
+
+// @public
+export interface DisasterCases {
+    readonly events: readonly DisasterEvent[];
+    readonly harmless: readonly HarmlessEvent[];
+    readonly kind: "disasters";
+    readonly spellings: readonly DisasterEvent[];
+    readonly unproven: readonly DisasterEvent[];
+}
+
+// @public
+export interface DisasterCasesOptions {
+    readonly categories?: readonly DisasterCategory[];
+    readonly events?: readonly DisasterEvent[];
+    readonly harmless?: readonly HarmlessEvent[];
+    readonly spellings?: readonly DisasterEvent[];
+}
 
 // @public
 export type DisasterCategory = "destructive-git" | "destructive-fs" | "bypass-verification" | "secret-exfiltration" | "remote-code";
@@ -22,23 +78,20 @@ export interface DisasterEvent {
     readonly tool: string;
 }
 
-// @beta
-export function experimental_alternateSpellings(events: readonly DisasterEvent[]): readonly DisasterEvent[];
+// @public
+export type DisasterRow = GuardrailRow<"block", DisasterEvent> | GuardrailRow<"allow", HarmlessEvent>;
+
+// @public
+export function disasters(opts?: DisasterCasesOptions): DisasterCases;
 
 // @beta
-export function experimental_assertHookAllows(hook: AnyHook, event: RawHookEvent): void;
+export type ExpectedDecision = "deny" | "allow" | "notice" | "silent";
 
 // @beta
-export function experimental_assertHookDenies(hook: AnyHook, event: RawHookEvent): void;
+export function experimental_crossRepo(setup: CrossRepoSetup): CrossRepoCases;
 
 // @beta
-export function experimental_assertHookNotices(hook: AnyHook, event: RawHookEvent, matcher?: string | RegExp): void;
-
-// @beta
-export function experimental_assertHookSilent(hook: AnyHook, event: RawHookEvent): void;
-
-// @beta
-export function experimental_harmlessTwins(events: readonly DisasterEvent[]): readonly HarmlessEvent[];
+export function experimental_decision(expect: ExpectedDecision, matcher?: string | Readonly<RegExp>): Check<HookProgramOutcome>;
 
 // @beta
 export function experimental_hookState(hookFile: string, opts?: {
@@ -49,13 +102,16 @@ export function experimental_hookState(hookFile: string, opts?: {
 export function experimental_loadHook(file: string, root?: string): Promise<AnyHook>;
 
 // @beta
-export function experimental_verifyPluginGuards(dir: string, opts?: VerifyPluginGuardsOptions): PluginGuardReport;
+export function experimental_runPluginGuards(dir: string, opts?: RunPluginGuardsOptions): PluginGuardReport;
 
 // @public
-export type GuardrailResult = GuardrailRow<"block", DisasterEvent> | GuardrailRow<"allow", HarmlessEvent>;
+export function guardrail(): Check<GuardrailRunResult>;
 
 // @public
-export interface GuardrailRow<E extends "block" | "allow", V extends DisasterEvent | HarmlessEvent | TargetRepoEvent> {
+export type GuardrailCases = DisasterCases | CrossRepoCases;
+
+// @public
+export interface GuardrailRow<E extends "block" | "allow", V extends DisasterEvent | HarmlessEvent | CrossRepoEvent> {
     readonly blocked: boolean;
     // (undocumented)
     readonly event: V;
@@ -68,6 +124,17 @@ export interface GuardrailRow<E extends "block" | "allow", V extends DisasterEve
 
 // @public
 export type GuardrailRun = "ran" | "not-selected" | "never-launched" | "crashed" | "unproven" | "control-failed";
+
+// @public
+export type GuardrailRunResult = {
+    readonly kind: "disasters";
+    readonly hook: string;
+    readonly rows: readonly DisasterRow[];
+} | {
+    readonly kind: "cross-repo";
+    readonly hook: string;
+    readonly rows: readonly CrossRepoRow[];
+};
 
 // @public
 export interface HarmlessEvent {
@@ -138,7 +205,34 @@ export interface RawHookEvent {
 }
 
 // @public
-export function runHookProgram(hook: AnyHook, event: RawHookEvent, ctx?: RawCtx, root?: string | undefined): HookProgramOutcome;
+export function runGuardrail(hook: string | AnyHook, cases?: DisasterCases, opts?: RunGuardrailOptions): Extract<GuardrailRunResult, {
+    readonly kind: "disasters";
+}>;
+
+// @public
+export function runGuardrail(hook: string | AnyHook, cases: CrossRepoCases, opts?: RunGuardrailOptions): Extract<GuardrailRunResult, {
+    readonly kind: "cross-repo";
+}>;
+
+// @public
+export function runGuardrail(hook: string | AnyHook, cases?: GuardrailCases, opts?: RunGuardrailOptions): GuardrailRunResult;
+
+// @public
+export interface RunGuardrailOptions extends RunHookOptions {
+    readonly ctx?: Readonly<Record<string, string | boolean | StateFact>>;
+    readonly event?: string;
+}
+
+// @public
+export function runHookProgram(hook: AnyHook, event: RawHookEvent, ctx?: Readonly<Record<string, string | boolean | StateFact>>, root?: string): HookProgramOutcome;
+
+// @public
+export interface RunPluginGuardsOptions extends Omit<RunHookOptions, "condition" | "protocol"> {
+    readonly adapter?: HarnessAdapter;
+    readonly categories?: readonly DisasterCategory[];
+    readonly event?: string;
+    readonly events?: readonly DisasterEvent[];
+}
 
 // @public
 export type SeedStateOptions =
@@ -174,7 +268,7 @@ export interface SweptHook {
 export type SweptHookOutcome = {
     readonly status: "measured";
     readonly hook: SweptHook;
-    readonly results: readonly GuardrailResult[];
+    readonly results: readonly DisasterRow[];
     readonly blocked: readonly string[];
     readonly allowed: readonly string[];
     readonly notRun: readonly string[];
@@ -187,74 +281,6 @@ export type SweptHookOutcome = {
     readonly hook: SweptHook;
     readonly reason: string;
 };
-
-// @beta
-export interface TargetRepoCases {
-    readonly allowed: (repo: TargetRepoFixture) => void;
-    readonly blocked: (repo: TargetRepoFixture) => void;
-    readonly command: string;
-    readonly forms?: readonly TargetRepoForm[];
-}
-
-// @beta
-export interface TargetRepoEvent {
-    readonly control: boolean;
-    readonly id: string;
-    readonly input: Record<string, unknown>;
-    readonly label: string;
-    readonly start: TargetRepoSide;
-    readonly target: TargetRepoSide;
-    readonly tool: string;
-    readonly via: TargetRepoForm;
-}
-
-// @beta
-export interface TargetRepoFixture {
-    branch(name: string): void;
-    readonly dir: string;
-    git(...args: readonly string[]): string;
-}
-
-// @beta
-export type TargetRepoForm = "cd" | "git-C" | "worktree";
-
-// @beta
-export type TargetRepoResult = GuardrailRow<"block" | "allow", TargetRepoEvent>;
-
-// @beta
-export type TargetRepoSide = "blocked" | "allowed";
-
-// @public
-export function verifyGuardrail(hook: string | AnyHook, opts?: VerifyGuardrailOptions & {
-    readonly experimental_targetRepo?: undefined;
-}): readonly GuardrailResult[];
-
-// @public
-export function verifyGuardrail(hook: string | AnyHook, opts: VerifyGuardrailOptions & {
-    readonly experimental_targetRepo: TargetRepoCases;
-}): readonly TargetRepoResult[];
-
-// @public
-export function verifyGuardrail(hook: string | AnyHook, opts?: VerifyGuardrailOptions): readonly (GuardrailResult | TargetRepoResult)[];
-
-// @public (undocumented)
-export interface VerifyGuardrailOptions extends RunHookOptions {
-    readonly categories?: readonly DisasterCategory[];
-    readonly ctx?: Readonly<Record<string, string | boolean | StateFact>>;
-    readonly event?: string;
-    readonly events?: readonly DisasterEvent[];
-    readonly experimental_targetRepo?: TargetRepoCases;
-    readonly harmless?: readonly HarmlessEvent[];
-    readonly spellings?: readonly DisasterEvent[];
-}
-
-// @public
-export interface VerifyPluginGuardsOptions extends Omit<RunHookOptions, "condition" | "protocol"> {
-    readonly adapter?: HarnessAdapter;
-    readonly categories?: readonly DisasterCategory[];
-    readonly event?: string;
-    readonly events?: readonly DisasterEvent[];
-}
 
 // (No @packageDocumentation comment for this package)
 

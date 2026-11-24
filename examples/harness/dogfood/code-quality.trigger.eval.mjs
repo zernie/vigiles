@@ -14,7 +14,7 @@
  * "public-API hygiene", `ship-a-feature` via "a new export / public function").
  * None of those prompts appear in EITHER bank below — a per-skill precision arm
  * would only paper the overlap over. That question belongs to
- * `measureSelectionMatrix` + `assertNoCollision` over the whole `.claude/skills/`.
+ * `paid_measureSelectionMatrix` + `assertNoCollision` over the whole `.claude/skills/`.
  *
  *   npx vigiles eval examples/harness/dogfood/code-quality.trigger.eval.mjs
  *

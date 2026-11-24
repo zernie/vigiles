@@ -143,7 +143,7 @@ export default experimental_defineHook({
 
 - **`e.path`** (Edit/Write) — a `FilePath` with `under(prefixes)` for path confinement, plus `raw` (the path as the tool sent it) and `rel` (the same path repo-relative, or `undefined` — see below).
 
-  The two types and the functions that build them, `parseShellCommand(raw, root)` and `parseFilePath(raw, root)`, were called `CommandView`/`PathView` and `commandView`/`pathView` before #465; the old names were removed in v50.
+  The two types were called `CommandView`/`PathView` before #465 (the old names were removed in v50). The functions that build them, `parseShellCommand` and `parseFilePath`, are internal since v53 (#518): the runtime parses the event, and a hook reads `e.command` / `e.path`.
 
   > **Write your prefixes repo-relative; the runtime handles the rest.** Claude Code's Edit/Write/MultiEdit tools send an **absolute** `file_path`, so `under(["src"])` has to reconcile the two. It does that with the project root — `$CLAUDE_PROJECT_DIR`, else the event's own `cwd`, never the hook process's working directory (under a git worktree that can be a different checkout). An absolute prefix (`under(["/etc"])`) is matched against the absolute path instead, so both spellings work.
   >
@@ -664,27 +664,34 @@ It **only prints and always exits `0`**. A check that could fail at session star
 
 **Because the decision is a pure function, you test it deterministically** — no model, and (cheapest) no subprocess. Three levels, by cost:
 
-**1. In-process (cheapest).** Load the hook FILE with `experimental_loadHook(path)` and pass it plus a raw event to the assertions — no `node` spawn, no CLI, milliseconds:
+**1. In-process (cheapest).** Load the hook FILE with `experimental_loadHook(path)`, run it on a raw event with `runHookProgram`, and check the outcome with `experimental_decision` — no `node` spawn, no CLI, milliseconds:
 
 ```ts
 import { it } from "vitest";
+import { assertChecks } from "vigiles";
 import {
+  experimental_decision,
   experimental_loadHook,
-  experimental_assertHookDenies,
-  experimental_assertHookAllows,
+  runHookProgram,
 } from "vigiles/hook/testing";
 
 const guard = await experimental_loadHook(".vigiles/hooks/guard.hook.mjs");
 
 it("blocks a force-push, even hidden in a compound command", () => {
-  experimental_assertHookDenies(guard, {
-    tool_name: "Bash",
-    tool_input: { command: "cd x && git push -f" },
-  });
-  experimental_assertHookAllows(guard, {
-    tool_name: "Bash",
-    tool_input: { command: "git status" },
-  });
+  assertChecks(
+    runHookProgram(guard, {
+      tool_name: "Bash",
+      tool_input: { command: "cd x && git push -f" },
+    }),
+    [experimental_decision("deny")],
+  );
+  assertChecks(
+    runHookProgram(guard, {
+      tool_name: "Bash",
+      tool_input: { command: "git status" },
+    }),
+    [experimental_decision("allow")],
+  );
 });
 ```
 
@@ -692,12 +699,14 @@ it("blocks a force-push, even hidden in a compound command", () => {
 
 The test functions are on their own entry, `vigiles/hook/testing`, and never on `vigiles/hook`. A compiled hook may import only `vigiles/hook`, so anything that entry exports is callable from inside every hook — and a loader there would let a hook run a second module that the import check never reads and the stamp never covers. A hook that imports `vigiles/hook/testing` does not compile.
 
-**React hooks get their own pair.** A react can't block, so the gate assertions don't apply; use `experimental_assertHookNotices(hook, event, matcher?)` and `experimental_assertHookSilent(hook, event)`:
+**React hooks use the same check.** A react can't block, so `deny` / `allow` don't apply; check `experimental_decision("notice", matcher?)` and `experimental_decision("silent")`:
 
 ```ts
+import { assertChecks } from "vigiles";
 import {
-  experimental_assertHookNotices,
-  experimental_assertHookSilent,
+  experimental_decision,
+  experimental_loadHook,
+  runHookProgram,
 } from "vigiles/hook/testing";
 
 const warn = await experimental_loadHook(
@@ -709,8 +718,12 @@ const after = (isError) => ({
   tool_response: isError ? { error: "boom" } : { stdout: "ok" },
 });
 
-experimental_assertHookNotices(warn, after(true), /read the error/);
-experimental_assertHookSilent(warn, after(false));
+assertChecks(runHookProgram(warn, after(true)), [
+  experimental_decision("notice", /read the error/),
+]);
+assertChecks(runHookProgram(warn, after(false)), [
+  experimental_decision("silent"),
+]);
 ```
 
 ### Where a notice arrives
@@ -734,7 +747,7 @@ Runnable end to end: [`examples/harness/compiled-hook-inprocess.harness.mjs`](..
 
 `runHookProgram(hook, event)` is the underlying primitive — it returns a normalized outcome (`{ kind: "decision" | "injection" | "reaction", … }`) dispatched by role, so an inject or react hook is just as testable as a gate.
 
-**2. Through the real runtime.** `runHook("node … hook-runtime run-program guard.hook.mjs", event)` drives the actual compiled CLI (stamp check + dispatch) — proves the wired artifact behaves, still no model. Pair it with the disaster battery: `assertGuardrail(hook)` with the loaded hook object checks the gate exactly — `decide()` per case, no process — that it blocks every textbook disaster and lets the same text through as data; `assertGuardrail("node … hook-runtime run-program guard.mjs")` runs the same cases through the wired runtime.
+**2. Through the real runtime.** `runHook("node … hook-runtime run-program guard.hook.mjs", event)` drives the actual compiled CLI (stamp check + dispatch) — proves the wired artifact behaves, still no model. Pair it with the disaster battery: `assertChecks(runGuardrail(hook), [guardrail()])` with the loaded hook object checks the gate exactly — `decide()` per case, no process — that it blocks every textbook disaster and lets the same text through as data; `runGuardrail("node … hook-runtime run-program guard.mjs")` runs the same cases through the wired runtime.
 
 **3. Does it fire in the assembled harness?** `runHarnessTest` (a scripted mock model emits the tool call; assert the hook blocked) — the delivery question, key-free, and capped by [how the harness delivers events to hooks](#limitations--trade-offs-the-cons).
 
@@ -744,13 +757,13 @@ See [Testing your harness](harness-testing.md) for the tiers in full.
 
 We pointed the [`DISASTER_CATALOG`](harness-testing.md#prove-a-guard-actually-blocks-the-disaster-battery) battery (force-push, compound force-push, `reset --hard`, `rm -rf`, `--no-verify`, private-SSH-key read, `curl | sh`) at the widely-copied `disler/claude-code-hooks-mastery` safety hook: it blocks **2 of 7**, silently missing the other five. The compiled equivalent ([`examples/harness/safe-bash-guard.hook.mjs`](../examples/harness/safe-bash-guard.hook.mjs)) blocks **7 of 7** — same intent, no blind spots, no protocol bug. The contrast is a runnable, model-free regression test ([`src/hook-dogfood.test.ts`](../src/hook-dogfood.test.ts)).
 
-### One command, many spellings — `experimental_alternateSpellings()`
+### One command, many spellings — `disasters().spellings`
 
-`experimental_alternateSpellings(events)` takes a list of hook test cases (shell commands wrapped as `PreToolUse` events — the battery above) and returns **more test cases**: the same commands re-spelled in other ways that still contain the operation the guard must catch. It is a test-input generator for a safety hook. It does not check anything and it does not touch your hook.
+`disasters({ events })` takes a list of hook test cases (shell commands wrapped as `PreToolUse` events — the battery above) and, in its `spellings` field, returns **more test cases**: the same commands re-spelled in other ways that still contain the operation the guard must catch. It is a test-input generator for a safety hook. It does not check anything and it does not touch your hook.
 
 **What breaks without it.** Your guard's rule says "block a command containing `--force`". The seven battery commands are each written one way, so the battery is green. Someone types `git push "--force" origin main`. The shell strips the quotes and force-pushes; your guard sees a different string and allows it. Nothing fails, so nothing tells you.
 
-That is not hypothetical. Before this function existed, we tried 30 hand-written re-spellings of the seven battery commands against the guard behind the "7 of 7" above. It blocked **8 of 30**. Three that got through:
+That is not hypothetical. Before this generator existed, we tried 30 hand-written re-spellings of the seven battery commands against the guard behind the "7 of 7" above. It blocked **8 of 30**. Three that got through:
 
 ```text
 git push "--force" origin main           # the flag in quotes
@@ -777,26 +790,27 @@ None of these is an evasion trick. Quoting a flag is ordinary typing. The "7 of 
 
 Seven commands become 167 (today's count; it grows as rewrite rules are added). The last four are the shell's own obfuscations: `sh` removes them before the command runs, so a guard that matches the source text (a `grep`, a substring) sees a different string while the shell sees the same command. Against a guard that greps for each of the seven command strings, most of them get through. Which ones depends on how that guard matches, and the difference is sharp: an ANCHORED matcher (`case "$cmd" in "git push --force"*`, a `startsWith`) blocks **0 of the 14** environment-assignment spellings, because the prefix moves the start of the string. An unanchored `grep` blocks 12 of those 14 and falls to the quoting ones instead.
 
-`assertGuardrail` runs them **by default**, beside the originals (its `spellings` option; `[]` turns them off). The generator returns **only the rewrites**, so to add your own spelling, spread both:
+`runGuardrail` runs them **by default**, beside the originals (`disasters({ spellings: [] })` turns them off). The `spellings` field holds **only the rewrites**; the set is a value, so to add your own spelling, spread it:
 
 ```ts
+import { assertChecks } from "vigiles";
 import {
   DISASTER_CATALOG,
-  experimental_alternateSpellings,
-  assertGuardrail,
+  disasters,
+  guardrail,
+  runGuardrail,
 } from "vigiles/hook/testing";
 
 const guard = "node … hook-runtime run-program guard.hook.mjs";
-assertGuardrail(guard, {
-  spellings: [
-    ...experimental_alternateSpellings(DISASTER_CATALOG),
-    {
-      ...DISASTER_CATALOG[0],
-      id: "force-push~mine",
-      input: { command: "git push origin +main" },
-    },
-  ],
-});
+const d = disasters();
+const mine = {
+  ...DISASTER_CATALOG[0],
+  id: "force-push~mine",
+  input: { command: "git push origin +main" },
+};
+assertChecks(runGuardrail(guard, { ...d, spellings: [...d.spellings, mine] }), [
+  guardrail(),
+]);
 ```
 
 Each rewrite keeps the original's id with a suffix (`force-push~4`), so a failure names the spelling that got through. **A compiled gate passes them by construction:** `runs()` reads the command with the same parser that proved each spelling the same command.
@@ -816,7 +830,7 @@ If a rewrite fails the second check, the generator throws instead of quietly dro
 
 | promptfoo                                                                  | vigiles                                                               | Note                                                                                                                                                                                                                    |
 | -------------------------------------------------------------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `basic` (include the un-transformed cases)                                 | the `[...DISASTER_CATALOG, ...]` spread                               | Same question, answered explicitly at the call site.                                                                                                                                                                    |
+| `basic` (include the un-transformed cases)                                 | the `events` field of `disasters()`                                   | Same question, answered explicitly at the call site.                                                                                                                                                                    |
 | `base64`, `rot13`, `hex`, `leetspeak`, `homoglyph`, `morse`, `piglatin`, … | quoted head, ANSI-C quoting, escaped letter, whitespace               | Same axis — an encoding the _target_ decodes. A model may decode base64; a shell does not, so those are not emitted (they would blame a correct guard). The shell decodes quotes, `$'…'` and backslashes, so those are. |
 | `jailbreak`, `crescendo`, `goat`, … (a model rewrites the attack)          | none                                                                  | Deliberately absent. It costs money and is non-deterministic; every spelling here is produced and checked with no model.                                                                                                |
 | `retry` (re-run previously failed cases)                                   | none                                                                  | The battery is deterministic; a failed case fails the same way every run.                                                                                                                                               |
@@ -828,7 +842,7 @@ If a rewrite fails the second check, the generator throws instead of quietly dro
 
 ### The other direction — harmless look-alikes
 
-A guard that denies everything would score 100% on blocking alone, so `assertGuardrail` also checks the other way, by default. For each disaster it adds four harmless look-alikes that carry the same text as **data**, and the guard must allow each one:
+A guard that denies everything would score 100% on blocking alone, so `runGuardrail` also checks the other way, by default. For each disaster it adds four harmless look-alikes that carry the same text as **data**, and the guard must allow each one:
 
 ```text
 git commit -m 'docs: never run git push --force origin main'   # commit message
@@ -839,7 +853,7 @@ grep -rn 'git push --force origin main' docs/                  # grep pattern
 
 This is the over-blocking a real harness measured (#418): hooks denied 7.5% of 20,790 Bash calls, mostly because a hook matched the raw text and the text was data. Each false block costs the agent a turn, and it retries in another form. A guard on `runs()` allows all four; a guard that greps the input blocks them.
 
-Like the re-spellings, nothing new is judged: each look-alike is checked with the same parser — it must parse, and none of its commands may perform an operation of the disaster it mirrors. A template that fails that check makes the generator throw. `experimental_harmlessTwins(events)` returns them; `harmless: []` turns them off; `harmless: [...]` replaces them with your own cases.
+Like the re-spellings, nothing new is judged: each look-alike is checked with the same parser — it must parse, and none of its commands may perform an operation of the disaster it mirrors. A template that fails that check makes the generator throw. `disasters().harmless` holds them; `disasters({ harmless: [] })` turns them off; `disasters({ harmless: [...] })` replaces them with your own cases.
 
 What it proves is narrow: the guard does not block a **mention**. It does not prove the guard allows every harmless command. A policy that legitimately bans the carrier (every `git commit`) fails that form — replace the set. And the shipped guard above fails three of them: its secret rule is `touches(["~/.ssh", …])`, which matches any mention of the path by design (a denylist that errs toward blocking), so it also blocks `echo 'cat ~/.ssh/id_rsa'`. Its dogfood tests leave those three out and say why.
 
@@ -882,8 +896,8 @@ They are `experimental_defineHook`, `experimental_defineFileGate`,
 has been about.
 
 Only the entry points carry the prefix, and that placement is the whole point:
-every other name in `vigiles/hook` — `allow`, `deny`, `tools`, `parseFilePath`,
-`parseShellCommand`, `state`, `record`, `notice`, `run` — is reachable ONLY from inside
+every other name in `vigiles/hook` — `allow`, `deny`, `tools`, `state`,
+`record`, `notice`, `run` — is reachable ONLY from inside
 a `define*` call. Prefixing the chokepoint makes the marking structural for the
 whole vocabulary; prefixing thirty names could not, because nothing would stop
 the thirty-first from shipping unmarked. Same reasoning as
@@ -949,7 +963,7 @@ unrepresentable.
 
 ## See also
 
-- [Testing your harness](harness-testing.md) — the test tiers; `runHook` unit-tests a hook's decision, and `assertGuardrail` proves a guardrail blocks every disaster and allows its harmless look-alikes.
+- [Testing your harness](harness-testing.md) — the test tiers; `runHook` unit-tests a hook's decision, and `runGuardrail` with the `guardrail()` check proves a guardrail blocks every disaster and allows its harmless look-alikes.
 - [Verifying your instruction files](verifying-instruction-files.md) — the linting layer (references are _true_); compiled hooks are the **gate** instrument beside it.
 - [CLI & GitHub Action](cli.md) — `compile` / `hook-runtime` reference.
 - [API reference (generated)](https://zernie.github.io/vigiles/api/) — every `vigiles/hook` symbol (`experimental_defineHook`, `provide`/`dangerously`/`defineProvider`, the `Decision`/`Reaction` types, …).

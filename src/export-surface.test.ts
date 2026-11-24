@@ -58,17 +58,53 @@ test("package.json exports: every entry module mirrors its export path under src
 
 test("the guard battery lives on vigiles/hook/testing, not the root", () => {
   for (const name of [
-    "assertGuardrail",
-    "verifyGuardrail",
+    "runGuardrail",
+    "guardrail",
+    "disasters",
+    "experimental_crossRepo",
     "DISASTER_CATALOG",
-    "experimental_alternateSpellings",
-    "experimental_harmlessTwins",
     "experimental_hookState",
-    "experimental_verifyPluginGuards",
+    "experimental_runPluginGuards",
   ]) {
     assert.ok(has(hookTesting, name), `vigiles/hook/testing exports ${name}`);
     assert.ok(!has(root, name), `the root no longer exports ${name}`);
   }
+});
+
+test("v53: names say the role — a runner and a check; the parsers left vigiles/hook", () => {
+  // checks named after what they observe; a reader is not a check
+  for (const gone of ["hookFired", "egressOnly", "skillContract"])
+    assert.ok(!(gone in root.check), `check.${gone} is gone`);
+  assert.ok(
+    has(root, "readSkillContract"),
+    "readSkillContract is a root reader",
+  );
+  for (const gone of [
+    "experimental_assertHookDenies",
+    "experimental_assertHookAllows",
+    "experimental_assertHookNotices",
+    "experimental_assertHookSilent",
+    "experimental_verifyPluginGuards",
+  ])
+    assert.ok(!has(hookTesting, gone), `${gone} is gone`);
+  // The battery's "result + throw" pair became a runner and a check, and the
+  // two generators became fields of the disaster-set value (`disasters()`).
+  for (const gone of [
+    "verifyGuardrail",
+    "assertGuardrail",
+    "experimental_alternateSpellings",
+    "experimental_harmlessTwins",
+  ])
+    for (const door of [root, hook, hookTesting])
+      assert.ok(!has(door, gone), `${gone} is gone`);
+  // #518: internal now; a hook reads the parsed `e.command` / `e.path`.
+  for (const gone of [
+    "parseShellCommand",
+    "parseFilePath",
+    "leafCommandsNormalized",
+  ])
+    for (const door of [root, hook, hookTesting])
+      assert.ok(!has(door, gone), `${gone} is internal`);
 });
 
 test("the eval-report readers live on vigiles/eval, folded", () => {
@@ -110,10 +146,7 @@ test("compiled-hook tests live on vigiles/hook/testing, never on vigiles/hook; s
   // only import: a loader there is a loader inside every hook (Codex P1, #510).
   for (const name of [
     "experimental_loadHook",
-    "experimental_assertHookAllows",
-    "experimental_assertHookDenies",
-    "experimental_assertHookNotices",
-    "experimental_assertHookSilent",
+    "experimental_decision",
     "runHookProgram",
   ]) {
     assert.ok(has(hookTesting, name), `vigiles/hook/testing exports ${name}`);
@@ -237,11 +270,10 @@ test("shape C: the root is verbs plus one callable check — no flat check funct
   for (const member of [
     "tool",
     "skill",
-    "hookFired",
+    "hook",
     "delivered",
-    "egressOnly",
+    "egress",
     "writes",
-    "skillContract",
     "tokens",
   ]) {
     assert.ok(member in root.check, `check.${member} is a member`);
@@ -284,6 +316,7 @@ test("the root's runtime exports are exactly the test-author verbs", () => {
     "experimental_emitTool",
     "experimental_parseEmitted",
     "makeTmpDir",
+    "readSkillContract",
     "recordCheck",
     "runHarnessTest",
     "runHook",
