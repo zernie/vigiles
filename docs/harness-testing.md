@@ -402,9 +402,13 @@ callbacks: one puts a repository into the state the guard must **block**, the
 other into the state it must **allow**.
 
 ```ts
+import { resolve } from "node:path";
 import { assertGuardrail } from "vigiles/hook/testing";
 
-assertGuardrail("bash hooks/git/push-force-guard.sh", {
+// Absolute: the hook runs inside the temporary repository, not your project.
+const guard = resolve("hooks/git/push-force-guard.sh");
+
+assertGuardrail(`bash '${guard}'`, {
   experimental_targetRepo: {
     command: "git push -f origin HEAD",
     blocked: (repo) => repo.branch("main"), // the push must be blocked here
@@ -418,6 +422,10 @@ commit), runs your callbacks, runs the hook, and deletes them. Nothing is
 pushed: the hook only receives the event, but its own `git` calls read the real
 repositories. Each callback gets `repo.dir`, `repo.git(...args)` and
 `repo.branch(name)`.
+
+The hook's working directory is the temporary repository it starts in, so a
+relative path in the hook command (`bash hooks/guard.sh`) does not exist there
+and every case reads as not run. Pass an absolute path, as above.
 
 **The forms.** Each is a way of aiming at the other repository:
 

@@ -8,6 +8,7 @@
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { chmodSync, existsSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -420,6 +421,43 @@ test("a hook the shell never launched is reported as not run on every case, not 
         !e.message.includes("NOT A VERDICT"),
     );
   } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("an inherited GIT_DIR (tests run from a git hook) never reaches the fixtures: the caller's repository is left untouched", () => {
+  const dir = makeTmpDir("target-git-dir");
+  const before = process.env["GIT_DIR"];
+  try {
+    const caller = join(dir, "caller");
+    const git = (...args: string[]) =>
+      execFileSync("git", args, {
+        cwd: caller,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          GIT_DIR: join(caller, ".git"),
+          GIT_CONFIG_NOSYSTEM: "1",
+          GIT_CONFIG_GLOBAL: "/dev/null",
+          GIT_AUTHOR_NAME: "t",
+          GIT_AUTHOR_EMAIL: "t@example.invalid",
+          GIT_COMMITTER_NAME: "t",
+          GIT_COMMITTER_EMAIL: "t@example.invalid",
+        },
+      }).trim();
+    execFileSync("git", ["init", "-q", "-b", "caller-branch", caller]);
+    git("commit", "-q", "--allow-empty", "-m", "caller");
+    const head = git("rev-parse", "HEAD");
+    process.env["GIT_DIR"] = join(caller, ".git");
+    verifyGuardrail(naiveGuard(dir), {
+      experimental_targetRepo: FORCE_PUSH_ON_MAIN,
+    });
+    assert.equal(git("rev-parse", "--abbrev-ref", "HEAD"), "caller-branch");
+    assert.equal(git("rev-parse", "HEAD"), head);
+    assert.equal(git("branch", "--list", "main", "feature/x"), "");
+  } finally {
+    if (before === undefined) delete process.env["GIT_DIR"];
+    else process.env["GIT_DIR"] = before;
     cleanupTmpDir(dir);
   }
 });

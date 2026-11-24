@@ -128,6 +128,35 @@ const FIXTURE_GIT_ENV: Readonly<Record<string, string>> = {
   GIT_COMMITTER_EMAIL: "vigiles@example.invalid",
 };
 
+/**
+ * The variables that send git to a repository other than its working
+ * directory (git's own list: `git rev-parse --local-env-vars`). The spawner
+ * MERGES the caller's environment, so setting `cwd` alone does not isolate a
+ * fixture: a `GIT_DIR` inherited from a git hook would point every fixture
+ * call at the caller's repository and commit there. git's hook documentation
+ * says the same of any foreign-repository operation: clear these first.
+ */
+const GIT_ROUTING_VARS: readonly string[] = [
+  "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+  "GIT_CONFIG",
+  "GIT_CONFIG_PARAMETERS",
+  "GIT_CONFIG_COUNT",
+  "GIT_OBJECT_DIRECTORY",
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_IMPLICIT_WORK_TREE",
+  "GIT_GRAFT_FILE",
+  "GIT_INDEX_FILE",
+  "GIT_NO_REPLACE_OBJECTS",
+  "GIT_REPLACE_REF_BASE",
+  "GIT_PREFIX",
+  "GIT_SHALLOW_FILE",
+  "GIT_COMMON_DIR",
+];
+
+/** `env -u` each routing variable: removed, not set empty (both GNU and BSD `env`). */
+const UNSET_ROUTING = `env ${GIT_ROUTING_VARS.map((v) => `-u ${v}`).join(" ")}`;
+
 /** POSIX single-quoting, so a directory with spaces stays one word. */
 const quote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
 
@@ -136,7 +165,7 @@ const quote = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
  * `runScript`, which would count each fixture call as a check of the harness.
  */
 function runGit(dir: string, args: readonly string[]): string {
-  const line = `git ${args.map(quote).join(" ")}`;
+  const line = `${UNSET_ROUTING} git ${args.map(quote).join(" ")}`;
   const r = REAL_DEPS.direct(line, "", {
     cwd: dir,
     env: { ...FIXTURE_GIT_ENV },
