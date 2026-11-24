@@ -49,6 +49,14 @@ describe("scaffoldTest — hook (unit tier)", () => {
     expect(content).toContain("assertHookAllowed");
   });
 
+  it("takes the guard battery from vigiles/battery, and prints no hidden formatter", () => {
+    const { content } = scaffoldTest(input);
+    expect(content).toContain(
+      'import { assertGuardrail } from "vigiles/battery"',
+    );
+    expect(content).not.toContain("formatGuardrailReport");
+  });
+
   it("defaults the command to `bash <path>` when none is given", () => {
     const { content } = scaffoldTest({ ...input, hookCommand: undefined });
     expect(content).toContain('"bash hooks/pre-edit.sh"');
@@ -80,6 +88,11 @@ describe("scaffoldTest — skill (eval tier)", () => {
     expect(content).toContain('"vigiles:strengthen"');
     expect(content).toContain("irrelevantPrompts");
     expect(content).toContain("assertTriggerRate(report, { min: 0.8");
+    // the report readers are on vigiles/eval; the formatters are not public
+    expect(content).toContain(
+      'import { paid_measureTriggerRate, assertTriggerRate } from "vigiles/eval"',
+    );
+    expect(content).not.toContain("formatTriggerRateReport");
   });
 
   it("falls back to a <plugin> placeholder when the plugin name is unknown", () => {
@@ -151,7 +164,7 @@ describe("scaffoldTest — agent with a typed contract (the typed-spec payoff)",
   it("generates an assertAgentOk outcome test from the result() contract", () => {
     const { content } = scaffoldTest(withContract);
     expect(content).toContain(
-      'import { experimental_agent } from "vigiles/spec"',
+      'import { experimental_agent, assertAgentOk } from "vigiles/spec"',
     );
     expect(content).toContain("assertAgentOk(okOutput, contract)");
     // the contract is reconstructed with the REAL parsed fields
