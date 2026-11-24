@@ -172,6 +172,54 @@ test("one runHarnessTest; the removed and hidden names are gone from the root", 
   }
 });
 
+test("shape C: the root is verbs plus one callable check — no flat check function", () => {
+  for (const gone of [
+    "tool",
+    "toolWith",
+    "notTool",
+    "onlyTools",
+    "skill",
+    "output",
+    "received",
+    "hookFired",
+    "blocked",
+    "allowed",
+    "wrote",
+    "didNotWrite",
+    "mcp",
+    "subagent",
+    "turns",
+    "tokens",
+    "inputTokens",
+    "outputTokens",
+    "cacheTokens",
+    "cost",
+    "latency",
+    "skillContract",
+    "fileToolEvents",
+    // the last throwing assertions over a run are checks now
+    "assertDelivered",
+    "assertEgressOnly",
+    "assertNoWrite",
+    "assertWroteOnly",
+  ]) {
+    assert.ok(!has(root, gone), `the root no longer exports ${gone}`);
+  }
+  for (const member of [
+    "tool",
+    "skill",
+    "blocked",
+    "delivered",
+    "egressOnly",
+    "noWrite",
+    "wroteOnly",
+    "skillContract",
+    "tokens",
+  ]) {
+    assert.ok(member in root.check, `check.${member} is a member`);
+  }
+});
+
 test("the adapter registry is the CLI's, not a public door", () => {
   for (const gone of ["ADAPTERS", "getAdapter", "detectAdapter"]) {
     assert.ok(!has(adapter, gone), `vigiles/adapter hides ${gone}`);
