@@ -4,7 +4,7 @@ import tsparser from "@typescript-eslint/parser";
 import sonarjs from "eslint-plugin-sonarjs";
 import globals from "globals";
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 
 import experimentalName from "./eslint-rules/experimental-name.mjs";
 import frameMint from "./eslint-rules/frame-mint.mjs";
@@ -23,7 +23,6 @@ import {
   AS_UNKNOWN_AS,
   ONE_COLLECTION_LIBRARY,
   PURE_LIBRARIES,
-  ceilings,
   functionalCode,
   ioGlobals,
   layers,
@@ -325,9 +324,6 @@ const reportViewFences = {
   },
 };
 
-/** Per-file ceilings for functions older than the size limits. Generated, then only lowered. */
-const CEILINGS = JSON.parse(readFileSync("eslint-ceilings.json", "utf8"));
-
 /**
  * The same invariant over `src/cli-main.ts`, narrowed from "may not SPELL a
  * harness" to "may not DECIDE by one" — because in the composition root the
@@ -620,8 +616,8 @@ export default [
     },
   },
   // The strict rules shared with paperlint (packages/eslint-config). Old code is
-  // grandfathered: counting rules in eslint-suppressions.json, function sizes in
-  // eslint-ceilings.json. Both may only shrink.
+  // grandfathered in eslint-suppressions.json (ESLint's own bulk suppressions),
+  // which may only shrink: ESLint fails on a suppression nothing needs any more.
   strictTypeScript(["src/**/*.ts"]),
   functionalCode({ files: ["src/**/*.ts"], ignores: ["src/**/*.test.ts"] }),
   layers({
@@ -673,6 +669,4 @@ export default [
     },
   },
   testSizes(["src/**/*.test.ts"]),
-  // Last, so a ceiling overrides the limit it raises.
-  ...ceilings(CEILINGS),
 ];

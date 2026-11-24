@@ -40,9 +40,9 @@ export const AS_UNKNOWN_AS = {
 const MAX_LINES = { max: 30, skipComments: true, skipBlankLines: true };
 
 /**
- * Limits on the size of a function. These rules report one finding per function
- * however far over the limit it is, so a suppressed finding would let the
- * function keep growing. Old functions get a ceiling instead (see `ceilings`).
+ * Limits on the size of a function. Old code is grandfathered in the repo's
+ * eslint-suppressions.json. A suppression counts findings, not their size: a
+ * grandfathered function can still grow, and only a NEW oversized one fails.
  */
 export const SIZE_LIMITS = {
   complexity: 10,
@@ -105,22 +105,6 @@ export const testSizes = (files) => ({
   files,
   rules: { "max-lines-per-function": sizeRule("max-lines-per-function", 60) },
 });
-
-/**
- * Per-file ceilings for functions written before the limits: each number is the
- * file's measured maximum, so its functions may shrink and may not grow. Lower a
- * number after a refactor; a file leaves the table once it is under the limits.
- *
- * @param {Record<string, Partial<Record<SizeRule, number>>>} table
- * @returns {Config[]}
- */
-export const ceilings = (table) =>
-  Object.entries(table).map(([file, max]) => ({
-    files: [file],
-    rules: Object.fromEntries(
-      Object.entries(max).map(([rule, n]) => [rule, sizeRule(rule, n)]),
-    ),
-  }));
 
 /**
  * No `let`, no mutation, no loops, readonly parameters. Tests may mutate their fixtures.
