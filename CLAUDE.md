@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:3a9f3cc320914f01 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:a84bc8c2fb58ad07 compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -180,7 +180,7 @@ BUILD + TOOLING + GENERATED:
 
 ### Public Exports Are Opt In
 
-**Guidance only** — Public exports are opt-in. [Details](docs/contributing/rules.md#public-exports-are-opt-in)
+**Guidance only** — Public exports are opt-in and gated: a new export lives in ONE entry (`package.json` `exports`), carries a release tag, fits `api-surface/budget.json`, and a new entry gets a `STABILITY.md` row; `vigiles/hook` stays effect-free. [Details](docs/contributing/rules.md#public-exports-are-opt-in)
 
 ### Dogfood Vendoring Policy
 
