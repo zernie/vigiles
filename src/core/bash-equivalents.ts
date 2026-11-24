@@ -36,7 +36,7 @@
  * is not emitted only because this self-check compares one level.
  */
 import {
-  leafCommandsNormalized,
+  readShell,
   SHORT_TO_LONG,
   LONG_TO_SHORT,
   WRAPPER_HEADS,
@@ -53,17 +53,41 @@ function operationKey(leaf: NormalizedLeaf): string {
 }
 
 /**
+ * The leaves a compiled gate reads in `command`, and what it could not read.
+ *
+ * The SAME reader the gate uses (`readShell`): it descends into a literal
+ * `bash -c '…'`, `sh -c '…'` and `eval '…'` (#483), and reports a handed-on
+ * command it cannot read — `bash -c "$X"` — as hidden. So "same operation" is
+ * exactly as strong as the gate's own reading: neither weaker (a string the gate
+ * cannot read never proves anything) nor stronger.
+ */
+function gateReading(command: string): {
+  readonly leaves: readonly NormalizedLeaf[];
+  readonly hidden: readonly string[];
+} {
+  const r = readShell(command);
+  return {
+    leaves: r.effects.flatMap((e) => (e.kind === "leaf" ? [e.leaf] : [])),
+    hidden: r.hidden.map((h) => h.reason),
+  };
+}
+
+/**
  * Does `variant` perform every operation `seed` performs?
  *
  * Not string equality and not set equality: a wrapper adds a leaf (`sudo` itself),
  * so the test is CONTAINMENT — every dangerous leaf of the seed still appears.
+ * Judged on the leaves the gate reads after descending into `bash -c`, `sh -c`
+ * and `eval`; a variant that hides a command the seed did not hide (a dynamic
+ * `bash -c "$X"`) is never the same operation.
  */
 export function sameOperation(seed: string, variant: string): boolean {
-  const a = leafCommandsNormalized(seed);
-  const b = leafCommandsNormalized(variant);
-  if (a.length === 0 || b.length === 0) return false;
-  const keys = new Set(b.map(operationKey));
-  return a.every((leaf) => keys.has(operationKey(leaf)));
+  const a = gateReading(seed);
+  const b = gateReading(variant);
+  if (a.leaves.length === 0 || b.leaves.length === 0) return false;
+  if (!b.hidden.every((why) => a.hidden.includes(why))) return false;
+  const keys = new Set(b.leaves.map(operationKey));
+  return a.leaves.every((leaf) => keys.has(operationKey(leaf)));
 }
 
 /**
@@ -73,10 +97,8 @@ export function sameOperation(seed: string, variant: string): boolean {
  * compound seed is enough to disqualify it.
  */
 export function sharesOperation(seed: string, other: string): boolean {
-  const keys = new Set(leafCommandsNormalized(seed).map(operationKey));
-  return leafCommandsNormalized(other).some((leaf) =>
-    keys.has(operationKey(leaf)),
-  );
+  const keys = new Set(gateReading(seed).leaves.map(operationKey));
+  return gateReading(other).leaves.some((leaf) => keys.has(operationKey(leaf)));
 }
 
 /** Wrappers that pass a command through unchanged, one representative form each. */
@@ -197,14 +219,33 @@ const FAMILIES: readonly Family[] = [
   {
     // `( git push --force )` — a subshell runs the same command in a child
     // shell. A guard anchored at the start of the string (`case "$cmd" in
-    // "git push"*`) sees `(` first. `bash -c '…'`, `sh -c '…'`, `eval '…'` and
-    // `git -C . …` were tried beside it and are NOT here: the one-level
-    // normalizer reads the handed-on string as a single word and `.` as an
-    // argument, so the self-check below cannot prove any of them equivalent.
+    // "git push"*`) sees `(` first.
     name: "subshell",
     rewrite: (c) => [`( ${c.trim()} )`],
   },
+  {
+    // `bash -c '…'`, `sh -c '…'`, `eval '…'` — the command handed on as one
+    // string, which the shell runs as written. A text guard sees a quoted word;
+    // the gate reads inside it (#483), and so does the self-check below.
+    // `git -C . …` is still absent: the check reads `.` as an argument.
+    name: "nested shell",
+    rewrite: (c) => {
+      const word = literalWord(c.trim());
+      return word === null
+        ? []
+        : [`bash -c ${word}`, `sh -c ${word}`, `eval ${word}`];
+    },
+  },
 ];
+
+/**
+ * `cmd` as ONE shell word that expands to exactly `cmd`: single quotes when it
+ * has none, else double quotes when nothing inside would expand, else null.
+ */
+function literalWord(cmd: string): string | null {
+  if (!cmd.includes("'")) return `'${cmd}'`;
+  return /["$`\\]/.test(cmd) ? null : `"${cmd}"`;
+}
 
 /** The first word of a command and everything after it, leading blanks dropped. */
 function splitHead(cmd: string): { head: string; rest: string } {

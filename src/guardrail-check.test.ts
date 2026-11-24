@@ -622,6 +622,7 @@ test("a harmless case the hook's condition does not select is allowed: the harne
   const opts = {
     events: PUSH_EVENTS.filter((e) => e.id === "force-push"),
     condition: "Bash(git push *)",
+    spellings: [],
   };
   const hook = `echo '{"decision":"block","reason":"x"}'`;
   const results = verifyGuardrail(hook, opts);
