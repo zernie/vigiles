@@ -3,7 +3,7 @@
  * parser-backed answer to "would this command run the same program here?".
  *
  * 🔴 WHY A PARSER AND NOT A REGEX, measured. The caller
- * (`experimental_verifyPluginGuards`) refuses to run a hook whose command names
+ * (`experimental_runPluginGuards`) refuses to run a hook whose command names
  * a variable nothing has set, because running it would measure a different
  * program than the harness runs. Deciding that with `/\$\{?NAME\}?/` gets two
  * ordinary shapes wrong, in the direction that costs a measurement:

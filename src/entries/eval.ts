@@ -67,8 +67,8 @@
  * the root, because `defineEval` and `vigilesMatchers` speak them too, and one
  * name has one door. Import `type { EvalReport } from "vigiles"`.
  *
- * Harness-specific eval drivers are not here either — `codexEvalDriver` lives
- * on `vigiles/harness/codex`, and `measureSelectionMatrix` / `assertNoCollision` on
+ * Harness-specific eval drivers are not here either — `paid_codexEvalDriver` lives
+ * on `vigiles/harness/codex`, and `paid_measureSelectionMatrix` / `assertNoCollision` on
  * `vigiles/harness/claude-code`, because those surfaces are chosen by harness.
  */
 

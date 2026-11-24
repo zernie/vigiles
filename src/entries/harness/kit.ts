@@ -110,9 +110,9 @@ export type { ModelMock } from "../../core/model-mock.js";
 export { layoutClaims } from "../../core/surface-discovery.js";
 
 // The conformance kit: `assert*` throws naming every port that does not hold,
-// `checkAdapterConformance` returns the same findings for you to print.
+// `runAdapterConformance` returns the same findings for you to print.
 export {
-  checkAdapterConformance,
+  runAdapterConformance,
   assertAdapterConformance,
   assertAdapterLoadsHooks,
   type ConformanceResult,

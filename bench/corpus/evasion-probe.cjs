@@ -2,11 +2,13 @@
 //
 // This is the ORIGINAL probe, kept as the record of how the gap was discovered:
 // it fed normalizer-equivalent rewrites of each DISASTER_CATALOG entry to the two
-// shipped guards and reported which got through. Its result on the guard behind
+// shipped guards (v2, an unrun experiment, was deleted in v53, so v1 is the one
+// left) and reported which got through. Its result on the guard behind
 // the published 7/7 headline: 7/7 on the seeds, **8 of 30** on the rewrites.
 //
-// It is superseded as a MECHANISM by `experimental_alternateSpellings()` (born
-// `equivalentDisasters()`, renamed 2026-09-02) in
+// It is superseded as a MECHANISM by the spelling generator behind
+// `disasters().spellings` (born `equivalentDisasters()`, then
+// `experimental_alternateSpellings()`, folded into the case set in v53) in
 // src/guardrail-check.ts, which generates the variants instead of listing them —
 // the list below is hand-written, and a hand-written list is exactly the bounded
 // set that produced the gap (the generated battery is 73 and found one more miss
@@ -22,14 +24,15 @@
 // leafCommandsNormalized(variant) on the dangerous leaf (same OPERATION).
 const path = require("path");
 const ROOT = "/home/user/vigiles";
-const { verifyGuardrail } = require(path.join(ROOT, "dist/guardrail-check.js"));
+const { runGuardrail, disasters } = require(
+  path.join(ROOT, "dist/guardrail-check.js"),
+);
 const { leafCommandsNormalized } = require(
   path.join(ROOT, "dist/core/bash-effects.js"),
 );
 const CLI = path.join(ROOT, "dist/cli.js");
 const guards = {
   v1: `node ${CLI} hook-runtime run-program ${ROOT}/examples/harness/safe-bash-guard.hook.mjs`,
-  v2: `node ${CLI} hook-runtime run-program ${ROOT}/examples/harness/safe-bash-guard-v2.hook.mjs`,
 };
 // seed → variants that a POSIX shell executes identically (the normalizer's inverse set)
 const VARIANTS = {
@@ -119,7 +122,10 @@ for (const [id, [seed, vars]] of Object.entries(VARIANTS)) {
     ];
     const row = [];
     for (const [name, cmd] of Object.entries(guards)) {
-      const [r] = verifyGuardrail(cmd, { events, cwd: ROOT, harmless: [] });
+      // The runner returns the rows and never throws: this probe reads them.
+      const [r] = runGuardrail(cmd, disasters({ events, harmless: [] }), {
+        cwd: ROOT,
+      }).rows;
       row.push(`${name}:${r.blocked ? "BLOCK" : "allow"}`);
     }
     console.log(`  ${sameOp(seed, v) ? "≡" : "≠"} ${row.join("  ")}   ${v}`);

@@ -333,7 +333,7 @@ export function runScriptWith(
  * Which of the three ways to start a script this run gets — or the refusal.
  *
  * 🔴 THE ONE PLACE THAT DECIDES, because a SECOND place that decided the same
- * thing got it wrong. `experimental_verifyPluginGuards` must know whether a run
+ * thing got it wrong. `experimental_runPluginGuards` must know whether a run
  * will be confined BEFORE it runs anything: a confined run starts in a fresh
  * empty directory, so a relative script that exists here will not exist there,
  * and an interpreter that cannot open its script exits 2 — this harness's DENY

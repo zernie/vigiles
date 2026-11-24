@@ -5,7 +5,7 @@
  * - `check.writes` reads two kinds of run. An agent run (`Trace`) can only look
  *   a path up, so `only` (which needs the full list of writes) and a RegExp are
  *   type errors against it — never a silent pass.
- * - `check.hookFired` reads an agent run and one `runHook` result alike.
+ * - `check.hook` reads an agent run and one `runHook` result alike.
  * - `check.tool` takes `with` and bounds; `check.turns` takes `matching`.
  */
 import { check, assertChecks, type Trace, type HookRunResult } from "vigiles";
@@ -28,9 +28,9 @@ assertChecks(trace, [check.writes({ only: ["out.txt"] })]);
 // @ts-expect-error -- a pattern needs the list of writes, which an agent run does not have
 assertChecks(trace, [check.writes({ none: [/\.env$/] })]);
 
-// hookFired: both kinds of run, with the verdict.
-assertChecks(trace, [check.hookFired("PreToolUse:Edit", { blocked: true })]);
-assertChecks(hookRun, [check.hookFired("PreToolUse", { blocked: false })]);
+// check.hook: both kinds of run, with the verdict.
+assertChecks(trace, [check.hook("PreToolUse:Edit", { blocked: true })]);
+assertChecks(hookRun, [check.hook("PreToolUse", { blocked: false })]);
 
 // @ts-expect-error -- a hook decision is not an agent run: tool checks do not read it
 assertChecks(hookRun, [check.tool("Bash")]);

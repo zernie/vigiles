@@ -248,7 +248,7 @@ export function refuseCodexEffort(effort: string | number | undefined): void {
  * The Codex eval-tier `AgentRunner`: install the run's skills into `.codex/skills`
  * (Codex's discovery path, vs Claude's `--plugin-dir`), then drive a real
  * `codex exec --json` turn. The seam `measureTriggerRate(spec, { evalDriver:
- * codexEvalDriver })` dispatches through.
+ * paid_codexEvalDriver })` dispatches through.
  */
 export function codexEvalAgentRunner(args: AgentRunArgs): Promise<RunOut> {
   refuseCodexEffort(args.effort);
@@ -280,12 +280,12 @@ export const CODEX_TRIGGER_RATE_EXPERIMENTAL =
 
 /**
  * The Codex eval driver — pass to `measureTriggerRate(spec, { evalDriver:
- * codexEvalDriver })` to run a trigger-rate eval natively on `codex exec`. Pair
+ * paid_codexEvalDriver })` to run a trigger-rate eval natively on `codex exec`. Pair
  * the spec's `fired` with `codexSkillFired` (Codex has no Skill-tool event).
  *
  * @public
  */
-export const codexEvalDriver: EvalDriver = {
+export const paid_codexEvalDriver: EvalDriver = {
   runner: codexEvalAgentRunner,
   parse: parseCodexEvalRun,
   runError: codexRunError,
@@ -307,7 +307,7 @@ export const codexEvalDriver: EvalDriver = {
  * @public
  */
 export const codexLiveDriver: HarnessLiveDriver = {
-  evalDriver: codexEvalDriver,
+  evalDriver: paid_codexEvalDriver,
   // 🔴 ANSWERED WITHOUT TOUCHING THE MACHINE, and that is a CONSTRAINT of the
   // caller rather than a property of this harness. `access` is read on the
   // AUDIT path, before `decideExecute` and `resolveExecution` have established

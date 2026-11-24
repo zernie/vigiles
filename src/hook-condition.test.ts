@@ -7,7 +7,7 @@
  *   2. the boundary — `normalizeHooks` carries the key, and the key it reads is
  *      bound to the one the port declares, so a rename fails here;
  *   3. the load-bearing half: the REAL vendored davila7 guard driven through
- *      `verifyGuardrail` in BOTH directions — honoured, only the force pushes
+ *      `runGuardrail` in BOTH directions — honoured, only the force pushes
  *      reach it; dropped, the original 7/7 false green comes back.
  */
 import { describe, it, expect } from "vitest";
@@ -18,9 +18,10 @@ import { claudeCodeHookProtocol } from "./adapters/claude-code/hook-protocol.js"
 import { decideHookCondition } from "./core/hook-condition.js";
 import { normalizeHooks } from "./core/hook-normalize.js";
 import {
-  verifyGuardrail,
+  disasters,
+  runGuardrail,
+  guardrail,
   unblockedDisasters,
-  assertGuardrail,
   formatGuardrailReport,
   DISASTER_CATALOG,
 } from "./guardrail-check.js";
@@ -265,11 +266,21 @@ function vendoredHooks() {
 }
 
 /** The seven catalog disasters only: these tests are about the condition. */
-const CATALOG_ONLY = { harmless: [], spellings: [] } as const;
+const CATALOG_ONLY = disasters({ harmless: [], spellings: [] });
+
+type Vendored = {
+  readonly command: string;
+  readonly condition?: string | null;
+};
 
 /** The same, run under a hook's declared `if`. */
-function withIf(hook: { readonly condition?: string | null } | undefined) {
-  return { condition: hook?.condition ?? undefined, ...CATALOG_ONLY };
+function withIf(hook: Vendored | undefined) {
+  return { condition: hook?.condition ?? undefined };
+}
+
+/** The catalog run on a vendored hook, under its declared `if`. */
+function runUnderIf(hook: Vendored | undefined) {
+  return runGuardrail(hook?.command ?? "", CATALOG_ONLY, withIf(hook));
 }
 
 describe("davila7 force-push-blocker (vendored, MIT) — the measured false green", () => {
@@ -289,7 +300,7 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     // is the thing that must never come back: drop the condition and the battery
     // hands a bare `echo deny` a perfect score against rm -rf / and ~/.ssh reads.
     const [first] = vendoredHooks();
-    const results = verifyGuardrail(first?.command ?? "", CATALOG_ONLY);
+    const results = runGuardrail(first?.command ?? "", CATALOG_ONLY).rows;
     expect(results.filter((r) => r.blocked)).toHaveLength(
       DISASTER_CATALOG.length,
     );
@@ -298,7 +309,7 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
 
   it("WITH the condition only the force push reaches it", () => {
     const [first] = vendoredHooks();
-    const results = verifyGuardrail(first?.command ?? "", withIf(first));
+    const results = runUnderIf(first).rows;
 
     const blocked = results.filter((r) => r.blocked).map((r) => r.event.id);
     expect(blocked).toEqual(["force-push"]);
@@ -322,23 +333,20 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     // `git push -f` hidden behind `cd repo && git commit … &&` — the AST-backed
     // leaf walk is what sees it, and the -f pattern is what admits it.
     const [, second] = vendoredHooks();
-    const results = verifyGuardrail(second?.command ?? "", withIf(second));
+    const results = runUnderIf(second).rows;
     expect(results.filter((r) => r.blocked).map((r) => r.event.id)).toEqual([
       "force-push",
       "force-push-compound",
     ]);
   });
 
-  it("assertGuardrail FAILS and says NOT RUN, not `exit 0`", () => {
+  it("guardrail FAILS and says NOT RUN, not `exit 0`", () => {
     const [first] = vendoredHooks();
-    let message = "";
-    try {
-      assertGuardrail(first?.command ?? "", {
-        condition: first?.condition ?? undefined,
-      });
-    } catch (e) {
-      message = (e as Error).message;
-    }
+    const verdict = guardrail().eval(
+      runGuardrail(first?.command ?? "", disasters(), withIf(first)),
+    );
+    expect(verdict.pass).toBe(false);
+    const message = verdict.message;
     expect(message).toContain("NOT RUN");
     expect(message).toContain("rm -rf");
     // The old wording would have blamed an exit code for a process that never
@@ -350,7 +358,7 @@ describe("davila7 force-push-blocker (vendored, MIT) — the measured false gree
     const [first] = vendoredHooks();
     const report = formatGuardrailReport(
       first?.command ?? "",
-      verifyGuardrail(first?.command ?? "", withIf(first)),
+      runUnderIf(first).rows,
     );
     expect(report).toContain("⊘ not run");
     expect(report).toContain("blocks 1/7");

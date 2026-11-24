@@ -32,6 +32,7 @@ const RUN_HOOK = resolve(__dirname, "..", "dist", "run-hook.js");
 const LOAD_HOOK = resolve(__dirname, "..", "dist", "load-hook.js");
 const ASSERT = resolve(__dirname, "..", "dist", "entries/hook/testing.js");
 const HOOK_ENTRY = resolve(__dirname, "..", "dist", "entries/hook.js");
+const ROOT_ENTRY = resolve(__dirname, "..", "dist", "entries/index.js");
 
 let dir: string;
 
@@ -300,10 +301,11 @@ test("a harness that EVALUATES a compiled hook in-process records it", () => {
   write(
     "t.harness.mjs",
     `import { experimental_loadHook as loadHook } from ${JSON.stringify(LOAD_HOOK)};\n` +
-      `import { experimental_assertHookDenies as assertHookDenies } from ${JSON.stringify(ASSERT)};\n` +
+      `import { runHookProgram, experimental_decision } from ${JSON.stringify(ASSERT)};\n` +
+      `import { assertChecks } from ${JSON.stringify(ROOT_ENTRY)};\n` +
       `const h = await loadHook(".vigiles/hooks/guard.hook.mjs");\n` +
-      `assertHookDenies(h, { hook_event_name: "PreToolUse", tool_name: "Bash",\n` +
-      `  tool_input: { command: "git push --force" } });\n`,
+      `assertChecks(runHookProgram(h, { hook_event_name: "PreToolUse", tool_name: "Bash",\n` +
+      `  tool_input: { command: "git push --force" } }), [experimental_decision("deny")]);\n`,
   );
   vigilesTest();
   assert.deepEqual(

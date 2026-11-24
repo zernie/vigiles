@@ -12,7 +12,7 @@ import {
   assertAdapterConformance,
   assertAdapterLoadsHooks,
   assertHarnessTestable,
-  checkAdapterConformance,
+  runAdapterConformance,
 } from "../../adapter-conformance.js";
 import {
   detectAdapter,
@@ -83,7 +83,7 @@ test("conformance kit catches a broken adapter", () => {
     name: "",
     dialect: { ...claudeCodeAdapter.dialect, builtinAgentTools: [] },
   };
-  const r = checkAdapterConformance(broken);
+  const r = runAdapterConformance(broken);
   assert.equal(r.ok, false);
   assert.ok(r.failures.some((m) => m.includes("name is empty")));
   assert.ok(r.failures.some((m) => m.includes("builtinAgentTools")));
@@ -94,7 +94,7 @@ test("conformance kit catches a broken adapter", () => {
 // FIRST built-in tool its own contract check rejects must fail with that exact line, and the
 // real adapter must not carry it.
 test("conformance reports a dialect that rejects its own built-in tool, and passes a good one", () => {
-  const good = checkAdapterConformance(claudeCodeAdapter);
+  const good = runAdapterConformance(claudeCodeAdapter);
   assert.ok(
     !good.failures.some((m) => m.includes("rejects its own built-in tool")),
     good.failures.join(" | "),
@@ -112,7 +112,7 @@ test("conformance reports a dialect that rejects its own built-in tool, and pass
       ],
     },
   };
-  const r = checkAdapterConformance(bad);
+  const r = runAdapterConformance(bad);
   assert.equal(r.ok, false);
   assert.ok(
     r.failures.some((m) =>
@@ -139,7 +139,7 @@ test("conformance kit catches a dialect that contradicts ITSELF", () => {
       hookEventVocabulary: undefined,
     },
   };
-  const r = checkAdapterConformance(contradictory);
+  const r = runAdapterConformance(contradictory);
   assert.equal(r.ok, false);
   assert.ok(
     r.failures.some((m) => m.includes("dialect self-contradiction")),
@@ -158,7 +158,7 @@ test("conformance kit catches flat lists that drift from the vocabulary", () => 
       ),
     },
   };
-  const r = checkAdapterConformance(drifted);
+  const r = runAdapterConformance(drifted);
   assert.equal(r.ok, false);
   assert.ok(
     r.failures.some((m) => m.includes("subagentToolVocabulary")),
@@ -181,7 +181,7 @@ test("conformance catches a shell-hook adapter that can't inject context", () =>
     ...claudeCodeAdapter,
     hookProtocol: { ...proto, injectableEvents: [] },
   };
-  const r = checkAdapterConformance(noInject);
+  const r = runAdapterConformance(noInject);
   assert.equal(r.ok, false);
   assert.ok(
     r.failures.some((m) => m.includes("disagrees with dialect.eventCapabilities")), // prettier-ignore
@@ -193,7 +193,7 @@ test("conformance catches a shell-hook adapter that can't inject context", () =>
     ...noInject,
     dialect: { ...claudeCodeAdapter.dialect, eventCapabilities: undefined },
   };
-  const r2 = checkAdapterConformance(alsoNoTable);
+  const r2 = runAdapterConformance(alsoNoTable);
   assert.equal(r2.ok, false);
   assert.ok(r2.failures.some((m) => m.includes("injectableEvents is empty")));
 });
@@ -246,7 +246,7 @@ test("conformance REJECTS a half-wired adapter (claims harnessTesting, no runtim
     claims: () => false,
     detect: () => ({ specificity: 0, via: "instruction-file" }) as const,
   } as unknown as HarnessAdapter;
-  const r = checkAdapterConformance(halfWired);
+  const r = runAdapterConformance(halfWired);
   assert.equal(r.ok, false);
   assert.ok(r.failures.some((m) => m.includes("runtime is missing")));
   assert.ok(r.failures.some((m) => m.includes("modelMock is missing")));
@@ -272,7 +272,7 @@ test("conformance: harnessTesting false must not carry liveDriver either", () =>
     harnessTestDriver: undefined,
     liveDriver: claudeCodeAdapter.liveDriver,
   } as unknown as HarnessAdapter;
-  const r = checkAdapterConformance(strayPort);
+  const r = runAdapterConformance(strayPort);
   assert.equal(r.ok, false);
   assert.ok(
     r.failures.some((m) => m.includes("harnessTesting is false")),

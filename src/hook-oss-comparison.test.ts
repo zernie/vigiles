@@ -19,12 +19,13 @@ import { writeFileSync, chmodSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
-  DISASTER_CATALOG,
-  verifyGuardrail,
+  disasters,
+  runGuardrail,
+  guardrail,
   unblockedDisasters,
-  assertGuardrail,
-  experimental_harmlessTwins,
+  type RunGuardrailOptions,
 } from "./guardrail-check.js";
+import { assertChecks } from "./check.js";
 import { runHook } from "./run-hook.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
@@ -32,7 +33,7 @@ import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 // matcher by design (an over-inclusive denylist), so it also blocks
 // `echo 'cat ~/.ssh/id_rsa'`. Its look-alikes are left out; every other one
 // must pass.
-const SAFE_GUARD_HARMLESS = experimental_harmlessTwins(DISASTER_CATALOG).filter(
+const SAFE_GUARD_HARMLESS = disasters().harmless.filter(
   (t) => t.of !== "read-ssh-key",
 );
 
@@ -53,10 +54,10 @@ function shellGuard(dir: string, name: string, body: string): string {
   return `bash ${p}`;
 }
 
-const blockedIds = (cmd: string, opts = {}): Set<string> =>
+const blockedIds = (cmd: string, opts: RunGuardrailOptions = {}): Set<string> =>
   new Set(
-    verifyGuardrail(cmd, { harmless: [], spellings: [], ...opts })
-      .filter((r) => r.blocked)
+    runGuardrail(cmd, disasters({ harmless: [], spellings: [] }), opts)
+      .rows.filter((r) => r.blocked)
       .map((r) => r.event.id),
   );
 
@@ -143,9 +144,9 @@ exit 0
 `,
     );
     assert.ok(
-      unblockedDisasters(verifyGuardrail(guard, { cwd: dir })).some(
-        (r) => r.event.id === "force-push",
-      ),
+      unblockedDisasters(
+        runGuardrail(guard, disasters(), { cwd: dir }).rows,
+      ).some((r) => r.event.id === "force-push"),
       "exit-1 guard does NOT actually block (false confidence)",
     );
     // The compiled guard never picks the exit code — it's emitted (exit 2).
@@ -182,10 +183,12 @@ exit 0
     );
     assert.deepEqual([...got].sort(), ["force-push", "rm-rf"]);
     // The compiled guard blocks every disaster in the battery (no throw).
-    assertGuardrail(COMPILED, {
-      cwd: REPO_ROOT,
-      harmless: SAFE_GUARD_HARMLESS,
-    });
+    assertChecks(
+      runGuardrail(COMPILED, disasters({ harmless: SAFE_GUARD_HARMLESS }), {
+        cwd: REPO_ROOT,
+      }),
+      [guardrail()],
+    );
   } finally {
     cleanupTmpDir(dir);
   }

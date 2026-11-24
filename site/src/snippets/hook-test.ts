@@ -10,4 +10,4 @@ const blocked = runHook(guard, {
 });
 
 // fails CI the day it stops blocking
-assertChecks(blocked, [check.hookFired("PreToolUse", { blocked: true })]);
+assertChecks(blocked, [check.hook("PreToolUse", { blocked: true })]);

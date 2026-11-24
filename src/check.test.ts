@@ -361,20 +361,20 @@ test("check.writes on an agent run refuses `only` and patterns rather than passi
   assert.throws(() => check.writes({}), /give `only`, `none` or `include`/);
 });
 
-test("check.hookFired over one runHook result: ran, for this event, and decided so", () => {
+test("check.hook over one runHook result: ran, for this event, and decided so", () => {
   const b = hookResult({ event: "PreToolUse", blocked: true, exitCode: 2 });
   const a = hookResult({ event: "PreToolUse", blocked: false, exitCode: 0 });
-  const blocks = check.hookFired("PreToolUse", { blocked: true });
-  const allows = check.hookFired("PreToolUse", { blocked: false });
+  const blocks = check.hook("PreToolUse", { blocked: true });
+  const allows = check.hook("PreToolUse", { blocked: false });
   assert.equal(blocks.eval(b).pass, true);
   assert.equal(blocks.eval(a).pass, false);
   assert.match(blocks.eval(a).message, /expected the hook to block PreToolUse/);
   assert.equal(allows.eval(a).pass, true);
   assert.equal(allows.eval(b).pass, false);
-  assert.equal(check.hookFired("PreToolUse").eval(a).pass, true);
+  assert.equal(check.hook("PreToolUse").eval(a).pass, true);
   // the wrong event, an unnamed event, and a hook that never ran all fail
   assert.match(
-    check.hookFired("Stop").eval(a).message,
+    check.hook("Stop").eval(a).message,
     /but it ran for "PreToolUse"/,
   );
   assert.match(
@@ -391,7 +391,7 @@ test("check.hookFired over one runHook result: ran, for this event, and decided 
   assert.equal(skipped.pass, false);
   assert.match(skipped.message, /never ran/);
   assert.deepEqual(blocks.toJSON(), {
-    kind: "hookFired",
+    kind: "hook",
     event: "PreToolUse",
     blocked: true,
   });

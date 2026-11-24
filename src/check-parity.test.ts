@@ -190,19 +190,19 @@ const ROWS: readonly Row[] = [
   row<HarnessTestResult>({
     old: "assertHookFired(label)",
     target: run({ hooks: [hook("PostToolUse:Bash")] }),
-    check: check.hookFired("PreToolUse:Edit"),
+    check: check.hook("PreToolUse:Edit"),
     facts: ["PreToolUse:Edit", "PostToolUse:Bash"],
   }),
   row<HarnessTestResult>({
     old: "assertHookFired on a run that captured nothing",
     target: run(),
-    check: check.hookFired("Stop"),
+    check: check.hook("Stop"),
     facts: ["Stop", "transcript"],
   }),
   row<HarnessTestResult>({
     old: "assertHookFired(name, { blocked: true })",
     target: run({ hooks: [hook("PreToolUse:Edit")] }),
-    check: check.hookFired("PreToolUse", { blocked: true }),
+    check: check.hook("PreToolUse", { blocked: true }),
     facts: ["PreToolUse", /block/, "PreToolUse:Edit"],
   }),
   row<HarnessTestResult>({
@@ -247,7 +247,7 @@ const ROWS: readonly Row[] = [
   row<HookRunResult>({
     old: "assertHookBlocked",
     target: hookRun({ event: "PreToolUse", exitCode: 0 }),
-    check: check.hookFired("PreToolUse", { blocked: true }),
+    check: check.hook("PreToolUse", { blocked: true }),
     facts: ["exit 0", /allowed/],
   }),
   row<HookRunResult>({
@@ -258,7 +258,7 @@ const ROWS: readonly Row[] = [
       blocked: true,
       decision: "deny",
     }),
-    check: check.hookFired("PreToolUse", { blocked: false }),
+    check: check.hook("PreToolUse", { blocked: false }),
     facts: ["exit 2", "deny", /blocked/],
   }),
 ];
@@ -291,7 +291,7 @@ describe("parity: each removed predicate's check holds and fails where it did", 
     ["toolUsedWith", check.tool("Edit", { with: { file_path: "b.ts" } })],
     ["outputContains", check.output(/done/)],
     ["requestContains", check.received("injected")],
-    ["hookBlocked", check.hookFired("PreToolUse", { blocked: true })],
+    ["hookBlocked", check.hook("PreToolUse", { blocked: true })],
   ];
   for (const [name, c] of pairs)
     test(`${name} → ${JSON.stringify(c.toJSON())}`, () => {

@@ -84,17 +84,24 @@ To back out: `vigiles eject <file>` returns the file to plain markdown and remov
 
 ## Testing guards
 
-These are about `assertGuardrail`, the disaster battery. The full page is
+These are about `runGuardrail` and its check `guardrail()`, the disaster battery. The full page is
 [Prove a guard actually blocks](harness-testing.md#prove-a-guard-actually-blocks-the-disaster-battery).
 
 ### How do I add my own cases, or replace the defaults?
 
-Three options, one rule: passing an option **replaces** its default; to **add**,
-spread the default in. `events` are the disasters (default `DISASTER_CATALOG`),
-`spellings` their other spellings, `harmless` the look-alikes that must pass.
+The cases are a value, `disasters(options)`. Three options, one rule: passing
+an option **replaces** its default; to **add**, spread the default in. `events`
+are the disasters (default `DISASTER_CATALOG`), `spellings` their other
+spellings, `harmless` the look-alikes that must pass.
 
 ```ts
-import { assertGuardrail, DISASTER_CATALOG } from "vigiles/hook/testing";
+import { assertChecks } from "vigiles";
+import {
+  DISASTER_CATALOG,
+  disasters,
+  guardrail,
+  runGuardrail,
+} from "vigiles/hook/testing";
 
 const mine = {
   id: "push-main",
@@ -103,14 +110,18 @@ const mine = {
   tool: "Bash",
   input: { command: "git push origin main" },
 };
-assertGuardrail("bash hooks/guard.sh", { events: [mine] }); // replace
-assertGuardrail("bash hooks/guard.sh", { events: [...DISASTER_CATALOG, mine] }); // add
+const guard = "bash hooks/guard.sh";
+assertChecks(runGuardrail(guard, disasters({ events: [mine] })), [guardrail()]); // replace
+assertChecks(
+  runGuardrail(guard, disasters({ events: [...DISASTER_CATALOG, mine] })),
+  [guardrail()],
+); // add
 ```
 
 ### How do I turn off the look-alikes or the spellings?
 
-Pass an empty list: `harmless: []` or `spellings: []`. The disasters themselves
-always run.
+Pass an empty list: `disasters({ harmless: [] })` or
+`disasters({ spellings: [] })`. The disasters themselves always run.
 
 ### Why is my guard test slow, or timing out?
 

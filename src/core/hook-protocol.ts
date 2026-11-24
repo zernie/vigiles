@@ -165,7 +165,7 @@ export interface HookProtocol {
    * IDEA IS. "A hook may only run on matching calls" is neutral and modelled in
    * `core/hook-condition.ts`; `"Bash(git push *--force*)"` is Claude Code's
    * permission-rule grammar, so the matcher lives in its adapter. Reading it here
-   * is what stops `verifyGuardrail` reporting a conditional guard as blocking
+   * is what stops `runGuardrail` reporting a conditional guard as blocking
    * things its condition means it never sees — see `core/hook-condition.ts` for
    * the measured false green that put this field on the port.
    */

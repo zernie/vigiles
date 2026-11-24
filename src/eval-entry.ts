@@ -65,7 +65,7 @@ import {
 } from "./eval.js";
 import { parseToolStubs } from "./core/eval-spec-parse.js";
 import {
-  measureSelectionMatrix,
+  paid_measureSelectionMatrix,
   formatSelectionReport,
   type SelectionReport,
 } from "./scan-behavioral.js";
@@ -223,7 +223,7 @@ async function runDeclared(
       );
     case "measureSelectionMatrix": {
       const { pluginDir, ...opts } = withTrials(spec as SelectionMatrixSpec);
-      return measureSelectionMatrix(pluginDir, opts);
+      return paid_measureSelectionMatrix(pluginDir, opts);
     }
   }
 }

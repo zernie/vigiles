@@ -2,7 +2,7 @@
  * THE INJECTED-DRIVER PATH, under a real foreign runner.
  *
  * 🔴 The refusal guarded the DEFAULT runner and nothing else. `measureTriggerRate(
- * spec, { evalDriver: codexEvalDriver })` — the publicly documented alternative,
+ * spec, { evalDriver: paid_codexEvalDriver })` — the publicly documented alternative,
  * and the one the untested-skill nudge now tells Codex users to pass — calls the
  * injected driver's runner directly, which ends in `spawnSync("codex", …)`. So a
  * stray `npx vitest run` that collected a Codex eval spent real money on every
@@ -67,13 +67,13 @@ const guardTest = existsSync(CODEX_EVAL) ? test : test.skip;
 const CODEX_UNDER_NODE_TEST =
   `import assert from "node:assert/strict";\n` +
   `import { test } from "node:test";\n` +
-  `import { codexEvalDriver } from ${JSON.stringify(CODEX_EVAL)};\n` +
+  `import { paid_codexEvalDriver } from ${JSON.stringify(CODEX_EVAL)};\n` +
   `test("the injected Codex driver under node --test", async () => {\n` +
   // The runner returns a Promise, but the guard throws SYNCHRONOUSLY (it runs
   // before `Promise.resolve` wraps the result), so accept either shape rather
   // than pinning an implementation detail of how the refusal surfaces.
   `  let err = "";\n` +
-  `  try { await codexEvalDriver.runner({ task: "anything", cwd: ".", timeoutMs: 1000 }); }\n` +
+  `  try { await paid_codexEvalDriver.runner({ task: "anything", cwd: ".", timeoutMs: 1000 }); }\n` +
   `  catch (e) { err = String(e); }\n` +
   `  assert.match(err, /running under node --test/,\n` +
   `    "the guard let a codex spawn start from inside node --test");\n` +
@@ -120,10 +120,10 @@ guardTest(
     // `node file.mjs` must get PAST the refusal and fail on the missing binary
     // instead (PATH is empty), so a fix that simply always threw would fail here.
     const fixture =
-      `import { codexEvalDriver } from ${JSON.stringify(CODEX_EVAL)};\n` +
+      `import { paid_codexEvalDriver } from ${JSON.stringify(CODEX_EVAL)};\n` +
       `import { judge } from ${JSON.stringify(JUDGE)};\n` +
       `let codexErr = "";\n` +
-      `try { await codexEvalDriver.runner({ task: "t", cwd: ".", timeoutMs: 1000 }); }\n` +
+      `try { await paid_codexEvalDriver.runner({ task: "t", cwd: ".", timeoutMs: 1000 }); }\n` +
       `catch (e) { codexErr = String(e); }\n` +
       `const verdict = judge({ rubric: "r", output: "o" });\n` +
       `if (/running under/.test(codexErr)) { console.log("REFUSED-CODEX"); process.exit(1); }\n` +

@@ -10,6 +10,8 @@
  * there is nothing to fake) and pin the error messages, which are the whole
  * reason a loader is public rather than a one-line `await import()`.
  */
+import { experimental_decision, runHookProgram } from "./hook-assertions.js";
+import { assertChecks } from "./check.js";
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import { writeFileSync } from "node:fs";
@@ -19,10 +21,6 @@ import { pathToFileURL } from "node:url";
 
 import { experimental_loadHook as loadHook } from "./load-hook.js";
 import { HookCompileError } from "./core/hook-program.js";
-import {
-  experimental_assertHookDenies as assertHookDenies,
-  experimental_assertHookAllows as assertHookAllows,
-} from "./hook-assertions.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 const HOOK_DIST = pathToFileURL(
@@ -44,14 +42,20 @@ test("loadHook: a loaded hook feeds the in-process assertions directly", async (
 
     // THE pattern a .harness.mjs test uses: path in, assertions over the object.
     const guard = await loadHook(file);
-    assertHookDenies(guard, {
-      tool_name: "Bash",
-      tool_input: { command: "git push --force origin main" },
-    });
-    assertHookAllows(guard, {
-      tool_name: "Bash",
-      tool_input: { command: "git status" },
-    });
+    assertChecks(
+      runHookProgram(guard, {
+        tool_name: "Bash",
+        tool_input: { command: "git push --force origin main" },
+      }),
+      [experimental_decision("deny")],
+    );
+    assertChecks(
+      runHookProgram(guard, {
+        tool_name: "Bash",
+        tool_input: { command: "git status" },
+      }),
+      [experimental_decision("allow")],
+    );
   } finally {
     cleanupTmpDir(dir);
   }
@@ -67,10 +71,13 @@ test("loadHook: resolves a RELATIVE path against the cwd, not against this modul
     const rel = relative(process.cwd(), abs);
     assert.ok(!rel.startsWith("/"), "the fixture path must be relative");
     const guard = await loadHook(rel);
-    assertHookAllows(guard, {
-      tool_name: "Bash",
-      tool_input: { command: "git status" },
-    });
+    assertChecks(
+      runHookProgram(guard, {
+        tool_name: "Bash",
+        tool_input: { command: "git status" },
+      }),
+      [experimental_decision("allow")],
+    );
   } finally {
     cleanupTmpDir(dir);
   }

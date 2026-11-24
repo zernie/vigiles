@@ -17,7 +17,7 @@ import {
   type HarnessTestDriver,
   type EvalDriver,
   // conformance
-  checkAdapterConformance,
+  runAdapterConformance,
   assertAdapterConformance,
   assertAdapterLoadsHooks,
   type ConformanceResult,
@@ -334,7 +334,7 @@ registration order.
 
 ## Conformance
 
-### `checkAdapterConformance(adapter): ConformanceResult`
+### `runAdapterConformance(adapter): ConformanceResult`
 
 Pure (no IO). Returns `{ ok: boolean; failures: readonly string[] }`. Checks:
 every port populated; cross-port invariants (all port `name`s equal
@@ -353,7 +353,7 @@ wrote.
 
 ### `assertAdapterConformance(adapter): void`
 
-Throws an `Error` listing every failure if `checkAdapterConformance` isn't `ok`.
+Throws an `Error` listing every failure if `runAdapterConformance` isn't `ok`.
 Drop it in your adapter's test suite.
 
 ### `assertAdapterLoadsHooks(adapter): void`

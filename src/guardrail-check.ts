@@ -39,6 +39,7 @@ import {
   runHookProgram,
   type AnyHook,
 } from "./core/hook-program.js";
+import type { Check, CheckResult } from "./check.js";
 import { recordCheck, recordSurfaceProbe } from "./check-count.js";
 import {
   gatherContext,
@@ -48,10 +49,12 @@ import {
 } from "./core/hook-providers.js";
 import type { StateFact } from "./core/hook-state.js";
 import {
-  withTargetRepoCases,
-  type TargetRepoCases,
-  type TargetRepoEvent,
-  type TargetRepoForm,
+  crossForms,
+  withCrossRepoCases,
+  type CrossRepoCases,
+  type CrossRepoEvent,
+  type CrossRepoForm,
+  type CrossRepoSetup,
 } from "./guardrail-target-repo.js";
 import { runHook, type RunHookOptions } from "./run-hook.js";
 import { REAL_DEPS, shellNeverLaunched } from "./run-script.js";
@@ -195,8 +198,8 @@ export interface HarmlessEvent {
  * - `crashed` — a command-string hook exited non-zero on EVERY call, with no
  *   structured decision and an interpreter or loader error on stderr (a missing
  *   script or library), and some exit was not a block or a harmless case failed
- *   too. Best-effort, read from outside: see {@link verifyGuardrail}.
- * - `control-failed` — a cross-repository case (`experimental_targetRepo`)
+ *   too. Best-effort, read from outside: see {@link runGuardrail}.
+ * - `control-failed` — a cross-repository case (`experimental_crossRepo`)
  *   whose form's CONTROL — the same command aimed at the start repository
  *   itself — did not get the expected answer. The fixtures do not express what
  *   the guard checks (or the guard does not read repository state), so the
@@ -229,7 +232,7 @@ export type GuardrailRun =
  */
 export interface GuardrailRow<
   E extends "block" | "allow",
-  V extends DisasterEvent | HarmlessEvent | TargetRepoEvent,
+  V extends DisasterEvent | HarmlessEvent | CrossRepoEvent,
 > {
   /** What a working guard does here: block a disaster, allow a harmless case. */
   readonly expect: E;
@@ -247,99 +250,140 @@ export interface GuardrailRow<
 }
 
 /**
- * A disaster row (`expect: "block"`) or a harmless row (`expect: "allow"`).
+ * A row of the disaster set: a disaster or one of its spellings (`expect:
+ * "block"`), or a harmless look-alike (`expect: "allow"`).
  *
  * @public
  */
-export type GuardrailResult =
+export type DisasterRow =
   | GuardrailRow<"block", DisasterEvent>
   | GuardrailRow<"allow", HarmlessEvent>;
 
 /**
- * A cross-repository row (`experimental_targetRepo`): it expects a block
+ * A cross-repository row (`experimental_crossRepo`): it expects a block
  * exactly when the TARGETED repository is the blocked one. Its own type, not a
- * third member of {@link GuardrailResult}, so code that narrows a battery row
- * on `expect` still gets a `DisasterEvent` or a `HarmlessEvent`.
+ * third member of {@link DisasterRow}, so code that narrows a disaster row on
+ * `expect` still gets a `DisasterEvent` or a `HarmlessEvent`.
  *
  * @beta
  */
-export type TargetRepoResult = GuardrailRow<"block" | "allow", TargetRepoEvent>;
+export type CrossRepoRow = GuardrailRow<"block" | "allow", CrossRepoEvent>;
 
-/** Any row the verifier produces: a battery row or a cross-repository row. */
-type AnyRow = GuardrailResult | TargetRepoResult;
+/** Any row the runner produces: a disaster row or a cross-repository row. */
+type AnyRow = DisasterRow | CrossRepoRow;
 
-/** @public */
-export interface VerifyGuardrailOptions extends RunHookOptions {
-  /** Restrict the battery to these categories (default: the whole catalog). */
-  readonly categories?: readonly DisasterCategory[];
-  /** Override the catalog entirely (e.g. a project-specific battery). */
-  readonly events?: readonly DisasterEvent[];
-  /** The PreToolUse event name to wrap each disaster in (default "PreToolUse"). */
+/**
+ * How to run a guard over a case set: the hook protocol, its `if` condition, a
+ * sandbox, and — for a compiled gate — the facts it decides on. Nothing here
+ * says WHICH cases run; that is the case-set value.
+ *
+ * @public
+ */
+export interface RunGuardrailOptions extends RunHookOptions {
+  /** The PreToolUse event name to wrap each case in (default "PreToolUse"). */
   readonly event?: string;
   /**
+   * The facts a compiled gate declared in `needs` (`{ "git.branch": "main" }`),
+   * keyed as `e.ctx` reads them. The runner never gathers them itself — that
+   * would run git or a provider command inside a test — so a gate whose `needs`
+   * this does not cover is refused with a `TypeError` naming the missing facts,
+   * rather than decided on an empty context. Ignored for a command string.
+   * (A cross-repository set gathers the repository facts itself, per case.)
+   */
+  readonly ctx?: Readonly<Record<string, string | boolean | StateFact>>;
+}
+// `condition` + `protocol` are inherited from RunHookOptions — pass the hook's
+// declared `if` here and the runner measures the guard the harness would
+// actually run, not an unconditional stand-in for it.
+
+/**
+ * What {@link disasters} takes: which disasters, and which spellings and
+ * look-alikes go with them. Every field has the default of the stock set.
+ *
+ * @public
+ */
+export interface DisasterCasesOptions {
+  /** Restrict the set to these categories (default: the whole catalog). */
+  readonly categories?: readonly DisasterCategory[];
+  /** Replace the catalog entirely (e.g. a project-specific set). `categories` is then ignored. */
+  readonly events?: readonly DisasterEvent[];
+  /**
    * More cases the guard must BLOCK: other spellings of the selected disasters
-   * that still contain the operation the guard must catch. Default: {@link experimental_alternateSpellings}
-   * of the selected events. `[]` turns them off; an array replaces them (spread
-   * `experimental_alternateSpellings(...)` to keep the generated ones beside yours).
+   * that still contain the operation the guard must catch. Default: generated
+   * from the selected events. `[]` turns them off; an array replaces them
+   * (spread `disasters().spellings` to keep the generated ones beside yours).
    */
   readonly spellings?: readonly DisasterEvent[];
   /**
    * The cases the guard must ALLOW. Default: the harmless look-alikes of every
-   * selected disaster ({@link experimental_harmlessTwins}), so a custom `events`
-   * battery gets its own. `[]` turns the half off; pass your own cases to
-   * replace it (spread `experimental_harmlessTwins(...)` to keep the generated
-   * ones beside yours).
+   * selected disaster, so a custom `events` set gets its own. `[]` turns the
+   * half off; an array replaces it (spread `disasters().harmless` to keep the
+   * generated ones beside yours).
    */
   readonly harmless?: readonly HarmlessEvent[];
-  /**
-   * The facts a compiled gate declared in `needs` (`{ "git.branch": "main" }`),
-   * keyed as `e.ctx` reads them. The battery never gathers them itself — that
-   * would run git or a provider command inside a test — so a gate whose `needs`
-   * this does not cover is refused with a `TypeError` naming the missing facts,
-   * rather than decided on an empty context. Ignored for a command string.
-   */
-  readonly ctx?: Readonly<Record<string, string | boolean | StateFact>>;
-  /**
-   * Run CROSS-REPOSITORY cases INSTEAD of the disaster battery: does the guard
-   * judge the repository a command targets, or the folder the session started
-   * in (#418)? vigiles builds real git repositories in a temp directory, puts
-   * one into the `blocked` state and one into the `allowed` state with your
-   * callbacks, and aims `command` from one at the other (`cd`, `git -C`, a
-   * linked worktree). Per form, four cases: two CONTROLS (aimed at the start
-   * repository itself) and two crossings — started allowed / targeted blocked
-   * must block, started blocked / targeted allowed must allow. If a control
-   * fails, that form's crossings read `run: "control-failed"`: not a verdict.
-   *
-   * The hook gets each event with `cwd` set to the start repository and runs
-   * there. The command in the event is never executed (`git push -f` pushes
-   * nothing); the hook only reads it.
-   *
-   * **This is a test, not a guard, and it runs YOUR hook as it is.** The hook
-   * process runs on this machine with your environment, unconfined unless you
-   * pass `sandbox` (`"strict"`: bubblewrap on Linux, refused elsewhere). Whatever
-   * the hook itself does — write a file, call `gh`, reach the network — it does
-   * here too. The temporary repositories are created and deleted by vigiles;
-   * their own git calls ignore an inherited `GIT_DIR`, so they never touch
-   * the repository you run the test from.
-   * A compiled gate's built-in `needs` (`git.branch`, …) are gathered in the
-   * start repository, as the runtime gathers them in the session folder; any
-   * other need must come from `ctx`.
-   *
-   * Cannot be combined with `events`, `categories`, `spellings`, `harmless` or
-   * `cwd`: those describe the disaster battery, which this replaces.
-   *
-   * @experimental The fixture object, the default forms and the row ids are the
-   * parts most likely to move.
-   */
-  readonly experimental_targetRepo?: TargetRepoCases;
 }
-// `condition` + `protocol` are inherited from RunHookOptions — pass the hook's
-// declared `if` here and the battery measures the guard the harness would
-// actually run, not an unconditional stand-in for it.
+
+/**
+ * The disaster case set, a value: the disasters a guard must block, their
+ * other spellings (also blocked), and their harmless look-alikes (allowed).
+ * {@link runGuardrail} runs `disasters()` when it is given no set. Build one
+ * with {@link disasters}; its fields are plain data, so spread them to add a
+ * case beside the generated ones.
+ *
+ * @public
+ */
+export interface DisasterCases {
+  /** Which case set this is; the runner and the check switch on it. */
+  readonly kind: "disasters";
+  /** The selected disasters, as a human wrote them. */
+  readonly events: readonly DisasterEvent[];
+  /** Other spellings of `events`, proven to run the same operation (ids `<id>~N`). */
+  readonly spellings: readonly DisasterEvent[];
+  /** Harmless look-alikes the guard must allow (ids `<id>#<form>`). */
+  readonly harmless: readonly HarmlessEvent[];
+  /**
+   * Spellings of YOUR events the generator could not prove are the same
+   * command: reported as skipped, never run, never a miss. Always empty for the
+   * stock catalog, whose spellings must all be proven.
+   */
+  readonly unproven: readonly DisasterEvent[];
+}
+
+/**
+ * The case sets {@link runGuardrail} runs: the disaster set, or the
+ * cross-repository set (`experimental_crossRepo`).
+ *
+ * @public
+ */
+export type GuardrailCases = DisasterCases | CrossRepoCases;
+
+/**
+ * What {@link runGuardrail} returns: one row per case of the set it ran, and
+ * the hook's display name for messages. `kind` says which set, so the rows
+ * narrow to it. Assert on it with `guardrail()`.
+ *
+ * @public
+ */
+export type GuardrailRunResult =
+  | {
+      readonly kind: "disasters";
+      /** The hook as a report names it: its command, or a compiled hook's source file. */
+      readonly hook: string;
+      readonly rows: readonly DisasterRow[];
+    }
+  | {
+      readonly kind: "cross-repo";
+      /** The hook as a report names it: its command, or a compiled hook's source file. */
+      readonly hook: string;
+      readonly rows: readonly CrossRepoRow[];
+    };
 
 const HOOK_EVENT = "PreToolUse";
 
-function selectEvents(opts: VerifyGuardrailOptions): readonly DisasterEvent[] {
+/** The cross-repository set's `kind`, in one place. */
+const CROSS_REPO = "cross-repo";
+
+function selectEvents(opts: DisasterCasesOptions): readonly DisasterEvent[] {
   if (opts.events) return opts.events;
   if (opts.categories) {
     const set = new Set(opts.categories);
@@ -359,12 +403,11 @@ function selectEvents(opts: VerifyGuardrailOptions): readonly DisasterEvent[] {
  * pass-through wrapper (`sudo …`, `env …`), a subshell, or `bash -c '…'`. Each
  * rewrite contains the same operation the guard must catch — not always the
  * whole original: `sudo` in front of a compound seed applies to its first
- * command only. `assertGuardrail` runs them by default (its `spellings`
- * option); to add your own, spread these beside them:
+ * command only. {@link disasters} puts them in its `spellings` by default; to
+ * add your own, spread the generated ones beside them:
  *
- *     assertGuardrail(hook, {
- *       spellings: [...experimental_alternateSpellings(DISASTER_CATALOG), mine],
- *     });
+ *     const d = disasters();
+ *     runGuardrail(hook, { ...d, spellings: [...d.spellings, mine] });
  *
  * WHAT BREAKS WITHOUT IT. A guard whose rule is "the command contains `--force`"
  * blocks all seven catalog commands, so the battery is green — and lets
@@ -377,7 +420,7 @@ function selectEvents(opts: VerifyGuardrailOptions): readonly DisasterEvent[] {
  * the shell parser vigiles already uses for `runs()`/`touches()` (see
  * `sameOperation` in core). A rewrite that fails that check throws rather than
  * being emitted, so the battery can never quietly shrink. (For events YOU pass
- * to `assertGuardrail`, it is skipped and counted instead — see `spellingCases`.)
+ * to `disasters`, it is skipped and counted instead — see `spellingCases`.)
  *
  * It returns ONLY the rewrites (never the originals), so pass the originals
  * alongside as above. Each rewrite keeps its original's `tool` and `category`
@@ -389,14 +432,11 @@ function selectEvents(opts: VerifyGuardrailOptions): readonly DisasterEvent[] {
  * target, whereas every rewrite here provably contains the operation the guard
  * must catch — a miss is a guard bug, never an ambiguous input.
  *
- * @experimental Days old with a single consumer (this repo's own dogfood) and no
- * external use. The set of rewrite rules and the id-suffix shape are the parts most
- * likely to move; the prefix says so at every call site, which an import line or a
- * doc note cannot.
- *
- * @beta
+ * @internal Public as `disasters().spellings` (v53 folded the generator into
+ * the case-set value). The set of rewrite rules and the id-suffix shape are the
+ * parts most likely to move.
  */
-export function experimental_alternateSpellings(
+export function alternateSpellings(
   events: readonly DisasterEvent[],
 ): readonly DisasterEvent[] {
   return events.flatMap((event) => {
@@ -411,7 +451,7 @@ export function experimental_alternateSpellings(
 /**
  * Harmless LOOK-ALIKES of each disaster: the same text carried as DATA — a
  * commit message, a heredoc body, an `echo` argument, a `grep` pattern. A guard
- * must ALLOW every one; {@link verifyGuardrail} adds them by default.
+ * must ALLOW every one; {@link disasters} adds them by default.
  *
  * WHAT BREAKS WITHOUT IT. A guard whose rule is "the input contains
  * `git push -f`" blocks every force push and also blocks
@@ -429,12 +469,10 @@ export function experimental_alternateSpellings(
  * with the form as suffix (`force-push#echo`) and names the seed in `of`.
  * Events whose input has no string `command` get none.
  *
- * @experimental The set of forms and the id shape are the parts most likely to
- * move.
- *
- * @beta
+ * @internal Public as `disasters().harmless` (v53). The set of forms and the
+ * id shape are the parts most likely to move.
  */
-export function experimental_harmlessTwins(
+export function harmlessTwins(
   events: readonly DisasterEvent[],
 ): readonly HarmlessEvent[] {
   return events.flatMap((event) => {
@@ -460,7 +498,7 @@ type BatteryCase =
   | { readonly expect: "allow"; readonly event: HarmlessEvent }
   | {
       readonly expect: "block" | "allow";
-      readonly event: TargetRepoEvent;
+      readonly event: CrossRepoEvent;
       readonly startDir: string;
     };
 
@@ -468,7 +506,7 @@ type BatteryCase =
  * The generated spellings of `events`, LENIENT: a rewrite the generator cannot
  * prove is returned in `unproven` instead of throwing. For a battery the caller
  * wrote — a seed we never saw must not throw before the guard runs. The shipped
- * catalog keeps the strict path ({@link experimental_alternateSpellings}), so
+ * catalog keeps the strict path ({@link alternateSpellings}), so
  * our own battery can never quietly shrink.
  *
  * @internal Exported for its test; not on any public door.
@@ -515,32 +553,54 @@ function spelled(
   };
 }
 
-/** The cases to run, and the spellings skipped because they could not be proven. */
-function selectCases(opts: VerifyGuardrailOptions): {
-  readonly cases: readonly BatteryCase[];
-  readonly unproven: readonly DisasterEvent[];
-} {
+/**
+ * The disaster case set: the selected disasters, their other spellings, and
+ * their harmless look-alikes — as a value {@link runGuardrail} runs.
+ *
+ * ```ts
+ * runGuardrail(hook);                                          // the stock set
+ * runGuardrail(hook, disasters({ categories: ["destructive-git"] }));
+ * runGuardrail(hook, disasters({ events: [...DISASTER_CATALOG, mine] }));
+ * const d = disasters();
+ * runGuardrail(hook, { ...d, harmless: [...d.harmless, quoted] });
+ * ```
+ *
+ * The stock catalog's spellings must all be proven (a rewrite that is not
+ * throws, so the set can never quietly shrink). For events YOU pass, a spelling
+ * the generator cannot prove lands in `unproven`: reported as skipped, never
+ * run. The generated spellings and look-alikes — their rules, forms and id
+ * shapes — are the parts most likely to move.
+ *
+ * @public
+ */
+export function disasters(opts: DisasterCasesOptions = {}): DisasterCases {
   const events = selectEvents(opts);
   const generated =
     opts.events === undefined
-      ? { proven: experimental_alternateSpellings(events), unproven: [] }
+      ? { proven: alternateSpellings(events), unproven: [] }
       : spellingCases(events);
-  const spellings = opts.spellings ?? generated.proven;
-  const harmless = opts.harmless ?? experimental_harmlessTwins(events);
   return {
-    cases: [
-      ...[...events, ...spellings].map((event) => ({
-        expect: "block" as const,
-        event,
-      })),
-      ...harmless.map((event) => ({ expect: "allow" as const, event })),
-    ],
+    kind: "disasters",
+    events,
+    spellings: opts.spellings ?? generated.proven,
+    harmless: opts.harmless ?? harmlessTwins(events),
     unproven: opts.spellings === undefined ? generated.unproven : [],
   };
 }
 
+/** The cases of a disaster set, in report order: disasters, spellings, look-alikes. */
+function disasterCases(set: DisasterCases): readonly BatteryCase[] {
+  return [
+    ...[...set.events, ...set.spellings].map((event) => ({
+      expect: "block" as const,
+      event,
+    })),
+    ...set.harmless.map((event) => ({ expect: "allow" as const, event })),
+  ];
+}
+
 /** The row for a spelling skipped because it could not be proven the same command. */
-function unprovenRow(event: DisasterEvent): AnyRow {
+function unprovenRow(event: DisasterEvent): DisasterRow {
   return {
     expect: "block",
     event,
@@ -580,7 +640,7 @@ function hookName(hook: string | AnyHook): string {
 }
 
 /** A compiled gate's facts, checked before any case: what `decide()` will read. */
-type GateCtx = NonNullable<VerifyGuardrailOptions["ctx"]>;
+type GateCtx = NonNullable<RunGuardrailOptions["ctx"]>;
 
 /**
  * Refuse what cannot be decided exactly — a non-gate, a `condition`, a declared
@@ -589,7 +649,11 @@ type GateCtx = NonNullable<VerifyGuardrailOptions["ctx"]>;
  * `git.root`, `cwd`) is gathered per case in the start repository (see
  * {@link caseContext}), so only the others must come from `ctx`.
  */
-function gateContext(hook: AnyHook, opts: VerifyGuardrailOptions): GateCtx {
+function gateContext(
+  hook: AnyHook,
+  opts: RunGuardrailOptions,
+  gathered: boolean,
+): GateCtx {
   const kind = dispatchKind(hook);
   if (kind !== "bash-gate" && kind !== "file-gate")
     throw new TypeError(
@@ -606,16 +670,24 @@ function gateContext(hook: AnyHook, opts: VerifyGuardrailOptions): GateCtx {
       "`condition` describes a command-string hook's `if`; a compiled hook routes itself",
     );
   const ctx = opts.ctx ?? {};
-  const gathered = opts.experimental_targetRepo !== undefined;
-  const missing = hookNeeds(hook)
+  const missing = missingNeeds(hook, ctx, gathered);
+  if (missing.length > 0)
+    throw new TypeError(
+      `this gate needs ${missing.join(", ")}, and \`ctx\` does not supply it: the runner does not gather facts, so pass them (ctx: { "${missing[0] ?? ""}": … })`,
+    );
+  return ctx;
+}
+
+/** The gate's needs `ctx` leaves out (a repository fact is gathered when `gathered`). */
+function missingNeeds(
+  hook: AnyHook,
+  ctx: GateCtx,
+  gathered: boolean,
+): readonly string[] {
+  return hookNeeds(hook)
     .filter((n) => !(gathered && isRepoFact(n)))
     .map(needKey)
     .filter((k) => !Object.hasOwn(ctx, k));
-  if (missing.length > 0)
-    throw new TypeError(
-      `this gate needs ${missing.join(", ")}, and \`ctx\` does not supply it: the battery does not gather facts, so pass them (ctx: { "${missing[0] ?? ""}": … })`,
-    );
-  return ctx;
 }
 
 /**
@@ -682,7 +754,7 @@ function caseContext(hook: AnyHook, c: BatteryCase, ctx: GateCtx): GateCtx {
 /** The event's `cwd`: the start repository of a cross case, else `opts.cwd`. */
 function eventCwd(
   c: BatteryCase,
-  opts: VerifyGuardrailOptions,
+  opts: RunGuardrailOptions,
 ): { readonly cwd?: string } {
   if (isTargetCase(c)) return { cwd: c.startDir };
   return opts.cwd === undefined ? {} : { cwd: opts.cwd };
@@ -696,12 +768,12 @@ function eventCwd(
 function decideCases(
   hook: AnyHook,
   cases: readonly BatteryCase[],
-  opts: VerifyGuardrailOptions,
+  opts: RunGuardrailOptions,
 ): readonly AnyRow[] {
-  const ctx = gateContext(hook, opts);
+  const ctx = gateContext(hook, opts, cases.some(isTargetCase));
   return cases.map((c) => {
-    // Counted and attributed like `experimental_assertHookDenies` (see hook-assertions.ts
-    // `runCountedHookProgram`): an in-process decision is a check.
+    // Counted and attributed like the testing `runHookProgram` (see
+    // hook-assertions.ts): an in-process decision is a check.
     recordCheck();
     const source = hookSource(hook);
     if (source !== undefined) recordSurfaceProbe("command", source);
@@ -749,7 +821,7 @@ function neverLaunched(c: BatteryCase, exitCode: number): AnyRow {
 function runCase(
   hookCommand: string,
   c: BatteryCase,
-  opts: VerifyGuardrailOptions,
+  opts: RunGuardrailOptions,
 ): Spawned {
   // A cross-repository case starts the hook IN the start repository, and says
   // so in the event's `cwd` too, as Claude Code does for the session folder.
@@ -841,99 +913,155 @@ function markCrashed(spawned: readonly Spawned[]): readonly AnyRow[] {
 /* eslint-disable no-redeclare -- TypeScript function overloads (the base
    no-redeclare rule, unlike @typescript-eslint/no-redeclare, flags them) */
 /**
- * Proves a guard hook works both ways: blocks every disaster, lets through the
- * same text when it is only data. Returns one row per case — the disasters
- * (`expect: "block"`) then the harmless look-alikes (`expect: "allow"`) — so the
- * caller reads `blocked` against `expect`.
+ * Runs a guard hook over a case set and returns one row per case — it never
+ * throws on a miss. Assert on the result with `guardrail()`:
+ *
+ * ```ts
+ * import { assertChecks } from "vigiles";
+ * import { runGuardrail, guardrail } from "vigiles/hook/testing";
+ *
+ * assertChecks(runGuardrail("bash hooks/guard.sh"), [guardrail()]);
+ * ```
+ *
+ * With no set it runs `disasters()`: every disaster blocked, its other
+ * spellings blocked, and the same text let through when it is only data. The
+ * rows come in that order, so the caller reads `blocked` against `expect`.
  *
  * Pass a compiled hook (`vigiles/hook`): it is checked exactly, by calling
  * `decide()`, with no process. A gate that declares `needs` decides on the
- * facts you pass in `ctx`; one whose needs `ctx` leaves out is refused. A shell command string is only measured from
- * outside: a hook that never started, or one that branches on the input, can
- * look like it works. A string hook that exited non-zero on every call with an
- * interpreter or loader error reads `run: "crashed"`, never a score — a
- * best-effort rule, see {@link GuardrailRun}. Write guards as compiled hooks.
+ * facts you pass in `ctx`; one whose needs `ctx` leaves out is refused. A shell
+ * command string is only measured from outside: a hook that never started, or
+ * one that branches on the input, can look like it works. A string hook that
+ * exited non-zero on every call with an interpreter or loader error reads
+ * `run: "crashed"`, never a score — a best-effort rule, see
+ * {@link GuardrailRun}. Write guards as compiled hooks.
  *
  * A string is the exact shell the hook registers (e.g. `bash hooks/guard.sh`);
- * it receives each case as a PreToolUse event on stdin, as Claude Code delivers
- * it.
- *
- * With `experimental_targetRepo` it runs the cross-repository cases INSTEAD of
- * the battery and returns {@link TargetRepoResult} rows (the next overload).
+ * it receives each case as a PreToolUse event on stdin, as Claude Code
+ * delivers it (pass another harness's `protocol` to speak its).
  *
  * @public
  */
-export function verifyGuardrail(
+export function runGuardrail(
   hook: string | AnyHook,
-  opts?: VerifyGuardrailOptions & {
-    readonly experimental_targetRepo?: undefined;
-  },
-): readonly GuardrailResult[];
+  cases?: DisasterCases,
+  opts?: RunGuardrailOptions,
+): Extract<GuardrailRunResult, { readonly kind: "disasters" }>;
 /**
- * The cross-repository cases (`experimental_targetRepo`, #418): per form, two
+ * The cross-repository set (`experimental_crossRepo`, #418): per form, two
  * controls and two crossings, each run with the session started in one real
  * repository and the command aimed at another. A crossing whose form's control
  * failed reads `run: "control-failed"` — not a verdict.
  *
  * @public
  */
-export function verifyGuardrail(
+export function runGuardrail(
   hook: string | AnyHook,
-  opts: VerifyGuardrailOptions & {
-    readonly experimental_targetRepo: TargetRepoCases;
-  },
-): readonly TargetRepoResult[];
+  cases: CrossRepoCases,
+  opts?: RunGuardrailOptions,
+): Extract<GuardrailRunResult, { readonly kind: "cross-repo" }>;
 /**
- * Options whose `experimental_targetRepo` is not known statically: either kind
- * of row.
+ * A set whose kind is not known statically: either kind of result.
  *
  * @public
  */
-export function verifyGuardrail(
+export function runGuardrail(
   hook: string | AnyHook,
-  opts?: VerifyGuardrailOptions,
-): readonly (GuardrailResult | TargetRepoResult)[];
-export function verifyGuardrail(
+  cases?: GuardrailCases,
+  opts?: RunGuardrailOptions,
+): GuardrailRunResult;
+export function runGuardrail(
   hook: string | AnyHook,
-  opts: VerifyGuardrailOptions = {},
-): readonly (GuardrailResult | TargetRepoResult)[] {
-  if (opts.experimental_targetRepo !== undefined)
-    return verifyTargetRepo(hook, opts.experimental_targetRepo, opts);
-  const { cases, unproven } = selectCases(opts);
-  const skipped = unproven.map(unprovenRow);
-  if (typeof hook !== "string")
-    return [...decideCases(hook, cases, opts), ...skipped];
-  return [...markCrashed(cases.map((c) => runCase(hook, c, opts))), ...skipped];
+  cases: GuardrailCases = disasters(),
+  opts: RunGuardrailOptions = {},
+): GuardrailRunResult {
+  const name = hookName(hook);
+  if (cases.kind === CROSS_REPO)
+    return {
+      kind: CROSS_REPO,
+      hook: name,
+      rows: runCrossRepo(hook, cases, opts),
+    };
+  const planned = disasterCases(cases);
+  const skipped = cases.unproven.map(unprovenRow);
+  const rows =
+    typeof hook === "string"
+      ? markCrashed(planned.map((c) => runCase(hook, c, opts)))
+      : decideCases(hook, planned, opts);
+  return {
+    kind: "disasters",
+    hook: name,
+    rows: [...rows, ...skipped].filter(isDisasterRow),
+  };
 }
 /* eslint-enable no-redeclare */
 
-/** The options that describe the disaster battery, which `experimental_targetRepo` replaces. */
-const BATTERY_ONLY = [
-  "events",
-  "categories",
-  "spellings",
-  "harmless",
-  "cwd",
-] as const;
+/**
+ * The cross-repository case set (#418): does the guard judge the repository a
+ * command TARGETS, or the folder the session started in? Pass the value to
+ * {@link runGuardrail} in place of the disaster set.
+ *
+ * ```ts
+ * runGuardrail(guard, experimental_crossRepo({
+ *   command: "git push -f origin HEAD",
+ *   blockIn: (repo) => repo.branch("main"),
+ *   allowIn: (repo) => repo.branch("feature/x"),
+ * }));
+ * ```
+ *
+ * vigiles builds real git repositories in a temp directory, puts one into the
+ * state where `command` must be blocked with `blockIn` and one into the state
+ * where it must be allowed with `allowIn`, and aims `command` from one at the
+ * other (`cd`, `git -C`, a linked worktree). Per form, four cases: two
+ * CONTROLS (aimed at the start repository itself) and two crossings — started
+ * allowed / targeted blocked must block, started blocked / targeted allowed
+ * must allow. If a control fails, that form's crossings read `run:
+ * "control-failed"`: not a verdict.
+ *
+ * The hook gets each event with `cwd` set to the start repository and runs
+ * there. The command in the event is never executed (`git push -f` pushes
+ * nothing); the hook only reads it.
+ *
+ * **This is a test, not a guard, and it runs YOUR hook as it is.** The hook
+ * process runs on this machine with your environment, unconfined unless you
+ * pass `sandbox` (`"strict"`: bubblewrap on Linux, refused elsewhere). Whatever
+ * the hook itself does — write a file, call `gh`, reach the network — it does
+ * here too. The temporary repositories are created and deleted by vigiles;
+ * their own git calls ignore an inherited `GIT_DIR`, so they never touch the
+ * repository you run the test from. A compiled gate's built-in `needs`
+ * (`git.branch`, …) are gathered in the start repository, as the runtime
+ * gathers them in the session folder; any other need must come from `ctx`.
+ *
+ * The repositories are built when the set RUNS, not here; the forms are
+ * checked here (an empty list, or `git-C` for a command that is not `git …`,
+ * throws).
+ *
+ * @experimental The fixture object, the default forms and the row ids are the
+ * parts most likely to move.
+ *
+ * @beta
+ */
+export function experimental_crossRepo(setup: CrossRepoSetup): CrossRepoCases {
+  return { ...setup, kind: CROSS_REPO, forms: crossForms(setup) };
+}
 
 /**
- * The cross-repository cases instead of the battery: build the repositories,
- * run every case where the session starts, then withdraw the verdict of every
- * crossing whose form's control failed.
+ * The cross-repository cases: build the repositories, run every case where the
+ * session starts, then withdraw the verdict of every crossing whose form's
+ * control failed.
  */
-function verifyTargetRepo(
+function runCrossRepo(
   hook: string | AnyHook,
-  spec: TargetRepoCases,
-  opts: VerifyGuardrailOptions,
-): readonly TargetRepoResult[] {
-  const clash = BATTERY_ONLY.filter((k) => opts[k] !== undefined);
-  if (clash.length > 0)
+  spec: CrossRepoCases,
+  opts: RunGuardrailOptions,
+): readonly CrossRepoRow[] {
+  if (opts.cwd !== undefined)
     throw new TypeError(
-      `\`experimental_targetRepo\` replaces the disaster battery, so \`${clash.join("`, `")}\` cannot be combined with it: run the battery in its own call`,
+      "`cwd` cannot be combined with a cross-repository set: each case starts in the repository it built",
     );
-  // Refuse a compiled hook the battery cannot decide BEFORE building anything.
-  if (typeof hook !== "string") gateContext(hook, opts);
-  return withTargetRepoCases(spec, (planned) => {
+  // Refuse a compiled hook the runner cannot decide BEFORE building anything.
+  if (typeof hook !== "string") gateContext(hook, opts, true);
+  return withCrossRepoCases(spec, (planned) => {
     const cases: readonly BatteryCase[] = planned;
     const rows =
       typeof hook === "string"
@@ -949,12 +1077,17 @@ function answeredOrUnselected(r: AnyRow): boolean {
 }
 
 /** A cross-repository row (its event says `via`), not a battery row. */
-function isTargetRow(r: AnyRow): r is TargetRepoResult {
+function isTargetRow(r: AnyRow): r is CrossRepoRow {
   return "via" in r.event;
 }
 
+/** A disaster row; on the disaster set, every row is one. */
+function isDisasterRow(r: AnyRow): r is DisasterRow {
+  return !isTargetRow(r);
+}
+
 /** The cross-repository event of a row, or undefined for a battery row. */
-function targetEvent(r: AnyRow): TargetRepoEvent | undefined {
+function targetEvent(r: AnyRow): CrossRepoEvent | undefined {
   return isTargetRow(r) ? r.event : undefined;
 }
 
@@ -976,11 +1109,9 @@ function answeredAsExpected(r: AnyRow): boolean {
  * wrong answer, its fixtures do not express what the guard checks, so its
  * crossings become `control-failed` — recorded, never scored.
  */
-function markUncontrolled(
-  rows: readonly AnyRow[],
-): readonly TargetRepoResult[] {
+function markUncontrolled(rows: readonly AnyRow[]): readonly CrossRepoRow[] {
   const target = rows.filter(isTargetRow);
-  const failed = new Set<TargetRepoForm>(
+  const failed = new Set<CrossRepoForm>(
     target
       .filter((r) => r.event.control && !answeredAsExpected(r))
       .map((r) => r.event.via),
@@ -1029,51 +1160,98 @@ function skippedNote(results: readonly AnyRow[]): string {
     : `\n${String(n)} spelling(s) skipped (couldn't prove they run the same operation).`;
 }
 
+const pass = (message: string): CheckResult => ({
+  pass: true,
+  score: 1,
+  message,
+});
+const fail = (message: string): CheckResult => ({
+  pass: false,
+  score: 0,
+  message,
+});
+
 /**
- * Proves a guard hook works both ways: blocks every disaster, lets through the
- * same text when it is only data. Throws, listing every failed case, so a guard
- * that is secretly a no-op — or one that blocks the text wherever it appears —
- * fails the build instead of failing in production.
+ * The check over a {@link runGuardrail} result: the guard did what every case
+ * asked. On the disaster set, every disaster (and every proven spelling) was
+ * blocked and every harmless look-alike allowed; on the cross-repository set,
+ * every case answered for the repository the command targets.
  *
- * Pass a compiled hook (`vigiles/hook`): it is checked exactly, by calling
- * `decide()`, with no process. A gate that declares `needs` decides on the
- * facts you pass in `ctx`; one whose needs `ctx` leaves out is refused. A shell command string is only measured from
- * outside: a hook that never started, or one that branches on the input, can
- * look like it works. Write guards as compiled hooks.
+ * ```ts
+ * assertChecks(runGuardrail("bash hooks/guard.sh"), [guardrail()]);
+ * expect(runGuardrail(guard)).toPass(guardrail()); // vigiles/vitest
+ * ```
  *
- * The harmless half is on by default; turn it off with `harmless: []`, or pass
- * your own cases.
+ * It FAILS, each in its own words, when the guard never answered: a hook that
+ * crashed on every call ("NEVER RAN"), a case the shell never launched or that
+ * crashed ("NOT RUN"), and a cross-repository crossing whose form's control
+ * failed ("NOT A VERDICT") — a test that proves nothing must not pass. A
+ * harmless case the hook's condition does not select passes (the harness never
+ * spawns the hook); a spelling skipped as unproven is noted, never a miss.
  *
  * @public
  */
-export function assertGuardrail(
-  hook: string | AnyHook,
-  opts: VerifyGuardrailOptions = {},
-): void {
-  const results = verifyGuardrail(hook, opts);
-  const name = hookName(hook);
-  const first = results[0];
-  const asked = results.filter((r) => r.run !== "unproven");
-  if (first !== undefined && asked.every((r) => r.run === "crashed"))
-    throw new Error(`Guardrail \`${name}\` NEVER RAN — ${first.reason}`);
-  if (opts.experimental_targetRepo !== undefined) {
-    assertTargetRepo(name, results);
-    return;
+export function guardrail(): Check<GuardrailRunResult> {
+  return {
+    kind: "guardrail",
+    eval: (r) => {
+      const problem = guardrailProblem(r);
+      return problem === undefined
+        ? pass(guardrailPassed(r))
+        : fail(problem + skippedNote(r.rows));
+    },
+    toJSON: () => ({ kind: "guardrail" }),
+  };
+}
+
+/** What a passing result says: how much the guard was asked, and how it answered. */
+function guardrailPassed(r: GuardrailRunResult): string {
+  if (r.kind === CROSS_REPO)
+    return `Guardrail \`${r.hook}\` answered all ${String(r.rows.length)} cross-repository case(s) for the repository the command targets`;
+  const blocked = r.rows.filter(
+    (x) => x.expect === "block" && x.run !== "unproven",
+  ).length;
+  const allowed = r.rows.filter((x) => x.expect === "allow").length;
+  return (
+    `Guardrail \`${r.hook}\` blocked ${String(blocked)}/${String(blocked)} dangerous case(s)` +
+    (allowed > 0
+      ? ` and allowed ${String(allowed)}/${String(allowed)} harmless look-alike(s)`
+      : "") +
+    skippedNote(r.rows)
+  );
+}
+
+/** Why a result fails the check, or undefined when it holds. */
+function guardrailProblem(r: GuardrailRunResult): string | undefined {
+  const first = r.rows[0];
+  const asked = r.rows.filter((x) => x.run !== "unproven");
+  if (first !== undefined && asked.every((x) => x.run === "crashed"))
+    return `Guardrail \`${r.hook}\` NEVER RAN — ${first.reason}`;
+  switch (r.kind) {
+    case "cross-repo":
+      return crossRepoProblem(r.hook, r.rows);
+    case "disasters":
+      return disasterProblem(r.hook, r.rows);
   }
-  const missed = unblockedDisasters(results);
-  const overBlocked = results.filter(overBlockedHarmless);
-  if (missed.length === 0 && overBlocked.length === 0) return;
+}
+
+/** The disaster set's failures: missed disasters, then blocked look-alikes. */
+function disasterProblem(
+  name: string,
+  rows: readonly DisasterRow[],
+): string | undefined {
+  const missed = unblockedDisasters(rows);
+  const overBlocked = rows.filter(overBlockedHarmless);
+  if (missed.length === 0 && overBlocked.length === 0) return undefined;
   const parts = [
     missed.length > 0
       ? `Guardrail \`${name}\` did NOT block ${String(missed.length)} dangerous action(s):\n${missed.map(missLine).join("\n")}\nA hook that doesn't block these is false confidence — fix it (PreToolUse + exit 2, or deny()).`
       : "",
     overBlocked.length > 0
-      ? `Guardrail \`${name}\` did not allow ${String(overBlocked.length)} harmless command(s) that only MENTION a dangerous one:\n${overBlocked.map(missLine).join("\n")}\nEvery false block costs the agent a turn. Decide on the parsed command (vigiles/hook \`runs()\`), or replace the cases: { harmless: [...] }.`
+      ? `Guardrail \`${name}\` did not allow ${String(overBlocked.length)} harmless command(s) that only MENTION a dangerous one:\n${overBlocked.map(missLine).join("\n")}\nEvery false block costs the agent a turn. Decide on the parsed command (vigiles/hook \`runs()\`), or replace the cases: disasters({ harmless: [...] }).`
       : "",
   ];
-  throw new Error(
-    parts.filter((p) => p !== "").join("\n\n") + skippedNote(results),
-  );
+  return parts.filter((p) => p !== "").join("\n\n");
 }
 
 /**
@@ -1089,18 +1267,21 @@ function overBlockedHarmless(r: AnyRow): boolean {
 }
 
 /**
- * The cross-repository half of {@link assertGuardrail}: a wrong answer on a
- * crossing is a failure (the guard judged its start folder), and a crossing
- * with no verdict because a control failed is a failure TOO — a test that
- * proves nothing must not pass — but it says so in its own words.
+ * The cross-repository failures: a wrong answer on a crossing is a failure (the
+ * guard judged its start folder), and a crossing with no verdict because a
+ * control failed is a failure TOO — a test that proves nothing must not pass —
+ * but it says so in its own words.
  */
-function assertTargetRepo(name: string, results: readonly AnyRow[]): void {
+function crossRepoProblem(
+  name: string,
+  results: readonly CrossRepoRow[],
+): string | undefined {
   const wrong = results.filter((r) => !noVerdict(r) && !answeredAsExpected(r));
   const unscored = results.filter(noVerdict);
-  if (wrong.length === 0 && unscored.length === 0) return;
+  if (wrong.length === 0 && unscored.length === 0) return undefined;
   const lines = (rs: readonly AnyRow[]): string =>
     rs.map((r) => `  ${guardrailRow(r)}`).join("\n");
-  const crossings = wrong.filter((r) => targetEvent(r)?.control === false);
+  const crossings = wrong.filter((r) => !r.event.control);
   const parts = [
     wrong.length > 0
       ? `Guardrail \`${name}\` failed ${String(wrong.length)} cross-repository case(s):\n${lines(wrong)}`
@@ -1109,10 +1290,10 @@ function assertTargetRepo(name: string, results: readonly AnyRow[]): void {
       ? "A guard must judge the repository the command targets (`cd <dir> &&`, `git -C <dir>`, a worktree path), not the folder the session started in."
       : "",
     unscored.length > 0
-      ? `${String(unscored.length)} cross-repository case(s) are NOT A VERDICT, because a control of their form failed:\n${lines(unscored)}\nMake \`blocked\` and \`allowed\` set up the state this hook actually reads.`
+      ? `${String(unscored.length)} cross-repository case(s) are NOT A VERDICT, because a control of their form failed:\n${lines(unscored)}\nMake \`blockIn\` and \`allowIn\` set up the state this hook actually reads.`
       : "",
   ];
-  throw new Error(parts.filter((p) => p !== "").join("\n\n"));
+  return parts.filter((p) => p !== "").join("\n\n");
 }
 
 /** The hook's condition did not select the case, so the harness never spawns it. */
@@ -1156,7 +1337,7 @@ export function guardrailRow(result: AnyRow): string {
  * needs, and — on a wrong answer — what that means. With its controls passed,
  * a wrong answer on a crossing is the start folder's answer.
  */
-function targetRow(r: AnyRow, e: TargetRepoEvent): string {
+function targetRow(r: AnyRow, e: CrossRepoEvent): string {
   if (noVerdict(r)) return `⊘ ${e.label} — ${r.reason}`;
   const unselected = notSelected(r);
   if (!answeredOrUnselected(r)) return `⊘ ${e.label} — NOT RUN: ${r.reason}`;
@@ -1201,7 +1382,7 @@ function reportFoot(
 ): string {
   return [
     missed
-      ? "\nAllows ≠ a bug unless this guard is MEANT to block them — gate intent with\nassertGuardrail(hook, { categories: [...] })."
+      ? "\nAllows ≠ a bug unless this guard is MEANT to block them — gate intent with\nrunGuardrail(hook, disasters({ categories: [...] }))."
       : "",
     overBlocked
       ? "\nA blocked look-alike is a false block: the text was data, not a command."
@@ -1217,7 +1398,7 @@ function reportFoot(
  * hook blocks WITHOUT judging it: a hook that allows these may simply not be a
  * bash-safety guard (our own pre-edit.sh blocks .md edits, not `rm -rf`). The
  * "false confidence" verdict only applies once intent is DECLARED — see
- * {@link assertGuardrail}.
+ * {@link guardrail}.
  */
 export function formatGuardrailReport(
   hook: string | AnyHook,

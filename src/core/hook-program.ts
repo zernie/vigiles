@@ -901,7 +901,7 @@ function mayMeanAskedFlag(
  *   cost precision: with a root, `/somewhere-else/notes/x` is provably not this
  *   repo's `notes`; without one it can only be over-blocked.
  *
- * @public
+ * @internal Not on any entry since v53 (#518): a hook reads `e.command`, which the runtime parses.
  */
 export function parseShellCommand(raw: string, root?: string): ShellCommand {
   return inspectShellCommand(raw, root).view;
@@ -2013,7 +2013,7 @@ export interface FilePath {
  *   checkout from the one the harness resolved the hook out of, and that exact
  *   mismatch already wedged a repo once.
  *
- * @public
+ * @internal Not on any entry since v53 (#518): a hook reads `e.path`, which the runtime parses.
  */
 export function parseFilePath(raw: string, root?: string): FilePath {
   const slashed = raw.replace(/\\/g, "/");
@@ -2943,8 +2943,8 @@ export function hookSource(hook: AnyHook): string | undefined {
 /**
  * Evaluate a compiled hook against a raw event, in-process, dispatching by role:
  * a gate → its `Decision`, an inject → the injected context text, a react → its
- * (effect-classified) `Reaction`. Pure — no subprocess, no model. The ergonomic
- * base for testing a compiled hook (see `experimental_assertHookDenies` / `experimental_assertHookAllows`).
+ * (effect-classified) `Reaction`. Pure — no subprocess, no model. Tests reach it
+ * through the counted runner of the same name on `vigiles/hook/testing`.
  *
  * @public
  */

@@ -14,7 +14,7 @@
  * the landing page and check the hero" plausibly fires both (this skill claims
  * "reviewing any site/ component"; `screenshot` claims "see how it looks" for
  * `site/`). Rendering prompts appear in NEITHER bank below; that overlap is a
- * `measureSelectionMatrix` question over the whole `.claude/skills/`.
+ * `paid_measureSelectionMatrix` question over the whole `.claude/skills/`.
  *
  *   npx vigiles eval examples/harness/dogfood/landing-site.trigger.eval.mjs
  *

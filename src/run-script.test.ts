@@ -128,7 +128,7 @@ test("runHook is runScript plus the hook protocol — same effects, plus a decis
 // ---------------------------------------------------------------------------
 // routeScriptRun — the ONE confinement decision (Codex round 2, P1).
 //
-// The pre-flight in `experimental_verifyPluginGuards` must know whether a run
+// The pre-flight in `experimental_runPluginGuards` must know whether a run
 // will be confined BEFORE it runs anything, because a confined run starts in a
 // fresh empty directory with a cleared environment. It used to answer with its
 // own copy of the mode expression, and the copy did not know `recordEgress`

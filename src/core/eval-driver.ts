@@ -67,7 +67,7 @@ export interface SubagentTrace {
  * The observable record of ONE run — the unified shape produced by BOTH testing
  * tiers: `runHarnessTest`'s result and `runEval`'s `measure` ctx (`eval.ts`)
  * both satisfy it. That's what lets one check (`check.tool`, `check.skill`,
- * `check.hookFired`, …) evaluate over either: `assertChecks` asserting on one run,
+ * `check.hook`, …) evaluate over either: `assertChecks` asserting on one run,
  * `measure` scoring the same check as a rate.
  *
  * @public
@@ -241,7 +241,7 @@ export type ModelOutputParser = (out: RunOut) => ParsedModelRun;
 /**
  * An eval-tier transport: how to RUN a real harness turn and PARSE its output.
  * The default is Claude Code (`claudeEvalDriver`); a second harness supplies its
- * own (e.g. `codexEvalDriver` from `vigiles/harness/codex`) and passes it as
+ * own (e.g. `paid_codexEvalDriver` from `vigiles/harness/codex`) and passes it as
  * `measureTriggerRate(spec, { evalDriver })` — the eval-tier analog of
  * `runHarnessTest`'s `{ adapter }`. `runError` lets the loop drop an
  * errored/rate-limited turn instead of scoring it as a miss.

@@ -24,6 +24,9 @@ export {
   type CodexRequest,
   type CodexMockHandle,
 } from "../../adapters/codex/mock-model.js";
-// The Codex eval driver, passed as `{ evalDriver: codexEvalDriver }` to the
+// The Codex eval driver, passed as `{ evalDriver: paid_codexEvalDriver }` to the
 // `paid_*` runners until drivers move onto the adapter object.
-export { codexEvalDriver, codexLiveDriver } from "../../adapters/codex/eval.js";
+export {
+  paid_codexEvalDriver,
+  codexLiveDriver,
+} from "../../adapters/codex/eval.js";

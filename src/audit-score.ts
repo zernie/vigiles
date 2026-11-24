@@ -24,7 +24,7 @@
  * "do your hooks actually block?" disaster-battery is STILL not an `audit` ring:
  * running arbitrary hooks safely needs cross-platform confinement that isn't
  * shipped yet, so the battery lives in the `vigiles` testing API via
- * `guardrail-check`/`assertGuardrail`, where you opt in explicitly.
+ * `guardrail-check`/`runGuardrail`, where you opt in explicitly.
  *
  * TESTED vs EVALUATED are two rings, not one, because a harness and an eval differ
  * on COST (free vs paid model calls), on CADENCE (every push vs scheduled) and on

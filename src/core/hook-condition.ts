@@ -1,6 +1,6 @@
 /**
  * HOOK CONDITIONS — the neutral shape of "this hook only runs when the tool call
- * matches", and the reason `verifyGuardrail` can no longer fabricate a green.
+ * matches", and the reason `runGuardrail` can no longer fabricate a green.
  *
  * 🔴 THE DEFECT THIS EXISTS FOR, measured 2026-09-07. Claude Code hooks support a
  * per-action `if` field: a permission-rule pattern (`"Bash(git push *--force*)"`)

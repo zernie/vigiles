@@ -16,7 +16,7 @@ import {
   buildSelectionReport,
   measurePluginSelectionWith,
   measurePluginSelection,
-  measureSelectionMatrix,
+  paid_measureSelectionMatrix,
   measureSelectionMatrixWith,
   assertNoCollision,
   formatSelectionReport,
@@ -415,12 +415,12 @@ test("measurePluginSelection does NOT refuse an EVENT-firing adapter", async () 
   assert.doesNotMatch(r.note ?? "", /skill-selection event/);
 });
 
-test("measureSelectionMatrix delegates + reports n/a off Claude Code (no model)", async () => {
+test("paid_measureSelectionMatrix delegates + reports n/a off Claude Code (no model)", async () => {
   // The real wrapper: derives prompts, then hands off to measurePluginSelection,
   // which short-circuits to unavailable on a non-Claude harness (no binary needed).
   const dir = plugin();
   // The deprecated NAME path, kept one release for the public options type.
-  const r = await measureSelectionMatrix(dir, { harness: "codex" });
+  const r = await paid_measureSelectionMatrix(dir, { harness: "codex" });
   assert.equal(r.available, false);
   assert.match(r.note ?? "", /skill-selection event/);
   cleanupTmpDir(dir);

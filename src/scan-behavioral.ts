@@ -388,7 +388,7 @@ export interface SelectionOptions {
   readonly model?: string;
   /**
    * Reasoning budget (`claude --effort`) for the selector, or undefined for the
-   * harness default. Present for {@link measureSelectionMatrix}, the ASSERTABLE
+   * harness default. Present for {@link paid_measureSelectionMatrix}, the ASSERTABLE
    * test primitive, where the configuration a number came from has to be pinnable.
    *
    * Deliberately NOT exposed as an `audit` CLI flag: `audit` is a local report,
@@ -709,7 +709,7 @@ export function formatSelectionReport(r: SelectionReport): string {
   return lines.join("\n");
 }
 
-/** Options for {@link measureSelectionMatrix}: {@link SelectionOptions} plus an
+/** Options for {@link paid_measureSelectionMatrix}: {@link SelectionOptions} plus an
  * optional explicit prompt set (auto-derived from descriptions when omitted). */
 /** @public */
 export interface SelectionMatrixOptions extends SelectionOptions {
@@ -737,7 +737,7 @@ export interface SelectionMatrixOptions extends SelectionOptions {
  *
  * @public
  */
-export async function measureSelectionMatrix(
+export async function paid_measureSelectionMatrix(
   dir: string,
   opts: SelectionMatrixOptions = {},
 ): Promise<SelectionReport> {
@@ -745,7 +745,7 @@ export async function measureSelectionMatrix(
 }
 
 /**
- * Injectable core of {@link measureSelectionMatrix} (for tests): auto-derive the
+ * Injectable core of {@link paid_measureSelectionMatrix} (for tests): auto-derive the
  * prompts (unless supplied) and drive the matrix via a fake/real probe.
  */
 export async function measureSelectionMatrixWith(
@@ -783,7 +783,7 @@ function resolveSelectionPrompts(
 
 /**
  * Assert a plugin's skills don't hijack each other — the gate over a
- * {@link SelectionReport} from {@link measureSelectionMatrix}. `maxOffDiagonal`
+ * {@link SelectionReport} from {@link paid_measureSelectionMatrix}. `maxOffDiagonal`
  * caps EACH skill's collision rate (fraction of its own prompts on which a SIBLING
  * fired); `maxPluginCollision` caps the plugin-wide rate. With neither set it
  * demands ZERO collision. THROWS (never a silent green) when nothing was measured

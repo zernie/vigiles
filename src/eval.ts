@@ -3120,7 +3120,7 @@ export interface TriggerRateSpec {
  * `src/adapters/claude-code/` — it is NOT a boundary leak. Claude Code is the
  * wired DEFAULT (`measureTriggerRate`/`runEval` fall back to it), so `eval.ts`
  * must reference it directly; wiring the default is precisely a composition
- * root's job. `codexEvalDriver` lives in its adapter dir instead because Codex
+ * root's job. `paid_codexEvalDriver` lives in its adapter dir instead because Codex
  * is caller-INJECTED (never a default), so `eval.ts` never imports it. Relocating
  * this into the adapter would make `eval.ts → adapters/claude-code → eval.ts` a
  * circular import (the shared `EvalDriver`/`ModelOutputParser` types live here).
@@ -3896,7 +3896,7 @@ export async function measureTriggerRateWith(
 /**
  * Measure a skill/behaviour's real trigger rate across prompts × trials. Defaults
  * to the real `claude` CLI (`claudeEvalDriver`); pass `{ evalDriver }` to drive a
- * second harness — e.g. `measureTriggerRate(spec, { evalDriver: codexEvalDriver })`
+ * second harness — e.g. `measureTriggerRate(spec, { evalDriver: paid_codexEvalDriver })`
  * from `vigiles/harness/codex` (the eval-tier analog of `runHarnessTest`'s `{ adapter }`).
  * Requires that harness's binary + auth.
  *

@@ -42,7 +42,7 @@ const engine = require(enginePath);
 const PLUGIN = "test/dogfood/davila7-force-push-blocker@869640b";
 const dir = here(`../../${PLUGIN}`);
 
-const report = engine.experimental_verifyPluginGuards(dir);
+const report = engine.experimental_runPluginGuards(dir);
 
 /** The three rows the section shows: one real block, two never-asked. */
 const WANTED = ["force-push", "rm-rf", "read-ssh-key"];
@@ -70,9 +70,9 @@ const rows = WANTED.map((id) => {
 
 /** Fairness half: every shell re-spelling of a force push this guard withstands. */
 const forcePush = report.events.filter((e) => e.id.startsWith("force-push"));
-const spellings = engine.experimental_alternateSpellings(forcePush);
+const spellings = engine.disasters({ events: forcePush }).spellings;
 const all = [...forcePush, ...spellings];
-const spellReport = engine.experimental_verifyPluginGuards(dir, {
+const spellReport = engine.experimental_runPluginGuards(dir, {
   events: all,
 });
 let blockedCount = 0;
@@ -85,7 +85,7 @@ for (const hook of spellReport.hooks) {
 blockedCount = seen.size;
 
 const fixture = {
-  source: `experimental_verifyPluginGuards("${PLUGIN}")`,
+  source: `experimental_runPluginGuards("${PLUGIN}")`,
   regenerate: "node scripts/gen-davila7-expected.mjs",
   plugin: PLUGIN,
   rows,
