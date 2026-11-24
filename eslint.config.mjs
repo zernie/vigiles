@@ -382,6 +382,22 @@ export default [
     ignores: ["dist/", "node_modules/", "test/dogfood/", "src/*.md.spec.ts"],
   },
   eslint.configs.recommended,
+  // SonarJS's recommended set, before our own blocks so their settings win
+  // (cognitive-complexity 5 from packages/eslint-config, not Sonar's 15). Only
+  // its rules: the next block registers the plugin, and ESLint refuses a second
+  // registration of the same name.
+  {
+    files: ["src/**/*.ts"],
+    rules: {
+      ...sonarjs.configs.recommended.rules,
+      // Security hotspots, not defects: they flag every process spawn, every
+      // command found on PATH and every temp directory. Running the user's
+      // linters and harness binaries in scratch directories is this tool's job.
+      "sonarjs/os-command": "off",
+      "sonarjs/no-os-command-from-path": "off",
+      "sonarjs/publicly-writable-directories": "off",
+    },
+  },
   {
     files: ["src/**/*.ts"],
     languageOptions: {

@@ -9,6 +9,14 @@
       "count": 3
     }
   },
+  "src/action-dogfood.test.ts": {
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    }
+  },
   "src/action-gate.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
@@ -34,6 +42,12 @@
       "count": 1
     },
     "sonarjs/cognitive-complexity": {
+      "count": 1
+    },
+    "sonarjs/concise-regex": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
       "count": 1
     }
   },
@@ -81,11 +95,29 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/deprecation": {
+      "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 3
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 3
     }
   },
   "src/adapter-contract.test.ts": {
     "local/no-harness-names": {
       "count": 7
+    },
+    "sonarjs/assertions-in-tests": {
+      "count": 1
+    },
+    "sonarjs/deprecation": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
     }
   },
   "src/adapter-properties.test.ts": {
@@ -106,11 +138,23 @@
     },
     "no-restricted-syntax": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 6
+    },
+    "sonarjs/no-misleading-array-reverse": {
+      "count": 1
+    },
+    "sonarjs/no-unused-collection": {
+      "count": 1
     }
   },
   "src/adapter-registry.test.ts": {
     "local/no-harness-names": {
       "count": 47
+    },
+    "sonarjs/no-undefined-argument": {
+      "count": 1
     }
   },
   "src/adapter-registry.ts": {
@@ -167,12 +211,20 @@
       "count": 2
     }
   },
+  "src/adapters/claude-code/adopt-spec.test.ts": {
+    "sonarjs/prefer-regexp-exec": {
+      "count": 1
+    }
+  },
   "src/adapters/claude-code/agent-runtime.test.ts": {
     "max-lines": {
       "count": 1
     },
     "max-lines-per-function": {
       "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 2
     }
   },
   "src/adapters/claude-code/agent-runtime.ts": {
@@ -209,10 +261,27 @@
     },
     "max-lines-per-function": {
       "count": 3
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/adapters/claude-code/always-loaded.test.ts": {
     "max-lines-per-function": {
+      "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
+    },
+    "sonarjs/no-misleading-array-reverse": {
+      "count": 2
+    }
+  },
+  "src/adapters/claude-code/context-check.test.ts": {
+    "sonarjs/assertions-in-tests": {
       "count": 1
     }
   },
@@ -223,7 +292,13 @@
     "max-lines-per-function": {
       "count": 2
     },
+    "sonarjs/assertions-in-tests": {
+      "count": 2
+    },
     "sonarjs/cognitive-complexity": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
       "count": 1
     }
   },
@@ -250,6 +325,17 @@
       "count": 2
     },
     "sonarjs/cognitive-complexity": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 3
+    },
+    "sonarjs/prefer-regexp-exec": {
+      "count": 1
+    }
+  },
+  "src/adapters/claude-code/dialect.ts": {
+    "sonarjs/slow-regex": {
       "count": 1
     }
   },
@@ -286,6 +372,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/adapters/claude-code/hook-delivery.test.ts": {
@@ -315,6 +404,9 @@
     },
     "max-lines-per-function": {
       "count": 4
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 3
     }
   },
   "src/adapters/claude-code/instruction-chain.ts": {
@@ -344,6 +436,12 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 4
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 8
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
     }
   },
   "src/adapters/claude-code/instruction-imports.test.ts": {
@@ -361,7 +459,15 @@
       "count": 2
     }
   },
+  "src/adapters/claude-code/output-style-user-default.test.ts": {
+    "sonarjs/no-empty-test-file": {
+      "count": 1
+    }
+  },
   "src/adapters/claude-code/output-style.ts": {
+    "sonarjs/anchor-precedence": {
+      "count": 1
+    },
     "sonarjs/cognitive-complexity": {
       "count": 1
     }
@@ -371,6 +477,9 @@
       "count": 5
     },
     "max-lines": {
+      "count": 1
+    },
+    "sonarjs/different-types-comparison": {
       "count": 1
     }
   },
@@ -390,6 +499,11 @@
   "src/adapters/claude-code/refs-nudge-hook.test.ts": {
     "local/no-rule-ids": {
       "count": 2
+    }
+  },
+  "src/adapters/claude-code/request-capture.io.ts": {
+    "sonarjs/different-types-comparison": {
+      "count": 1
     }
   },
   "src/adapters/claude-code/run-scripts.test.ts": {
@@ -436,6 +550,12 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 3
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    },
+    "sonarjs/single-character-alternation": {
+      "count": 1
     }
   },
   "src/adapters/claude-code/runtime.test.ts": {
@@ -448,6 +568,9 @@
       "count": 1
     },
     "no-restricted-globals": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
       "count": 1
     }
   },
@@ -473,6 +596,9 @@
   },
   "src/adapters/claude-code/skill-listing-delivery.test.ts": {
     "max-lines-per-function": {
+      "count": 1
+    },
+    "sonarjs/no-empty-test-file": {
       "count": 1
     }
   },
@@ -538,6 +664,15 @@
     },
     "local/no-harness-names": {
       "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
+    },
+    "sonarjs/slow-regex": {
+      "count": 2
     }
   },
   "src/adapters/claude-code/typed-spec.ts": {
@@ -558,6 +693,20 @@
   "src/adapters/codex/always-loaded-lint.test.ts": {
     "max-lines-per-function": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    }
+  },
+  "src/adapters/codex/always-loaded.test.ts": {
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
+    },
+    "sonarjs/no-misleading-array-reverse": {
+      "count": 2
     }
   },
   "src/adapters/codex/codex.test.ts": {
@@ -568,11 +717,26 @@
       "count": 1
     }
   },
+  "src/adapters/codex/command-facts.ts": {
+    "sonarjs/different-types-comparison": {
+      "count": 2
+    }
+  },
+  "src/adapters/codex/dialect.ts": {
+    "sonarjs/slow-regex": {
+      "count": 1
+    }
+  },
   "src/adapters/codex/driver.ts": {
     "boundaries/dependencies": {
       "count": 1
     },
     "functional/prefer-immutable-types": {
+      "count": 1
+    }
+  },
+  "src/adapters/codex/eval.test.ts": {
+    "sonarjs/no-alphabetical-sort": {
       "count": 1
     }
   },
@@ -634,6 +798,17 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 3
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    }
+  },
+  "src/adapters/codex/layout.ts": {
+    "sonarjs/todo-tag": {
+      "count": 1
     }
   },
   "src/adapters/codex/mock-model.test.ts": {
@@ -665,11 +840,32 @@
     },
     "max-statements": {
       "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
+    "sonarjs/no-nested-functions": {
+      "count": 1
     }
   },
   "src/adapters/codex/runtime.ts": {
     "functional/prefer-immutable-types": {
       "count": 2
+    }
+  },
+  "src/adapters/codex/skill-listing-delivery.test.ts": {
+    "sonarjs/no-empty-test-file": {
+      "count": 1
+    }
+  },
+  "src/adapters/codex/trace-facts.test.ts": {
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    }
+  },
+  "src/adapters/opencode/dialect.ts": {
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/adapters/opencode/instruction-chain.test.ts": {
@@ -698,6 +894,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 3
     }
   },
   "src/adoptability.test.ts": {
@@ -708,6 +907,9 @@
       "count": 4
     },
     "max-lines-per-function": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
       "count": 1
     }
   },
@@ -741,6 +943,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 1
     }
   },
   "src/agent-plugins-manifest.test.ts": {
@@ -788,6 +993,9 @@
     },
     "max-lines-per-function": {
       "count": 1
+    },
+    "sonarjs/code-eval": {
+      "count": 1
     }
   },
   "src/audit-html.ts": {
@@ -810,6 +1018,9 @@
     },
     "functional/prefer-immutable-types": {
       "count": 3
+    },
+    "sonarjs/regex-complexity": {
+      "count": 1
     }
   },
   "src/audit-report.test.ts": {
@@ -824,6 +1035,9 @@
     },
     "no-restricted-syntax": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 9
     }
   },
   "src/audit-report.ts": {
@@ -896,6 +1110,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/todo-tag": {
+      "count": 1
     }
   },
   "src/audit-serve.test.ts": {
@@ -936,6 +1153,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/no-nested-functions": {
+      "count": 1
     }
   },
   "src/audit-verdict.test.ts": {
@@ -1042,8 +1262,20 @@
     "sonarjs/cognitive-complexity": {
       "count": 3
     },
+    "sonarjs/different-types-comparison": {
+      "count": 4
+    },
+    "sonarjs/function-return-type": {
+      "count": 1
+    },
     "sonarjs/no-nested-conditional": {
       "count": 2
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 4
+    },
+    "sonarjs/no-redundant-optional": {
+      "count": 1
     }
   },
   "src/ci-path-filter.test.ts": {
@@ -1065,8 +1297,17 @@
     "sonarjs/cognitive-complexity": {
       "count": 1
     },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    },
     "sonarjs/no-nested-conditional": {
       "count": 2
+    },
+    "sonarjs/pseudo-random": {
+      "count": 1
     }
   },
   "src/cli-adopter-reports.test.ts": {
@@ -1091,6 +1332,9 @@
     },
     "local/no-harness-names": {
       "count": 15
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/cli-flag-check.test.ts": {
@@ -1119,6 +1363,12 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 3
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    },
+    "sonarjs/redundant-type-aliases": {
+      "count": 1
     }
   },
   "src/cli-flags.test.ts": {
@@ -1143,6 +1393,19 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
+    }
+  },
+  "src/cli-init-rerun.test.ts": {
+    "sonarjs/slow-regex": {
+      "count": 1
+    }
+  },
+  "src/cli-init-skill-links.test.ts": {
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
     }
   },
   "src/cli-install.e2e.test.ts": {
@@ -1151,6 +1414,15 @@
     },
     "local/no-harness-names": {
       "count": 4
+    },
+    "sonarjs/no-empty-test-file": {
+      "count": 1
+    },
+    "sonarjs/regex-complexity": {
+      "count": 1
+    },
+    "sonarjs/single-char-in-character-classes": {
+      "count": 1
     }
   },
   "src/cli-main.ts": {
@@ -1199,8 +1471,14 @@
     "sonarjs/cognitive-complexity": {
       "count": 86
     },
+    "sonarjs/deprecation": {
+      "count": 1
+    },
     "sonarjs/nested-control-flow": {
       "count": 19
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 3
     },
     "sonarjs/no-duplicate-string": {
       "count": 4
@@ -1210,6 +1488,18 @@
     },
     "sonarjs/no-nested-conditional": {
       "count": 6
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 5
+    },
+    "sonarjs/prefer-regexp-exec": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 3
+    },
+    "sonarjs/todo-tag": {
+      "count": 1
     }
   },
   "src/cli-nudge-config.test.ts": {
@@ -1252,6 +1542,12 @@
     },
     "max-statements": {
       "count": 2
+    },
+    "sonarjs/assertions-in-tests": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/cli.ts": {
@@ -1263,6 +1559,12 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 2
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/colocated-execution.test.ts": {
@@ -1316,6 +1618,14 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    }
+  },
+  "src/core/CLAUDE.md.spec.ts": {
+    "sonarjs/no-empty-test-file": {
+      "count": 1
     }
   },
   "src/core/adopt-surface.test.ts": {
@@ -1364,6 +1674,15 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 6
+    },
+    "sonarjs/misplaced-loop-counter": {
+      "count": 1
+    },
+    "sonarjs/prefer-regexp-exec": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/core/agent-plugins.ts": {
@@ -1422,6 +1741,9 @@
   "src/core/always-loaded.ts": {
     "max-lines-per-function": {
       "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
     }
   },
   "src/core/apply-rules.ts": {
@@ -1429,6 +1751,9 @@
       "count": 1
     },
     "max-params": {
+      "count": 1
+    },
+    "sonarjs/no-unused-vars": {
       "count": 1
     }
   },
@@ -1443,6 +1768,17 @@
     },
     "max-params": {
       "count": 3
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 1
+    }
+  },
+  "src/core/bash-effects-normalized.test.ts": {
+    "sonarjs/no-clear-text-protocols": {
+      "count": 1
     }
   },
   "src/core/bash-effects.ts": {
@@ -1485,10 +1821,22 @@
     "sonarjs/cognitive-complexity": {
       "count": 13
     },
+    "sonarjs/concise-regex": {
+      "count": 2
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 6
+    },
     "sonarjs/nested-control-flow": {
       "count": 2
     },
     "sonarjs/no-duplicate-string": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
+    },
+    "sonarjs/void-use": {
       "count": 1
     }
   },
@@ -1514,8 +1862,22 @@
     "sonarjs/cognitive-complexity": {
       "count": 1
     },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    },
     "sonarjs/no-nested-conditional": {
       "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
+    }
+  },
+  "src/core/bash-lookalikes.ts": {
+    "sonarjs/no-nested-template-literals": {
+      "count": 2
     }
   },
   "src/core/capability-diff.ts": {
@@ -1580,6 +1942,12 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/concise-regex": {
+      "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
     }
   },
   "src/core/compile-generator.test.ts": {
@@ -1626,6 +1994,12 @@
     },
     "sonarjs/no-duplicate-string": {
       "count": 1
+    },
+    "sonarjs/no-redundant-jump": {
+      "count": 1
+    },
+    "sonarjs/prefer-regexp-exec": {
+      "count": 2
     }
   },
   "src/core/compile.test.ts": {
@@ -1676,8 +2050,19 @@
     "sonarjs/cognitive-complexity": {
       "count": 16
     },
+    "sonarjs/deprecation": {
+      "count": 1
+    },
     "sonarjs/no-duplicate-string": {
       "count": 1
+    },
+    "sonarjs/prefer-regexp-exec": {
+      "count": 3
+    }
+  },
+  "src/core/compose.test.ts": {
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
     }
   },
   "src/core/compose.ts": {
@@ -1706,6 +2091,9 @@
   "src/core/config-migrations.ts": {
     "local/no-rule-ids": {
       "count": 7
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 1
     }
   },
   "src/core/config-schema.test.ts": {
@@ -1736,6 +2124,9 @@
       "count": 2
     },
     "max-params": {
+      "count": 1
+    },
+    "sonarjs/function-return-type": {
       "count": 1
     }
   },
@@ -1789,6 +2180,9 @@
     "sonarjs/nested-control-flow": {
       "count": 2
     },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    },
     "sonarjs/no-nested-conditional": {
       "count": 1
     }
@@ -1825,6 +2219,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/core/description-overlap.test.ts": {
@@ -1852,6 +2249,9 @@
   "src/core/dialect.test.ts": {
     "local/no-harness-names": {
       "count": 18
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/core/doc-refs.test.ts": {
@@ -1860,6 +2260,12 @@
     },
     "max-lines-per-function": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
+    },
+    "sonarjs/no-misleading-array-reverse": {
+      "count": 1
     }
   },
   "src/core/doc-refs.ts": {
@@ -1901,6 +2307,12 @@
     },
     "sonarjs/nested-control-flow": {
       "count": 2
+    },
+    "sonarjs/prefer-regexp-exec": {
+      "count": 2
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/core/edit-distance.ts": {
@@ -1925,6 +2337,9 @@
   },
   "src/core/effects.test.ts": {
     "local/no-harness-names": {
+      "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
       "count": 2
     }
   },
@@ -1963,8 +2378,16 @@
       "count": 1
     }
   },
+  "src/core/eslint-inventory.test.ts": {
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    }
+  },
   "src/core/eslint-inventory.ts": {
     "max-lines-per-function": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
       "count": 1
     }
   },
@@ -1994,6 +2417,12 @@
   "src/core/event-capability.test.ts": {
     "local/no-harness-names": {
       "count": 12
+    },
+    "sonarjs/deprecation": {
+      "count": 3
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/core/evolve.ts": {
@@ -2036,8 +2465,17 @@
     "sonarjs/nested-control-flow": {
       "count": 1
     },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 4
+    },
     "sonarjs/no-nested-conditional": {
       "count": 1
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 3
+    },
+    "sonarjs/void-use": {
+      "count": 3
     }
   },
   "src/core/foreign-runner.test.ts": {
@@ -2051,6 +2489,14 @@
     },
     "no-restricted-globals": {
       "count": 3
+    },
+    "sonarjs/no-redundant-optional": {
+      "count": 1
+    }
+  },
+  "src/core/frame.test.ts": {
+    "sonarjs/void-use": {
+      "count": 1
     }
   },
   "src/core/frame.ts": {
@@ -2133,6 +2579,9 @@
     },
     "local/no-harness-names": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/core/generate-harness.ts": {
@@ -2162,6 +2611,12 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 3
+    },
+    "sonarjs/concise-regex": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 4
     }
   },
   "src/core/generate-schema.ts": {
@@ -2185,6 +2640,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/core/generate-types.ts": {
@@ -2211,6 +2669,14 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    }
+  },
+  "src/core/glob-ignore.test.ts": {
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
     }
   },
   "src/core/glob-ignore.ts": {
@@ -2218,6 +2684,9 @@
       "count": 1
     },
     "functional/prefer-immutable-types": {
+      "count": 1
+    },
+    "sonarjs/function-return-type": {
       "count": 1
     }
   },
@@ -2262,6 +2731,15 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 3
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/core/hash.ts": {
@@ -2338,11 +2816,19 @@
       "count": 2
     }
   },
+  "src/core/hook-exit.ts": {
+    "sonarjs/slow-regex": {
+      "count": 1
+    }
+  },
   "src/core/hook-matcher.test.ts": {
     "local/no-harness-names": {
       "count": 2
     },
     "local/no-rule-ids": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
       "count": 1
     }
   },
@@ -2358,6 +2844,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 4
+    },
+    "sonarjs/single-character-alternation": {
+      "count": 1
     }
   },
   "src/core/hook-normalize.test.ts": {
@@ -2365,6 +2854,9 @@
       "count": 1
     },
     "max-lines-per-function": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
       "count": 1
     }
   },
@@ -2417,6 +2909,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/deprecation": {
+      "count": 7
     }
   },
   "src/core/hook-program.ts": {
@@ -2459,11 +2954,20 @@
     "sonarjs/cognitive-complexity": {
       "count": 6
     },
+    "sonarjs/different-types-comparison": {
+      "count": 2
+    },
     "sonarjs/no-duplicate-string": {
       "count": 1
     },
     "sonarjs/no-nested-conditional": {
       "count": 1
+    },
+    "sonarjs/regex-complexity": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 6
     }
   },
   "src/core/hook-protocol.ts": {
@@ -2497,6 +3001,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/function-return-type": {
+      "count": 1
     }
   },
   "src/core/hook-stamp.ts": {
@@ -2512,6 +3019,9 @@
       "count": 1
     },
     "no-restricted-syntax": {
+      "count": 1
+    },
+    "sonarjs/different-types-comparison": {
       "count": 1
     }
   },
@@ -2529,6 +3039,9 @@
       "count": 2
     },
     "sonarjs/cognitive-complexity": {
+      "count": 1
+    },
+    "sonarjs/different-types-comparison": {
       "count": 1
     }
   },
@@ -2570,6 +3083,9 @@
     },
     "sonarjs/nested-control-flow": {
       "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 2
     }
   },
   "src/core/install-reader.ts": {
@@ -2603,6 +3119,9 @@
     },
     "functional/prefer-immutable-types": {
       "count": 2
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
     }
   },
   "src/core/instruction-imports.test.ts": {
@@ -2645,11 +3164,20 @@
     },
     "max-params": {
       "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
     }
   },
   "src/core/integrity-header.ts": {
     "local/no-rule-ids": {
       "count": 1
+    },
+    "sonarjs/prefer-regexp-exec": {
+      "count": 2
     }
   },
   "src/core/integrity.test.ts": {
@@ -2676,10 +3204,16 @@
   "src/core/keyfiles.test.ts": {
     "max-lines-per-function": {
       "count": 2
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/core/keyfiles.ts": {
     "local/no-rule-ids": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
       "count": 1
     }
   },
@@ -2756,11 +3290,19 @@
     },
     "sonarjs/no-nested-conditional": {
       "count": 1
+    },
+    "sonarjs/todo-tag": {
+      "count": 2
     }
   },
   "src/core/linter-adapter.ts": {
     "functional/prefer-immutable-types": {
       "count": 1
+    }
+  },
+  "src/core/linter-contract.test.ts": {
+    "sonarjs/no-alphabetical-sort": {
+      "count": 4
     }
   },
   "src/core/linters.test.ts": {
@@ -2775,6 +3317,12 @@
     },
     "max-nested-callbacks": {
       "count": 6
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 5
+    },
+    "sonarjs/no-misleading-array-reverse": {
+      "count": 1
     }
   },
   "src/core/linters.ts": {
@@ -2826,11 +3374,23 @@
     "sonarjs/nested-control-flow": {
       "count": 4
     },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 3
+    },
     "sonarjs/no-duplicate-string": {
       "count": 1
     },
     "sonarjs/no-nested-conditional": {
       "count": 2
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 4
+    },
+    "sonarjs/prefer-regexp-exec": {
+      "count": 6
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/core/markdown.test.ts": {
@@ -2862,6 +3422,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 4
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
     }
   },
   "src/core/mcp-config.test.ts": {
@@ -2886,6 +3449,11 @@
       "count": 1
     },
     "sonarjs/cognitive-complexity": {
+      "count": 1
+    }
+  },
+  "src/core/mcp-contract-message.ts": {
+    "sonarjs/no-nested-template-literals": {
       "count": 1
     }
   },
@@ -2954,6 +3522,12 @@
   "src/core/mcp.test.ts": {
     "local/no-harness-names": {
       "count": 3
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
+    },
+    "sonarjs/no-misleading-array-reverse": {
+      "count": 1
     }
   },
   "src/core/mcp.ts": {
@@ -2992,6 +3566,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 1
     }
   },
   "src/core/merge-conflict.test.ts": {
@@ -3021,6 +3598,9 @@
       "count": 2
     },
     "max-lines-per-function": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
       "count": 1
     }
   },
@@ -3063,6 +3643,9 @@
     },
     "sonarjs/nested-control-flow": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/core/output-style.test.ts": {
@@ -3073,6 +3656,9 @@
   "src/core/output-style.ts": {
     "max-lines-per-function": {
       "count": 1
+    },
+    "sonarjs/function-return-type": {
+      "count": 2
     }
   },
   "src/core/plugin-dir-layout.test.ts": {
@@ -3080,6 +3666,9 @@
       "count": 11
     },
     "local/no-rule-ids": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
       "count": 1
     }
   },
@@ -3109,6 +3698,12 @@
     },
     "no-restricted-syntax": {
       "count": 2
+    },
+    "sonarjs/arguments-order": {
+      "count": 1
+    },
+    "sonarjs/no-collection-size-mischeck": {
+      "count": 1
     }
   },
   "src/core/proofs.ts": {
@@ -3148,13 +3743,24 @@
     "sonarjs/cognitive-complexity": {
       "count": 6
     },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
     "sonarjs/nested-control-flow": {
+      "count": 1
+    },
+    "sonarjs/no-unused-vars": {
       "count": 1
     }
   },
   "src/core/railway.test.ts": {
     "local/no-harness-names": {
       "count": 5
+    }
+  },
+  "src/core/refs.test.ts": {
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/core/refs.ts": {
@@ -3178,6 +3784,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/core/repo-path.ts": {
@@ -3199,6 +3808,9 @@
     },
     "max-lines-per-function": {
       "count": 1
+    },
+    "sonarjs/no-skipped-tests": {
+      "count": 2
     }
   },
   "src/core/rule-catalog.ts": {
@@ -3235,6 +3847,9 @@
   "src/core/rule-proof/kits/eslint.ts": {
     "max-params": {
       "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
     }
   },
   "src/core/rule-proof/kits/ruff.ts": {
@@ -3243,10 +3858,23 @@
     },
     "max-params": {
       "count": 2
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/core/rule-proof/node-install.test.ts": {
     "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/core/rule-proof/node-install.ts": {
+    "sonarjs/different-types-comparison": {
+      "count": 2
+    }
+  },
+  "src/core/rule-proof/pair.ts": {
+    "sonarjs/function-return-type": {
       "count": 1
     }
   },
@@ -3269,9 +3897,30 @@
       "count": 1
     }
   },
+  "src/core/run-env.test.ts": {
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    }
+  },
+  "src/core/run-env.ts": {
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    }
+  },
+  "src/core/script-overrun.ts": {
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    }
+  },
   "src/core/session.test.ts": {
     "max-lines-per-function": {
       "count": 2
+    },
+    "sonarjs/deprecation": {
+      "count": 3
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/core/session.ts": {
@@ -3308,8 +3957,17 @@
     "sonarjs/cognitive-complexity": {
       "count": 4
     },
+    "sonarjs/deprecation": {
+      "count": 1
+    },
     "sonarjs/nested-control-flow": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    },
+    "sonarjs/prefer-regexp-exec": {
+      "count": 2
     }
   },
   "src/core/settings-codec.ts": {
@@ -3355,11 +4013,28 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/concise-regex": {
+      "count": 2
+    },
+    "sonarjs/no-invariant-returns": {
+      "count": 1
+    }
+  },
+  "src/core/short-flags-per-command.test.ts": {
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/core/sidecar.test.ts": {
     "max-lines-per-function": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
+    },
+    "sonarjs/no-misleading-array-reverse": {
+      "count": 2
     }
   },
   "src/core/sidecar.ts": {
@@ -3441,6 +4116,9 @@
   "src/core/skill-normalize.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
+    },
+    "sonarjs/deprecation": {
+      "count": 1
     }
   },
   "src/core/skill-resources.test.ts": {
@@ -3455,6 +4133,9 @@
     },
     "max-statements": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
     }
   },
   "src/core/skill-resources.ts": {
@@ -3469,6 +4150,12 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/regex-complexity": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/core/spec.test.ts": {
@@ -3489,6 +4176,15 @@
     },
     "no-restricted-syntax": {
       "count": 4
+    },
+    "sonarjs/assertions-in-tests": {
+      "count": 1
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 1
+    },
+    "sonarjs/void-use": {
+      "count": 9
     }
   },
   "src/core/spec.ts": {
@@ -3515,6 +4211,9 @@
     },
     "max-params": {
       "count": 1
+    },
+    "sonarjs/no-redundant-optional": {
+      "count": 2
     }
   },
   "src/core/stub-rules.ts": {
@@ -3526,6 +4225,12 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 2
+    },
+    "sonarjs/function-return-type": {
+      "count": 2
     }
   },
   "src/core/surface-discovery.test.ts": {
@@ -3554,6 +4259,15 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 4
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/core/surface-scopes.test.ts": {
@@ -3562,6 +4276,9 @@
     },
     "local/no-harness-names": {
       "count": 40
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/core/surface-scopes.ts": {
@@ -3585,6 +4302,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/core/symbols.test.ts": {
@@ -3596,6 +4316,9 @@
     },
     "max-statements": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 5
     }
   },
   "src/core/symbols.ts": {
@@ -3622,6 +4345,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
     }
   },
   "src/core/test-file-ext.ts": {
@@ -3639,6 +4365,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/no-redundant-optional": {
+      "count": 3
     }
   },
   "src/core/test-reach.test.ts": {
@@ -3658,15 +4387,27 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 7
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 7
+    },
+    "sonarjs/function-return-type": {
+      "count": 1
     }
   },
   "src/core/test-selection.test.ts": {
     "max-lines-per-function": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/core/test-selection.ts": {
     "max-lines-per-function": {
+      "count": 1
+    },
+    "sonarjs/different-types-comparison": {
       "count": 1
     }
   },
@@ -3737,6 +4478,9 @@
   "src/core/types.ts": {
     "functional/prefer-immutable-types": {
       "count": 2
+    },
+    "sonarjs/function-return-type": {
+      "count": 1
     }
   },
   "src/core/validate.test.ts": {
@@ -3801,6 +4545,15 @@
     },
     "sonarjs/no-nested-conditional": {
       "count": 1
+    },
+    "sonarjs/no-redundant-jump": {
+      "count": 1
+    },
+    "sonarjs/prefer-regexp-exec": {
+      "count": 2
+    },
+    "sonarjs/slow-regex": {
+      "count": 2
     }
   },
   "src/core/vocabulary-consistency.ts": {
@@ -3824,6 +4577,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 3
+    },
+    "sonarjs/deprecation": {
+      "count": 2
     }
   },
   "src/core/vocabulary.test.ts": {
@@ -3866,6 +4622,9 @@
     },
     "max-lines": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
     }
   },
   "src/coverage-artifact.ts": {
@@ -3901,6 +4660,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 5
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/coverage-evidence.ts": {
@@ -3921,6 +4683,9 @@
     },
     "max-params": {
       "count": 2
+    },
+    "sonarjs/function-return-type": {
+      "count": 1
     }
   },
   "src/coverage-probe.test.ts": {
@@ -3961,6 +4726,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 5
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 2
     }
   },
   "src/deprecated-key-files.test.ts": {
@@ -3973,6 +4741,9 @@
       "count": 1
     },
     "max-lines-per-function": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
       "count": 1
     }
   },
@@ -4020,6 +4791,9 @@
   "src/doc-test-script-coverage.ts": {
     "functional/prefer-immutable-types": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/effect-checks.ts": {
@@ -4073,6 +4847,11 @@
       "count": 1
     }
   },
+  "src/egress.test.ts": {
+    "sonarjs/no-hardcoded-ip": {
+      "count": 18
+    }
+  },
   "src/egress.ts": {
     "boundaries/dependencies": {
       "count": 1
@@ -4100,6 +4879,14 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 3
+    },
+    "sonarjs/no-hardcoded-ip": {
+      "count": 1
+    }
+  },
+  "src/entries/CLAUDE.md.spec.ts": {
+    "sonarjs/no-empty-test-file": {
+      "count": 1
     }
   },
   "src/entries/spec.ts": {
@@ -4153,6 +4940,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 3
     }
   },
   "src/eval-context.ts": {
@@ -4168,6 +4958,9 @@
       "count": 2
     },
     "no-restricted-syntax": {
+      "count": 1
+    },
+    "sonarjs/void-use": {
       "count": 1
     }
   },
@@ -4200,6 +4993,9 @@
     },
     "no-restricted-syntax": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
     }
   },
   "src/eval-define.ts": {
@@ -4214,11 +5010,17 @@
     },
     "no-restricted-syntax": {
       "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 2
     }
   },
   "src/eval-effort.test.ts": {
     "local/no-harness-names": {
       "count": 9
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/eval-entry.test.ts": {
@@ -4253,6 +5055,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
     }
   },
   "src/eval-file-shape.test.ts": {
@@ -4267,11 +5072,17 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 3
     }
   },
   "src/eval-injected-driver-guard.test.ts": {
     "local/no-harness-names": {
       "count": 12
+    },
+    "sonarjs/no-empty-test-file": {
+      "count": 1
     }
   },
   "src/eval-lock-wiring.test.ts": {
@@ -4294,6 +5105,9 @@
     },
     "no-restricted-syntax": {
       "count": 2
+    },
+    "sonarjs/no-misleading-array-reverse": {
+      "count": 1
     }
   },
   "src/eval-lock.ts": {
@@ -4329,6 +5143,14 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
+    }
+  },
+  "src/eval-node-test-guard.test.ts": {
+    "sonarjs/no-empty-test-file": {
+      "count": 1
     }
   },
   "src/eval-readers.ts": {
@@ -4339,6 +5161,15 @@
       "count": 3
     },
     "sonarjs/cognitive-complexity": {
+      "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 4
+    },
+    "sonarjs/function-return-type": {
+      "count": 1
+    },
+    "sonarjs/no-redundant-optional": {
       "count": 1
     }
   },
@@ -4363,6 +5194,9 @@
     },
     "no-restricted-syntax": {
       "count": 6
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/eval.ts": {
@@ -4408,16 +5242,34 @@
     "sonarjs/cognitive-complexity": {
       "count": 15
     },
+    "sonarjs/different-types-comparison": {
+      "count": 3
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
+    },
     "sonarjs/no-duplicate-string": {
       "count": 1
     },
     "sonarjs/no-nested-conditional": {
       "count": 2
+    },
+    "sonarjs/no-unused-vars": {
+      "count": 2
+    },
+    "sonarjs/slow-regex": {
+      "count": 2
+    },
+    "sonarjs/todo-tag": {
+      "count": 1
     }
   },
   "src/example-imports.test.ts": {
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/exclude-cli.test.ts": {
@@ -4443,6 +5295,9 @@
   "src/exclude.test.ts": {
     "max-lines-per-function": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 5
     }
   },
   "src/exclude.ts": {
@@ -4487,6 +5342,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/fs-walk.test.ts": {
@@ -4522,11 +5380,17 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
     }
   },
   "src/guardrail-target-repo.test.ts": {
     "max-lines-per-function": {
       "count": 1
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 2
     }
   },
   "src/guardrail-target-repo.ts": {
@@ -4535,6 +5399,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 2
     }
   },
   "src/harness-assert.test.ts": {
@@ -4554,6 +5421,12 @@
     },
     "no-restricted-globals": {
       "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 2
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 1
     }
   },
   "src/harness-resolve.test.ts": {
@@ -4572,6 +5445,9 @@
       "count": 1
     },
     "sonarjs/cognitive-complexity": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
       "count": 1
     }
   },
@@ -4621,8 +5497,17 @@
     "sonarjs/cognitive-complexity": {
       "count": 4
     },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
     "sonarjs/nested-control-flow": {
       "count": 3
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
+    },
+    "sonarjs/todo-tag": {
+      "count": 1
     }
   },
   "src/hook-assertions.ts": {
@@ -4639,6 +5524,9 @@
     },
     "local/no-harness-names": {
       "count": 22
+    },
+    "sonarjs/void-use": {
+      "count": 1
     }
   },
   "src/hook-check-install.ts": {
@@ -4672,6 +5560,9 @@
     },
     "max-lines-per-function": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/hook-condition.test.ts": {
@@ -4692,6 +5583,9 @@
   },
   "src/hook-entry-effects.test.ts": {
     "max-params": {
+      "count": 1
+    },
+    "sonarjs/different-types-comparison": {
       "count": 1
     }
   },
@@ -4714,7 +5608,19 @@
     "max-statements": {
       "count": 1
     },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
+    },
+    "sonarjs/no-misleading-array-reverse": {
+      "count": 1
+    },
     "sonarjs/no-nested-conditional": {
+      "count": 1
+    },
+    "sonarjs/prefer-regexp-exec": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
       "count": 1
     }
   },
@@ -4755,8 +5661,19 @@
     "sonarjs/cognitive-complexity": {
       "count": 2
     },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    },
     "sonarjs/no-nested-conditional": {
       "count": 2
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 3
+    }
+  },
+  "src/hook-inventory.test.ts": {
+    "sonarjs/different-types-comparison": {
+      "count": 1
     }
   },
   "src/hook-load-wedge.test.ts": {
@@ -4785,6 +5702,14 @@
     },
     "local/no-rule-ids": {
       "count": 1
+    },
+    "sonarjs/assertions-in-tests": {
+      "count": 1
+    }
+  },
+  "src/hook-oss-comparison.test.ts": {
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/hook-runtime-graph.test.ts": {
@@ -4796,6 +5721,9 @@
     },
     "max-lines-per-function": {
       "count": 3
+    },
+    "sonarjs/pseudo-random": {
+      "count": 2
     }
   },
   "src/hook-runtime.ts": {
@@ -4834,6 +5762,12 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/deprecation": {
+      "count": 1
+    },
+    "sonarjs/function-return-type": {
+      "count": 1
     }
   },
   "src/hook-stale-stamp.test.ts": {
@@ -4841,6 +5775,9 @@
       "count": 2
     },
     "max-statements": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
       "count": 1
     }
   },
@@ -4850,6 +5787,9 @@
     },
     "local/no-harness-names": {
       "count": 7
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/hook-state-store.test.ts": {
@@ -4917,6 +5857,9 @@
     },
     "max-statements": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/host/rule-proof.io.test.ts": {
@@ -4965,6 +5908,9 @@
   },
   "src/layout-registry.test.ts": {
     "local/no-harness-names": {
+      "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
       "count": 2
     }
   },
@@ -5022,6 +5968,11 @@
       "count": 1
     }
   },
+  "src/lethal-trifecta-session.test.ts": {
+    "sonarjs/slow-regex": {
+      "count": 1
+    }
+  },
   "src/lint-bundle-frames.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
@@ -5034,6 +5985,9 @@
     },
     "max-lines-per-function": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/lint-contract.test.ts": {
@@ -5045,6 +5999,9 @@
     },
     "local/no-rule-ids": {
       "count": 7
+    },
+    "sonarjs/slow-regex": {
+      "count": 2
     }
   },
   "src/load-hook.ts": {
@@ -5067,6 +6024,9 @@
       "count": 1
     },
     "sonarjs/cognitive-complexity": {
+      "count": 1
+    },
+    "sonarjs/single-character-alternation": {
       "count": 1
     }
   },
@@ -5104,6 +6064,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 4
     }
   },
   "src/local-files.ts": {
@@ -5126,6 +6089,9 @@
       "count": 1
     },
     "sonarjs/cognitive-complexity": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
       "count": 1
     }
   },
@@ -5184,11 +6150,20 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
+    "sonarjs/pseudo-random": {
+      "count": 1
     }
   },
   "src/model-spawn-guard.test.ts": {
     "local/no-harness-names": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/observe.test.ts": {
@@ -5311,6 +6286,9 @@
     },
     "max-lines-per-function": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
     }
   },
   "src/plugin-loader.ts": {
@@ -5385,6 +6363,9 @@
   "src/root-globs.ts": {
     "boundaries/dependencies": {
       "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/rule-catalog-oss.test.ts": {
@@ -5393,11 +6374,17 @@
     },
     "max-nested-callbacks": {
       "count": 5
+    },
+    "sonarjs/no-skipped-tests": {
+      "count": 1
     }
   },
   "src/rule-inventory.test.ts": {
     "max-lines-per-function": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
     }
   },
   "src/rule-inventory.ts": {
@@ -5489,6 +6476,20 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 3
+    },
+    "sonarjs/prefer-regexp-exec": {
+      "count": 1
+    },
+    "sonarjs/regex-complexity": {
+      "count": 5
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
+    }
+  },
+  "src/rule-signals.ts": {
+    "sonarjs/regex-complexity": {
+      "count": 3
     }
   },
   "src/rules-layer.test.ts": {
@@ -5499,9 +6500,17 @@
       "count": 1
     }
   },
+  "src/rules/CLAUDE.md.spec.ts": {
+    "sonarjs/no-empty-test-file": {
+      "count": 1
+    }
+  },
   "src/rules/index.test.ts": {
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 4
     }
   },
   "src/rules/index.ts": {
@@ -5511,6 +6520,11 @@
   },
   "src/rules/skill-resource-resolves.test.ts": {
     "max-lines-per-function": {
+      "count": 1
+    }
+  },
+  "src/run-hook.e2e.test.ts": {
+    "sonarjs/no-empty-test-file": {
       "count": 1
     }
   },
@@ -5528,6 +6542,9 @@
       "count": 1
     },
     "no-restricted-syntax": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
       "count": 1
     }
   },
@@ -5561,6 +6578,9 @@
     },
     "no-restricted-globals": {
       "count": 3
+    },
+    "sonarjs/deprecation": {
+      "count": 1
     }
   },
   "src/run-script.ts": {
@@ -5600,6 +6620,9 @@
     "sonarjs/cognitive-complexity": {
       "count": 3
     },
+    "sonarjs/no-nested-assignment": {
+      "count": 1
+    },
     "sonarjs/no-nested-conditional": {
       "count": 1
     }
@@ -5637,11 +6660,17 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/scaffold-test.test.ts": {
     "max-lines-per-function": {
       "count": 1
+    },
+    "sonarjs/assertions-in-tests": {
+      "count": 4
     }
   },
   "src/scaffold-test.ts": {
@@ -5665,6 +6694,12 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 1
+    },
+    "sonarjs/todo-tag": {
+      "count": 2
     }
   },
   "src/scan-behavioral.test.ts": {
@@ -5672,6 +6707,9 @@
       "count": 10
     },
     "max-lines": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
       "count": 1
     }
   },
@@ -5714,6 +6752,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 5
+    },
+    "sonarjs/regex-complexity": {
+      "count": 1
     }
   },
   "src/scan-cli.test.ts": {
@@ -5738,8 +6779,17 @@
     "sonarjs/cognitive-complexity": {
       "count": 2
     },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 2
+    },
     "sonarjs/no-nested-conditional": {
       "count": 2
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
+    },
+    "sonarjs/todo-tag": {
+      "count": 1
     }
   },
   "src/scan-core.ts": {
@@ -5784,6 +6834,12 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 13
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 2
     }
   },
   "src/scan-files.test.ts": {
@@ -5795,6 +6851,9 @@
     },
     "max-lines-per-function": {
       "count": 4
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/scan-files.ts": {
@@ -5836,6 +6895,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 5
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 4
     }
   },
   "src/scan-trigger-suggest.test.ts": {
@@ -5852,6 +6914,9 @@
     },
     "functional/prefer-immutable-types": {
       "count": 1
+    },
+    "sonarjs/todo-tag": {
+      "count": 1
     }
   },
   "src/scan-vendor.test.ts": {
@@ -5860,6 +6925,9 @@
     },
     "local/no-rule-ids": {
       "count": 4
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
     }
   },
   "src/scan.test.ts": {
@@ -5885,6 +6953,12 @@
       "count": 2
     },
     "sonarjs/cognitive-complexity": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 4
+    },
+    "sonarjs/no-misleading-array-reverse": {
       "count": 1
     }
   },
@@ -5928,7 +7002,22 @@
     "sonarjs/cognitive-complexity": {
       "count": 5
     },
+    "sonarjs/different-types-comparison": {
+      "count": 2
+    },
     "sonarjs/no-nested-conditional": {
+      "count": 1
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 1
+    },
+    "sonarjs/no-redundant-optional": {
+      "count": 1
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
+    },
+    "sonarjs/todo-tag": {
       "count": 1
     }
   },
@@ -5959,6 +7048,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
+    },
+    "sonarjs/todo-tag": {
+      "count": 2
     }
   },
   "src/score-explainer.test.ts": {
@@ -6022,8 +7114,17 @@
     "max-statements": {
       "count": 4
     },
+    "sonarjs/anchor-precedence": {
+      "count": 1
+    },
     "sonarjs/cognitive-complexity": {
       "count": 7
+    },
+    "sonarjs/regex-complexity": {
+      "count": 6
+    },
+    "sonarjs/slow-regex": {
+      "count": 6
     }
   },
   "src/self-command-refs.test.ts": {
@@ -6062,6 +7163,9 @@
     "sonarjs/cognitive-complexity": {
       "count": 2
     },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
     "sonarjs/nested-control-flow": {
       "count": 1
     }
@@ -6096,6 +7200,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
     }
   },
   "src/services.integration.test.ts": {
@@ -6150,6 +7257,9 @@
     },
     "max-lines": {
       "count": 1
+    },
+    "sonarjs/single-char-in-character-classes": {
+      "count": 2
     }
   },
   "src/setup-plan.ts": {
@@ -6185,6 +7295,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 3
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
     }
   },
   "src/share-link.test.ts": {
@@ -6236,6 +7349,9 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
     }
   },
   "src/skill-harness.test.ts": {
@@ -6304,6 +7420,9 @@
     "sonarjs/cognitive-complexity": {
       "count": 2
     },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
     "sonarjs/nested-control-flow": {
       "count": 2
     }
@@ -6357,6 +7476,12 @@
     },
     "sonarjs/nested-control-flow": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 9
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/source-kinds.ts": {
@@ -6385,6 +7510,11 @@
       "count": 1
     }
   },
+  "src/stats.test.ts": {
+    "sonarjs/different-types-comparison": {
+      "count": 3
+    }
+  },
   "src/stats.ts": {
     "functional/no-let": {
       "count": 5
@@ -6400,6 +7530,9 @@
     },
     "max-statements": {
       "count": 2
+    },
+    "sonarjs/arguments-order": {
+      "count": 1
     }
   },
   "src/stub.ts": {
@@ -6416,11 +7549,17 @@
     },
     "max-lines-per-function": {
       "count": 2
+    },
+    "sonarjs/assertions-in-tests": {
+      "count": 1
     }
   },
   "src/surface-discovery-fs.test.ts": {
     "local/no-harness-names": {
       "count": 43
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 8
     }
   },
   "src/surface-discovery-fs.ts": {
@@ -6473,6 +7612,14 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    }
+  },
+  "src/test-coverage-harnesses.test.ts": {
+    "sonarjs/no-alphabetical-sort": {
+      "count": 3
     }
   },
   "src/test-coverage.test.ts": {
@@ -6481,6 +7628,9 @@
     },
     "max-lines": {
       "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 4
     }
   },
   "src/test-coverage.ts": {
@@ -6517,7 +7667,19 @@
     "sonarjs/cognitive-complexity": {
       "count": 5
     },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 3
+    },
+    "sonarjs/no-misleading-array-reverse": {
+      "count": 3
+    },
     "sonarjs/no-nested-conditional": {
+      "count": 1
+    },
+    "sonarjs/reduce-initial-value": {
       "count": 1
     }
   },
@@ -6545,6 +7707,9 @@
   "src/tool-intercept.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 2
+    },
+    "sonarjs/no-redundant-boolean": {
+      "count": 1
     }
   },
   "src/tool-intercept.ts": {
@@ -6568,10 +7733,21 @@
     },
     "sonarjs/cognitive-complexity": {
       "count": 2
+    },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    }
+  },
+  "src/tool-stub.test.ts": {
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/tool-stub.ts": {
     "boundaries/dependencies": {
+      "count": 1
+    },
+    "sonarjs/no-nested-template-literals": {
       "count": 1
     }
   },
@@ -6606,6 +7782,15 @@
     },
     "max-lines-per-function": {
       "count": 6
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    },
+    "sonarjs/no-nested-template-literals": {
+      "count": 2
+    },
+    "sonarjs/slow-regex": {
+      "count": 1
     }
   },
   "src/verify-plugin-guards.ts": {
@@ -6648,10 +7833,19 @@
     "sonarjs/cognitive-complexity": {
       "count": 3
     },
+    "sonarjs/different-types-comparison": {
+      "count": 1
+    },
+    "sonarjs/no-alphabetical-sort": {
+      "count": 1
+    },
     "sonarjs/no-duplicate-string": {
       "count": 1
     },
     "sonarjs/no-nested-conditional": {
+      "count": 1
+    },
+    "sonarjs/no-nested-template-literals": {
       "count": 1
     }
   }
