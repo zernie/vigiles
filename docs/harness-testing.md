@@ -379,6 +379,118 @@ best-effort.
 
 [How the spellings are made, what is deliberately left out, and how it maps to promptfoo's strategies →](compiled-hooks.md#one-command-many-spellings--experimental_alternatespellings)
 
+### A guard that reads repository state (`experimental_targetRepo`)
+
+Some guards decide on the **repository**, not the text: "no force push while
+on `main`", "no merge while the PR is a draft". Such a guard usually asks git
+in its own working directory — the folder the session started in. The agent's
+command can aim somewhere else:
+
+```bash
+cd ../other-repo && git push -f origin HEAD
+git -C ../other-repo push -f origin HEAD
+```
+
+A guard that reads the start folder's branch judges the wrong repository. It
+lets a force push to `main` through when the session sits on a feature branch,
+and blocks a harmless push from `main`. Text cases cannot show this, because the
+answer depends on repository state the text does not carry.
+
+`experimental_targetRepo` runs that check. You give the command and two setup
+callbacks: one puts a repository into the state the guard must **block**, the
+other into the state it must **allow**.
+
+```ts
+import { resolve } from "node:path";
+import { assertGuardrail } from "vigiles/hook/testing";
+
+// Absolute: the hook runs inside the temporary repository, not your project.
+const guard = resolve("hooks/git/push-force-guard.sh");
+
+assertGuardrail(`bash '${guard}'`, {
+  experimental_targetRepo: {
+    command: "git push -f origin HEAD",
+    blocked: (repo) => repo.branch("main"), // the push must be blocked here
+    allowed: (repo) => repo.branch("feature/x"), // ...and allowed here
+  },
+});
+```
+
+vigiles builds real git repositories in a temp directory (each with one
+commit), runs your callbacks, runs the hook, and deletes them. Each callback
+gets `repo.dir`, `repo.git(...args)` and `repo.branch(name)`.
+
+**What runs, and what is safe.** This is a test of your guard, not a guard
+itself:
+
+- **The command in the event is never executed.** The hook only receives it as
+  text, as the harness would send it before running it, so `git push -f`
+  pushes nothing.
+- **Your hook runs as it is**, as a process on this machine with your
+  environment. Whatever it does itself (write a file, call `gh`, reach the
+  network) it does here too. Pass `sandbox: "strict"` to run it under
+  bubblewrap (Linux only; refused elsewhere).
+- **The temporary repositories are vigiles's.** Their own git calls ignore an
+  inherited `GIT_DIR` and its siblings, so building them never touches the
+  repository you run the test from.
+
+The hook's working directory is the temporary repository it starts in, so a
+relative path in the hook command (`bash hooks/guard.sh`) does not exist there
+and every case reads as not run. Pass an absolute path, as above.
+
+**The forms.** Each is a way of aiming at the other repository:
+
+| form       | the command the hook sees                                                           |
+| ---------- | ----------------------------------------------------------------------------------- |
+| `cd`       | `cd '<target>' && git push -f origin HEAD`                                          |
+| `git-C`    | `git -C '<target>' push -f origin HEAD` (only for a `git` command)                  |
+| `worktree` | `cd '<target>' && …`, where the target is a linked worktree of the start repository |
+
+All three run by default (`git-C` only when the command starts with `git `);
+`forms: ["cd"]` picks some.
+
+**The four cases per form.** The hook runs with the session started in one
+repository (the event's `cwd` and the hook's working directory):
+
+| started in | command aims at | a working guard                                              |
+| ---------- | --------------- | ------------------------------------------------------------ |
+| allowed    | itself          | allows — control                                             |
+| blocked    | itself          | blocks — control                                             |
+| allowed    | blocked         | **blocks** — else it judged the start folder (a miss)        |
+| blocked    | allowed         | **allows** — else it judged the start folder (a false block) |
+
+A failure reads like this:
+
+```text
+✗ cd form: started in feature/x, targeted main → allowed (expected block): judged the start folder
+```
+
+**A failed control means "no verdict", not "pass".** The controls aim the
+command at the start repository itself. If one gets the wrong answer, your
+setup does not create the state this hook reads (or the hook reads no
+repository state at all). That form's crossings then read
+`run: "control-failed"`: the hook's answer is recorded, but it is neither a pass
+nor a miss, and `assertGuardrail` fails with "NOT A VERDICT". A guard that
+always blocks would otherwise "catch" every crossing that must be blocked.
+
+**Only the cross-repository cases run.** The option replaces the disaster
+battery, because the disasters do not depend on repository state. Combining it
+with `events`, `categories`, `spellings`, `harmless` or `cwd` throws; run the
+battery in its own call. `condition`, `protocol` and `env` still apply.
+
+**A compiled gate** gets its repository facts (`git.branch`, `git.isDirty`,
+`git.root`, `cwd`) gathered in the start repository, as the runtime gathers them
+in the session folder. Other needs still come from `ctx`. A gate built on
+`needs: ["git.branch"]` therefore fails the crossings today: the fact describes
+the session folder, not the repository the command aims at.
+
+**Limit: local repositories only.** The repositories have no remote and no
+pull request. A hook that asks GitHub (`gh pr view`) needs a fake `gh` first on
+`PATH`, passed through the hook's environment:
+`env: { PATH: stubDir + ":" + process.env.PATH }`, with a `gh` script in
+`stubDir` that answers by its working directory. vigiles does not build that
+stub for you.
+
 ### Sweep every hook a repo declares (`experimental_verifyPluginGuards`)
 
 `assertGuardrail` takes ONE hook. Point
