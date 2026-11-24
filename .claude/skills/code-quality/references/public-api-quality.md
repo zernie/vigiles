@@ -21,7 +21,7 @@ In this repo the surface is tracked by **API Extractor** (`api-surface/*.api.md`
 
 ## Real example (from the R3 work)
 
-The disposable-service tier is genuinely useful but unstable, so it is **not** on the `vigiles` root surface. It ships on `vigiles/experimental` with `experimental_startServices` / `experimental_withServices` (prefix + subpath both signal risk), while the internal `dockerRunArgs` / `parseDockerPort` helpers stay **unexported** (tests import the module directly). The public surface is four symbols + the port interface, not the whole module.
+The disposable-service tier is genuinely useful but unstable, so it is **not** on the `vigiles` root surface. It ships on `vigiles/fixtures` (test infrastructure) as `experimental_startServices` / `experimental_dockerRuntime`, the prefix marking every call site, while the internal `dockerRunArgs` / `parseDockerPort` helpers stay **unexported** (tests import the module directly). The public surface is four symbols + the port interface, not the whole module.
 
 ## Rule of thumb
 

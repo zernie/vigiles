@@ -41,6 +41,9 @@ their exit codes. Most of the churn is in the library API underneath it.
   - `vigiles/battery` — prove a guard blocks: `assertGuardrail`,
     `verifyGuardrail`, `DISASTER_CATALOG` (the `experimental_*` names beside them
     are not stable).
+  - `vigiles/fixtures` — what a test runs against: `experimental_stub` (tool
+    stubs on PATH) and `experimental_startServices` / `experimental_dockerRuntime`
+    (disposable services). All experimental; nothing here is stable yet.
   - `vigiles/claude-code`, `vigiles/codex` — the per-harness surfaces.
   - `vigiles/adapter` — the adapter-authoring kit. This is a **deliberate
     extension point**: third-party harness adapters are an intended use, so the
@@ -197,10 +200,10 @@ merges only with `function` declarations (`experimental_skill` is a `const`).
   reliable place to look). The prefix marks every call site instead, and
   the ESLint rule `local/experimental-name` fails CI when a declaration tagged
   `@experimental` is not named for it. Today that covers the R3 disposable-service tier
-  (`experimental_startServices`, … — on `vigiles`: it starts containers and calls
+  (`experimental_startServices`, … — on `vigiles/fixtures`: it starts containers and calls
   no model, so it is not behind the paid `vigiles/eval` door, though it does have
   real side effects), the per-invocation tool stub (`experimental_stub` with
-  `.rest` and `.called` — on `vigiles`; the rule shapes it builds, `ToolStub` and
+  `.rest` and `.called` — on `vigiles/fixtures`; the rule shapes it builds, `ToolStub` and
   friends, are plain data and the `EvalSpec.stubs` field takes a literal of the
   same shape), the emit channel (`experimental_emitTool`, … — on `vigiles`), the
   compiled-hook entry points (`vigiles/hook`), and the spec builders

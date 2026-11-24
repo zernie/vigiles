@@ -715,6 +715,9 @@ adapter/import model and the capability matrix, see
 | `cacheTokens({ maxCreation, maxRead })`                                                                                                                                                                         | `check.tokens({ maxCache })` (written + served)              |
 | `skillContract(dir)`                                                                                                                                                                                            | `check.skillContract(dir)`                                   |
 | `fileToolEvents(path)` from `vigiles`                                                                                                                                                                           | `fileToolEvents(path)` from `vigiles/claude-code`            |
+| `experimental_stub` from `vigiles`                                                                                                                                                                              | `experimental_stub` from `vigiles/fixtures`                  |
+| `experimental_startServices`, `experimental_dockerRuntime` from `vigiles`                                                                                                                                       | the same names from `vigiles/fixtures`                       |
+| `experimental_outputStyleArms` from `vigiles`                                                                                                                                                                   | `experimental_outputStyleArms` from `vigiles/eval`           |
 
 Each goes in `assertChecks(r, [ … ])`, `expect(r).toPass(…)`, or a `measure`'s
 `checks` / a trigger-rate `fired:`.

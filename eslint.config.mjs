@@ -37,6 +37,8 @@ const NO_BARREL_IMPORTS = {
     "**/linting.js",
     "**/test.js",
     "**/eval-surface.js",
+    "**/battery.js",
+    "**/fixtures.js",
     "**/hook.js",
     "**/claude-code.js",
     "**/codex.js",
@@ -478,8 +480,8 @@ export default [
   },
   // No barrel imports: internal modules must import the LEAF that defines a
   // symbol, never the package's own public barrel entry points (the
-  // `vigiles/<x>` surfaces — src/{linting,test,eval-surface,hook,
-  // claude-code,codex,adapter}.ts). Importing a barrel pulls its whole
+  // `vigiles/<x>` surfaces — src/{linting,test,eval-surface,battery,
+  // fixtures,hook,claude-code,codex,adapter}.ts). Importing a barrel pulls its whole
   // re-export graph (slow in the test runner / any non-treeshaking consumer,
   // and a circular-import risk), and re-leaks the internal seams the curated
   // barrels deliberately drop. The canonical eslint-plugin-barrel-files is
@@ -503,7 +505,7 @@ export default [
     files: ["src/**/*.ts"],
     ignores: [
       "src/**/*.test.ts",
-      "src/{linting,test,eval-surface,hook,claude-code,codex,adapter}.ts",
+      "src/{linting,test,eval-surface,battery,fixtures,hook,claude-code,codex,adapter}.ts",
     ],
     rules: {
       "no-restricted-imports": [
@@ -526,7 +528,7 @@ export default [
     files: ["src/**/*.ts"],
     ignores: [
       "src/**/*.test.ts",
-      "src/{linting,test,eval-surface,hook,claude-code,codex,adapter}.ts",
+      "src/{linting,test,eval-surface,battery,fixtures,hook,claude-code,codex,adapter}.ts",
       ...PARSES_SHELL,
     ],
     rules: {
@@ -542,7 +544,9 @@ export default [
   // The public barrels: exempt from the barrel rule, not from this one. `hook.ts`
   // is in PARSES_SHELL, so the glob skips it.
   {
-    files: ["src/{linting,test,eval-surface,claude-code,codex,adapter}.ts"],
+    files: [
+      "src/{linting,test,eval-surface,battery,fixtures,claude-code,codex,adapter}.ts",
+    ],
     rules: {
       "no-restricted-imports": [
         "error",

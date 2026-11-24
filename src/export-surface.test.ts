@@ -20,6 +20,7 @@ import ts from "typescript";
 import * as root from "./test.js";
 import * as evalDoor from "./eval-surface.js";
 import * as battery from "./battery.js";
+import * as fixtures from "./fixtures.js";
 import * as hook from "./hook.js";
 import * as spec from "./entries/spec.js";
 import * as adapter from "./adapter.js";
@@ -33,6 +34,7 @@ const has = (door: object, name: string): boolean => name in door;
 test("package.json exports: ./battery is a door, ./linting is gone", () => {
   const raw = readFileSync(join(ROOT, "package.json"), "utf-8");
   assert.match(raw, /"\.\/battery": "\.\/dist\/battery\.js"/);
+  assert.match(raw, /"\.\/fixtures": "\.\/dist\/fixtures\.js"/);
   assert.match(raw, /"\.\/spec": "\.\/dist\/entries\/spec\.js"/);
   assert.doesNotMatch(raw, /"\.\/linting"/);
 });
@@ -218,6 +220,41 @@ test("shape C: the root is verbs plus one callable check — no flat check funct
   ]) {
     assert.ok(member in root.check, `check.${member} is a member`);
   }
+});
+
+test("test infrastructure lives on vigiles/fixtures; eval arms on vigiles/eval", () => {
+  for (const name of [
+    "experimental_stub",
+    "experimental_startServices",
+    "experimental_dockerRuntime",
+  ]) {
+    assert.ok(has(fixtures, name), `vigiles/fixtures exports ${name}`);
+    assert.ok(!has(root, name), `the root no longer exports ${name}`);
+  }
+  assert.ok(has(evalDoor, "experimental_outputStyleArms"));
+  assert.ok(!has(root, "experimental_outputStyleArms"));
+});
+
+test("the root's runtime exports are exactly the test-author verbs", () => {
+  assert.deepEqual(Object.keys(root).sort(), [
+    "assertChecks",
+    "check",
+    "cleanupTmpDir",
+    "defineEval",
+    "experimental_assertEmittedOk",
+    "experimental_eachReply",
+    "experimental_emitTool",
+    "experimental_parseEmitted",
+    "experimental_replyCount",
+    "makeTmpDir",
+    "recordCheck",
+    "runHarnessTest",
+    "runHook",
+    "runScript",
+    "sandboxAvailable",
+    "skip",
+    "vigilesMatchers",
+  ]);
 });
 
 test("the adapter registry is the CLI's, not a public door", () => {

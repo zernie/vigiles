@@ -60,6 +60,9 @@ export interface DiffOptions {
 }
 
 // @public
+export function experimental_outputStyleArms(path: string): Promise<OutputStyleArms>;
+
+// @public
 export interface ImprovesGate {
     readonly alpha?: number;
     // (undocumented)
@@ -78,6 +81,12 @@ export interface Interval {
     readonly k: number;
     readonly lo: number;
     readonly n: number;
+}
+
+// @public
+export interface OutputStyleArms {
+    readonly with: EvalArm;
+    readonly without: EvalArm;
 }
 
 // @public

@@ -108,12 +108,8 @@ A style is not chosen by the model, so there is no trigger rate to measure
 and check every reply of each run.
 
 ```ts
-import {
-  experimental_outputStyleArms,
-  experimental_replyCount,
-  check,
-} from "vigiles";
-import { paid_measureArms } from "vigiles/eval";
+import { experimental_replyCount, check } from "vigiles";
+import { experimental_outputStyleArms, paid_measureArms } from "vigiles/eval";
 
 // Free: one run with the scripted model proves the style reaches the model,
 // then the arms are built from the FILE — no name typed by hand.

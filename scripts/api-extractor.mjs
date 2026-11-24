@@ -34,6 +34,7 @@ const ENTRIES = [
   { name: "vigiles-rule-proof", dts: "dist/entries/rule-proof.d.ts" },
   { name: "vigiles-hook", dts: "dist/hook.d.ts" },
   { name: "vigiles-battery", dts: "dist/battery.d.ts" },
+  { name: "vigiles-fixtures", dts: "dist/fixtures.d.ts" },
   { name: "vigiles-claude-code", dts: "dist/claude-code.d.ts" },
   { name: "vigiles-codex", dts: "dist/codex.d.ts" },
   { name: "vigiles-adapter", dts: "dist/adapter.d.ts" },

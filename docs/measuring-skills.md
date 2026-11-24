@@ -103,7 +103,8 @@ Seed paths are relative to HOME, stay inside it, and may not overwrite the harne
 A skill that files an issue runs `gh issue create`; a status script it runs calls `gh api repos/…/issues`. Put a stub for `gh` first on the run's `PATH` and both get a recorded answer instead of the real service. A stub answers **per invocation**, by rules over the argv tokens:
 
 ```typescript
-import { defineEval, experimental_stub } from "vigiles";
+import { defineEval } from "vigiles";
+import { experimental_stub } from "vigiles/fixtures";
 
 const { rest } = experimental_stub;
 const gh = experimental_stub("gh", [
@@ -224,11 +225,11 @@ R3 runs your skill **for real**, and a skill is model-driven — the model picks
 `experimental_startServices` starts the services; tear them down in a `finally` so they go even on failure:
 
 ```typescript
-// R3 starts containers; it calls no model, so it is on the free door.
+// R3 starts containers; it calls no model, so it is on the free fixtures door.
 import {
   experimental_startServices,
   experimental_dockerRuntime,
-} from "vigiles";
+} from "vigiles/fixtures";
 // The eval driver DOES call a model — hence the other door, and the `paid_`.
 import { paid_runEval } from "vigiles/eval";
 
@@ -280,7 +281,7 @@ try {
 
 Runnable versions: [`side-effect-r3.mjs`](../examples/harness/side-effect-r3.mjs) (the primitive) and [`measure-with-service.mjs`](../examples/harness/measure-with-service.mjs) (the `runEval` composition above).
 
-**What ships today vs later.** Today: the types, the `ContainerRuntime` port, `experimental_startServices`, and a Docker backend — all on the package root, each name carrying the `experimental_` prefix. Deferred: a first-class `services` option on `measureArms` (+ `ctx.service(name)`), **per-trial** reset (today the container lives for the whole run — make your task self-contained or use `trials: 1`), and the egress wall. Requires Docker (Linux-first), stays an explicit opt-in, and is **never** part of `vigiles audit` — `audit` stays side-effect-free.
+**What ships today vs later.** Today: the types, the `ContainerRuntime` port, `experimental_startServices`, and a Docker backend — all on `vigiles/fixtures`, each name carrying the `experimental_` prefix. Deferred: a first-class `services` option on `measureArms` (+ `ctx.service(name)`), **per-trial** reset (today the container lives for the whole run — make your task self-contained or use `trials: 1`), and the egress wall. Requires Docker (Linux-first), stays an explicit opt-in, and is **never** part of `vigiles audit` — `audit` stays side-effect-free.
 
 ## See also
 

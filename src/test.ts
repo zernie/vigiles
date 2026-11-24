@@ -162,12 +162,10 @@ export type {
 // through as data?") is its own door, `vigiles/battery`: it has its own reader —
 // someone proving a guard — and its own vocabulary.
 
-// Tool stubs on PATH (rung R2): a fake binary that answers PER INVOCATION, by
-// rules over its argv. The helper and its check are experimental; the rule
-// shapes are plain data, because a `.mjs` literal of the same shape is accepted
-// at the spec boundary. Writing the shims is internal (`tool-stub.ts`).
-export { experimental_stub } from "./stub.js";
-export type { StubCalledBounds } from "./stub.js";
+// Tool stubs on PATH (rung R2): `experimental_stub` builds them and lives on
+// `vigiles/fixtures` with the other test infrastructure. The rule shapes stay
+// here because `EvalSpec.stubs` speaks them; they are plain data, since a `.mjs`
+// literal of the same shape is accepted at the spec boundary.
 // The element type of `ArmReport.context` (vigiles#416).
 export type {
   ContextEvidence,
@@ -194,10 +192,8 @@ export type { HomeFiles, HomeSeed, RunEnv } from "./core/run-env.js";
 // your harness's package). See `research/code-adapter-architecture.md`.
 // Slow but free: see the module doc.
 export { runHarnessTest, sandboxAvailable } from "./harness-test.js";
-// The two arms of an output-style eval, after one free run proves the style
-// reaches the model. Free: the run uses the scripted model.
-export { experimental_outputStyleArms } from "./output-style-arms.js";
-export type { OutputStyleArms } from "./output-style-arms.js";
+// The two arms of an output-style eval (`experimental_outputStyleArms`) are on
+// `vigiles/eval`: what they build is eval arms.
 export type {
   HarnessTestSpec,
   Trace,
@@ -260,38 +256,10 @@ export type {
   TriggerRateSpec,
 } from "./eval.js";
 
-// --- R3: the disposable-service tier (⚠️ EXPERIMENTAL, and it has REAL EFFECTS) ---
-// Moved off the `vigiles/experimental` subpath 2026-08-21, when that subpath was
-// deleted: it marked the IMPORT LINE, which is out of view by the time anyone
-// reads the call, while `experimental_` marks every call site.
-//
-// 🔴 IT LANDED ON `vigiles/eval` FIRST, AND THE EXPORT-PREFIX GATE REJECTED IT —
-// correctly, and the reasoning is worth keeping. `./eval` has a naming contract:
-// every runtime export there is `paid_*`, meaning THIS CALL CAN BILL YOU. R3 felt
-// like it belonged because the docs frame it as measuring skills for real. But
-// `experimental_startServices` takes a `ContainerRuntime` and starts containers;
-// it calls no model. Naming it `paid_experimental_startServices` to satisfy the
-// gate would have made `paid_` mean "expensive in some sense", which is exactly
-// the erosion that turns a prefix back into decoration. The model spend is in
-// `paid_measureArms`, which is already over there. So R3 is free-of-model-cost
-// and belongs on this door — where "free" keeps its narrow meaning.
-//
-// ⚠️ FREE OF MODEL COST IS NOT FREE OF CONSEQUENCE, and this is the one place the
-// root barrel carries something with real side effects. The disposable container
-// is the ONLY isolation vigiles provides — it does NOT confine the skill's
-// filesystem or network. Run it somewhere disposable with no production access
-// and keep real credentials out of the run. See the SAFETY note in src/services.ts.
-export {
-  experimental_startServices,
-  type ServiceSpec,
-  type ServiceReady,
-  type ServiceReset,
-  type ServiceHandle,
-  type ServiceSession,
-  type ContainerRuntime,
-} from "./services.js";
-
-export {
-  experimental_dockerRuntime,
-  type DockerExec,
-} from "./services-docker.js";
+// --- R3: the disposable-service tier ---
+// `experimental_startServices` and `experimental_dockerRuntime` live on
+// `vigiles/fixtures`: they set up what a run talks to, which is test
+// infrastructure, not a verb over a run. They first landed on `vigiles/eval` and
+// the export-prefix gate rejected them there, rightly: every runtime export on
+// `./eval` is `paid_*` (this call can bill you), and starting a container calls
+// no model.

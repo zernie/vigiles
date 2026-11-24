@@ -302,7 +302,8 @@ function fakeClaudeBin(): string {
 }
 
 const STUBBED_EVAL =
-  `import { defineEval, experimental_stub } from "${DIST}/test.js";\n` +
+  `import { defineEval } from "${DIST}/test.js";\n` +
+  `import { experimental_stub } from "${DIST}/fixtures.js";\n` +
   `const { rest } = experimental_stub;\n` +
   `export default defineEval({\n` +
   `  runEval: {\n` +

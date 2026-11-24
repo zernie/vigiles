@@ -152,3 +152,11 @@ export { readBaseline, writeBaseline } from "./eval-baseline.js";
 export type { BaselineFile, DiffOptions } from "./eval-baseline.js";
 // `compare`'s verdict and the interval a 0/1 metric is judged by.
 export type { Verdict, Interval } from "./core/evidence.js";
+
+// --- building the arms: free, so unprefixed ---
+// The with/without arms of an output-style eval, for `paid_measureArms`. Free:
+// the one run it makes to prove the style reaches the model uses the scripted
+// model. Its only reader is someone about to run that eval, so it shares this
+// door with the runner it feeds.
+export { experimental_outputStyleArms } from "./output-style-arms.js";
+export type { OutputStyleArms } from "./output-style-arms.js";

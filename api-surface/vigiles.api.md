@@ -158,14 +158,6 @@ export interface CheckResult {
 export function cleanupTmpDir(dir: string): void;
 
 // @public
-export interface ContainerRuntime {
-    available(): boolean | Promise<boolean>;
-    readonly name: string;
-    start(name: string, spec: ServiceSpec): Promise<ServiceHandle>;
-    stop(handle: ServiceHandle): Promise<void>;
-}
-
-// @public
 export type ContextEvidence =
 /** Every expected file is in the model's first request. */
     {
@@ -202,13 +194,6 @@ export type DeliveryChannel =
 | "exit-code-feedback"
 /** JSON `decision: "block"` + `reason`, on an event honouring `feedback`. */
 | "decision-reason";
-
-// @public
-export type DockerExec = (args: readonly string[]) => {
-    readonly stdout: string;
-    readonly stderr: string;
-    readonly code: number;
-};
 
 // @public
 export type EmitFieldSchema = {
@@ -377,18 +362,12 @@ export function experimental_assertEmittedOk(toolCalls: readonly ToolCall[], con
 }): Record<string, unknown>;
 
 // @public
-export const experimental_dockerRuntime: ContainerRuntime;
-
-// @public
 export function experimental_eachReply(matcher: string | Readonly<RegExp>): Readonly<Check<Trace>>;
 
 // @public
 export function experimental_emitTool(contract: OutputContract, options?: {
     readonly name?: string;
 }): ExperimentalEmitTool;
-
-// @public
-export function experimental_outputStyleArms(path: string): Promise<OutputStyleArms>;
 
 // @public
 export function experimental_parseEmitted(toolCalls: readonly ToolCall[], contract: OutputContract, options?: {
@@ -400,15 +379,6 @@ export function experimental_replyCount(matcher: string | Readonly<RegExp>, opts
     readonly min?: number;
     readonly max?: number;
 }): Readonly<Check<Trace>>;
-
-// @public
-export function experimental_startServices(services: Readonly<Record<string, ServiceSpec>>, runtime: ContainerRuntime): Promise<ServiceSession>;
-
-// @public
-export const experimental_stub: typeof stubOf & {
-    rest: ArgvRest;
-    called: typeof called;
-};
 
 // @public
 export interface ExperimentalEmitTool {
@@ -610,12 +580,6 @@ export interface ModelTurn {
 }
 
 // @public
-export interface OutputStyleArms {
-    readonly with: EvalArm;
-    readonly without: EvalArm;
-}
-
-// @public
 export interface PromptTriggerStat {
     // (undocumented)
     readonly fired: number;
@@ -712,47 +676,6 @@ export interface SelectionMatrixSpec extends SelectionMatrixOptions {
     readonly pluginDir: string;
 }
 
-// @public
-export interface ServiceHandle {
-    exec(command: string): {
-        readonly stdout: string;
-        readonly stderr: string;
-        readonly code: number;
-    };
-    readonly host: string;
-    readonly port?: number;
-    readonly url?: string;
-}
-
-// @public
-export type ServiceReady = {
-    readonly tcp: number;
-} | {
-    readonly log: RegExp;
-} | {
-    readonly exec: string;
-};
-
-// @public
-export type ServiceReset = "per-trial" | "per-arm";
-
-// @public
-export interface ServiceSession {
-    readonly endpoints: readonly string[];
-    readonly handles: Readonly<Record<string, ServiceHandle>>;
-    teardown(): Promise<void>;
-}
-
-// @public
-export interface ServiceSpec {
-    readonly env?: Readonly<Record<string, string>>;
-    readonly image: string;
-    readonly port?: number;
-    readonly ready?: ServiceReady;
-    readonly reset?: ServiceReset;
-    readonly seed?: string;
-}
-
 // @public (undocumented)
 export interface SkillContract {
     readonly activation: Check<Trace>;
@@ -813,13 +736,6 @@ export interface StubCall {
     readonly outcome: StubOutcome;
     // (undocumented)
     readonly tool: string;
-}
-
-// @public
-export interface StubCalledBounds {
-    readonly contains?: readonly ArgvToken[];
-    readonly max?: number;
-    readonly min?: number;
 }
 
 // @public
