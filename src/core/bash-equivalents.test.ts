@@ -60,6 +60,9 @@ test("every family fires on the force-push seed and every output is equivalent",
     "git   push   --force   origin   main",
     "git\tpush\t--force\torigin\tmain",
     "( git push --force origin main )",
+    "bash -c 'git push --force origin main'",
+    "sh -c 'git push --force origin main'",
+    "eval 'git push --force origin main'",
   ])
     assert.ok(out.includes(must), `missing spelling: ${JSON.stringify(must)}`);
 });
@@ -84,19 +87,34 @@ test("a family that does not apply yields nothing rather than something wrong", 
   );
 });
 
-test("the forms one-level sameOperation cannot prove stay out of the generator", () => {
-  // `bash -c`, `sh -c`, `eval` hand the seed on as ONE word, and `git -C .`
-  // keeps `.` as an argument: the one-level normalizer reads none of them as
-  // the seed's operation, so none is emitted (the self-check would throw).
-  const unproven = [
+test("sameOperation reads inside bash -c, sh -c and eval as the gate does", () => {
+  for (const v of [
     "bash -c 'git push --force origin main'",
     "sh -c 'git push --force origin main'",
     "eval 'git push --force origin main'",
-    "git -C . push --force origin main",
-  ];
-  const out = equivalentCommands(SEED);
-  for (const form of unproven) {
-    assert.equal(sameOperation(SEED, form), false, form);
-    assert.ok(!out.includes(form), form);
-  }
+    `bash -c "git commit --no-verify -m 'skip hooks'"`,
+  ])
+    assert.ok(
+      sameOperation(
+        v.includes("commit") ? "git commit --no-verify -m 'skip hooks'" : SEED,
+        v,
+      ),
+      v,
+    );
+});
+
+test("a handed-on command the gate cannot read is never the same operation", () => {
+  for (const v of [
+    'bash -c "$X"',
+    'sh -c "$CMD"',
+    'eval "$X"',
+    'bash -c "$(echo git push --force origin main)"',
+  ])
+    assert.equal(sameOperation(SEED, v), false, v);
+});
+
+test("git -C . stays out of the generator: the check reads . as an argument", () => {
+  const form = "git -C . push --force origin main";
+  assert.equal(sameOperation(SEED, form), false);
+  assert.ok(!equivalentCommands(SEED).includes(form));
 });

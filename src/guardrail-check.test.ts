@@ -17,6 +17,7 @@ import {
   unblockedDisasters,
   assertGuardrail,
   assertBlocksDisasters,
+  experimental_alternateSpellings,
   experimental_harmlessTwins,
   formatGuardrailReport,
 } from "./guardrail-check.js";
@@ -720,4 +721,10 @@ test("spellings: [...] replaces the generated ones", () => {
     results.map((r) => r.event.id),
     ["force-push", "force-push~mine"],
   );
+});
+
+test("the seven seeds have a pinned number of spellings", () => {
+  // Pinned so a family that silently stops applying is noticed: 12 families,
+  // the subshell and the three nested-shell forms among them.
+  assert.equal(experimental_alternateSpellings(DISASTER_CATALOG).length, 164);
 });
