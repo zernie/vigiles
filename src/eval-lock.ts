@@ -28,7 +28,7 @@
  * harness drift is only caught when YOU re-run `--update` locally — there is no
  * automated live run, by design. The clean split that makes replay sound: the
  * lock stores only the model's OBSERVED BEHAVIOR (the report); the script's own
- * assertions (`assertTriggerRate` / `assertSignificant`) re-run live against the
+ * assertions (`assertTriggerRate` / `assertImproves`) re-run live against the
  * replayed report, so a threshold-only edit is a valid replay (no model call)
  * while an input change is stale. See `research/cache-invalidation.md`.
  *

@@ -2885,7 +2885,7 @@ function verdictLines(
 /**
  * Format an eval report as a compact table for the console (mean ± se, pass^k).
  * Name the `baseline` arm to add one verdict line per other arm and metric —
- * `BETTER` / `WORSE` / `NO SIGNAL`, the same verdict `assertSignificant` reads.
+ * `BETTER` / `WORSE` / `NO SIGNAL`, the same verdict `compare` reads.
  */
 /**
  * The header's cost: the reported total, and — when a run reported none (killed
