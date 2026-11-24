@@ -51,6 +51,9 @@ export function compare(report: EvalReport, baseline: string, arm: string, opts?
 }): Readonly<Record<string, ArmComparison>>;
 
 // @public (undocumented)
+export function compare(before: TriggerRateReport, after: TriggerRateReport): TriggerDiff;
+
+// @public (undocumented)
 export interface DiffOptions {
     readonly alpha?: number;
     readonly lowerIsBetter?: readonly string[];
@@ -114,6 +117,15 @@ export type RateGate = {
 
 // @public
 export function readBaseline(path: string): BaselineFile | null;
+
+// @public
+export interface TriggerDiff {
+    readonly both: readonly string[];
+    readonly compared: number;
+    readonly gained: readonly string[];
+    readonly lost: readonly string[];
+    readonly neither: readonly string[];
+}
 
 // @public
 export interface TriggerRateGate {

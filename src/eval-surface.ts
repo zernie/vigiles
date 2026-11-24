@@ -54,7 +54,8 @@
  * ## The readers, and why they are few
  *
  * `compare(report, baseline, arm)` answers "how far apart, and is it beyond the
- * noise" per metric; `assertImproves` gates on it (`significant: true` for the
+ * noise" per metric, and `compare(before, after)` on two trigger-rate reports
+ * which prompts a change gained and lost; `assertImproves` gates on it (`significant: true` for the
  * computed noise floor); `assertRates` gates a check report or an arm × metric
  * on a rate (`min`) or on every trial (`passK: 1`); `assertTriggerRate` gates a
  * skill's firing; `assertNoRegression` + `readBaseline`/`writeBaseline` gate
@@ -141,6 +142,7 @@ export {
 } from "./eval-readers.js";
 export type {
   ArmComparison,
+  TriggerDiff,
   ImprovesGate,
   TriggerRateGate,
 } from "./eval-readers.js";

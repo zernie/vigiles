@@ -302,3 +302,16 @@ test("compare(before, after): runs with no prompt in common compare nothing", ()
     [[], [], [], []],
   );
 });
+
+test("compare refuses a mixed call instead of guessing which reader was meant", () => {
+  assert.throws(
+    // @ts-expect-error — a trigger-rate report compares with another one
+    () => compare(triggerReport({ a: true }), "base"),
+    /compares with another one/,
+  );
+  assert.throws(
+    // @ts-expect-error — an eval report needs a baseline and an arm
+    () => compare(welchReport, "base"),
+    /needs a baseline and an arm/,
+  );
+});

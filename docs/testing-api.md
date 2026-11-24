@@ -554,6 +554,17 @@ assertImproves(report, {
 A significant LOSS is `significant` with a negative `gap`. An arm name the report
 does not have throws (a typo is not an arm that scored nothing).
 
+Hand `compare` two **trigger-rate** reports instead and it diffs them prompt by
+prompt — which prompts a description edit (or a different model) gained and lost:
+
+```ts
+const { gained, lost, both, neither } = compare(before, after);
+```
+
+A prompt only one run measured is left out. Where firing is inferred rather than
+observed (Codex), a `gained`/`lost` entry can be inference noise; see
+[Is a cheaper model a valid floor?](harness-testing.md#is-a-cheaper-model-a-valid-floor-comparebefore-after).
+
 **Why 0/1 metrics are not t-tested.** When every trial agrees — 3 of 3 against
 0 of 3 — both arms have zero spread, and a t-test has nothing to divide by. Read
 literally that says "no noise, so any gap is real", and one trial per arm came out

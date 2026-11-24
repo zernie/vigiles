@@ -10,6 +10,8 @@
  *   - `compare(report, baseline, arm)` — per metric, the gap and whether it
  *     clears the noise floor. Replaces `compareArms`, `improvement`,
  *     `significantlyBeats` and `experimental_verdict` (its `verdict` field).
+ *     `compare(before, after)` on two trigger-rate reports — which prompts a
+ *     change gained and lost. Replaces `compareContainment`.
  *   - `assertImproves(report, { …, significant: true })` — the gate on that,
  *     replacing `assertSignificant`.
  *   - `assertRates` (in `src/eval.ts`, beside the check report it reads) with
@@ -50,18 +52,82 @@ export interface ArmComparison {
 }
 
 /**
- * Compare `arm` against `baseline`, metric by metric. Only metrics both arms
- * reported appear; an arm the report does not have throws, because an unknown
- * name is a typo, not an arm that scored nothing.
+ * Which prompts a change moved: two trigger-rate runs of the same prompts
+ * (before and after a description edit, or a weaker and a stronger model),
+ * compared prompt by prompt. A prompt only one run measured is left out — it
+ * says nothing about the change.
+ */
+export interface TriggerDiff {
+  /** Prompts both runs measured — the only ones the diff can speak about. */
+  readonly compared: number;
+  /** Fired AFTER, not before: the change made the skill fire here. */
+  readonly gained: readonly string[];
+  /** Fired BEFORE, not after: the change broke firing here. */
+  readonly lost: readonly string[];
+  /** Fired in both runs. */
+  readonly both: readonly string[];
+  /** Fired in neither run. */
+  readonly neither: readonly string[];
+}
+
+/* eslint-disable no-redeclare -- TypeScript function overloads (the base
+   no-redeclare rule, unlike @typescript-eslint/no-redeclare, flags them) */
+/**
+ * One reader for "how do these two differ?", by what you hand it:
  *
- *   const c = compare(report, "vanilla", "gated");
- *   if (c.caught?.significant && c.caught.gap > 0) …
+ * - **An eval report and two arm names** — `arm` against `baseline`, metric by
+ *   metric. Only metrics both arms reported appear; an arm the report does not
+ *   have throws, because an unknown name is a typo, not an arm that scored
+ *   nothing.
+ *
+ *       const c = compare(report, "vanilla", "gated");
+ *       if (c.caught?.significant && c.caught.gap > 0) …
+ *
+ * - **Two trigger-rate reports** — which prompts the second run gained and lost
+ *   against the first ({@link TriggerDiff}).
+ *
+ *       const { lost } = compare(before, after); // the prompts my edit broke
+ *
+ *   ⚠️ A diff is as strong as its weakest run. On Claude Code firing is an
+ *   observed event; on Codex it is INFERRED (from a `SKILL.md` read), and an
+ *   inference error lands exactly where this looks — a prompt wrongly marked
+ *   fired in one run and not the other is a `gained`/`lost` entry made of
+ *   noise. At one trial per prompt every cell is one observation: read a
+ *   handful as evidence and one as a reason to re-run at higher `trials`.
  */
 export function compare(
   report: EvalReport,
   baseline: string,
   arm: string,
+  opts?: { readonly alpha?: number },
+): Readonly<Record<string, ArmComparison>>;
+export function compare(
+  before: TriggerRateReport,
+  after: TriggerRateReport,
+): TriggerDiff;
+export function compare(
+  a: EvalReport | TriggerRateReport,
+  b: string | TriggerRateReport,
+  arm?: string,
   opts: { readonly alpha?: number } = {},
+): Readonly<Record<string, ArmComparison>> | TriggerDiff {
+  if ("perPrompt" in a) {
+    if (typeof b === "string")
+      fail("compare: a trigger-rate report compares with another one");
+    return diffPrompts(a, b);
+  }
+  if (typeof b !== "string" || arm === undefined) {
+    fail("compare: an eval report needs a baseline and an arm name");
+  }
+  return compareArms(a, b, arm, opts.alpha);
+}
+/* eslint-enable no-redeclare */
+
+function compareArms(
+  report: EvalReport,
+  baseline: string,
+  arm: string,
+  alpha: number | undefined,
 ): Readonly<Record<string, ArmComparison>> {
   const armMetrics = metricsOf(report, arm);
   const baseMetrics = metricsOf(report, baseline);
@@ -74,12 +140,35 @@ export function compare(
         baseline,
         arm,
         metric,
-        opts.alpha,
+        alpha,
       );
       const significant = verdict.kind === "better" || verdict.kind === "worse";
       return [[metric, { gap: value - base, significant, verdict }]];
     }),
   );
+}
+
+function diffPrompts(
+  before: TriggerRateReport,
+  after: TriggerRateReport,
+): TriggerDiff {
+  const afterFired = new Map(
+    after.perPrompt.map((p) => [p.prompt, p.rate > 0] as const),
+  );
+  const shared = before.perPrompt.filter((p) => afterFired.has(p.prompt));
+  const pick = (
+    want: (was: boolean, now: boolean) => boolean,
+  ): readonly string[] =>
+    shared
+      .filter((p) => want(p.rate > 0, afterFired.get(p.prompt) === true))
+      .map((p) => p.prompt);
+  return {
+    compared: shared.length,
+    gained: pick((was, now) => !was && now),
+    lost: pick((was, now) => was && !now),
+    both: pick((was, now) => was && now),
+    neither: pick((was, now) => !was && !now),
+  };
 }
 
 /** An arm's metric means, or a loud error naming the arms the report does have. */

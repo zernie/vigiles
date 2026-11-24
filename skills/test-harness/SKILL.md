@@ -23,7 +23,7 @@ Match what you're testing to the cheapest tier that can answer it:
 | "Is the hook actually **wired into** the assembled plugin and does it fire in a real session?"                                         | **Deterministic** | free, no API key (real `claude` + scripted mock) | `runHarnessTest` + `scriptModel`                                                              |
 | "Did the injected context (a SessionStart hook, a `/command`) actually **reach the model**?"                                           | **Deterministic** | free, no API key                                 | `runHarnessTest` → `trace.modelRequests` / `assertRequestContains`                            |
 | "Does this skill's **description trigger** when it should (recall) **and stay quiet** when it shouldn't (precision)?"                  | **Eval**          | **paid** (real model)                            | `measureTriggerRate` (+ `irrelevantPrompts`) → `assertTriggerRate({ min, maxFalsePositive })` |
-| "Can I measure triggering on a **cheaper model** and trust it as a floor?"                                                             | **Eval**          | **paid** (two runs)                              | two `paid_measureTriggerRate` runs, compared on `perPrompt`                                   |
+| "Can I measure triggering on a **cheaper model** and trust it as a floor?"                                                             | **Eval**          | **paid** (two runs)                              | `compare(weak, strong)` (from `vigiles/eval`) → `.lost`                                       |
 | "Is this exact skill's **output any good**?" — absolute quality, no on/off baseline (the default for testing one skill)                | **Eval**          | **paid** (real model)                            | `measure({ checks: [judged(rubric)] })` → `assertRates({ min })`                              |
 | "Does this harness change **move what the agent does**, _relative_ to off?" — A/B lift, regression, signal vs noise                    | **Eval**          | **paid** (real model)                            | `runEval` (arms) + `assertImproves({ significant: true })` (from `vigiles/eval`)              |
 
@@ -39,9 +39,9 @@ a file that isn't there is one the model is right to decline. Rule all three out
 before reporting it. (A partial rate is a real number — don't second-guess it.)
 
 **Don't tune against a cheaper model until you've checked it's actually a floor.**
-Run the same prompts on both and compare `report.perPrompt`: a prompt that fired
-on the weak model but NOT the strong one means the weak model is not a
-lower bound but a _different router_. Prompts that fired only on the strong model
+Run the same prompts on both and `compare(weak, strong)` (from `vigiles/eval`):
+each prompt in `lost` fired on the weak model but NOT the strong one, which means the weak model is not a
+lower bound but a _different router_. Prompts in `gained` (fired only on the strong model)
 are expected and are not a failure. Measured once (21 skills, 84 prompts, haiku
 vs sonnet): **3 weak-only, and one skill higher on haiku** — so containment is
 not established, which is why the floor stays.

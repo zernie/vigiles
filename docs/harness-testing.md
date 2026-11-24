@@ -639,7 +639,7 @@ written up as findings about the skills before being caught. A _partial_ rate is
 left alone: it is a real measurement, and a tool that hedges on good data gets
 ignored.
 
-### Is a cheaper model a valid floor?
+### Is a cheaper model a valid floor? (`compare(before, after)`)
 
 The obvious economy is to measure on the weakest model — if a description fires
 there it fires on a stronger one, the way you test against the oldest supported
@@ -658,22 +658,24 @@ each, whole-harness against 37 competing skills: of 84 shared prompts, **3 fired
 on haiku and not on sonnet**, and one skill scored **haiku 1.00 against sonnet
 0.75**. That is enough to reject the argument — it needs containment to hold, not
 to usually hold — and not enough to claim it breaks often. Hence the `sonnet`
-floor. Run the same set on both and compare the two reports prompt by prompt:
+floor. Run the same set on both and `compare` the two trigger-rate reports,
+prompt by prompt:
 
 ```ts
-const strongFired = new Set(
-  strong.perPrompt.filter((p) => p.rate > 0).map((p) => p.prompt),
-);
-const weakOnly = weak.perPrompt
-  .filter((p) => p.rate > 0 && !strongFired.has(p.prompt))
-  .map((p) => p.prompt);
+import { compare } from "vigiles/eval";
+
+const { lost, gained } = compare(weak, strong);
+// lost   — fired on the weak model, not the strong one (counterexamples)
+// gained — fired on the strong model only (expected under-selection)
 ```
 
-Keep the two directions apart, which is the point:
+The same call answers "which prompts did my description edit break?":
+`compare(before, after).lost`. It keeps the two directions apart, which is the
+point:
 
-- **weak-only** — fired on the weak model, not the strong one. Each is a
+- **weak-only** (`lost`) — fired on the weak model, not the strong one. Each is a
   **counterexample**: the weak model is not a floor, it is a different router.
-- **strong-only** — fired on the strong model only. **Expected, not a failure** —
+- **strong-only** (`gained`) — fired on the strong model only. **Expected, not a failure** —
   this is the under-selection the `sonnet` floor exists for.
 
 ⚠️ At one trial per prompt each cell is a single observation, so one weak-only
