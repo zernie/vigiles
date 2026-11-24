@@ -50,7 +50,8 @@ The docs are grouped by what you're trying to do:
 - [`configuration.md`](configuration.md) — every `.vigilesrc.json` key: what it does, its default, an example.
 - [`commands-and-how-they-relate.md`](commands-and-how-they-relate.md) — the mental model: how `audit` / `lint` / `test` / `eval` / `init` fit together, and why measuring "do my skills fire?" uses `init`, not `audit`.
 - [`testing-matrix.md`](testing-matrix.md) — every use case of the harness-testing API mapped to the tier that tests it, and what each tier costs.
-- [`testing-api.md`](testing-api.md) — the full harness-testing API: every predicate, assertion, `check`, matcher, and option (`measureTriggerRate` / `runEval` / significance).
+- [`api/`](api/README.md) — the API by entry: one page per import path (`vigiles`, `vigiles/eval`, `vigiles/spec`, …) — who it is for, typical tasks, and every exported name.
+- [`testing-api.md`](testing-api.md) — the cross-cutting parts of the testing API: picking a runner, the `Trace` model, imports and harness selection, and the migration tables for renamed names.
 - [`spec-format.md`](spec-format.md) — the typed `.spec.ts` format (target, sections, rules, verified references) — the source of truth.
 - [`linter-support.md`](linter-support.md) — the 11 linters + `generate-types` / `generate-schema`.
 - [`rule-proof.md`](rule-proof.md) — does a linter rule actually FIRE? `experimental_ruleProof` installs a repository's pinned ESLint or Ruff, proves one configuration on a planted pair, then lists the files it flags.

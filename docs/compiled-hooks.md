@@ -755,7 +755,7 @@ See [Testing your harness](harness-testing.md) for the tiers in full.
 
 ## Proof: the OSS dogfood
 
-We pointed the [`DISASTER_CATALOG`](harness-testing.md#prove-a-guard-actually-blocks-the-disaster-battery) battery (force-push, compound force-push, `reset --hard`, `rm -rf`, `--no-verify`, private-SSH-key read, `curl | sh`) at the widely-copied `disler/claude-code-hooks-mastery` safety hook: it blocks **2 of 7**, silently missing the other five. The compiled equivalent ([`examples/harness/safe-bash-guard.hook.mjs`](../examples/harness/safe-bash-guard.hook.mjs)) blocks **7 of 7** — same intent, no blind spots, no protocol bug. The contrast is a runnable, model-free regression test ([`src/hook-dogfood.test.ts`](../src/hook-dogfood.test.ts)).
+We pointed the [`DISASTER_CATALOG`](api/hook-testing.md#prove-a-guard-blocks-every-disaster) battery (force-push, compound force-push, `reset --hard`, `rm -rf`, `--no-verify`, private-SSH-key read, `curl | sh`) at the widely-copied `disler/claude-code-hooks-mastery` safety hook: it blocks **2 of 7**, silently missing the other five. The compiled equivalent ([`examples/harness/safe-bash-guard.hook.mjs`](../examples/harness/safe-bash-guard.hook.mjs)) blocks **7 of 7** — same intent, no blind spots, no protocol bug. The contrast is a runnable, model-free regression test ([`src/hook-dogfood.test.ts`](../src/hook-dogfood.test.ts)).
 
 ### One command, many spellings — `disasters().spellings`
 
