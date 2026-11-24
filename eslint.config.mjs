@@ -1,6 +1,7 @@
 import eslint from "@eslint/js";
 import tseslint from "@typescript-eslint/eslint-plugin";
 import tsparser from "@typescript-eslint/parser";
+import eslintComments from "@eslint-community/eslint-plugin-eslint-comments";
 import sonarjs from "eslint-plugin-sonarjs";
 import globals from "globals";
 
@@ -23,6 +24,7 @@ import {
   AS_UNKNOWN_AS,
   ONE_COLLECTION_LIBRARY,
   PURE_LIBRARIES,
+  SIZE_LIMITS,
   functionalCode,
   ioGlobals,
   layers,
@@ -635,6 +637,22 @@ export default [
   // grandfathered in eslint-suppressions.json (ESLint's own bulk suppressions),
   // which may only shrink: ESLint fails on a suppression nothing needs any more.
   strictTypeScript(["src/**/*.ts"]),
+  // The other way around a limit: an inline `eslint-disable` for it. Disabling a
+  // size or SonarJS rule in a comment is refused, so the only exception left is a
+  // suppression, which may only shrink (scripts/check-suppressions-shrink.mjs).
+  // A bare `eslint-disable` (every rule at once) is refused for the same reason.
+  {
+    files: ["src/**/*.ts"],
+    plugins: { "@eslint-community/eslint-comments": eslintComments },
+    rules: {
+      "@eslint-community/eslint-comments/no-restricted-disable": [
+        "error",
+        ...Object.keys(SIZE_LIMITS),
+        "sonarjs/*",
+      ],
+      "@eslint-community/eslint-comments/no-unlimited-disable": "error",
+    },
+  },
   functionalCode({ files: ["src/**/*.ts"], ignores: ["src/**/*.test.ts"] }),
   layers({
     files: ["src/**/*.ts"],
