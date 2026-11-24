@@ -125,8 +125,9 @@ battery on [`vigiles/battery`](harness-testing.md#prove-a-guard-actually-blocks-
 
 A [compiled hook](compiled-hooks.md) (a `vigiles/hook` program) has a **pure**
 decision, so you can test it without spawning the CLI at all — pass the hook's
-default export and a raw event. The test functions live on `vigiles/hook`,
-beside the vocabulary they test:
+default export and a raw event. The test functions live on `vigiles/hook-test`,
+not on `vigiles/hook`: a compiled hook may import only `vigiles/hook`, so a
+loader there would be callable from inside every hook.
 
 ```ts
 import {
@@ -136,7 +137,7 @@ import {
   experimental_assertHookNotices,
   experimental_assertHookSilent,
   runHookProgram,
-} from "vigiles/hook";
+} from "vigiles/hook-test";
 
 // experimental_loadHook takes the hook's PATH — what a .harness.mjs file actually has. It is
 // the same loader the runtime uses, and it handles a .hook.ts under tsx / Node
@@ -618,13 +619,14 @@ them. A new arm/metric absent from the baseline is skipped (not a regression).
 
 **One door per reader** — every name lives behind exactly one of these:
 
-| Reader                        | Import            | What it holds                                                                                                                                                                             |
-| ----------------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Test your harness             | `vigiles`         | the runners, every check and assertion over a run, the matchers, tool stubs, `defineEval`, and the report types — everything that costs nothing to run                                    |
-| Measure with a model          | `vigiles/eval`    | the `paid_*` runners, and the free readers of their report: `compare`, `assertRates`, `assertTriggerRate`, `assertImproves`, `assertNoRegression`, baselines                              |
-| Prove a guard blocks          | `vigiles/battery` | `assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState`                                                                     |
-| Write or test a compiled hook | `vigiles/hook`    | the hook vocabulary, and `experimental_loadHook` / `experimental_assertHookDenies` / `experimental_assertHookAllows` / `experimental_assertHookNotices` / `experimental_assertHookSilent` |
-| Author a spec                 | `vigiles/spec`    | the spec builders and their types, and `experimental_assertAgentOk` / `experimental_assertAgentErr` / `experimental_assertAgentResult` (compiling is `vigiles compile` / `vigiles lint`)  |
+| Reader                | Import              | What it holds                                                                                                                                                                            |
+| --------------------- | ------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Test your harness     | `vigiles`           | the runners, every check and assertion over a run, the matchers, tool stubs, `defineEval`, and the report types — everything that costs nothing to run                                   |
+| Measure with a model  | `vigiles/eval`      | the `paid_*` runners, and the free readers of their report: `compare`, `assertRates`, `assertTriggerRate`, `assertImproves`, `assertNoRegression`, baselines                             |
+| Prove a guard blocks  | `vigiles/battery`   | `assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState`                                                                    |
+| Write a compiled hook | `vigiles/hook`      | the hook vocabulary — the only import a compiled hook may have                                                                                                                           |
+| Test a compiled hook  | `vigiles/hook-test` | `experimental_loadHook`, `runHookProgram`, `experimental_assertHookDenies` / `experimental_assertHookAllows` / `experimental_assertHookNotices` / `experimental_assertHookSilent`        |
+| Author a spec         | `vigiles/spec`      | the spec builders and their types, and `experimental_assertAgentOk` / `experimental_assertAgentErr` / `experimental_assertAgentResult` (compiling is `vigiles compile` / `vigiles lint`) |
 
 **In a `*.eval.mjs` file the runners below are DECLARED, not called** —
 `export default defineEval({ measure: spec })` — because importing a file that
@@ -693,31 +695,33 @@ adapter/import model and the capability matrix, see
 
 ## Migrating to the v50 assertion form
 
-| Removed in v50                                                                                                                                                                                                  | Write instead                                                |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------ |
-| `assertToolUsed(r, n)` / `usedTool(t, n)`                                                                                                                                                                       | `check.tool(n)`                                              |
-| `assertToolNotUsed(r, n)`                                                                                                                                                                                       | `check.notTool(n)`                                           |
-| `assertToolCount(r, n, b)` / `toolCount(t, n)`                                                                                                                                                                  | `check.tool(n, { min, max })`                                |
-| `assertToolSequence(r, [a, b])`                                                                                                                                                                                 | `check.toolSequence([a, b])`                                 |
-| `assertToolUsedWith(r, n, fn)` / `toolUsedWith`                                                                                                                                                                 | `check.toolWith(n, args)`, or `check(name, fn)`              |
-| `assertToolCalls(r, fn, msg)`                                                                                                                                                                                   | `check(msg, (t) => fn(t.toolCalls))`                         |
-| `assertSkillResolved(r, id)` / `skillResolved`                                                                                                                                                                  | `check.skill(id)` — and `fired: check.skill(id)`             |
-| `assertOutputContains(r, x)` / `outputContains`                                                                                                                                                                 | `check.output(x)`                                            |
-| `assertRequestContains(r, x)` / `requestContains`                                                                                                                                                               | `check.received(x)`                                          |
-| `assertHookFired(r, e, { blocked })` / `hookBlocked`                                                                                                                                                            | `check.hookFired(e, { blocked })`                            |
-| `assertCreated(r, p)` / `assertNotCreated(r, p)`                                                                                                                                                                | `check.wrote(p)` / `check.didNotWrite(p)`                    |
-| `assertHookBlocked(r)` / `assertHookAllowed(r)`                                                                                                                                                                 | `check.blocked()` / `check.allowed()`                        |
-| `assertDelivered(r)`                                                                                                                                                                                            | `check.delivered()`                                          |
-| `assertEgressOnly(r, list)`                                                                                                                                                                                     | `check.egressOnly(list)` (`[]` = no egress)                  |
-| `assertNoWrite(r, p)` / `assertWroteOnly(r, list)`                                                                                                                                                              | `check.noWrite(p)` / `check.wroteOnly(list)`                 |
-| a flat check — `tool(…)`, `toolWith`, `notTool`, `onlyTools`, `skill`, `output`, `received`, `hookFired`, `blocked`, `allowed`, `wrote`, `didNotWrite`, `mcp`, `subagent`, `turns`, `cost`, `latency`, `tokens` | the same name on `check`: `check.tool(…)`                    |
-| `inputTokens({ max })` / `outputTokens({ max })`                                                                                                                                                                | `check.tokens({ maxInput })` / `check.tokens({ maxOutput })` |
-| `cacheTokens({ maxCreation, maxRead })`                                                                                                                                                                         | `check.tokens({ maxCache })` (written + served)              |
-| `skillContract(dir)`                                                                                                                                                                                            | `check.skillContract(dir)`                                   |
-| `fileToolEvents(path)` from `vigiles`                                                                                                                                                                           | `fileToolEvents(path)` from `vigiles/claude-code`            |
-| `experimental_stub` from `vigiles`                                                                                                                                                                              | `experimental_stub` from `vigiles/fixtures`                  |
-| `experimental_startServices`, `experimental_dockerRuntime` from `vigiles`                                                                                                                                       | the same names from `vigiles/fixtures`                       |
-| `experimental_outputStyleArms` from `vigiles`                                                                                                                                                                   | `experimental_outputStyleArms` from `vigiles/eval`           |
+| Removed in v50                                                                                                                                                                                                  | Write instead                                                                |
+| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| `assertToolUsed(r, n)` / `usedTool(t, n)`                                                                                                                                                                       | `check.tool(n)`                                                              |
+| `assertToolNotUsed(r, n)`                                                                                                                                                                                       | `check.notTool(n)`                                                           |
+| `assertToolCount(r, n, b)` / `toolCount(t, n)`                                                                                                                                                                  | `check.tool(n, { min, max })`                                                |
+| `assertToolSequence(r, [a, b])`                                                                                                                                                                                 | `check.toolSequence([a, b])`                                                 |
+| `assertToolUsedWith(r, n, fn)` / `toolUsedWith`                                                                                                                                                                 | `check.toolWith(n, args)`, or `check(name, fn)`                              |
+| `assertToolCalls(r, fn, msg)`                                                                                                                                                                                   | `check(msg, (t) => fn(t.toolCalls))`                                         |
+| `assertSkillResolved(r, id)` / `skillResolved`                                                                                                                                                                  | `check.skill(id)` — and `fired: check.skill(id)`                             |
+| `assertOutputContains(r, x)` / `outputContains`                                                                                                                                                                 | `check.output(x)`                                                            |
+| `assertRequestContains(r, x)` / `requestContains`                                                                                                                                                               | `check.received(x)`                                                          |
+| `assertHookFired(r, e, { blocked })` / `hookBlocked`                                                                                                                                                            | `check.hookFired(e, { blocked })`                                            |
+| `assertCreated(r, p)` / `assertNotCreated(r, p)`                                                                                                                                                                | `check.wrote(p)` / `check.didNotWrite(p)`                                    |
+| `assertHookBlocked(r)` / `assertHookAllowed(r)`                                                                                                                                                                 | `check.blocked()` / `check.allowed()`                                        |
+| `assertDelivered(r)`                                                                                                                                                                                            | `check.delivered()`                                                          |
+| `assertEgressOnly(r, list)`                                                                                                                                                                                     | `check.egressOnly(list)` (`[]` = no egress)                                  |
+| `assertNoWrite(r, p)` / `assertWroteOnly(r, list)`                                                                                                                                                              | `check.noWrite(p)` / `check.wroteOnly(list)`                                 |
+| a flat check — `tool(…)`, `toolWith`, `notTool`, `onlyTools`, `skill`, `output`, `received`, `hookFired`, `blocked`, `allowed`, `wrote`, `didNotWrite`, `mcp`, `subagent`, `turns`, `cost`, `latency`, `tokens` | the same name on `check`: `check.tool(…)`                                    |
+| `inputTokens({ max })` / `outputTokens({ max })`                                                                                                                                                                | `check.tokens({ maxInput })` / `check.tokens({ maxOutput })`                 |
+| `cacheTokens({ maxCreation, maxRead })`                                                                                                                                                                         | `check.tokens({ maxCache })` (written + served)                              |
+| `skillContract(dir)`                                                                                                                                                                                            | `check.skillContract(dir)`                                                   |
+| `fileToolEvents(path)` from `vigiles`                                                                                                                                                                           | `fileToolEvents(path)` from `vigiles/claude-code`                            |
+| `experimental_stub` from `vigiles`                                                                                                                                                                              | `experimental_stub` from `vigiles/fixtures`                                  |
+| `experimental_startServices`, `experimental_dockerRuntime` from `vigiles`                                                                                                                                       | the same names from `vigiles/fixtures`                                       |
+| `experimental_outputStyleArms` from `vigiles`                                                                                                                                                                   | `experimental_outputStyleArms` from `vigiles/eval`                           |
+| `loadHook`, `assertHookDenies/Allows/Notices/Silent` from `vigiles`                                                                                                                                             | `experimental_loadHook`, `experimental_assertHook*` from `vigiles/hook-test` |
+| `runHookProgram`, `RawHookEvent`, `HookProgramOutcome` from `vigiles/hook`                                                                                                                                      | the same names from `vigiles/hook-test`                                      |
 
 Each goes in `assertChecks(r, [ … ])`, `expect(r).toPass(…)`, or a `measure`'s
 `checks` / a trigger-rate `fired:`.

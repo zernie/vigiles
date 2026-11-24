@@ -2905,6 +2905,11 @@
       "count": 3
     }
   },
+  "src/hook-assertions.ts": {
+    "functional/prefer-immutable-types": {
+      "count": 1
+    }
+  },
   "src/hook-check-install.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
@@ -3068,11 +3073,6 @@
     },
     "no-restricted-globals": {
       "count": 5
-    }
-  },
-  "src/hook-test.ts": {
-    "functional/prefer-immutable-types": {
-      "count": 1
     }
   },
   "src/hook.test.ts": {

@@ -671,7 +671,7 @@ import {
   experimental_loadHook,
   experimental_assertHookDenies,
   experimental_assertHookAllows,
-} from "vigiles/hook";
+} from "vigiles/hook-test";
 
 const guard = await experimental_loadHook(".vigiles/hooks/guard.hook.mjs");
 
@@ -689,13 +689,15 @@ it("blocks a force-push, even hidden in a compound command", () => {
 
 `experimental_loadHook` is the same loader the runtime uses (so a hook that loads in a test loads identically in production) and it is what makes this tier reachable from a `.harness.mjs` file, which has a hook's PATH and not its object. A TypeScript hook (`guard.hook.ts`) loads the same way under tsx / Node ≥ 23.6. If you already have the object — a static `import guard from "./guard.hook.mjs"` — pass it directly.
 
+The test functions are on their own entry, `vigiles/hook-test`, and never on `vigiles/hook`. A compiled hook may import only `vigiles/hook`, so anything that entry exports is callable from inside every hook — and a loader there would let a hook run a second module that the import check never reads and the stamp never covers. A hook that imports `vigiles/hook-test` does not compile.
+
 **React hooks get their own pair.** A react can't block, so the gate assertions don't apply; use `experimental_assertHookNotices(hook, event, matcher?)` and `experimental_assertHookSilent(hook, event)`:
 
 ```ts
 import {
   experimental_assertHookNotices,
   experimental_assertHookSilent,
-} from "vigiles/hook";
+} from "vigiles/hook-test";
 
 const warn = await experimental_loadHook(
   ".vigiles/hooks/warn-on-failure.hook.mjs",

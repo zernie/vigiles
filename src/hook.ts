@@ -94,24 +94,15 @@ export {
   notice,
   nothing,
   responseView,
-  // the pure evaluator: one event in, the hook's outcome out
-  runHookProgram,
 } from "./core/hook-program.js";
 
-// ── testing a compiled hook in-process ────────────────────────────────────────
-// `experimental_loadHook(file)` loads it the way the runtime does; the assertions read its
-// decision on a raw event, with no subprocess and no model. They sit here beside
-// the vocabulary they test (v50). Both modules are small on purpose: this barrel
-// is a compiled hook's import, so whatever it loads is paid on every tool call
-// (src/hook-runtime-graph.test.ts holds the graph).
-// Experimental, like the `experimental_define*` vocabulary they test.
-export { experimental_loadHook } from "./load-hook.js";
-export {
-  experimental_assertHookDenies,
-  experimental_assertHookAllows,
-  experimental_assertHookNotices,
-  experimental_assertHookSilent,
-} from "./hook-test.js";
+// ── testing a compiled hook is NOT here ──────────────────────────────────────
+// `experimental_loadHook`, `runHookProgram` and the `experimental_assertHook*`
+// tests live on `vigiles/hook-test`. This entry is the ONLY import a compiled
+// hook may have, so whatever it exports, every hook can call: with the loader
+// here, a hook could load a second local module that no capability check reads
+// and no stamp covers (Codex P1 on #510). src/hook-entry-effects.test.ts holds
+// the whole graph behind this file to "no file, process or module loading".
 
 export type {
   Decision,
@@ -137,8 +128,6 @@ export type {
   Injection,
   Reaction,
   RunReaction,
-  RawHookEvent,
-  HookProgramOutcome,
 } from "./core/hook-program.js";
 
 export {

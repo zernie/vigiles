@@ -22,7 +22,7 @@ import { HookCompileError } from "./core/hook-program.js";
 import {
   experimental_assertHookDenies as assertHookDenies,
   experimental_assertHookAllows as assertHookAllows,
-} from "./hook-test.js";
+} from "./hook-assertions.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 const HOOK_DIST = pathToFileURL(

@@ -2788,7 +2788,7 @@ export function outcomeWrites(outcome: HookProgramOutcome): {
  * ⚠️ REMEMBERING IS NOT RECORDING. `experimental_loadHook(file)` calls this and nothing else —
  * loading a hook to inspect its shape is not running it, and attributing a load
  * would be the "an empty file counts" disease the execution tier exists to cure.
- * The probe is emitted by `hook-test.ts` at the moment the hook is
+ * The probe is emitted by `hook-assertions.ts` at the moment the hook is
  * EVALUATED, which is the only place both facts are in hand.
  */
 const HOOK_SOURCE = new WeakMap<object, string>();

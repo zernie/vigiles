@@ -260,7 +260,7 @@ exactly, by calling `decide()`; a command string runs the way the harness runs i
 
 ```ts
 import { assertGuardrail } from "vigiles/battery";
-import { experimental_loadHook } from "vigiles/hook";
+import { experimental_loadHook } from "vigiles/hook-test";
 
 assertGuardrail(
   await experimental_loadHook(".vigiles/hooks/safety-guard.hook.mjs"),

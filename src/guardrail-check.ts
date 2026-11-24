@@ -511,7 +511,7 @@ function decideCases(
 ): readonly GuardrailResult[] {
   const ctx = gateContext(hook, opts);
   return cases.map((c) => {
-    // Counted and attributed like `experimental_assertHookDenies` (see hook-test.ts
+    // Counted and attributed like `experimental_assertHookDenies` (see hook-assertions.ts
     // `runCountedHookProgram`): an in-process decision is a check.
     recordCheck();
     const source = hookSource(hook);

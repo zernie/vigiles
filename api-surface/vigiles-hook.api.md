@@ -58,18 +58,6 @@ export const deny: (reason: string) => Decision;
 export type Duration = `${number}${"s" | "m" | "h" | "d"}`;
 
 // @public
-export function experimental_assertHookAllows(hook: AnyHook, event: RawHookEvent): void;
-
-// @public
-export function experimental_assertHookDenies(hook: AnyHook, event: RawHookEvent): void;
-
-// @public
-export function experimental_assertHookNotices(hook: AnyHook, event: RawHookEvent, matcher?: string | RegExp): void;
-
-// @public
-export function experimental_assertHookSilent(hook: AnyHook, event: RawHookEvent): void;
-
-// @public
 export function experimental_defineFileGate<const N extends readonly NeedSpec[] = readonly []>(p: Omit<FileGateHook<N>, "role">): FileGateHook<N>;
 
 // @public
@@ -86,9 +74,6 @@ export function experimental_defineReact<const N extends readonly NeedSpec[] = r
 
 // @public
 export function experimental_defineStopGate<const N extends readonly NeedSpec[] = readonly []>(p: Omit<StopGateHook<N>, "role">): StopGateHook<N>;
-
-// @public
-export function experimental_loadHook(file: string, root?: string): Promise<AnyHook>;
 
 // @public (undocumented)
 export interface FileGateHook<N extends readonly NeedSpec[] = readonly ProviderName[]> {
@@ -141,19 +126,6 @@ export interface HookProgram<N extends readonly NeedSpec[] = readonly ProviderNa
     // (undocumented)
     readonly on: string;
 }
-
-// @public
-export type HookProgramOutcome = {
-    readonly kind: "decision";
-    readonly decision: Decision;
-} | {
-    readonly kind: "injection";
-    readonly context: string;
-    readonly records: readonly StateWrite[];
-} | {
-    readonly kind: "reaction";
-    readonly reaction: Reaction;
-};
 
 // @public
 export const inject: (context: string, ...records: readonly StateWrite[]) => Injection;
@@ -269,22 +241,6 @@ export interface ProviderResults {
 }
 
 // @public
-export interface RawHookEvent {
-    readonly cwd?: string;
-    readonly prompt?: string;
-    readonly source?: string;
-    readonly stop_hook_active?: boolean;
-    // (undocumented)
-    readonly tool_input?: {
-        readonly command?: unknown;
-        readonly file_path?: unknown;
-    };
-    // (undocumented)
-    readonly tool_name?: string;
-    readonly tool_response?: unknown;
-}
-
-// @public
 export type ReactEvent<N extends readonly NeedSpec[] = readonly ProviderName[], T extends readonly string[] = readonly string[]> = DeclaresOnlyShell<T> extends true ? BashReactEvent<N> : ToolReactEvent<N>;
 
 // @public (undocumented)
@@ -345,9 +301,6 @@ export function responseView(raw: unknown): ResponseView;
 
 // @public
 export const run: (command: string, ...records: readonly StateWrite[]) => RunReaction;
-
-// @public
-export function runHookProgram(hook: AnyHook, event: RawHookEvent, ctx?: RawCtx, root?: string | undefined): HookProgramOutcome;
 
 // @public (undocumented)
 export interface RunReaction {

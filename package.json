@@ -43,6 +43,7 @@
     "./eval": "./dist/eval-surface.js",
     "./rule-proof": "./dist/entries/rule-proof.js",
     "./hook": "./dist/hook.js",
+    "./hook-test": "./dist/hook-test.js",
     "./battery": "./dist/battery.js",
     "./fixtures": "./dist/fixtures.js",
     "./claude-code": "./dist/claude-code.js",

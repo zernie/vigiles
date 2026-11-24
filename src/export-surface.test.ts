@@ -22,6 +22,7 @@ import * as evalDoor from "./eval-surface.js";
 import * as battery from "./battery.js";
 import * as fixtures from "./fixtures.js";
 import * as hook from "./hook.js";
+import * as hookTest from "./hook-test.js";
 import * as spec from "./entries/spec.js";
 import * as adapter from "./adapter.js";
 
@@ -35,6 +36,7 @@ test("package.json exports: ./battery is a door, ./linting is gone", () => {
   const raw = readFileSync(join(ROOT, "package.json"), "utf-8");
   assert.match(raw, /"\.\/battery": "\.\/dist\/battery\.js"/);
   assert.match(raw, /"\.\/fixtures": "\.\/dist\/fixtures\.js"/);
+  assert.match(raw, /"\.\/hook-test": "\.\/dist\/hook-test\.js"/);
   assert.match(raw, /"\.\/spec": "\.\/dist\/entries\/spec\.js"/);
   assert.doesNotMatch(raw, /"\.\/linting"/);
 });
@@ -83,25 +85,22 @@ test("the eval-report readers live on vigiles/eval, folded", () => {
   }
 });
 
-test("compiled-hook tests live on vigiles/hook; subagent outcomes on vigiles/spec", () => {
+test("compiled-hook tests live on vigiles/hook-test, never on vigiles/hook; subagent outcomes on vigiles/spec", () => {
   // Both families are experimental: the hook tests ride on the experimental
   // hook vocabulary, the outcome assertions on `experimental_agent`'s contract.
+  // The hook tests are OFF `vigiles/hook` because that entry is a compiled hook's
+  // only import: a loader there is a loader inside every hook (Codex P1, #510).
   for (const name of [
-    "loadHook",
-    "assertHookAllows",
-    "assertHookDenies",
-    "assertHookNotices",
-    "assertHookSilent",
+    "experimental_loadHook",
+    "experimental_assertHookAllows",
+    "experimental_assertHookDenies",
+    "experimental_assertHookNotices",
+    "experimental_assertHookSilent",
+    "runHookProgram",
   ]) {
-    assert.ok(
-      has(hook, `experimental_${name}`),
-      `vigiles/hook exports experimental_${name}`,
-    );
-    assert.ok(
-      !has(hook, name),
-      `vigiles/hook no longer exports the bare ${name}`,
-    );
-    assert.ok(!has(root, name), `the root no longer exports ${name}`);
+    assert.ok(has(hookTest, name), `vigiles/hook-test exports ${name}`);
+    assert.ok(!has(hook, name), `vigiles/hook does not export ${name}`);
+    assert.ok(!has(root, name), `the root does not export ${name}`);
   }
   for (const name of ["assertAgentOk", "assertAgentErr", "assertAgentResult"]) {
     assert.ok(

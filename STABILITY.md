@@ -80,8 +80,10 @@ fails when the public surface changes without its report.
 - **The library API is 0.x.** Symbols outside the entry points above (and the
   internal modules under `dist/core/…` reached by deep import) may change in a
   minor release. Import from the published subpaths, not deep paths.
-- **`vigiles/hook`** (compiled hooks, and since v50 the in-process hook tests
-  `experimental_loadHook` / `experimental_assertHookDenies` & co.) is exported and usable but **not yet
+- **`vigiles/hook`** (compiled hooks) and **`vigiles/hook-test`** (since v50, the
+  in-process hook tests `experimental_loadHook` / `experimental_assertHookDenies`
+  & co., on their own entry because a compiled hook may import only
+  `vigiles/hook`) are exported and usable but **not yet
   frozen**. Its long-standing delivery caveat
   ([#34692](https://github.com/anthropics/claude-code/issues/34692) — a subagent's
   tool calls never reaching `PreToolUse`) is **fixed** as of Claude Code 2.1.241,

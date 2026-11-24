@@ -37,7 +37,7 @@
  *   - the guard battery (`assertGuardrail`, `verifyGuardrail`, …) →
  *     `vigiles/battery`.
  *   - testing a compiled hook in-process (`experimental_loadHook`, `experimental_assertHookDenies`, …) →
- *     `vigiles/hook`.
+ *     `vigiles/hook-test` (never `vigiles/hook`, a compiled hook's only import).
  *   - a subagent's outcome (`experimental_assertAgentOk`, …) → `vigiles/spec`.
  *   - Claude Code's stream parsers (`parseToolCalls`, `parseClaudeRun`) →
  *     `vigiles/claude-code`; the driver PORT types (`HarnessTestDriver`,

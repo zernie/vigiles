@@ -25,7 +25,7 @@ import {
   experimental_assertHookAllows as assertHookAllows,
   experimental_assertHookNotices as assertHookNotices,
   experimental_assertHookSilent as assertHookSilent,
-} from "./hook-test.js";
+} from "./hook-assertions.js";
 import { runHookProgram } from "./core/hook-program.js";
 import {
   surfacesRecorded,

@@ -54,9 +54,9 @@
  *    used to read *"`harness-assert.ts` / `load-hook.ts` contain ZERO
  *    `recordSurfaceProbe` calls — the tier where attribution needs no parsing at
  *    all is the tier that attributes nothing"*, and that is no longer true:
- *    `runCountedHookProgram` in hook-test.ts records a `command` probe for a
+ *    `runCountedHookProgram` in hook-assertions.ts records a `command` probe for a
  *    hook it is about to evaluate, when `experimental_loadHook` knew the file. Verified by
- *    count, not by memory — `hook-test.ts` has the call, `load-hook.ts`
+ *    count, not by memory — `hook-assertions.ts` has the call, `load-hook.ts`
  *    still does not, and deliberately so (loading a hook is not running it; see
  *    that function's note). Left corrected rather than deleted because a header
  *    that advertises a gap somebody already closed sends the next reader to build

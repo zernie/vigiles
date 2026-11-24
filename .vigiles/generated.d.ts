@@ -198,7 +198,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 656 project files. */
+  /** 658 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -685,12 +685,14 @@ declare module "vigiles/generated" {
     | "src/harness-resolve.test.ts"
     | "src/harness-test.test.ts"
     | "src/harness-test.ts"
+    | "src/hook-assertions.ts"
     | "src/hook-check-install.test.ts"
     | "src/hook-check-install.ts"
     | "src/hook-check.test.ts"
     | "src/hook-check.ts"
     | "src/hook-condition.test.ts"
     | "src/hook-dogfood.test.ts"
+    | "src/hook-entry-effects.test.ts"
     | "src/hook-install.test.ts"
     | "src/hook-install.ts"
     | "src/hook-inventory.test.ts"
@@ -1510,12 +1512,14 @@ declare module "vigiles/spec" {
       | "src/harness-resolve.test.ts"
       | "src/harness-test.test.ts"
       | "src/harness-test.ts"
+      | "src/hook-assertions.ts"
       | "src/hook-check-install.test.ts"
       | "src/hook-check-install.ts"
       | "src/hook-check.test.ts"
       | "src/hook-check.ts"
       | "src/hook-condition.test.ts"
       | "src/hook-dogfood.test.ts"
+      | "src/hook-entry-effects.test.ts"
       | "src/hook-install.test.ts"
       | "src/hook-install.ts"
       | "src/hook-inventory.test.ts"

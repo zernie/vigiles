@@ -63,7 +63,8 @@ The docs are grouped by what you're trying to do:
   - `vigiles/eval` — the moment you measure: the runners that can spend money, every one prefixed `paid_` (`paid_runEval`, `paid_measure`, `paid_measureArms`, `paid_measureTriggerRate`, `paid_judge`, `paid_judged`, `paid_claudeEvalDriver`), the free readers of their report (`compare`, `assertRates`, `assertTriggerRate`, `assertImproves`, `assertNoRegression`, `readBaseline` / `writeBaseline`), and `experimental_outputStyleArms`, which builds the arms of an output-style eval.
   - `vigiles/battery` — prove a guard blocks every disaster: `assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState`.
   - `vigiles/fixtures` — what a test runs against: `experimental_stub` (tool stubs on PATH) and `experimental_startServices` / `experimental_dockerRuntime` (disposable services).
-  - `vigiles/hook` — the compiled-hook vocabulary, and `experimental_loadHook` / `experimental_assertHookDenies` & co. to test a hook in-process.
+  - `vigiles/hook` — the compiled-hook vocabulary: the only import a compiled hook may have.
+  - `vigiles/hook-test` — test a compiled hook in-process: `experimental_loadHook`, `runHookProgram`, `experimental_assertHookDenies` & co.
   - `defineEval` is on the **free** root, not here, and that is the point: a `*.eval.mjs` file DESCRIBES its eval and `vigiles eval` runs it, so importing one cannot spend. See [eval files describe their eval](harness-testing.md#eval-files-describe-their-eval).
   - `vigiles/claude-code`, `vigiles/codex` — the per-harness adapters.
   - `vigiles/adapter` — the adapter-authoring kit.

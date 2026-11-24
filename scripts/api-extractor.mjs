@@ -33,6 +33,7 @@ const ENTRIES = [
   { name: "vigiles-eval", dts: "dist/eval-surface.d.ts" }, // "./eval" — spends money
   { name: "vigiles-rule-proof", dts: "dist/entries/rule-proof.d.ts" },
   { name: "vigiles-hook", dts: "dist/hook.d.ts" },
+  { name: "vigiles-hook-test", dts: "dist/hook-test.d.ts" },
   { name: "vigiles-battery", dts: "dist/battery.d.ts" },
   { name: "vigiles-fixtures", dts: "dist/fixtures.d.ts" },
   { name: "vigiles-claude-code", dts: "dist/claude-code.d.ts" },

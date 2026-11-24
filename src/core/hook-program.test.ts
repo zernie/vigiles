@@ -150,6 +150,37 @@ export default experimental_defineHook({ on: "PreToolUse",  decide: () => { cp.e
   );
 });
 
+// 4b) THE ONLY ENTRY IS vigiles/hook — not another vigiles door. The hook-test
+// door carries a loader (`experimental_loadHook`) that imports an arbitrary
+// module with no capability check and no stamp, so a hook that reached it could
+// run anything (Codex P1 on #510). Every other entry is refused the same way.
+test("claim 4b: a hook importing any vigiles entry but vigiles/hook does not compile", () => {
+  for (const door of [
+    "vigiles/hook-test",
+    "vigiles",
+    "vigiles/fixtures",
+    "vigiles/battery",
+    "vigiles/eval",
+    "vigiles/spec",
+  ]) {
+    const src = `import { experimental_defineHook, allow } from "vigiles/hook";
+import * as other from ${JSON.stringify(door)};
+export default experimental_defineHook({ on: "PreToolUse", decide: () => allow() });`;
+    assert.deepEqual(checkHookImports(src), [door], door);
+    assert.throws(
+      () => compileHookProgram(src, forcePushGuard),
+      HookCompileError,
+      door,
+    );
+  }
+  // A dynamic import of the test door is refused too, whatever the specifier.
+  assert.ok(
+    checkHookImports(`const t = await import("vigiles/hook-test");`).includes(
+      "dynamic-eval",
+    ),
+  );
+});
+
 // 5) TAMPER-EVIDENT STAMP — the "fix #4 via stamping" idea.
 test("claim 5: the compiled artifact is tamper-evident (stamp breaks on edit)", () => {
   const source = `import { experimental_defineHook, allow } from "vigiles/hook";

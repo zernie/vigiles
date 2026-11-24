@@ -42,9 +42,9 @@
  * the top of `core/hook-state.ts` — is that a hook "cannot touch the filesystem:
  * `record()` returns a VALUE… this API hands out no writer". Exporting a store
  * writer there would hand out exactly that writer, to exactly the code the
- * guarantee is about. So the seeding handle lives on the `vigiles` TEST root,
- * beside `runHook`, `experimental_loadHook` and the `assertHook*` helpers, where a test can
- * reach it and a hook cannot.
+ * guarantee is about. So the seeding handle lives on a TEST entry
+ * (`vigiles/battery`), like `experimental_loadHook` and the `assertHook*` helpers on
+ * `vigiles/hook-test`, where a test can reach it and a hook cannot.
  */
 import {
   mkdirSync,
