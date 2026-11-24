@@ -290,16 +290,20 @@ This is the payoff: a `result()` contract replaces
 no key.
 
 ```ts
-import { experimental_agent } from "vigiles/spec";
+import {
+  experimental_agent,
+  assertAgentOk,
+  assertAgentErr,
+  assertAgentResult,
+} from "vigiles/spec";
 const { result } = experimental_agent;
-import { assertAgentOk, assertAgentErr, assertAgentResult } from "vigiles";
 
 const implementer = result(
   { files: "string[]", summary: "string" },
   { reason: "string", step: "string" },
 );
 
-// r.output is the subagent's final text (a runHarness turn, a Task sub-trace, or
+// r.output is the subagent's final text (a runHarnessTest turn, a Task sub-trace, or
 // recorded output). Assert the OUTCOME, not prose:
 const ok = assertAgentOk(r.output, implementer); // throws unless it's a valid ok block
 assert.deepEqual(ok.files, ["src/parser.ts"]);

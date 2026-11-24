@@ -428,27 +428,10 @@ The compiler only accepts these branded types in path-sensitive positions. This 
 
 ## Configuration
 
-Create `vigiles.config.ts` with `defineConfig()`:
-
-```ts
-import { defineConfig } from "vigiles/spec";
-
-export default defineConfig({
-  specs: "**/*.spec.ts", // glob pattern for spec discovery (default: "**/*.spec.ts")
-  discover: true, // auto-discover linter rules for coverage reporting
-  maxRules: 50, // maximum rules per spec file
-  maxTokens: 2000, // maximum estimated tokens for compiled output (~4 chars/token)
-});
-```
-
-| Option      | Type                   | Description                                                                                                                                                                                                      |
-| ----------- | ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `specs`     | `string`               | Glob pattern to discover spec files                                                                                                                                                                              |
-| `discover`  | `boolean`              | Auto-discover linter rules for coverage reporting                                                                                                                                                                |
-| `maxRules`  | `number`               | Compilation fails if a spec exceeds this rule count                                                                                                                                                              |
-| `maxTokens` | `number`               | Compilation fails if estimated tokens exceed this limit                                                                                                                                                          |
-| `orphans`   | `object`               | Opt-in orphan-docs scan (see below)                                                                                                                                                                              |
-| `harness`   | `string` \| `string[]` | The harness(es) this repo targets — `"codex"`, or `["claude-code", "codex"]`. Selects the compile dialect; written by `init`. Omitted → auto-detect. See [CLI: compile](cli.md#compile-files--harness-selection) |
+Configuration is JSON, in `.vigilesrc.json` at the repository root; every key is
+in the [configuration reference](configuration.md). (Earlier docs described a
+`vigiles.config.ts` with `defineConfig()`; nothing ever loaded that file, and
+`defineConfig` is no longer exported.)
 
 ### Orphan-docs configuration
 

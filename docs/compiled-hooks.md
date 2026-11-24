@@ -662,7 +662,7 @@ It **only prints and always exits `0`**. A check that could fail at session star
 
 ```ts
 import { it } from "vitest";
-import { loadHook, assertHookDenies, assertHookAllows } from "vigiles";
+import { loadHook, assertHookDenies, assertHookAllows } from "vigiles/hook";
 
 const guard = await loadHook(".vigiles/hooks/guard.hook.mjs");
 
@@ -683,7 +683,7 @@ it("blocks a force-push, even hidden in a compound command", () => {
 **React hooks get their own pair.** A react can't block, so the gate assertions don't apply; use `assertHookNotices(hook, event, matcher?)` and `assertHookSilent(hook, event)`:
 
 ```ts
-import { assertHookNotices, assertHookSilent } from "vigiles";
+import { assertHookNotices, assertHookSilent } from "vigiles/hook";
 
 const warn = await loadHook(".vigiles/hooks/warn-on-failure.hook.mjs");
 const after = (isError) => ({
@@ -766,7 +766,7 @@ import {
   DISASTER_CATALOG,
   experimental_alternateSpellings,
   assertGuardrail,
-} from "vigiles";
+} from "vigiles/battery";
 
 const guard = "node … hook-runtime run-program guard.hook.mjs";
 assertGuardrail(guard, {
