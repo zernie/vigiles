@@ -148,8 +148,12 @@ export type {
   RegressionGate,
   TriggerRateGate,
 } from "../eval-readers.js";
-export { assertRates } from "../eval.js";
-export type { RateGate, CheckRateGate, ArmRateGate } from "../eval.js";
+export { assertRates } from "../eval-rate-gate.js";
+export type {
+  RateGate,
+  CheckRateGate,
+  ArmRateGate,
+} from "../eval-rate-gate.js";
 export type { BaselineFile, DiffOptions } from "../eval-baseline.js";
 // `compare`'s verdict and the interval a 0/1 metric is judged by.
 export type { Verdict, Interval } from "../core/evidence.js";

@@ -27,31 +27,17 @@ import type { Trace } from "./core/eval-driver.js";
 import { delimiter, join } from "node:path";
 
 import {
-  aggregate,
-  aggregateStats,
-  aggregateUsage,
   parseUsage,
-  formatEvalReport,
   runEvalWith,
   runPool,
   isRateLimited,
   measureTriggerRateWith,
   measureTriggerRate,
-  formatTriggerRateReport,
   measureWith,
   measureArmsWith,
-  compareCheck,
-  formatCheckReport,
-  formatArmsCheckReport,
-  assertRates,
-  type CheckReport,
   packageSkillsDir,
   packageInstallSet,
   stubbedPluginDir,
-  stubSkillBody,
-  promptDistance,
-  checkPromptDiversity,
-  assertPromptDiversity,
   isDatedModel,
   modelTier,
   belowModelFloor,
@@ -64,13 +50,34 @@ import {
   type RunOut,
   type ParsedModelRun,
   type ModelOutputParser,
-  unregisteredSkillFiles,
   spawnAgent,
   closedRun,
   startFailure,
   buildAgentArgs,
   parseClaudeRun,
 } from "./eval.js";
+import {
+  aggregate,
+  aggregateStats,
+  aggregateUsage,
+} from "./core/eval-aggregate.js";
+import { formatEvalReport, formatTriggerRateReport } from "./eval-format.js";
+import {
+  compareCheck,
+  formatCheckReport,
+  formatArmsCheckReport,
+  type CheckReport,
+} from "./eval-check-report.js";
+import { assertRates } from "./eval-rate-gate.js";
+import {
+  stubSkillBody,
+  unregisteredSkillFiles,
+} from "./core/eval-skill-files.js";
+import {
+  promptDistance,
+  checkPromptDiversity,
+  assertPromptDiversity,
+} from "./core/prompt-diversity.js";
 import { check } from "./check.js";
 
 // The removed predicates, as the checks that replaced them.

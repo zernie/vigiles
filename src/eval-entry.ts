@@ -46,23 +46,26 @@ import {
   measureArms,
   measureTriggerRate,
   runEval,
-  formatCheckReport,
-  formatArmsCheckReport,
-  formatEvalReport,
-  formatTriggerRateReport,
-  type ArmsCheckReport,
   type ArmsMeasureSpec,
-  type CheckReport,
   type EvalReport,
   type EvalSpec,
   type MeasureSpec,
-  type Metrics,
   type TriggerRateReport,
   type EvalDriver,
   type TriggerRateSpec,
+} from "./eval.js";
+import {
+  formatCheckReport,
+  formatArmsCheckReport,
+  type ArmsCheckReport,
+  type CheckReport,
+} from "./eval-check-report.js";
+import { formatEvalReport, formatTriggerRateReport } from "./eval-format.js";
+import type { Metrics } from "./core/eval-aggregate.js";
+import {
   unansweredInReport,
   contextInReport,
-} from "./eval.js";
+} from "./core/eval-report-failures.js";
 import { parseToolStubs } from "./core/eval-spec-parse.js";
 import {
   paid_measureSelectionMatrix,

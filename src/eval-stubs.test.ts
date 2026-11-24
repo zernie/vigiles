@@ -22,15 +22,15 @@ import {
 import { dirname, join } from "node:path";
 
 import {
-  formatEvalReport,
   resolveSpawnEnv,
   runEvalReporting,
   runEvalWith,
-  unansweredInReport,
   type AgentRunArgs,
   type EvalSpec,
-  type Metrics,
 } from "./eval.js";
+import { formatEvalReport } from "./eval-format.js";
+import { unansweredInReport } from "./core/eval-report-failures.js";
+import type { Metrics } from "./core/eval-aggregate.js";
 // eslint-disable-next-line local/no-harness-names -- the test reads the auth file the real adapter declares, rather than spelling its path
 import { claudeCodeRuntime } from "./adapters/claude-code/runtime.js";
 import { experimental_stub } from "./stub.js";

@@ -19,8 +19,6 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildAgentArgs,
   closedRun,
-  contextInReport,
-  formatEvalReport,
   resolveSpawnEnv,
   runEvalReporting,
   runEvalWith,
@@ -28,6 +26,8 @@ import {
   type EvalReport,
   type RunOut,
 } from "../../eval.js";
+import { contextInReport } from "../../core/eval-report-failures.js";
+import { formatEvalReport } from "../../eval-format.js";
 import {
   expectedInstructions,
   type ContextEvidence,

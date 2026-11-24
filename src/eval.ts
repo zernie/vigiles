@@ -56,7 +56,6 @@ import {
   costFromArm,
   sumCosts,
 } from "./eval-cost.js";
-import { ncd } from "./core/proofs.js";
 import type { HarnessLiveDriver } from "./core/live-driver.js";
 import {
   hasModelAccess,
@@ -90,9 +89,7 @@ export type {
 // existing `from "./eval.js"` imports resolve as before.
 import type {
   ArmReport,
-  ArmUsage,
   EvalReport,
-  MetricStat,
   PromptTriggerStat,
   TriggerRateReport,
 } from "./core/eval-report.js";
@@ -139,15 +136,9 @@ import {
   type LockMode,
   type EvalLockOptions,
 } from "./eval-lock.js";
-import type { Check, CheckJSON } from "./check.js";
-import { experimental_verdict, welchTTest, type Comparison } from "./stats.js";
-import { describeVerdict, proportionVerdict } from "./core/evidence.js";
+import type { Check } from "./check.js";
 import { recordCheck } from "./check-count.js";
 import { probeTrace } from "./coverage-probe.js";
-import {
-  assertTriggerRateReport,
-  type TriggerRateGate,
-} from "./eval-readers.js";
 import {
   type ToolIntercept,
   buildInterceptSettings,
@@ -163,20 +154,35 @@ import {
 import {
   isUnanswered,
   unloggedMisses,
-  unansweredMessage,
   encodeStub,
   type StubCall,
   type ToolStub,
 } from "./core/stub-rules.js";
 import { parseRunEnv, parseToolStubs } from "./core/eval-spec-parse.js";
 import { makeTmpDir } from "./core/tmp-root.js";
-import {
-  contextFailure,
-  contextSummaryLines,
-  type ContextEvidence,
-} from "./core/context-evidence.js";
+import type { ContextEvidence } from "./core/context-evidence.js";
 import { startContextCapture } from "./eval-context.js";
-import { editDistance } from "./core/edit-distance.js";
+import {
+  aggregate,
+  aggregateStats,
+  aggregateUsage,
+  type Metrics,
+} from "./core/eval-aggregate.js";
+import { assertPromptDiversity } from "./core/prompt-diversity.js";
+import {
+  contextInReport,
+  unansweredInReport,
+} from "./core/eval-report-failures.js";
+import { assertKnownKeys } from "./core/known-keys.js";
+import {
+  stubSkillBody,
+  unregisteredSkillFiles,
+} from "./core/eval-skill-files.js";
+import {
+  MEASURE_INHERIT_REASON,
+  type ArmsCheckReport,
+  type CheckReport,
+} from "./eval-check-report.js";
 
 /**
  * The harness the eval tier spawns. ONE binding on purpose: the paid tier is
@@ -281,9 +287,6 @@ export interface RunContext extends Trace {
   /** Run a shell command in the working dir; returns trimmed stdout ("" on error). */
   sh(command: string): string;
 }
-
-/** @public */
-export type Metrics = Record<string, number | boolean>;
 
 /** @public */
 export interface EvalSpec<M extends Metrics> {
@@ -672,37 +675,6 @@ export function closedRun(c: {
  * working model auth (e.g. `ANTHROPIC_API_KEY`). Thin wrapper over
  * `runEvalWith` with the real agent runner.
  */
-/**
- * A `SKILL.md` written straight into a run's cwd (via an arm's `files`) is NOT
- * registered as a skill by the harness. Claude Code — and Codex — load skills only
- * from a plugin / `.claude/skills` layout, so a bare cwd `SKILL.md` sits unread:
- * the arm silently measures NOTHING (baseline and "skill" become the same run). This
- * is the exact footgun the ecosystem benchmark hit — a skill file delivered where it
- * can never activate, with no error. Detect it so {@link runEval} / {@link measureArms}
- * can WARN and point at `pluginDir` (a real `--plugin-dir` install) or `skillsDir`.
- *
- * HIGH-PRECISION (don't cry wolf): only a file whose basename is `SKILL.md` AND that
- * carries real skill frontmatter (a `---` block naming `name`/`description`) is flagged
- * — so an empty scratch `SKILL.md` a task is asked to AUTHOR is never flagged. Pure +
- * exported for testing.
- */
-export function unregisteredSkillFiles(
-  files: Record<string, string> | undefined,
-): string[] {
-  if (files === undefined) return [];
-  return Object.entries(files)
-    .filter(([p, c]) => skillBasename(p) && hasSkillFrontmatter(c))
-    .map(([p]) => p);
-}
-
-function skillBasename(path: string): boolean {
-  return (path.split(/[\\/]/).pop() ?? path) === "SKILL.md";
-}
-
-function hasSkillFrontmatter(content: string): boolean {
-  const m = /^\uFEFF?\s*---\s*\r?\n([\s\S]*?)\r?\n---/.exec(content);
-  return m !== null && /(^|\n)\s*(name|description)\s*:/.test(m[1]);
-}
 
 /** Warn (loud, non-fatal) for every arm that drops an unregistered skill file. */
 function warnUnregisteredSkillArms(arms: Record<string, EvalArm>): void {
@@ -793,47 +765,10 @@ export interface MeasureSpec {
   readonly spacingSec?: number;
 }
 
-/** The env `measure` / `measureArms` pass on: they have no `env` field yet. */
-const MEASURE_INHERIT_REASON =
-  "measure and measureArms have no `env` field; they run with your HOME and environment (docs/safety.md)";
 const INHERITED_BY_MEASURE: RunEnv = {
   kind: "inherit",
   reason: MEASURE_INHERIT_REASON,
 };
-
-/**
- * One check's measured rate across the trials.
- *
- * @public
- */
-export interface CheckRate {
-  readonly check: CheckJSON;
-  /** Fraction of trials the check passed (0..1). */
-  readonly rate: number;
-  /** Standard error of the rate. */
-  readonly se: number;
-  /** pass^k — 1 iff the check passed on EVERY trial. */
-  readonly passK: number;
-  /** Trials observed. */
-  readonly n: number;
-}
-
-/** @public */
-export interface CheckReport {
-  readonly n: number;
-  readonly perCheck: readonly CheckRate[];
-  /** Cost / latency / token totals for the run (the same source as `runEval`). */
-  readonly usage: ArmUsage;
-  /**
-   * The plugin namespace the skills actually installed under — the `<plugin>`
-   * half of the `<plugin>:<skill>` id a `skill()` check matches. Undefined when
-   * the run installed nothing (no `pluginDir` / `skillsDir`). Reported because
-   * with `skillsDir` the name is chosen by the packager, not the caller, so the
-   * most common cause of a 0% `skill()` rate was a value the caller never saw.
-   * Mirrors {@link TriggerRateReport.namespace}.
-   */
-  readonly namespace?: string;
-}
 
 /**
  * Score a check vocabulary across trials — the scored counterpart to
@@ -981,15 +916,6 @@ export interface ArmsMeasureSpec {
   readonly spacingSec?: number;
 }
 
-/**
- * Per-arm {@link CheckReport}s — `arms[name].perCheck[i]` aligns across arms.
- *
- * @public
- */
-export interface ArmsCheckReport {
-  readonly arms: Record<string, CheckReport>;
-}
-
 /** Score checks across arms (injectable runner). Reuses `runEvalWith`. */
 export async function measureArmsWith(
   spec: ArmsMeasureSpec,
@@ -1060,265 +986,6 @@ export async function measureArms(
   return report;
 }
 /* v8 ignore stop */
-
-/**
- * Welch significance on one check's rate between two arms (`arm` vs `baseline`),
- * by index in `perCheck`. So "the gated arm resolves the skill significantly more
- * than vanilla" is a verdict, not a vibe: `significant` is the disjoint-Wilson
- * verdict on the k/n pass tally, the numbers are Welch's from stats.ts.
- */
-export function compareCheck(
-  report: ArmsCheckReport,
-  baseline: string,
-  arm: string,
-  checkIndex: number,
-): Comparison {
-  const b = report.arms[baseline]?.perCheck[checkIndex];
-  const a = report.arms[arm]?.perCheck[checkIndex];
-  if (!a || !b) {
-    throw new Error(
-      `compareCheck: unknown arm or check index (baseline="${baseline}", arm="${arm}", i=${String(checkIndex)})`,
-    );
-  }
-  // A check passes or fails per trial, so its rate is a k/n tally: the
-  // decision is the Wilson verdict, the numbers stay Welch's.
-  const kind = proportionVerdict(tallyOf(a), tallyOf(b)).kind;
-  return {
-    ...welchTTest(
-      { mean: a.rate, se: a.se, n: a.n },
-      { mean: b.rate, se: b.se, n: b.n },
-    ),
-    significant: kind === "better" || kind === "worse",
-  };
-}
-
-const tallyOf = (
-  r: Readonly<CheckRate>,
-): { readonly k: number; readonly n: number } => ({
-  k: Math.round(r.rate * r.n),
-  n: r.n,
-});
-
-/** A readable label for a check from its serialized form, e.g. `tool(Bash)`. */
-function checkLabel(json: CheckJSON): string {
-  const arg = json.name ?? json.id ?? json.event ?? json.path ?? json.matcher;
-  if (
-    typeof arg === "string" ||
-    typeof arg === "number" ||
-    typeof arg === "boolean"
-  ) {
-    return `${json.kind}(${String(arg)})`;
-  }
-  return json.kind;
-}
-
-/** The report line that says a run used your real HOME and environment, and why. */
-const inheritLine = (reason: string): string =>
-  `  env: inherited your HOME and environment — ${reason}`;
-
-/**
- * Format a {@link CheckReport}: one line per check with its rate ± se and
- * pass^k, and the line saying `measure` ran with your HOME and environment
- * (it has no `env` field; `INHERITED_BY_MEASURE`).
- */
-export function formatCheckReport(report: CheckReport): string {
-  return [formatChecks(report), inheritLine(MEASURE_INHERIT_REASON)].join("\n");
-}
-
-/**
- * Format an {@link ArmsCheckReport}: each arm's checks under `[arm: name]`, and
- * the inherit line ONCE at the end — every arm ran the same way.
- */
-export function formatArmsCheckReport(report: ArmsCheckReport): string {
-  const arms = Object.entries(report.arms).map(
-    ([name, arm]) => `\n[arm: ${name}]\n${formatChecks(arm)}`,
-  );
-  return [...arms, inheritLine(MEASURE_INHERIT_REASON)].join("\n");
-}
-
-function formatChecks(report: CheckReport): string {
-  const lines = [`measured ${String(report.n)} run(s):`];
-  for (const c of report.perCheck) {
-    lines.push(
-      `  ${(c.rate * 100).toFixed(0)}% ± ${(c.se * 100).toFixed(0)}%  ${checkLabel(c.check)}` +
-        `  (pass^k ${String(c.passK)})`,
-    );
-  }
-  // The `skill()` twin of the trigger-rate TOTAL-zero note (see
-  // formatTriggerRateReport): every skill() check at 0% over real runs is far
-  // more often a wiring mistake — a bare id where the namespaced one is matched,
-  // `pluginDir` handed a loose dir, an empty cwd — than a finding, and it reads
-  // exactly like a finding. Only when EVERY skill check is at zero: a partial rate
-  // is a real measurement, and a note that hedges on good data gets ignored.
-  const skillChecks = report.perCheck.filter((c) => c.check.kind === "skill");
-  if (
-    report.n > 0 &&
-    skillChecks.length > 0 &&
-    skillChecks.every((c) => c.rate === 0)
-  )
-    lines.push(
-      "⚠ nothing resolved for ANY skill() check. That is usually SETUP, not the skill — check, in order:\n" +
-        (report.namespace !== undefined
-          ? "  1. the id in `check.skill()` — your skills installed under " +
-            `\`${report.namespace}\`, so \`check.skill()\` matches ` +
-            `\`${report.namespace}:<skill>\`; a bare name silently never matches;\n`
-          : "  1. the id in `check.skill()` — it matches the NAMESPACED id " +
-            "(`<plugin>:<skill>`); a bare name silently never matches;\n") +
-        "  2. the install field — a loose `.claude/skills` dir needs `skillsDir`, " +
-        "not `pluginDir` (which wants a full plugin manifest);\n" +
-        "  3. the `fixture` — a run starts in an EMPTY cwd, so a prompt about a " +
-        "file that does not exist is one the model is right to decline.\n" +
-        "  Rule out all three before recording this as a fact about the skill.",
-    );
-  return lines.join("\n");
-}
-
-/**
- * The min rate a check must clear: its per-KIND override in `per`, else the
- * default `min`.
- */
-function checkRateThreshold(
-  check: CheckJSON,
-  min: number,
-  per?: Readonly<Record<string, number>>,
-): number {
-  return per?.[check.kind] ?? min;
-}
-
-/**
- * The threshold half of an {@link assertRates} gate: an average floor (`min`),
- * the every-trial floor (`passK: 1`, τ-bench pass^k), or both. At least one —
- * a gate with neither would pass anything.
- *
- * @public
- */
-export type RateGate =
-  | { readonly min: number; readonly passK?: 1 }
-  | { readonly min?: number; readonly passK: 1 };
-
-/**
- * {@link assertRates} over a check report: every check, `per` overriding `min` by check kind.
- *
- * @public
- */
-export type CheckRateGate = RateGate & {
-  readonly per?: Readonly<Record<string, number>>;
-};
-
-/**
- * {@link assertRates} over one arm × metric of an eval report.
- *
- * @public
- */
-export type ArmRateGate = RateGate & {
-  readonly arm: string;
-  readonly metric: string;
-};
-
-/**
- * The scored gate: throw if a measured rate is below its threshold — the
- * `paid_measure` counterpart to `assertChecks` (strict). Reads the rate, not a
- * single run, so it never trips on one noisy trial.
- *
- * Over a {@link CheckReport}: `min` is the default threshold for every check,
- * and `per` overrides it for a check KIND (e.g. `{ min: 0.8, per: { skill: 1.0 } }`
- * — "every check ≥ 80%, but the skill must FIRE on every trial"). `passK: 1`
- * demands every check passed on EVERY trial — "worked every time", not "on
- * average".
- *
- * Over an {@link EvalReport}: name the `arm` and `metric`; `min` gates the
- * metric's mean, `passK: 1` that it succeeded on every trial.
- *
- * Over a {@link TriggerRateReport} (`paid_measureTriggerRate`): `min` gates
- * recall, `maxFalsePositive` and `minPrecision` the precision side — see
- * {@link TriggerRateGate}. Replaces `assertTriggerRate` (v52).
- */
-/* eslint-disable no-redeclare -- TypeScript function overloads (the base
-   no-redeclare rule, unlike @typescript-eslint/no-redeclare, flags them) */
-/** @public */
-export function assertRates(report: CheckReport, opts: CheckRateGate): void;
-/** @public */
-export function assertRates(report: EvalReport, opts: ArmRateGate): void;
-/** @public */
-export function assertRates(
-  report: TriggerRateReport,
-  opts: TriggerRateGate,
-): void;
-export function assertRates(
-  report: CheckReport | EvalReport | TriggerRateReport,
-  opts: CheckRateGate | ArmRateGate | TriggerRateGate,
-): void {
-  if ("perPrompt" in report) assertTriggerRateReport(report, opts);
-  else if ("perCheck" in report) assertCheckRates(report, opts);
-  else if ("arm" in opts) assertArmRate(report, opts);
-  else throw new Error("assertRates: an eval report needs `arm` and `metric`");
-}
-/* eslint-enable no-redeclare */
-
-/** The fields {@link assertCheckRates} reads; the overloads pair a check report with a {@link CheckRateGate}. */
-interface CheckGateFields {
-  readonly min?: number;
-  readonly passK?: 1;
-  readonly per?: Readonly<Record<string, number>>;
-}
-
-function assertCheckRates(report: CheckReport, opts: CheckGateFields): void {
-  // An empty report gates nothing — a green that tested NOTHING (the silent-pass
-  // the no-silent-skips rule forbids). Fail loudly instead of vacuously passing.
-  if (report.perCheck.length === 0) {
-    throw new Error(
-      "assertRates: the report has no checks to gate — did you call " +
-        "`measure({ checks: [...] })` with an empty list? An empty gate is a silent pass.",
-    );
-  }
-  const thresholdFor = (c: CheckRate): number =>
-    checkRateThreshold(c.check, opts.min ?? 0, opts.per);
-  const below = report.perCheck.filter((c) => c.rate < thresholdFor(c));
-  if (below.length > 0) {
-    throw new Error(
-      `${String(below.length)} check(s) below their min rate:\n` +
-        below
-          .map(
-            (c) =>
-              `  ✗ ${checkLabel(c.check)}: ${(c.rate * 100).toFixed(0)}% ± ${(c.se * 100).toFixed(0)}% (min ${(thresholdFor(c) * 100).toFixed(0)}%)`,
-          )
-          .join("\n"),
-    );
-  }
-  if (opts.passK !== 1) return;
-  const flaky = report.perCheck.filter((c) => c.passK !== 1);
-  if (flaky.length > 0) {
-    throw new Error(
-      `${String(flaky.length)} check(s) did not pass on every trial (pass^k = 1 required):\n` +
-        flaky
-          .map(
-            (c) =>
-              `  ✗ ${checkLabel(c.check)}: passed ${(c.rate * 100).toFixed(0)}% of ${String(c.n)} trials`,
-          )
-          .join("\n"),
-    );
-  }
-}
-
-function assertArmRate(report: EvalReport, opts: ArmRateGate): void {
-  const stat = report.arms[opts.arm]?.stats[opts.metric];
-  const mean = report.arms[opts.arm]?.metrics[opts.metric];
-  if (stat === undefined || mean === undefined) {
-    throw new Error(
-      `assertRates: no data for ${opts.arm} on ${opts.metric} in report "${report.name}"`,
-    );
-  }
-  if (opts.min !== undefined && mean < opts.min) {
-    throw new Error(
-      `expected ${opts.arm} ≥ ${String(opts.min)} on ${opts.metric}, got ${String(mean)}`,
-    );
-  }
-  if (opts.passK === 1 && stat.passK !== 1) {
-    throw new Error(
-      `expected ${opts.arm} to pass ${opts.metric} on every trial (pass^k=1), got pass^k=${String(stat.passK)}`,
-    );
-  }
-}
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
@@ -1534,79 +1201,6 @@ export async function runSkillSelectionTrial(args: {
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
-}
-
-/** Coerce a metric value to a number (booleans → 0/1), or null if absent. */
-function numeric(v: number | boolean | undefined): number | null {
-  if (typeof v === "number") return v;
-  if (typeof v === "boolean") return v ? 1 : 0;
-  return null;
-}
-
-/** Aggregate per-run metrics: mean for numbers, fraction-true (0..1) for booleans. */
-export function aggregate(rows: readonly Metrics[]): Record<string, number> {
-  const stats = aggregateStats(rows);
-  const out: Record<string, number> = {};
-  for (const [k, s] of Object.entries(stats)) out[k] = s.mean;
-  return out;
-}
-
-/**
- * Aggregate per-run metrics with spread: mean, sample std, standard error, and
- * n. The se/std let you judge whether an A/B gap between arms is real or noise —
- * a difference smaller than the combined se is not yet significant.
- */
-export function aggregateStats(
-  rows: readonly Metrics[],
-): Record<string, MetricStat> {
-  const keys = new Set<string>();
-  for (const r of rows) for (const k of Object.keys(r)) keys.add(k);
-  const out: Record<string, MetricStat> = {};
-  for (const k of keys) {
-    out[k] = statOf(
-      rows.map((r) => numeric(r[k])).filter((v): v is number => v !== null),
-    );
-  }
-  return out;
-}
-
-/** One metric's {@link MetricStat} from the values its trials reported. */
-function statOf(values: readonly number[]): MetricStat {
-  const n = values.length;
-  const mean = n > 0 ? values.reduce((a, b) => a + b, 0) / n : 0;
-  const std =
-    n > 1
-      ? Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1))
-      : 0;
-  const passK = n > 0 && values.every((v) => v > 0) ? 1 : 0;
-  // Recorded from the observations, never inferred from mean and spread: a
-  // sample like [-0.6, 0.4, 0.4, 0.4, 0.4] has the moments of 1 success in 5.
-  const binary = n > 0 && values.every((v) => v === 0 || v === 1);
-  return {
-    mean,
-    std,
-    se: n > 0 ? std / Math.sqrt(n) : 0,
-    n,
-    passK,
-    ...(binary ? { successes: values.filter((v) => v === 1).length } : {}),
-  };
-}
-
-/** Aggregate per-run usage into an arm's cost / latency / token totals + means. */
-export function aggregateUsage(usages: readonly EvalUsage[]): ArmUsage {
-  const n = usages.length;
-  const sum = (f: (u: EvalUsage) => number): number =>
-    usages.reduce((a, u) => a + f(u), 0);
-  const totalCostUsd = sum((u) => u.costUsd);
-  return {
-    totalCostUsd,
-    meanCostUsd: n > 0 ? totalCostUsd / n : 0,
-    meanDurationMs: n > 0 ? sum((u) => u.durationMs) / n : 0,
-    totalInputTokens: sum((u) => u.inputTokens),
-    totalOutputTokens: sum((u) => u.outputTokens),
-    totalCacheCreationTokens: sum((u) => u.cacheCreationTokens),
-    totalCacheReadTokens: sum((u) => u.cacheReadTokens),
-  };
 }
 
 /** Resolved per-run settings shared across an eval's trials. */
@@ -2590,91 +2184,11 @@ const TRIGGER_RATE_SPEC_KEYS = {
   concurrency: true,
 } satisfies Record<keyof TriggerRateSpec, true>;
 
-/**
- * The closest declared field to an unknown one, or undefined when nothing is
- * close — a wrong suggestion is worse than none (it invites "fixing" a field the
- * author never meant). Same tight threshold as the CLI's unknown-flag hint.
- */
-function nearestField(
-  unknown: string,
-  known: readonly string[],
-): string | undefined {
-  let best: { name: string; d: number } | undefined;
-  for (const name of known) {
-    const d = editDistance(unknown.toLowerCase(), name.toLowerCase());
-    if (!best || d < best.d) best = { name, d };
-  }
-  return best && best.d <= Math.max(2, Math.floor(unknown.length / 4))
-    ? best.name
-    : undefined;
-}
-
-/**
- * Throw when `spec` carries a field outside `known` — every unknown one named,
- * with a did-you-mean where a declared field is one typo away. `at` says which
- * runner and spec type the message is about (`arm` labels a nested arm). Runs
- * before anything is packaged or spent.
- */
-function assertKnownKeys(
-  spec: object,
-  known: Record<string, true>,
-  at: { readonly caller: string; readonly type: string; readonly arm?: string },
-): void {
-  const declared = Object.keys(known);
-  const where = at.arm === undefined ? "" : ` on arm "${at.arm}"`;
-  const problems = Object.keys(spec)
-    .filter((key) => !Object.hasOwn(known, key))
-    .map((key) => {
-      const near = nearestField(key, declared);
-      const hint = near === undefined ? "" : ` — did you mean \`${near}\`?`;
-      return `${at.caller}: unknown ${at.type} field "${key}"${where}${hint}`;
-    });
-  if (problems.length === 0) return;
-  throw new Error(
-    `${problems.join("\n")}\n  ${at.type} fields: ${declared.join(", ")}.\n` +
-      "  An unknown field is refused rather than ignored: a dropped field would " +
-      "make the run measure a setup you did not ask for.",
-  );
-}
-
 /** An {@link EvalSpec} after the boundary: stubs and env parsed, arms resolved. */
 type ParsedEvalSpec<M extends Metrics> = EvalSpec<M> & {
   readonly stubs: readonly ToolStub[];
   readonly env: RunEnv;
 };
-
-/**
- * The author-facing failure for a report whose stubs left a call unanswered, or
- * undefined. One owner for the rule — `vigiles eval`'s exit 2 and the lock's
- * refusal both read it — so a consumer whose `assert` calls no helper still
- * fails. Pure.
- */
-export function unansweredInReport(
-  report: Pick<EvalReport, "arms">,
-  stubs: readonly ToolStub[],
-): string | undefined {
-  const calls = Object.values(report.arms).flatMap(
-    (a) => a.unansweredStubCalls,
-  );
-  const message = unansweredMessage(calls, stubs);
-  return message === undefined
-    ? undefined
-    : `${message}\n  The report is not a measurement: no lock is written, and \`vigiles eval\` exits 2.`;
-}
-
-/**
- * The author-facing failure for a report where an instruction file missed the
- * model's request in some trial, or undefined (vigiles#416). One owner, like
- * {@link unansweredInReport}: the lock's refusal and `vigiles eval` read it.
- */
-export function contextInReport(
-  report: Pick<EvalReport, "arms">,
-): string | undefined {
-  const lines = contextFailure(report.arms);
-  return lines === undefined
-    ? undefined
-    : `${lines}\n  Those trials are not scored: no lock is written, and the eval fails.`;
-}
 
 /**
  * `runEval` with its author-facing output, over any runner — so the real one and
@@ -2865,106 +2379,6 @@ async function runResolvedEval<M extends Metrics>(
         env: runEnvReportView(spec.env),
       };
     },
-  );
-}
-
-/** Render one metric: `name=mean±se pass^k=…` (se/pass^k shown when measured). */
-function formatMetric(
-  name: string,
-  mean: number,
-  stat: MetricStat | undefined,
-): string {
-  const base =
-    stat && stat.se > 0
-      ? `${name}=${mean.toFixed(2)}±${stat.se.toFixed(2)}`
-      : `${name}=${mean.toFixed(2)}`;
-  return stat && stat.n > 0 ? `${base} pass^k=${String(stat.passK)}` : base;
-}
-
-/** Compact tokens like `3.4k`; whole numbers under 1000 stay as-is. */
-function fmtTokens(n: number): string {
-  return n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n);
-}
-
-/** A `($0.0123 · 1.2s/run · 3.4k tok)` suffix, or "" when no usage was reported. */
-function formatUsage(u: ArmUsage): string {
-  if (u.totalCostUsd === 0 && u.totalInputTokens + u.totalOutputTokens === 0) {
-    return "";
-  }
-  const tok = fmtTokens(u.totalInputTokens + u.totalOutputTokens);
-  return `  ($${u.totalCostUsd.toFixed(4)} · ${(u.meanDurationMs / 1000).toFixed(1)}s/run · ${tok} tok)`;
-}
-
-/** One `verdict` line per arm × metric against `baseline`; none without one. */
-function verdictLines(
-  report: EvalReport,
-  baseline: string | undefined,
-): readonly string[] {
-  const base = baseline === undefined ? undefined : report.arms[baseline];
-  if (baseline === undefined || base === undefined) return [];
-  return Object.entries(report.arms)
-    .filter(([arm]) => arm !== baseline)
-    .flatMap(([arm, r]) =>
-      Object.keys(r.stats).map(
-        (metric) =>
-          `  verdict    ${arm} vs ${baseline} on ${metric}: ${describeVerdict(experimental_verdict(report, baseline, arm, metric))}`,
-      ),
-    );
-}
-
-/**
- * Format an eval report as a compact table for the console (mean ± se, pass^k).
- * Name the `baseline` arm to add one verdict line per other arm and metric —
- * `BETTER` / `WORSE` / `NO SIGNAL`, the same verdict `compare` reads.
- */
-/**
- * The header's cost: the reported total, and — when a run reported none (killed
- * by the timeout) — what was charged against the budget for it, named as a
- * charge: a killed run's cap is the most it could have spent, not what it did
- * spend, so it is never printed as a floor on spend (vigiles#416).
- */
-function costLabel(report: EvalReport): string {
-  const unknown = report.unknownCostRuns ?? 0;
-  const usd = (n: number): string => `$${n.toFixed(4)}`;
-  if (unknown === 0)
-    return report.totalCostUsd > 0 ? `${usd(report.totalCostUsd)} total` : "";
-  const runs = `${String(unknown)} run(s) reported no cost`;
-  const charged = report.chargedUsd ?? report.totalCostUsd;
-  const reported =
-    report.totalCostUsd > 0 ? `${usd(report.totalCostUsd)} reported, ` : "";
-  return charged > report.totalCostUsd
-    ? `${reported}${usd(charged)} charged to the budget (${runs})`
-    : `${reported}${runs}`;
-}
-
-export function formatEvalReport(
-  report: EvalReport,
-  opts: { readonly baseline?: string } = {},
-): string {
-  const head = `${report.name} (${String(report.trials)} trials/arm)`;
-  const cost = costLabel(report);
-  const lines = [cost === "" ? head : `${head} — ${cost}`];
-  for (const [arm, r] of Object.entries(report.arms)) {
-    const parts = Object.entries(r.metrics)
-      .map(([k, v]) => formatMetric(k, v, r.stats[k]))
-      .join("  ");
-    lines.push(
-      `  ${arm.padEnd(10)} ${parts}${formatUsage(r.usage)}`,
-      ...contextSummaryLines(r.context ?? []).map(
-        (line) => `  ${arm.padEnd(10)} ${line}`,
-      ),
-    );
-    // One line: the calls themselves are printed once, by `runEval`
-    // (`unansweredInReport`), not again under every arm of the table.
-    if (r.unansweredStubCalls.length > 0)
-      lines.push(
-        `  ⚠ ${arm}: ${String(r.unansweredStubCalls.length)} stub call(s) went unanswered — the report is not a measurement`,
-      );
-  }
-  const inherit =
-    report.env?.kind === "inherit" ? [inheritLine(report.env.reason)] : [];
-  return [...lines, ...verdictLines(report, opts.baseline), ...inherit].join(
-    "\n",
   );
 }
 
@@ -3257,21 +2671,6 @@ export function packageSkillsDir(
   return root;
 }
 
-/**
- * Rewrite a SKILL.md to keep its YAML frontmatter (the trigger surface — name +
- * description) but replace the body with a no-op stub. Trigger-rate is a property
- * of the frontmatter ONLY: the model picks a skill from its name + description
- * before the body is ever loaded, so the body is causally downstream of selection
- * and irrelevant to whether the skill fires. Stubbing it lets a trigger run stop
- * AT selection instead of executing an expensive multi-step procedure — cheaper,
- * faster, and side-effect-free, without changing what's measured. Pure.
- */
-export function stubSkillBody(skillMd: string): string {
-  const m = /^(---\n[\s\S]*?\n---\n)/.exec(skillMd);
-  const frontmatter = m ? m[1] : "";
-  return `${frontmatter}\nThis skill was selected (trigger-test stub). Acknowledge and stop — do not perform any actions.\n`;
-}
-
 /** The skills directory inside a plugin (`skills/` or `.claude/skills/`). */
 function skillsDirOf(pluginDir: string): string {
   const direct = join(pluginDir, "skills");
@@ -3303,83 +2702,6 @@ export function stubbedPluginDir(pluginDir: string): string {
     stub: true,
     name: pluginName(pluginDir),
   });
-}
-
-// ---------------------------------------------------------------------------
-// Prompt-set diversity (deterministic, pre-eval) — a trigger rate is only
-// meaningful over ENOUGH and DIFFERENT prompts. Catch a too-small or
-// near-duplicate set before spending a single model token. We measure
-// "different" with Normalized Compression Distance (gzip) — the SAME engine
-// `findSimilarRules` uses for near-duplicate rule detection — not edit
-// distance: NCD scores shared structure/redundancy (a templated prompt with one
-// word swapped compresses together), which is exactly the lazy-copy-paste set
-// we want to reject, and it's the project's house algorithm for "are these two
-// texts basically the same".
-// ---------------------------------------------------------------------------
-
-/** Normalize for comparison: lowercase, trim, collapse whitespace. */
-function normalizePrompt(s: string): string {
-  return s.toLowerCase().trim().replace(/\s+/g, " ");
-}
-
-/**
- * Distance between two prompts in ~0..1 (0 = identical, higher = more
- * different) via Normalized Compression Distance over the normalized text.
- * Reuses {@link ncd} from the proof engine.
- */
-export function promptDistance(a: string, b: string): number {
-  return ncd(normalizePrompt(a), normalizePrompt(b));
-}
-
-export interface PromptDiversityIssue {
-  readonly kind: "too-few" | "too-similar";
-  readonly message: string;
-}
-
-/**
- * Deterministically check a prompt set is big and varied enough to measure a
- * trigger rate: at least `minPrompts` entries, and no two closer than
- * `minDistance` in NCD. Pure — no model. `label` names the set in messages.
- */
-export function checkPromptDiversity(
-  prompts: readonly string[],
-  opts: { minPrompts?: number; minDistance?: number; label?: string } = {},
-): PromptDiversityIssue[] {
-  const minPrompts = opts.minPrompts ?? 10;
-  const minDistance = opts.minDistance ?? 0.3;
-  const label = opts.label ?? "prompts";
-  const issues: PromptDiversityIssue[] = [];
-  if (prompts.length < minPrompts) {
-    issues.push({
-      kind: "too-few",
-      message: `${label}: ${String(prompts.length)} prompt(s), need at least ${String(minPrompts)} to measure a rate (set minPrompts to override).`,
-    });
-  }
-  for (let i = 0; i < prompts.length; i++) {
-    for (let j = i + 1; j < prompts.length; j++) {
-      const dist = promptDistance(prompts[i], prompts[j]);
-      if (dist < minDistance) {
-        issues.push({
-          kind: "too-similar",
-          message: `${label}: prompts #${String(i + 1)} and #${String(j + 1)} are near-duplicates (NCD ${dist.toFixed(2)} < ${String(minDistance)}) — vary the phrasing:\n    - ${prompts[i]}\n    - ${prompts[j]}`,
-        });
-      }
-    }
-  }
-  return issues;
-}
-
-/** Throw if a prompt set isn't big/varied enough. See {@link checkPromptDiversity}. */
-export function assertPromptDiversity(
-  prompts: readonly string[],
-  opts: { minPrompts?: number; minDistance?: number; label?: string } = {},
-): void {
-  const issues = checkPromptDiversity(prompts, opts);
-  if (issues.length > 0) {
-    throw new Error(
-      `Prompt set is not eval-ready:\n  ${issues.map((i) => i.message).join("\n  ")}`,
-    );
-  }
 }
 
 /**
@@ -3947,68 +3269,3 @@ export async function measureTriggerRate(
   return report;
 }
 /* v8 ignore stop */
-
-/** Format a trigger-rate report: overall %, then each prompt's rate. */
-export function formatTriggerRateReport(report: TriggerRateReport): string {
-  const pct = (report.rate * 100).toFixed(0);
-  const lines: string[] = [];
-  if (report.experimental) {
-    lines.push(`⚠ EXPERIMENTAL — ${report.experimental}`);
-  }
-  lines.push(`trigger-rate: ${pct}% (${String(report.n)} runs)`);
-  for (const p of report.perPrompt) {
-    lines.push(`  ${p.rate.toFixed(2)}  ${p.prompt.slice(0, 60)}`);
-  }
-  if (report.falsePositiveRate !== undefined) {
-    const fpr = (report.falsePositiveRate * 100).toFixed(0);
-    const prec =
-      report.precision === undefined
-        ? "n/a"
-        : `${(report.precision * 100).toFixed(0)}%`;
-    lines.push(`false-positive: ${fpr}%  precision: ${prec}`);
-    for (const p of report.perIrrelevant ?? []) {
-      lines.push(
-        `  ${p.rate.toFixed(2)}  [irrelevant] ${p.prompt.slice(0, 48)}`,
-      );
-    }
-  }
-  // Honest labelling: an isolated run measures the skill alone, with no competing
-  // skills to evict or out-compete its description — so recall is an UPPER bound
-  // and false-positive a LOWER bound. Say so, or point at the whole-harness count.
-  lines.push(
-    report.competitors > 0
-      ? `whole-harness: measured against ${String(report.competitors)} competing skill(s)`
-      : "isolated: no competing skills — recall is an upper bound, false-positive a lower bound (populate `installSet` for a release-gate measurement)",
-  );
-  // A TOTAL zero is far more often a wiring mistake than a finding, and it does
-  // not look like one: the report is well-formed, the runs executed, and every
-  // line reads 0.00 — which parses as "this description never fires". Measured
-  // the hard way while building a consumer's trigger suite (2026-08-11): three
-  // separate setup errors each produced a confident, plausible 0%, and two of
-  // them were briefly written up as findings about the skills before being
-  // caught. So when nothing fired at all, say what usually causes that.
-  //
-  // Deliberately only on the TOTAL zero. A partial rate is a real measurement and
-  // must not be second-guessed; a checker that hedges on good data gets ignored.
-  if (report.n > 0 && report.rate === 0)
-    lines.push(
-      "⚠ nothing fired on ANY prompt. That is usually SETUP, not the description — check, in order:\n" +
-        // The runtime RESOLVED the namespace before spending a token, so it
-        // prints the id that should have matched instead of telling the reader
-        // to go work it out. With `skillsDir` the name is not even the user's
-        // choice — the packager picks it — so "check the id" was advice about a
-        // value they had never seen.
-        (report.namespace !== undefined
-          ? "  1. the id in `fired` — your skills installed under " +
-            `\`${report.namespace}\`, so \`check.skill\` matches ` +
-            `\`${report.namespace}:<skill>\`; a bare name silently never matches;\n`
-          : "  1. the id in `fired` — `check.skill` matches the NAMESPACED id " +
-            "(`<plugin>:<skill>`); a bare name silently never matches;\n") +
-        "  2. the install field — a loose `.claude/skills` dir needs `skillsDir`, " +
-        "not `pluginDir` (which wants a full plugin manifest);\n" +
-        "  3. the `fixture` — a run starts in an EMPTY cwd, so a prompt about a " +
-        "file that does not exist is one the model is right to decline.\n" +
-        "  Rule out all three before recording this as a fact about the skill.",
-    );
-  return lines.join("\n");
-}

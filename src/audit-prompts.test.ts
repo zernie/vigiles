@@ -13,7 +13,7 @@ import {
   AUTO_MIN_DISTANCE,
   type PromptSkill,
 } from "./audit-prompts.js";
-import { checkPromptDiversity } from "./eval.js";
+import { checkPromptDiversity } from "./core/prompt-diversity.js";
 
 describe("topicOf", () => {
   it("strips a boilerplate lead-in and lowercases", () => {
