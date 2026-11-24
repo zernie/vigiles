@@ -5,284 +5,89 @@
 ```ts
 
 // @public
-export interface AgentRunArgs {
-    // (undocumented)
-    readonly cwd: string;
-    readonly effort?: string | number;
-    readonly env?: Record<string, string>;
-    // (undocumented)
-    readonly hasSettings: boolean;
-    readonly maxBudgetUsd?: number;
-    // (undocumented)
-    readonly model: string;
-    // (undocumented)
-    readonly pluginDir: string | undefined;
-    readonly replaceEnv?: boolean;
-    // (undocumented)
-    readonly task: string;
-    // (undocumented)
-    readonly timeoutMs: number;
-    // (undocumented)
-    readonly tools: readonly string[];
+export interface ArmComparison {
+    readonly gap: number;
+    readonly significant: boolean;
+    readonly verdict: Verdict;
 }
 
 // @public
-export type AgentRunner = (args: AgentRunArgs) => Promise<RunOut>;
-
-// @public (undocumented)
-export interface ArmReport {
-    readonly context?: readonly ContextEvidence[];
-    readonly metrics: Record<string, number>;
-    // (undocumented)
-    readonly runs: number;
-    readonly stats: Record<string, MetricStat>;
-    readonly unansweredStubCalls: readonly StubCall[];
-    readonly usage: ArmUsage;
-}
-
-// @public
-export interface ArmsCheckReport {
-    // (undocumented)
-    readonly arms: Record<string, CheckReport>;
-}
-
-// @public
-export interface ArmsMeasureSpec {
-    // (undocumented)
-    readonly allowedTools?: readonly string[];
-    readonly arms: Record<string, EvalArm>;
-    // (undocumented)
-    readonly checks: readonly Check<RunContext>[];
-    readonly effort?: string | number;
-    // (undocumented)
-    readonly fixture?: Record<string, string>;
-    // (undocumented)
-    readonly model?: string;
-    // (undocumented)
-    readonly spacingSec?: number;
-    readonly stubSkillBodies?: boolean;
-    // (undocumented)
-    readonly task: string;
-    // (undocumented)
-    readonly timeoutMs?: number;
-    // (undocumented)
-    readonly trials?: number;
-}
-
-// @public
-export interface ArmUsage {
-    // (undocumented)
-    readonly meanCostUsd: number;
-    // (undocumented)
-    readonly meanDurationMs: number;
-    // (undocumented)
-    readonly totalCacheCreationTokens: number;
-    // (undocumented)
-    readonly totalCacheReadTokens: number;
-    // (undocumented)
-    readonly totalCostUsd: number;
-    // (undocumented)
-    readonly totalInputTokens: number;
-    // (undocumented)
-    readonly totalOutputTokens: number;
-}
-
-// @public
-export interface Check<T> {
-    eval(target: T): CheckResult;
-    readonly kind: string;
-    toJSON(): CheckJSON;
-}
-
-// @public
-export interface CheckRate {
-    // (undocumented)
-    readonly check: CheckJSON;
-    readonly n: number;
-    readonly passK: number;
-    readonly rate: number;
-    readonly se: number;
-}
-
-// @public (undocumented)
-export interface CheckReport {
-    // (undocumented)
-    readonly n: number;
-    readonly namespace?: string;
-    // (undocumented)
-    readonly perCheck: readonly CheckRate[];
-    readonly usage: ArmUsage;
-}
-
-// @public
-export interface CheckResult {
-    readonly message: string;
-    readonly pass: boolean;
-    readonly score: number;
-}
-
-// @public
-export type ContextEvidence =
-/** Every expected file is in the model's first request. */
-    {
-    readonly kind: "delivered";
-    readonly files: readonly string[];
-}
-/** At least one expected file is absent: the trial is not scored. */
-| {
-    readonly kind: "missing";
-    readonly files: readonly string[];
-    readonly delivered: readonly string[];
-}
-/** Expected files exist, but nothing could be observed. Never a pass. */
-| {
-    readonly kind: "unobservable";
-    readonly why: UnobservableWhy;
-    readonly files: readonly string[];
-}
-/** The trial's world holds no instruction file the harness loads. */
-| {
-    readonly kind: "nothing-expected";
+export type ArmRateGate = RateGate & {
+    readonly arm: string;
+    readonly metric: string;
 };
 
 // @public
-export interface EvalArm {
-    readonly effort?: string | number;
-    readonly files?: Record<string, string>;
-    readonly interceptTools?: readonly ToolIntercept[];
-    readonly model?: string;
-    readonly plugin?: string;
-    readonly pluginDir?: string;
-    readonly settings?: unknown;
-    readonly skillsDir?: string;
-}
+export function assertImproves(report: EvalReport, opts: ImprovesGate): void;
 
 // @public
-export interface EvalDriver {
-    readonly experimental?: string;
-    readonly harness?: string;
-    // (undocumented)
-    readonly parse: ModelOutputParser;
-    // (undocumented)
-    readonly runError?: (out: RunOut) => string | null;
-    // (undocumented)
-    readonly runner: AgentRunner;
-}
+export function assertNoRegression(current: EvalReport | readonly EvalReport[], baseline: BaselineFile, opts?: DiffOptions): void;
+
+// @public
+export function assertRates(report: CheckReport, opts: CheckRateGate): void;
 
 // @public (undocumented)
-export interface EvalReport {
-    readonly aborted: boolean;
-    // (undocumented)
-    readonly arms: Record<string, ArmReport>;
-    readonly chargedUsd?: number;
-    readonly env?: {
-        readonly kind: "ephemeral";
-    } | {
-        readonly kind: "inherit";
-        readonly reason: string;
-    };
-    // (undocumented)
-    readonly name: string;
-    readonly totalCostUsd: number;
-    // (undocumented)
-    readonly trials: number;
-    readonly unknownCostRuns?: number;
-}
+export function assertRates(report: EvalReport, opts: ArmRateGate): void;
 
-// @public (undocumented)
-export interface EvalSpec<M extends Metrics> {
-    readonly allowedTools?: readonly string[];
-    readonly arms: Record<string, EvalArm>;
-    readonly cache?: CacheMode;
-    readonly cacheDir?: string;
-    readonly concurrency?: number;
-    readonly effort?: string | number;
-    readonly env: RunEnv;
-    readonly experimental_contextCheck?: false;
-    readonly fixture?: Record<string, string>;
-    readonly lock?: EvalLockOptions;
-    readonly maxCostUsd?: number;
-    readonly measure: (ctx: RunContext) => M;
-    readonly model?: string;
+// @public
+export function assertTriggerRate(report: TriggerRateReport, opts: TriggerRateGate): void;
+
+// @public
+export interface BaselineFile {
+    readonly recordedAt: string;
+    readonly reports: Record<string, EvalReport>;
     // (undocumented)
-    readonly name?: string;
-    readonly rateLimitRetries?: number;
-    readonly retryBackoffMs?: number;
-    readonly spacingSec?: number;
-    readonly stubs?: readonly ToolStub[];
-    readonly stubSkillBodies?: boolean;
-    readonly task: string;
-    readonly timeoutMs?: number;
-    readonly trials?: number;
+    readonly version: number;
 }
 
 // @public
-export interface EvalUsage {
-    readonly cacheCreationTokens: number;
-    readonly cacheReadTokens: number;
-    readonly costUsd: number;
-    readonly durationMs: number;
-    readonly inputTokens: number;
-    // (undocumented)
-    readonly outputTokens: number;
-}
-
-// @public
-export type HomeFiles = Readonly<Record<string, string>>;
-
-// @public
-export interface HomeSeed {
-    // (undocumented)
-    readonly files: HomeFiles;
-    // (undocumented)
-    readonly kind: "files";
-}
-
-// @public
-export type JudgeFn = (opts: {
-    output: string;
-    rubric: string;
-    threshold?: number;
-}) => {
-    score: number;
-    pass: boolean;
-    reason?: string;
+export type CheckRateGate = RateGate & {
+    readonly per?: Readonly<Record<string, number>>;
 };
 
 // @public
-export interface MeasureSpec {
-    readonly allowedTools?: readonly string[];
-    readonly checks: readonly Check<RunContext>[];
-    readonly effort?: string | number;
-    readonly fixture?: Record<string, string>;
-    readonly interceptTools?: readonly ToolIntercept[];
-    readonly model?: string;
-    readonly plugin?: string;
-    readonly pluginDir?: string;
-    readonly settings?: unknown;
-    readonly skillsDir?: string;
-    readonly spacingSec?: number;
-    readonly stubSkillBodies?: boolean;
-    readonly task: string;
-    readonly timeoutMs?: number;
-    readonly trials?: number;
-}
+export function compare(report: EvalReport, baseline: string, arm: string, opts?: {
+    readonly alpha?: number;
+}): Readonly<Record<string, ArmComparison>>;
 
 // @public (undocumented)
-export type Metrics = Record<string, number | boolean>;
+export function compare(before: TriggerRateReport, after: TriggerRateReport): TriggerDiff;
+
+// @public (undocumented)
+export interface DiffOptions {
+    readonly alpha?: number;
+    readonly lowerIsBetter?: readonly string[];
+}
 
 // @public
-export interface MetricStat {
-    readonly mean: number;
-    readonly n: number;
-    readonly passK: number;
-    readonly se: number;
-    readonly std: number;
-    readonly successes?: number;
+export function experimental_outputStyleArms(path: string): Promise<OutputStyleArms>;
+
+// @public
+export interface ImprovesGate {
+    readonly alpha?: number;
+    // (undocumented)
+    readonly arm: string;
+    // (undocumented)
+    readonly baseline: string;
+    readonly by?: number;
+    // (undocumented)
+    readonly metric: string;
+    readonly significant?: boolean;
 }
 
-// @public (undocumented)
-export type ModelOutputParser = (out: RunOut) => ParsedModelRun;
+// @public
+export interface Interval {
+    readonly hi: number;
+    readonly k: number;
+    readonly lo: number;
+    readonly n: number;
+}
+
+// @public
+export interface OutputStyleArms {
+    readonly with: EvalArm;
+    readonly without: EvalArm;
+}
 
 // @public
 export const paid_claudeEvalDriver: EvalDriver;
@@ -311,186 +116,60 @@ export function paid_measureTriggerRate(spec: TriggerRateSpec, opts?: {
 export function paid_runEval<M extends Metrics>(spec: EvalSpec<M>): Promise<EvalReport>;
 
 // @public
-export interface ParsedModelRun {
-    readonly costObserved?: boolean;
-    // (undocumented)
-    readonly hooks: HookFire[];
-    // (undocumented)
-    readonly output: string;
-    readonly replies?: readonly string[];
-    readonly skills?: SkillFacts;
-    // (undocumented)
-    readonly subagents: SubagentTrace[];
-    // (undocumented)
-    readonly toolCalls: ToolCall[];
-    // (undocumented)
-    readonly turns: number;
-    // (undocumented)
-    readonly usage: EvalUsage;
-}
-
-// @public (undocumented)
-export interface PromptDiversityIssue {
-    // (undocumented)
-    readonly kind: "too-few" | "too-similar";
-    // (undocumented)
-    readonly message: string;
-}
-
-// @public
-export interface PromptTriggerStat {
-    // (undocumented)
-    readonly fired: number;
-    // (undocumented)
-    readonly prompt: string;
-    readonly rate: number;
-    // (undocumented)
-    readonly trials: number;
-}
-
-// @public
-export interface RunContext extends Trace {
-    // (undocumented)
-    readonly cwd: string;
-    readonly exitCode: number;
-    sh(command: string): string;
-    // (undocumented)
-    readonly stdout: string;
-    readonly timedOut: boolean;
-    readonly toolCalls: readonly ToolCall[];
-    readonly turns: number;
-    readonly usage: EvalUsage;
-}
-
-// @public
-export type RunEnv = {
-    readonly kind: "ephemeral";
-    readonly home?: HomeSeed;
+export type RateGate = {
+    readonly min: number;
+    readonly passK?: 1;
 } | {
-    readonly kind: "inherit";
-    readonly reason: string;
+    readonly min?: number;
+    readonly passK: 1;
 };
 
 // @public
-export interface RunOut {
-    code: number;
-    signal?: string;
-    stderr?: string;
-    // (undocumented)
-    stdout: string;
-    timedOut?: boolean;
+export function readBaseline(path: string): BaselineFile | null;
+
+// @public
+export interface TriggerDiff {
+    readonly both: readonly string[];
+    readonly compared: number;
+    readonly gained: readonly string[];
+    readonly lost: readonly string[];
+    readonly neither: readonly string[];
 }
 
 // @public
-export interface SelectionTrialResult {
+export interface TriggerRateGate {
     // (undocumented)
-    readonly errored: boolean;
+    readonly maxFalsePositive?: number;
     // (undocumented)
-    readonly fired: readonly string[];
+    readonly min?: number;
+    // (undocumented)
+    readonly minPrecision?: number;
 }
 
 // @public
-export interface StubCall {
-    // (undocumented)
-    readonly argv: readonly string[];
-    // (undocumented)
-    readonly outcome: StubOutcome;
-    // (undocumented)
-    readonly tool: string;
+export type Verdict =
+/** A 0/1 metric: `better`/`worse` only when the two intervals are disjoint. */
+    {
+    readonly kind: "better" | "worse" | "no-signal";
+    readonly test: "wilson";
+    readonly arm: Interval;
+    readonly baseline: Interval;
 }
-
-// @public
-export type StubOutcome = {
-    readonly kind: "answered";
-    readonly rule: number;
-    readonly answer: number;
-} | {
-    readonly kind: "no-rule";
-} | {
-    readonly kind: "exhausted";
-    readonly rule: number;
-}
-/**
-* The stub printed its neutral miss line but left no log line (its directory
-* was not writable from the agent's shell). Never read from a log: the eval
-* derives it from the agent's tool results.
-*/
+/** Any other metric: `better`/`worse` when Welch's p-value is below α. */
 | {
-    readonly kind: "unlogged";
+    readonly kind: "better" | "worse" | "no-signal";
+    readonly test: "welch";
+    readonly delta: number;
+    readonly pValue: number;
+}
+/** Nothing to compare: an arm has no trials, or never reported the metric. */
+| {
+    readonly kind: "unmeasured";
+    readonly why: "no-trials" | "metric-missing";
 };
 
 // @public
-export interface ToolStub {
-    // (undocumented)
-    readonly name: string;
-    // (undocumented)
-    readonly rules: readonly [StubRule, ...StubRule[]];
-}
-
-// @public
-export interface Trace {
-    file(path: string): string | null;
-    readonly hooks: readonly HookFire[];
-    readonly modelRequests: readonly ModelRequest[];
-    readonly output: string;
-    readonly replies?: readonly string[];
-    readonly skills?: SkillFacts;
-    readonly stubCalls?: readonly StubCall[];
-    readonly subagents?: readonly SubagentTrace[];
-    readonly toolCalls: readonly ToolCall[];
-    readonly turns: number;
-}
-
-// @public (undocumented)
-export interface TriggerRateReport {
-    readonly competitors: number;
-    readonly errored?: number;
-    readonly experimental?: string;
-    readonly falsePositiveRate?: number;
-    readonly n: number;
-    readonly namespace?: string;
-    readonly perIrrelevant?: readonly PromptTriggerStat[];
-    // (undocumented)
-    readonly perPrompt: readonly PromptTriggerStat[];
-    readonly precision?: number;
-    readonly rate: number;
-    readonly usage: ArmUsage;
-}
-
-// @public
-export interface TriggerRateSpec {
-    readonly allowedTools?: readonly string[];
-    readonly concurrency?: number;
-    readonly effort?: string | number;
-    readonly fired: Check<Trace> | ((trace: Trace) => boolean);
-    readonly fixture?: Record<string, string>;
-    readonly installSet?: readonly string[];
-    readonly irrelevantPrompts?: readonly string[];
-    readonly lock?: EvalLockOptions;
-    readonly minDistance?: number;
-    readonly minModel?: string;
-    readonly minPrompts?: number;
-    readonly model?: string;
-    readonly name?: string;
-    readonly pluginDir?: string;
-    readonly prompts: readonly string[];
-    readonly skillsDir?: string;
-    readonly spacingSec?: number;
-    readonly stubSkillBodies?: boolean;
-    readonly timeoutMs?: number;
-    readonly trials?: number;
-}
-
-// @public
-export type UnobservableWhy =
-/** The harness has a channel, but this run wrote no request body to read. */
-"no-request-body"
-/** The harness has no request-body channel vigiles can read. */
-| "harness-has-no-channel"
-/** The eval spec set `experimental_contextCheck: false`. */
-| "opted-out"
-/** A cache entry recorded before this check existed was replayed. */
-| "replayed-without-evidence";
+export function writeBaseline(path: string, reports: readonly EvalReport[]): void;
 
 // (No @packageDocumentation comment for this package)
 

@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { claudeCodeAdapter } from "./adapter.js";
+import * as door from "../../claude-code.js";
 import {
   assertAdapterConformance,
   assertAdapterLoadsHooks,
@@ -32,6 +33,40 @@ test("claudeCodeAdapter bundles all five ports + a detect (full capabilities)", 
   assert.equal(claudeCodeAdapter.runtime?.agentBinary, "claude");
   assert.equal(claudeCodeAdapter.hookProtocol?.blockExitCode, 2);
   assert.equal(claudeCodeAdapter.modelMock?.modelEndpoint, "/v1/messages");
+});
+
+test("claudeCodeAdapter carries Claude Code's tool constants as fields", () => {
+  // Reached through the adapter object, not as standalone exports: a Claude
+  // Code fact belongs to the Claude Code adapter.
+  assert.ok(claudeCodeAdapter.builtinAgentTools.includes("Bash"));
+  assert.ok(claudeCodeAdapter.sideEffectingTools.includes("Write"));
+  assert.ok(!new Set<string>(claudeCodeAdapter.sideEffectingTools).has("Read"));
+});
+
+test("vigiles/claude-code: the adapter and its helpers, the ports reached through the adapter", () => {
+  for (const name of [
+    "claudeCodeAdapter",
+    "parseToolCalls",
+    "parseClaudeRun",
+    "scriptModel",
+    "startMock",
+    // Claude Code's file-tool event shape, both spellings, for runHook
+    "fileToolEvents",
+  ]) {
+    assert.ok(name in door, `vigiles/claude-code exports ${name}`);
+  }
+  for (const gone of [
+    "claudeCodeBuiltinAgentTools",
+    "claudeCodeSideEffectingTools",
+    "claudeCodeLayout",
+    "claudeCodeDriver",
+    "claudeCodeDialect",
+    "formatSelectionReport",
+    "resolveHarness",
+    "agent",
+  ]) {
+    assert.ok(!(gone in door), `vigiles/claude-code hides ${gone}`);
+  }
 });
 
 test("claudeCodeAdapter passes the conformance kit", () => {

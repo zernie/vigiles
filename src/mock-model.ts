@@ -291,7 +291,7 @@ export function splitRequestCounts(requests: readonly ModelRequest[]): {
  * point of the file, and it was paid for. Until 2026-09-10 this read `b.text`
  * and returned `""` for anything else. Eight of the sixteen `ContentBlockParam`
  * variants carry their payload in `content`, not `text`, so half the union was
- * invisible to every instrument built on `extractRequest` — `requestContains`,
+ * invisible to every instrument built on `extractRequest` — `check.received`,
  * `refs-nudge.harness.mjs`, `injectable-events-delivery.harness.mjs`.
  *
  * WHAT THAT COST. Claude Code <= 2.1.227 delivered a `PostToolUse` hook's
@@ -353,7 +353,7 @@ function flattenBlock(b: ContentBlockParam): string {
     case "tool_search_tool_result":
       return b.content === undefined ? "" : flattenContent(b.content);
     // The model's own call, not context delivered TO it — kept out of
-    // `requestContains` on purpose so a needle in a tool ARGUMENT is never read
+    // `check.received` on purpose so a needle in a tool ARGUMENT is never read
     // as "the model was told this". Their `id` / `name` are identifiers.
     case "tool_use":
     case "server_tool_use":

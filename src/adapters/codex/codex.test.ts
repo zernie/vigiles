@@ -11,6 +11,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { codexAdapter } from "./adapter.js";
+import * as door from "../../codex.js";
 import { codexDialect } from "./dialect.js";
 import { codexLayout } from "./layout.js";
 import { findOutputStyles } from "../../core/output-style.js";
@@ -350,4 +351,26 @@ test("codex drops a skill's agent and model: its dialect reads neither (#401)", 
   });
   assert.ok(!markdown.includes("agent:"));
   assert.ok(!markdown.includes("model:"));
+});
+
+test("vigiles/codex: the adapter and its helpers, the ports reached through the adapter", () => {
+  for (const name of [
+    "codexAdapter",
+    "parseCodexRun",
+    "startCodexMock",
+    "codexEvalDriver",
+    "codexLiveDriver",
+  ]) {
+    assert.ok(name in door, `vigiles/codex exports ${name}`);
+  }
+  for (const gone of [
+    "codexLayout",
+    "codexDriver",
+    "codexDialect",
+    "codexMockArgs",
+    "codexSkillFired",
+    "codexEvalRunner",
+  ]) {
+    assert.ok(!(gone in door), `vigiles/codex hides ${gone}`);
+  }
 });

@@ -20,7 +20,15 @@ import { join } from "node:path";
 
 import { runScript, routeScriptRun } from "./run-script.js";
 import { runHook } from "./run-hook.js";
-import { assertNoWrite } from "./harness-assert.js";
+import { check, assertChecks } from "./check.js";
+
+// The v50 throwing forms, as the checks that replaced them.
+const assertNoWrite = (
+  r: Parameters<ReturnType<typeof check.noWrite>["eval"]>[0],
+  pattern: string | RegExp,
+): void => {
+  assertChecks(r, [check.noWrite(pattern)]);
+};
 
 /** A temp dir holding one script file. */
 function scriptDir(name: string, body: string): string {

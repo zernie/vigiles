@@ -9,19 +9,21 @@
  * different transport (the `codex` binary + the OpenAI **Responses** SSE mock).
  *
  * Pillar 2 (harness testing) is proven here — `startCodexMock` serves the
- * Responses SSE that real `codex exec` completes a turn against, keylessly (see
- * `codexMockArgs`/`codexMockEnv` for the wiring). Pillar 1 instruction/skill
+ * Responses SSE that real `codex exec` completes a turn against, keylessly. Pillar 1 instruction/skill
  * *renderers* still emit the Claude-Code shape until the format-axis renderers
  * land (see `research/code-adapter-architecture.md`).
  */
-export * from "./adapters/codex/dialect.js";
-export * from "./adapters/codex/layout.js";
-export * from "./adapters/codex/runtime.js";
-export * from "./adapters/codex/hook-protocol.js";
-export * from "./adapters/codex/model-mock.js";
-export * from "./adapters/codex/mock-model.js";
-export * from "./adapters/codex/driver.js";
-export * from "./adapters/codex/adapter.js";
-// Eval-tier transport (increment 2 — scaffold, pending live-binary validation):
-// parseCodexEvalRun (the ModelOutputParser for `codex exec --json`) + codexEvalRunner.
-export * from "./adapters/codex/eval.js";
+// The adapter object is the door: its ports (`codexAdapter.layout`,
+// `.dialect`, `.runtime`, `.hookProtocol`, `.modelMock`,
+// `.harnessTestDriver()`) are reached through it, not exported one by one.
+export { codexAdapter } from "./adapters/codex/adapter.js";
+export { parseCodexRun } from "./adapters/codex/driver.js";
+export {
+  startCodexMock,
+  type CodexTurn,
+  type CodexRequest,
+  type CodexMockHandle,
+} from "./adapters/codex/mock-model.js";
+// The Codex eval driver, passed as `{ evalDriver: codexEvalDriver }` to the
+// `paid_*` runners until drivers move onto the adapter object.
+export { codexEvalDriver, codexLiveDriver } from "./adapters/codex/eval.js";

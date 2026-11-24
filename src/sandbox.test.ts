@@ -33,7 +33,7 @@ import {
   claudeAvailable,
   scriptModel,
 } from "./harness-test.js";
-import { assertRequestContains, assertHookFired } from "./harness-assert.js";
+import { check, assertChecks } from "./check.js";
 
 test("specTrusted: inline-only is trusted, any external plugin is not", () => {
   assert.equal(specTrusted({}), true);
@@ -330,8 +330,10 @@ test.skipIf(!sandboxRunnable)(
       return;
     }
     try {
-      assertHookFired(r, "SessionStart");
-      assertRequestContains(r, marker); // the injected context landed in the model's request
+      assertChecks(r, [
+        check.hookFired("SessionStart"),
+        check.received(marker), // the injected context landed in the model's request
+      ]);
     } finally {
       r.cleanup();
     }
@@ -357,7 +359,7 @@ test.skipIf(!sandboxRunnable)(
       timeoutMs: 120000,
     });
     try {
-      assertHookFired(r, "SessionStart"); // the real third-party hook ran, confined
+      assertChecks(r, [check.hookFired("SessionStart")]); // the real third-party hook ran, confined
       const ctx = r.hooks.find((h) => h.event === "SessionStart")?.output ?? "";
       assert.ok(
         ctx.includes("You have superpowers"),

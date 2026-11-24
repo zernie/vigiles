@@ -30,7 +30,7 @@ import { initGitRepo, makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
 const RUN_HOOK = resolve(__dirname, "..", "dist", "run-hook.js");
 const LOAD_HOOK = resolve(__dirname, "..", "dist", "load-hook.js");
-const ASSERT = resolve(__dirname, "..", "dist", "harness-assert.js");
+const ASSERT = resolve(__dirname, "..", "dist", "hook-test.js");
 const HOOK_ENTRY = resolve(__dirname, "..", "dist", "hook.js");
 
 let dir: string;
@@ -299,8 +299,8 @@ test("a harness that EVALUATES a compiled hook in-process records it", () => {
   );
   write(
     "t.harness.mjs",
-    `import { loadHook } from ${JSON.stringify(LOAD_HOOK)};\n` +
-      `import { assertHookDenies } from ${JSON.stringify(ASSERT)};\n` +
+    `import { experimental_loadHook as loadHook } from ${JSON.stringify(LOAD_HOOK)};\n` +
+      `import { experimental_assertHookDenies as assertHookDenies } from ${JSON.stringify(ASSERT)};\n` +
       `const h = await loadHook(".vigiles/hooks/guard.hook.mjs");\n` +
       `assertHookDenies(h, { hook_event_name: "PreToolUse", tool_name: "Bash",\n` +
       `  tool_input: { command: "git push --force" } });\n`,
@@ -325,7 +325,7 @@ test("…but a harness that only LOADS one records nothing", () => {
   );
   write(
     "t.harness.mjs",
-    `import { loadHook } from ${JSON.stringify(LOAD_HOOK)};\n` +
+    `import { experimental_loadHook as loadHook } from ${JSON.stringify(LOAD_HOOK)};\n` +
       `import { runHook } from ${JSON.stringify(RUN_HOOK)};\n` +
       `const h = await loadHook(".vigiles/hooks/guard.hook.mjs");\n` +
       `if (typeof h !== "object") process.exit(1);\n` +

@@ -27,7 +27,7 @@ export const claudeCodeHookProtocol: HookProtocol = {
   // that "a few (Stop, SubagentStop, PreCompact) carry no context on either"
   // harness. That was never measured for Claude Code. Measured on 2.1.273 by
   // emitting `additionalContext` from a hook on each event and reading the
-  // model's OWN request back (`requestContains` over a real `runHarnessTest`
+  // model's OWN request back (`check.received` over a real `runHarnessTest`
   // run, not the hook's stdout): both events DELIVER. The prior list was
   // therefore a self-inflicted gate — the runtime refused to emit a shape the
   // harness would have honored, and the four affected react hooks read as

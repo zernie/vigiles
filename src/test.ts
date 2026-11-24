@@ -25,23 +25,31 @@
  * degenerated to `export * from "./integration.js"` — a barrel adding zero
  * symbols, which its own docstring called "the definition of a non-tier".
  *
- * ## Two honest costs of the new split
+ * ## One home per name (v50)
  *
- * **1. The type coupling crosses the boundary and cannot be removed.** About two
- * dozen helpers here — `assertImproves`, `assertNoRegression`, `assertReliable`,
- * `assertSignificant`, `assertTriggerRate`, `reliable`, `improvement`,
- * `significantlyBeats`, `compareArms`, `diffReports`, `diffToJUnit`,
- * `formatBaselineDiff`, `parseBaselineFile`, `readBaseline`, `toBaselineFile`,
- * `writeBaseline`, `cost`, `latency`, `tokens`, `inputTokens`, `outputTokens`,
- * `cacheTokens`, plus `formatEvalReport` / `formatCheckReport` /
- * `formatTriggerRateReport` / `checkReportToJUnit` / `assertRates` — operate on
- * eval RESULTS while spending nothing themselves. They belong on the free path.
- * Their TYPES (`EvalReport`, `CheckReport`, `TriggerRateReport`, `Metrics`, …)
- * are defined on the paid side. So those types are re-exported from BOTH barrels:
- * a user of the free surface must never import `vigiles/eval` for a type alone.
- * The duplication is deliberate and is the price of splitting on cost.
+ * Every public name lives behind exactly one door, the door of the reader who
+ * uses it. What left this barrel, and where it went:
  *
- * **2. Free is not the same as fast.** The old "real CLI, no API key" tier
+ *   - reading an eval REPORT (`compare`, `assertRates`, `assertTriggerRate`,
+ *     `assertImproves`, `assertNoRegression`, `readBaseline`, `writeBaseline`)
+ *     → `vigiles/eval`, beside the `paid_*` runners that produce the report.
+ *     `paid_`, not the door, marks a call that can bill you.
+ *   - the guard battery (`assertGuardrail`, `verifyGuardrail`, …) →
+ *     `vigiles/battery`.
+ *   - testing a compiled hook in-process (`experimental_loadHook`, `experimental_assertHookDenies`, …) →
+ *     `vigiles/hook-test` (never `vigiles/hook`, a compiled hook's only import).
+ *   - a subagent's outcome (`experimental_assertAgentOk`, …) → `vigiles/spec`.
+ *   - Claude Code's stream parsers (`parseToolCalls`, `parseClaudeRun`) →
+ *     `vigiles/claude-code`; the driver PORT types (`HarnessTestDriver`,
+ *     `EvalDriver`, …) → `vigiles/adapter`.
+ *
+ * The report TYPES stay here: `defineEval` and `vigilesMatchers` speak them. They
+ * are declared in core, which this barrel and `vigiles/eval` both import; no
+ * module imports this barrel (src/export-surface.test.ts holds that).
+ *
+ * ## An honest cost of the split
+ *
+ * **Free is not the same as fast.** The old "real CLI, no API key" tier
  * (`vigiles/integration`) collapses into this barrel, so the import path no longer
  * warns you that `runHarnessTest` spawns a real `claude` binary under bubblewrap
  * and can take ~40 seconds. Nothing here bills you; plenty here is slow. Duration
@@ -85,14 +93,7 @@ export { makeTmpDir, cleanupTmpDir } from "./core/tmp-root.js";
 // its result carries no `decision`, because a script does not have one.
 export { runScript } from "./run-script.js";
 export type { RunScriptOptions, ScriptRunResult } from "./run-script.js";
-export {
-  runHook,
-  parseHookOutput,
-  decideHook,
-  propertyHook,
-  fileToolEvents,
-  egressRoutes,
-} from "./run-hook.js";
+export { runHook } from "./run-hook.js";
 export type {
   HookRunResult,
   // Named in HookRunResult.blockedBy, so a consumer must be able to name it too
@@ -106,19 +107,17 @@ export type {
   RunHookOptions,
   HookInput,
   HookOutput,
-  HookPropertyResult,
-  FileToolEventOptions,
 } from "./run-hook.js";
 
-// --- assertions and the eval-RESULT analysis helpers (free; see cost #1 above) ---
-export * from "./harness-assert.js";
+// --- runner glue: `skip` a script loudly, `vigilesMatchers` for expect.extend ---
+export { skip, vigilesMatchers } from "./harness-assert.js";
 
 // --- the EMIT delivery for a typed result (⚠️ EXPERIMENTAL) ---
 // Moved here 2026-08-21 from the `vigiles/experimental` subpath, which is gone
 // (the `experimental_` prefix already marks every call site; the subpath only
 // marked the import line). It belongs BESIDE the assertions above rather than in
 // a drawer of its own: `experimental_parseEmitted` / `experimental_assertEmittedOk`
-// are the emit-channel twins of `parseAgentResult` / `assertAgentOk`, and a reader
+// are the emit-channel twins of `parseAgentResult` / `experimental_assertAgentOk`, and a reader
 // comparing the two delivery shapes should not have to change doors to see both.
 // Read src/experimental-emit.ts's header before using it — it lists, by number,
 // what is unproven and what would have to be true to drop the prefix.
@@ -135,64 +134,20 @@ export {
   type ExperimentalEmitTool,
 } from "./experimental-emit.js";
 
-// The compiled-hook LOADER. The in-process assertions above take the hook
-// OBJECT, but a `.harness.mjs` test only has its PATH — without this the
-// intended in-process test path is unreachable from the file format
-// `vigiles test` actually runs, and authors fall back to spawning the runtime as
-// a subprocess (the very plumbing compiled hooks exist to remove). Same loader
-// the CLI runtime uses, so a hook that loads in a test loads identically in prod.
-export { loadHook } from "./load-hook.js";
-
-// Seed + read a compiled hook's NAMED STATE from a test. A throttled hook only
-// does anything interesting against an OLD fact, and "old" is not something a
-// test can produce by waiting — so without this a consumer testing a throttle
-// had to reconstruct the store's private path by hand (the dogfood repo did,
-// and it broke when the facts were renamed). It is on THIS barrel and not on
-// `vigiles/hook` on purpose: `vigiles/hook` is the only import a compiled hook
-// may have, and its guarantee is that it hands out no writer.
-export { experimental_hookState } from "./hook-state-store.js";
-export type { HookStateHandle, SeedStateOptions } from "./hook-state-store.js";
-// Named in those signatures, so a consumer must be able to import them too — a
-// type you can read in a signature but not name is a surface you cannot write
-// against. (`StateFact` is what `read`/`seed` return; `Duration` is what `ago`
-// takes.) They are the SAME declarations `vigiles/hook` exports.
-export type { StateFact, Duration } from "./core/hook-state.js";
-
-// --- the declarative check vocabulary ---
-// Enumerated rather than `export *` ON PURPOSE: `judged` also lives in check.ts
-// and its default judge is a real model call, so it is the one member of this
-// module that belongs on the paid barrel (as `paid_judged`). Listing the members
-// makes "a free import that can bill you" unrepresentable here rather than merely
-// documented — the previous barrel carried a paragraph apologising for exactly
-// that. `hookFired` is the check; the boolean predicate that once shared its name
-// in harness-assert is no longer exported (zernie/vigiles#502).
+// --- the declarative check vocabulary: ONE callable object ---
+// Every assertion about a run is a member of `check` — `check.tool("Bash")`,
+// `check.blocked()`, `check.delivered()`, `check("name", fn)` — and
+// `assertChecks` throws listing every one that failed. There are no flat check
+// functions here (v50): one name for the whole vocabulary keeps the root to its
+// verbs, and an editor completes `check.` to the full list. `judged` is the one
+// check that bills, so it lives on the paid door as `paid_judged`.
+// `experimental_eachReply` / `experimental_replyCount` stay flat for now: they
+// are experimental checks over the replies a scripted run records.
 export {
-  evalChecks,
   assertChecks,
   check,
-  tool,
-  toolWith,
-  notTool,
-  onlyTools,
-  skill,
-  output,
   experimental_eachReply,
   experimental_replyCount,
-  hookFired,
-  received,
-  turns,
-  wrote,
-  didNotWrite,
-  subagent,
-  blocked,
-  allowed,
-  mcp,
-  cost,
-  latency,
-  tokens,
-  inputTokens,
-  outputTokens,
-  cacheTokens,
 } from "./check.js";
 export type {
   ArgMatcher,
@@ -200,61 +155,17 @@ export type {
   CheckJSON,
   CheckResult,
   JudgeFn,
+  TokenBudget,
 } from "./check.js";
 
-// Guardrail verification — "prove your guard blocks every disaster and lets the
-// same text through as data" (a compiled hook in-process, a command string over runHook).
-export {
-  DISASTER_CATALOG,
-  verifyGuardrail,
-  unblockedDisasters,
-  assertGuardrail,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the alias stays exported for one major
-  assertBlocksDisasters,
-  formatGuardrailReport,
-  experimental_alternateSpellings,
-  experimental_harmlessTwins,
-} from "./guardrail-check.js";
-export type {
-  DisasterEvent,
-  DisasterCategory,
-  GuardrailResult,
-  GuardrailRow,
-  GuardrailRun,
-  HarmlessEvent,
-  HarmlessForm,
-  VerifyGuardrailOptions,
-} from "./guardrail-check.js";
+// The guard battery ("does my guard block every disaster and let the same text
+// through as data?") is its own door, `vigiles/battery`: it has its own reader —
+// someone proving a guard — and its own vocabulary.
 
-// The same battery, pointed at a DIRECTORY instead of one command string. It
-// reads each hook's event, matcher, command and condition off the same
-// registration, so the pairing mistake `verifyGuardrail`'s own comment has to ask
-// callers to avoid ("pass the hook's declared `if` here") cannot be made. It
-// belongs on THIS barrel and beside the battery for the same reason the battery
-// does: nothing here calls a model.
-// The report + its renderer ship together: the sweep's one motivating use is
-// "point the battery at YOUR hooks", and without the formatter that is a
-// hand-written fold over a discriminated union at every call site.
-export {
-  experimental_verifyPluginGuards,
-  experimental_formatPluginGuardReport,
-} from "./verify-plugin-guards.js";
-export type {
-  PluginGuardReport,
-  SweptHook,
-  SweptHookOutcome,
-  // What the sweep found DECLARED but cannot drive — a `prompt`/`http`/
-  // `mcp_tool`/`agent` action. Named here so `report.unmeasurable` is foldable.
-  NonCommandHookAction,
-  VerifyPluginGuardsOptions,
-} from "./verify-plugin-guards.js";
-
-// Tool stubs on PATH (rung R2): a fake binary that answers PER INVOCATION, by
-// rules over its argv. The helper and its check are experimental; the rule
-// shapes are plain data, because a `.mjs` literal of the same shape is accepted
-// at the spec boundary. Writing the shims is internal (`tool-stub.ts`).
-export { experimental_stub } from "./stub.js";
-export type { StubCalledBounds } from "./stub.js";
+// Tool stubs on PATH (rung R2): `experimental_stub` builds them and lives on
+// `vigiles/fixtures` with the other test infrastructure. The rule shapes stay
+// here because `EvalSpec.stubs` speaks them; they are plain data, since a `.mjs`
+// literal of the same shape is accepted at the spec boundary.
 // The element type of `ArmReport.context` (vigiles#416).
 export type {
   ContextEvidence,
@@ -279,23 +190,10 @@ export type { HomeFiles, HomeSeed, RunEnv } from "./core/run-env.js";
 // `loadPlugin`, `resolveHarness`) is deliberately NOT re-exported here, so this
 // surface stays harness-agnostic — import those from `vigiles/claude-code` (or
 // your harness's package). See `research/code-adapter-architecture.md`.
-// Slow but free: see cost #2 in the module doc.
-export {
-  runHarnessTest,
-  runHarness,
-  parseToolCalls,
-  parseSubagents,
-  parseResultEvent,
-  parseOutput,
-  parseHooks,
-  decideSandbox,
-  specTrusted,
-  sandboxAvailable,
-} from "./harness-test.js";
-// The two arms of an output-style eval, after one free run proves the style
-// reaches the model. Free: the run uses the scripted model.
-export { experimental_outputStyleArms } from "./output-style-arms.js";
-export type { OutputStyleArms } from "./output-style-arms.js";
+// Slow but free: see the module doc.
+export { runHarnessTest, sandboxAvailable } from "./harness-test.js";
+// The two arms of an output-style eval (`experimental_outputStyleArms`) are on
+// `vigiles/eval`: what they build is eval arms.
 export type {
   HarnessTestSpec,
   Trace,
@@ -306,34 +204,14 @@ export type {
   ModelRequest,
   ToolCall,
   HookFire,
-  HarnessTestDriver,
   SandboxMode,
 } from "./harness-test.js";
 // Named in `Trace.skills`: which skills fired, as the harness's adapter tells.
 export type { SkillFire, SkillFacts } from "./core/harness-driver.js";
 
-// A document's own rule about its own COMMANDS, made checkable. vigiles cannot
-// infer "always pass -g" from prose; what was missing was a cheap way to declare
-// it — measured at ~95 lines of markdown parsing around ~5 lines of rule, which
-// is why nobody wrote the check and the rule stayed prose.
-export { commandsIn, mustInclude, mustNotInclude } from "./doc-commands.js";
-export type { DocCommand } from "./doc-commands.js";
-
-// A skill's own `allowed-tools:` frontmatter, read back as checks — the wiring
-// from a declaration to the existing check vocabulary, not new machinery.
-export { skillContract } from "./skill-contract.js";
+// A skill's own `allowed-tools:` frontmatter, read back as checks: reached as
+// `check.skillContract(dir)`, since what it builds is checks.
 export type { SkillContract, SkillContractOptions } from "./skill-contract.js";
-
-// Is a WEAKER model a valid lower bound for trigger-rate? Pure comparison of two
-// runs; the open question the model floor makes people ask.
-export {
-  compareContainment,
-  formatContainment,
-} from "./trigger-containment.js";
-export type {
-  ContainmentInput,
-  ContainmentVerdict,
-} from "./trigger-containment.js";
 
 // --- declaring an eval (free: a description cannot spend) ---
 // `defineEval` is on the FREE barrel and not on `vigiles/eval`, and that is the
@@ -351,84 +229,37 @@ export type {
   SelectionMatrixSpec,
 } from "./eval-define.js";
 
-// --- free analysis OVER eval results (the coupling from cost #1) ---
-// These read a report that `vigiles/eval` produced. They spend nothing, so they
-// live here and carry no `paid_` prefix; their argument types are defined over
-// there, so those types are re-exported below from this barrel too.
-export {
-  assertRates,
-  assertPromptDiversity,
-  checkPromptDiversity,
-  checkReportToJUnit,
-  formatCheckReport,
-  formatEvalReport,
-  formatTriggerRateReport,
-  parseClaudeRun,
-  stubSkillBody,
-} from "./eval.js";
+// --- the shapes an eval speaks ---
+// The paid runners and the report readers are on `vigiles/eval`; the TYPES are
+// here, because `defineEval` and `vigilesMatchers` speak them too and a type
+// cannot bill anyone. The report shapes come from core (`src/core/eval-report.ts`),
+// which both doors import — neither imports the other's barrel.
+export type {
+  ArmReport,
+  ArmUsage,
+  EvalReport,
+  MetricStat,
+  PromptTriggerStat,
+  TriggerRateReport,
+} from "./core/eval-report.js";
 export type {
   EvalArm,
-  EvalDriver,
   EvalSpec,
-  EvalReport,
   EvalUsage,
   MeasureSpec,
   ArmsMeasureSpec,
-  ArmReport,
-  ArmUsage,
   ArmsCheckReport,
   CheckRate,
   CheckReport,
-  MetricStat,
   Metrics,
-  ModelOutputParser,
-  ParsedModelRun,
-  PromptDiversityIssue,
-  PromptTriggerStat,
   RunContext,
-  RunOut,
-  SelectionTrialResult,
-  TriggerRateReport,
   TriggerRateSpec,
-  AgentRunArgs,
-  AgentRunner,
 } from "./eval.js";
 
-// --- R3: the disposable-service tier (⚠️ EXPERIMENTAL, and it has REAL EFFECTS) ---
-// Moved off the `vigiles/experimental` subpath 2026-08-21, when that subpath was
-// deleted: it marked the IMPORT LINE, which is out of view by the time anyone
-// reads the call, while `experimental_` marks every call site.
-//
-// 🔴 IT LANDED ON `vigiles/eval` FIRST, AND THE EXPORT-PREFIX GATE REJECTED IT —
-// correctly, and the reasoning is worth keeping. `./eval` has a naming contract:
-// every runtime export there is `paid_*`, meaning THIS CALL CAN BILL YOU. R3 felt
-// like it belonged because the docs frame it as measuring skills for real. But
-// `experimental_startServices` takes a `ContainerRuntime` and starts containers;
-// it calls no model. Naming it `paid_experimental_startServices` to satisfy the
-// gate would have made `paid_` mean "expensive in some sense", which is exactly
-// the erosion that turns a prefix back into decoration. The model spend is in
-// `paid_measureArms`, which is already over there. So R3 is free-of-model-cost
-// and belongs on this door — where "free" keeps its narrow meaning.
-//
-// ⚠️ FREE OF MODEL COST IS NOT FREE OF CONSEQUENCE, and this is the one place the
-// root barrel carries something with real side effects. The disposable container
-// is the ONLY isolation vigiles provides — it does NOT confine the skill's
-// filesystem or network. Run it somewhere disposable with no production access
-// and keep real credentials out of the run. See the SAFETY note in src/services.ts.
-export {
-  experimental_startServices,
-  experimental_withServices,
-  type ServiceSpec,
-  type ServiceReady,
-  type ServiceReset,
-  type ServiceHandle,
-  type ServiceSession,
-  type ContainerRuntime,
-} from "./services.js";
-
-export {
-  experimental_dockerRuntime,
-  experimental_makeDockerRuntime,
-  type DockerExec,
-  type NetProbe,
-} from "./services-docker.js";
+// --- R3: the disposable-service tier ---
+// `experimental_startServices` and `experimental_dockerRuntime` live on
+// `vigiles/fixtures`: they set up what a run talks to, which is test
+// infrastructure, not a verb over a run. They first landed on `vigiles/eval` and
+// the export-prefix gate rejected them there, rightly: every runtime export on
+// `./eval` is `paid_*` (this call can bill you), and starting a container calls
+// no model.

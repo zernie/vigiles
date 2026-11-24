@@ -8,13 +8,8 @@
  *
  *   npm run test:jest
  */
-const {
-  improvement,
-  assertImproves,
-  assertCreated,
-  assertNotCreated,
-} = require("../../dist/harness-assert.js");
-const { tool, output, blocked } = require("../../dist/check.js");
+const { compare, assertImproves } = require("../../dist/eval-surface.js");
+const { check, assertChecks } = require("../../dist/check.js");
 const checksCases = require("./checks-cases.cjs");
 // Matchers are registered by the `vigiles/jest` entry via setupFilesAfterEnv
 // (jest.config.cjs) — this file asserts that wiring works end-to-end.
@@ -54,21 +49,20 @@ test("the check veneer (toPass / toPassAll) works under jest", () => {
     turns: 1,
     file: () => null,
   };
-  expect(trace).toPass(tool("Bash"));
-  expect(trace).not.toPass(tool("Read"));
-  expect(trace).toPassAll([tool("Bash"), output("done")]);
-  expect({ blocked: true, exitCode: 2 }).toPass(blocked());
+  expect(trace).toPass(check.tool("Bash"));
+  expect(trace).not.toPass(check.tool("Read"));
+  expect(trace).toPassAll([check.tool("Bash"), check.output("done")]);
+  expect({ blocked: true, exitCode: 2 }).toPass(check.blocked());
 });
 
 test("plain helpers work under jest", () => {
-  expect(improvement(report, "vanilla", "gated", "caught")).toBe(0.5);
+  expect(compare(report, "vanilla", "gated").caught.gap).toBe(0.5);
   assertImproves(report, {
     baseline: "vanilla",
     arm: "gated",
     metric: "caught",
   });
-  assertCreated(result, "DONE");
-  assertNotCreated(result, "MISSING");
+  assertChecks(result, [check.wrote("DONE"), check.didNotWrite("MISSING")]);
 });
 
 // The same `check.*` cases node:test and vitest run (checks-cases.cjs).

@@ -166,8 +166,7 @@ violate vigiles's whole precision premise (_a wrong number is worse than no
 number_). So we don't. Concretely:
 
 - `codexEvalDriver.experimental` carries the caveat; `measureTriggerRate` **warns
-  on stderr** and stamps `report.experimental`, and `formatTriggerRateReport` /
-  `formatBehavioralReport` print a loud `⚠ EXPERIMENTAL` line above the numbers.
+  on stderr** and stamps `report.experimental`, and `vigiles eval` / `vigiles audit` print a loud `⚠ EXPERIMENTAL` line above the numbers.
   So `vigiles audit --harness=codex`'s behavioral column always says so.
 - Treat any Codex trigger-rate as **directional only**, and pair it with a judged
   check rather than gating on the rate.

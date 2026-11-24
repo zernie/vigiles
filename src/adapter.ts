@@ -8,8 +8,8 @@
  *
  * Everything you need to teach vigiles a new harness, in one import: the five
  * port interfaces to implement, the `HarnessAdapter` bundle that groups them,
- * the conformance kit to validate yours, and the registry the CLI detects
- * through. vigiles ships a Claude Code adapter; building your own is welcome and
+ * the conformance kit to validate yours, and the driver ports the test and
+ * eval runners call. vigiles ships a Claude Code adapter; building your own is welcome and
  * supported — see `docs/authoring-an-adapter.md`.
  *
  *   import {
@@ -43,23 +43,28 @@ export type {
   SkillListingBudget,
   SkillListingRules,
 } from "./core/skill-listing.js";
-export type { ModelRequest } from "./core/harness-driver.js";
-// The three derived readers. They are part of the port's surface, not helpers:
-// an adapter author reads a layout through them, and they are what replaced the
-// `surfaceDirs` / `intraRefDirs` / `materializeRoot` FIELDS.
-export {
-  executableSourceDirs,
-  materializePrefix,
-  surfaceDirs,
-} from "./core/layout.js";
+// The driver PORTS: what `harnessTestDriver()` returns (the free test tier)
+// and what an eval driver supplies (the paid tiers). An adapter implements
+// them, so their types live on this door.
+export type { HarnessTestDriver } from "./core/harness-driver.js";
+export type {
+  AgentRunArgs,
+  AgentRunner,
+  EvalDriver,
+  ModelOutputParser,
+  ParsedModelRun,
+  RunOut,
+} from "./core/eval-driver.js";
+// The derived readers. They are part of the port's surface, not helpers: an
+// adapter author reads a layout through them, and they are what replaced the
+// `surfaceDirs` / `intraRefDirs` FIELDS.
+export { executableSourceDirs, surfaceDirs } from "./core/layout.js";
 /**
  * The instruction-chain vocabulary `PluginLayout.instructionChain` speaks.
  *
  * Exported because the method is on the port: without these an adapter author
  * cannot write a return type, which makes the interface unimplementable from
- * outside this package. `EMPTY_CHAIN` is the honest answer for a harness with no
- * instruction surface — spelling out five empty arrays at each such site invites
- * one of them to be forgotten.
+ * outside this package.
  */
 export type {
   InstructionChain,
@@ -71,7 +76,6 @@ export type {
   PatternFrom,
   UnloadedInstruction,
 } from "./core/instruction-chain.js";
-export { EMPTY_CHAIN } from "./core/instruction-chain.js";
 /**
  * ⚠️ `SettingsCodec` was in the same position and is exported here for the same
  * reason: `PluginLayout.settings` has been typed as one since the codec landed,
@@ -99,20 +103,14 @@ export type { ModelMock } from "./core/model-mock.js";
  */
 export { layoutClaims } from "./core/surface-discovery.js";
 
+// The conformance kit: `assert*` throws naming every port that does not hold,
+// `checkAdapterConformance` returns the same findings for you to print.
 export {
   checkAdapterConformance,
   assertAdapterConformance,
   assertAdapterLoadsHooks,
-  assertHarnessTestable,
   type ConformanceResult,
 } from "./adapter-conformance.js";
-export {
-  ADAPTERS,
-  defaultAdapter,
-  detectAdapter,
-  detectAdapterResult,
-  resolveAdapter,
-  getAdapter,
-  type DetectResult,
-  type HarnessName,
-} from "./adapter-registry.js";
+// The registry the CLI detects through (`ADAPTERS`, `detectAdapter`, …) is the
+// CLI's composition root, not an authoring tool: an adapter is a value you pass
+// (`runHarnessTest(spec, { adapter })`), so it is not exported.

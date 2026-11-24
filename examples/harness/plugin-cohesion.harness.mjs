@@ -18,39 +18,41 @@
  * package: `from "vigiles"`.
  */
 import { fileURLToPath } from "node:url";
-import { scriptModel, claudeAvailable } from "../../dist/harness-test.js";
-import { withHarness, assertCreated, skip } from "../../dist/harness-assert.js";
+import {
+  runHarnessTest,
+  scriptModel,
+  claudeAvailable,
+} from "../../dist/harness-test.js";
+import { skip } from "../../dist/harness-assert.js";
+import { check, assertChecks } from "../../dist/check.js";
 
 if (!claudeAvailable()) skip("`claude` CLI not found");
 
 const plugin = fileURLToPath(new URL("./fixture-plugin", import.meta.url));
 
-// We use `withHarness` here instead of raw `runHarnessTest` + `r.cleanup()`.
-// Trade-off, stated plainly so you can choose per test:
-//   • withHarness removes the temp sandbox in a `finally`, so it is cleaned up
-//     even when an assertion throws — no leaked temp dirs in CI. That is the win.
-//   • The cost: assertions live inside a callback, and a thrown `assert*` aborts
-//     the rest, so you see the FIRST failure, not all of them. If you want
-//     per-check ✓/✗ output, or to inspect the result after the run, use raw
-//     `runHarnessTest` + manual `r.cleanup()` instead — see policy-gate.harness.mjs.
-await withHarness(
-  {
-    plugin, // fixture-plugin's real hooks (SessionStart + PreToolUse) + CLAUDE.md
-    sandbox: false, // in-repo fixture we authored → trusted, run direct
-    model: scriptModel([
-      { tool: "Bash", input: { command: "rm -rf /tmp/should-be-blocked" } },
-      { tool: "Bash", input: { command: "echo ok > RESULT" } },
-      { text: "done" },
-    ]),
-  },
-  (r) => {
-    assertCreated(r, "SETUP_DONE"); // SessionStart setup hook ran
-    assertCreated(r, "BLOCKED"); // PreToolUse gate blocked `rm -rf`
-    if (!(r.file("RESULT") ?? "").includes("ok")) {
-      throw new Error("clean command did not run (RESULT missing 'ok')");
-    }
-    console.log("  ✓ SessionStart + PreToolUse gate + clean command all fired");
-  },
-);
+// The run owns a temp directory; remove it in a `finally` so it goes even when
+// an assertion throws. In TypeScript (5.2+) or on Node 24+,
+// `await using r = await runHarnessTest(…)` does the same with no `finally`.
+const r = await runHarnessTest({
+  plugin, // fixture-plugin's real hooks (SessionStart + PreToolUse) + CLAUDE.md
+  sandbox: false, // in-repo fixture we authored → trusted, run direct
+  model: scriptModel([
+    { tool: "Bash", input: { command: "rm -rf /tmp/should-be-blocked" } },
+    { tool: "Bash", input: { command: "echo ok > RESULT" } },
+    { text: "done" },
+  ]),
+});
+try {
+  assertChecks(r, [
+    check.wrote("SETUP_DONE"), // SessionStart setup hook ran
+    check.wrote("BLOCKED"), // PreToolUse gate blocked `rm -rf`
+  ]);
+  if (!(r.file("RESULT") ?? "").includes("ok")) {
+    throw new Error("clean command did not run (RESULT missing 'ok')");
+  }
+  console.log("  ✓ SessionStart + PreToolUse gate + clean command all fired");
+} finally {
+  r.cleanup();
+}
 
 console.log("\n1 passed.");

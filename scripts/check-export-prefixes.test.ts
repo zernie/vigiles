@@ -210,6 +210,23 @@ describe("check-export-prefixes: it is SILENT on the legitimate surface", () => 
   });
 });
 
+describe("check-export-prefixes: the free readers are a closed list", () => {
+  it("passes a declared free name and still flags an undeclared one", () => {
+    const root = fixture(
+      "export declare function compare(): void;\nexport declare function sneaky(): void;\n",
+    );
+    const v = findPrefixViolations(root, [
+      {
+        subpath: "./eval",
+        dts: "dist/surface.d.ts",
+        prefix: "paid_",
+        free: ["compare"],
+      },
+    ]);
+    expect(v.map((x) => x.symbol)).toEqual(["sneaky"]);
+  });
+});
+
 describe("check-export-prefixes: this repository's real surfaces", () => {
   // 🔴 FOUND BY MUTATION, NOT BY REVIEW. Deleting an entry from SURFACES left the
   // whole suite GREEN: the axis-specific test passes its own surface list, the

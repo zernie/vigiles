@@ -2166,37 +2166,6 @@ export function parseFilePath(raw: string, root?: string): FilePath {
   };
 }
 
-// ---------------------------------------------------------------------------
-// The names these had before #465. Kept for one major so a hook compiled
-// against them still compiles; each points at the new one, so there is one
-// implementation, not two.
-// ---------------------------------------------------------------------------
-
-/**
- * The name {@link parseShellCommand} had before #465.
- *
- * @deprecated Use {@link parseShellCommand}; this alias is removed in the next major.
- */
-export const commandView = parseShellCommand;
-/**
- * The name {@link ShellCommand} had before #465.
- *
- * @deprecated Use {@link ShellCommand}; this alias is removed in the next major.
- */
-export type CommandView = ShellCommand;
-/**
- * The name {@link parseFilePath} had before #465.
- *
- * @deprecated Use {@link parseFilePath}; this alias is removed in the next major.
- */
-export const pathView = parseFilePath;
-/**
- * The name {@link FilePath} had before #465.
- *
- * @deprecated Use {@link FilePath}; this alias is removed in the next major.
- */
-export type PathView = FilePath;
-
 /** The path as an absolute reference, or `undefined` when it cannot be one. */
 /**
  * A root only relates the two spellings if it is itself ABSOLUTE. A relative one
@@ -3023,7 +2992,7 @@ export function outcomeWrites(outcome: HookProgramOutcome): {
  * as equivalent to the parsed one. `commandRefs` (coverage-probe.ts) infers what
  * executed from an arbitrary command STRING — interpreter grammars, option
  * bundles, shell short-circuits — and has been wrong in five review rounds
- * because that grammar is unbounded. Here the path is the argument `loadHook`
+ * because that grammar is unbounded. Here the path is the argument `experimental_loadHook`
  * was called with and resolved itself. There is nothing to guess.
  *
  * A `WeakMap`, not a property on the hook: the object is the USER's, it is
@@ -3031,15 +3000,15 @@ export function outcomeWrites(outcome: HookProgramOutcome): {
  * up in their serialization and their equality checks. The map also lets the
  * entry die with the hook.
  *
- * ⚠️ REMEMBERING IS NOT RECORDING. `loadHook(file)` calls this and nothing else —
+ * ⚠️ REMEMBERING IS NOT RECORDING. `experimental_loadHook(file)` calls this and nothing else —
  * loading a hook to inspect its shape is not running it, and attributing a load
  * would be the "an empty file counts" disease the execution tier exists to cure.
- * The probe is emitted by `harness-assert.ts` at the moment the hook is
+ * The probe is emitted by `hook-assertions.ts` at the moment the hook is
  * EVALUATED, which is the only place both facts are in hand.
  */
 const HOOK_SOURCE = new WeakMap<object, string>();
 
-/** Record where a hook program was loaded from. Called by `loadHook` ONLY. */
+/** Record where a hook program was loaded from. Called by `experimental_loadHook` ONLY. */
 export function rememberHookSource(hook: AnyHook, file: string): void {
   HOOK_SOURCE.set(hook, file);
 }
@@ -3053,7 +3022,7 @@ export function hookSource(hook: AnyHook): string | undefined {
  * Evaluate a compiled hook against a raw event, in-process, dispatching by role:
  * a gate → its `Decision`, an inject → the injected context text, a react → its
  * (effect-classified) `Reaction`. Pure — no subprocess, no model. The ergonomic
- * base for testing a compiled hook (see `assertHookDenies` / `assertHookAllows`).
+ * base for testing a compiled hook (see `experimental_assertHookDenies` / `experimental_assertHookAllows`).
  */
 export function runHookProgram(
   hook: AnyHook,

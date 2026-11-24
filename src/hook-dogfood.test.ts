@@ -113,7 +113,7 @@ test("the COMPILED hook blocks all 7 disasters by construction (closes the gaps)
  * Reported by a vigiles adopter (#174) on a real `github-helper` write-guard.
  * Until 2026-08-31 `verifyGuardrail` read only exit 2 / `decision` /
  * `permissionDecision`, so this guard — which stops every disaster in the
- * battery — was reported as blocking NONE of them, and `assertBlocksDisasters`
+ * battery — was reported as blocking NONE of them, and `assertGuardrail`
  * failed the build over a working guard. The tool whose stated job is catching
  * "a guard that looks fine and silently does nothing" said exactly that about a
  * guard that does not.

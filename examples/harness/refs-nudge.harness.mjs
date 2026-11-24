@@ -5,7 +5,7 @@
  * it FIRES inside an actual `claude` session: the real CLI runs the PostToolUse
  * refs-hook against a scripted mock model that writes a CLAUDE.md naming an
  * unmarked linter rule, and we assert the non-blocking nudge made it back into
- * the model's context (the "fired ≠ landed" check via `requestContains`).
+ * the model's context (the "fired ≠ landed" check via `check.received`).
  *
  *   node examples/harness/refs-nudge.harness.mjs
  *
@@ -16,7 +16,8 @@ import {
   scriptModel,
   claudeAvailable,
 } from "../../dist/harness-test.js";
-import { requestContains, skip } from "../../dist/harness-assert.js";
+import { skip } from "../../dist/harness-assert.js";
+import { check } from "../../dist/check.js";
 
 if (!claudeAvailable()) skip("`claude` CLI not found");
 
@@ -49,8 +50,8 @@ const r = await runHarnessTest({
 
 try {
   const reached =
-    requestContains(r, "eslint/no-console") &&
-    requestContains(r, "unmarked linter-rule");
+    check.received("eslint/no-console").eval(r).pass &&
+    check.received("unmarked linter-rule").eval(r).pass;
   if (!reached) {
     throw new Error(
       `refs-hook nudge did not reach the model ` +

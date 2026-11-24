@@ -345,7 +345,7 @@ export function experimental_parseEmitted(
 
 /**
  * ⚠️ EXPERIMENTAL. Assert the run emitted a SUCCESS result, and return its value —
- * the emit-channel counterpart of `assertAgentOk`, for a skill that has no return
+ * the emit-channel counterpart of `experimental_assertAgentOk`, for a skill that has no return
  * value to assert on.
  *
  * Throws on a missing emit, a repeated emit, an error track, or a payload that

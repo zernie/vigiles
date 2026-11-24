@@ -1,4 +1,4 @@
-import { assertToolUsed, runHarnessTest } from "vigiles";
+import { assertChecks, check, runHarnessTest } from "vigiles";
 import { scriptModel } from "vigiles/claude-code";
 
 // The skill your plugin already ships.
@@ -7,4 +7,4 @@ const trace = await runHarnessTest({
   model: scriptModel([{ tool: "Skill", input: { skill: "scv-scan" } }]),
 });
 
-assertToolUsed(trace, "Skill"); // fails CI the day the skill stops resolving
+assertChecks(trace, [check.tool("Skill")]); // fails CI the day the skill stops resolving

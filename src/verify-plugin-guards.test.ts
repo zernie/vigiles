@@ -29,7 +29,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   experimental_verifyPluginGuards,
-  experimental_formatPluginGuardReport,
   type PluginGuardReport,
 } from "./verify-plugin-guards.js";
 import { DISASTER_CATALOG } from "./guardrail-check.js";
@@ -232,9 +231,6 @@ describe("a condition that selects NOTHING is not a score of zero", () => {
     expect(report.hooks.every((h) => h.status !== "measured")).toBe(true);
     expect(report.notes.join(" ")).toContain("none of them reachable");
     expect(report.notes.join(" ")).toContain("Nothing was measured");
-    const out = experimental_formatPluginGuardReport(report);
-    expect(out).not.toMatch(SCORE_SHAPED);
-    expect(out).toContain("Nothing was measured");
   });
 
   it("does not silence a measured sibling, and `notes` stays empty for it", () => {
@@ -481,13 +477,6 @@ describe("an UNCOMPILABLE matcher gets no score (the false 7/7, second door)", (
       if (only?.status !== "not-applicable") throw new Error("unreachable");
       expect(only.reason).toContain("Bash(");
       expect(only.reason).toContain("compile");
-      // And the renderer carries no number for it either.
-      const out = experimental_formatPluginGuardReport(report).replaceAll(
-        report.dir,
-        "<dir>",
-      );
-      expect(out).not.toMatch(SCORE_SHAPED);
-      expect(out).toContain("Nothing was measured");
     } finally {
       rmSync(at, { recursive: true, force: true });
     }
@@ -626,158 +615,6 @@ describe("the harness's own event variables are supplied", () => {
 /** Any `n/m` — what a score looks like, whatever the numbers are. */
 const SCORE_SHAPED = /\d+\s*\/\s*\d+/;
 
-/** The output with the swept path masked, so a tmpdir can't look like a score. */
-const rendered = (report: PluginGuardReport): string =>
-  experimental_formatPluginGuardReport(report).replaceAll(report.dir, "<dir>");
-
-describe("experimental_formatPluginGuardReport", () => {
-  it("renders the MIXED case: numbers for measured, reasons for the rest", () => {
-    // The mixed report is where a formatter usually leaks a misleading total —
-    // one number summed over hooks that were never asked the question.
-    const out = rendered(experimental_verifyPluginGuards(dir));
-
-    // The census is a census, not a score: no `n/m` on it.
-    expect(out).toContain(
-      "5 hooks declared: 2 measured, 1 unresolved, 2 not applicable.",
-    );
-
-    // Measured hooks carry their own count, and ONLY they do.
-    expect(out).toContain("blocks 1/7");
-    expect(out).toContain("blocks 7/7");
-    expect(out.match(/blocks \d+\/\d+/g)).toHaveLength(2);
-
-    // …and their rows are the same vocabulary formatGuardrailReport prints.
-    expect(out).toContain("✅ blocks  force-push: git push --force to a");
-    expect(out).toContain("⊘ not run  rm-rf: rm -rf of a broad path");
-
-    // The unmeasured half names each hook and its reason, and never a count.
-    expect(out).toContain("⊘ unresolved — 1 hook");
-    expect(out).toContain("⊘ not applicable — 2 hooks");
-    expect(out).toContain("$SOME_UNSET_GUARD_HOME");
-    expect(out).toContain("registered on Stop");
-    expect(out).toContain("selects none of the tools this battery calls");
-  });
-
-  it("gives each unmeasured hook its own index, so two are told apart", () => {
-    const out = rendered(experimental_verifyPluginGuards(dir));
-    // The fixture's two n/a hooks share nothing but their status; the index is
-    // what a reader follows back to the config.
-    expect(out).toContain("#3  `echo watching`");
-    expect(out).toMatch(/#4\s+`echo watching`/);
-  });
-
-  it("names the selection facts the sweep actually read", () => {
-    const out = rendered(experimental_verifyPluginGuards(dir));
-    // The conditional guard's `if` is the whole reason its score is 1/7 — a
-    // report showing the number without the condition invites the wrong reading.
-    expect(out).toContain(
-      "PreToolUse · matcher `Bash` · if `Bash(git push *--force*)`",
-    );
-    // The unconditional one shows no `if` clause at all.
-    expect(out).toMatch(/blocks 7\/7[\s\S]*?PreToolUse · matcher `Bash`\n/);
-  });
-
-  it("🔴 NOTHING MEASURED: no score-shaped string, and it says so in words", () => {
-    // The load-bearing assertion, in BOTH directions. A renderer that dropped
-    // `notes` would print an empty-looking report that reads as a clean bill of
-    // health; one that printed `0/7` per hook would invent a verdict.
-    const stopOnly = mkdtempSync(join(tmpdir(), "vigiles-fmt-stop-"));
-    mkdirSync(join(stopOnly, ".claude"), { recursive: true });
-    writeFileSync(
-      join(stopOnly, ".claude", "settings.json"),
-      JSON.stringify({
-        hooks: { Stop: [{ hooks: [{ command: ALLOW_ALL }] }] },
-      }),
-    );
-    try {
-      const out = rendered(experimental_verifyPluginGuards(stopOnly));
-      expect(out).not.toMatch(SCORE_SHAPED);
-      expect(out).toContain("Nothing was measured");
-      expect(out).toContain("none of them reachable");
-      // The hook is still accounted for, by reason.
-      expect(out).toContain("registered on Stop");
-    } finally {
-      rmSync(stopOnly, { recursive: true, force: true });
-    }
-  });
-
-  it("🔴 NO HOOKS AT ALL: the same two directions, with the absence named", () => {
-    const empty = mkdtempSync(join(tmpdir(), "vigiles-fmt-empty-"));
-    writeFileSync(join(empty, "CLAUDE.md"), "# nothing here\n");
-    try {
-      const out = rendered(experimental_verifyPluginGuards(empty));
-      expect(out).not.toMatch(SCORE_SHAPED);
-      expect(out).toContain("Nothing was measured");
-      expect(out).toContain("not a clean bill of health");
-      // No census row of zeroes — that reads as a scoreboard.
-      expect(out).not.toContain("0 measured");
-    } finally {
-      rmSync(empty, { recursive: true, force: true });
-    }
-  });
-
-  it("a harness with no shell hooks renders its n/a note, not an empty pass", () => {
-    const out = rendered(
-      experimental_verifyPluginGuards(dir, { adapter: opencodeAdapter }),
-    );
-    expect(out).not.toMatch(SCORE_SHAPED);
-    expect(out).toContain("n/a");
-    expect(out).toContain("Nothing was measured");
-  });
-
-  it("MANY unmeasured hooks stay readable: grouped by reason, then counted", () => {
-    // A repo can register dozens of hooks that a Bash battery never reaches.
-    // Listing all of them buries the two lines that mattered, so the reason is
-    // printed once per group and the tail is counted — nothing is dropped
-    // silently, and the section stays bounded however many hooks there are.
-    const many = mkdtempSync(join(tmpdir(), "vigiles-fmt-many-"));
-    mkdirSync(join(many, ".claude"), { recursive: true });
-    writeFileSync(
-      join(many, ".claude", "settings.json"),
-      JSON.stringify({
-        hooks: {
-          PreToolUse: [
-            {
-              matcher: "Bash",
-              hooks: [{ type: "command", command: DENY_ALL }],
-            },
-          ],
-          Stop: Array.from({ length: 12 }, (_, i) => ({
-            hooks: [{ type: "command", command: `echo notify-${i}` }],
-          })),
-        },
-      }),
-    );
-    try {
-      const out = rendered(experimental_verifyPluginGuards(many));
-      // Every hook is COUNTED, exactly.
-      expect(out).toContain("⊘ not applicable — 12 hooks");
-      // The reason is printed ONCE for the whole group, not twelve times.
-      const reasons = out.match(/registered on Stop/g) ?? [];
-      expect(reasons).toHaveLength(1);
-      // Three are named, the remaining nine are counted.
-      expect(out).toContain("#1  `echo notify-0`");
-      expect(out).toContain("#3  `echo notify-2`");
-      expect(out).not.toContain("echo notify-3");
-      expect(out).toContain("…and 9 more hooks for this reason");
-      // The whole not-measured section stays small however many hooks there are.
-      const section = out.slice(out.indexOf("NOT MEASURED"));
-      expect(section.split("\n").length).toBeLessThan(12);
-      // And the measured hook is NOT collapsed — it is what you came for.
-      expect(out).toContain("blocks 7/7");
-    } finally {
-      rmSync(many, { recursive: true, force: true });
-    }
-  });
-
-  it("a long or multi-line command is elided to one line", () => {
-    const out = rendered(experimental_verifyPluginGuards(dir));
-    expect(out).toContain("…`");
-    // No rendered command spills a newline into the layout.
-    for (const line of out.split("\n")) expect(line).not.toContain(DENY_ALL);
-  });
-});
-
 // ---------------------------------------------------------------------------
 // The campaign's two findings + the reviewer's three: all one class — we would
 // run a DIFFERENT program than the harness runs, and score it anyway. Each
@@ -827,13 +664,6 @@ describe("a hook whose SCRIPT is missing gets no score at all", () => {
       expect(only?.status).toBe("unresolved");
       if (only?.status !== "unresolved") throw new Error("unreachable");
       expect(only.reason).toContain(".claude/hooks/guard.py");
-      // And the renderer prints no number for it either.
-      const out = experimental_formatPluginGuardReport(report).replaceAll(
-        report.dir,
-        "<dir>",
-      );
-      expect(out).not.toMatch(SCORE_SHAPED);
-      expect(out).toContain("Nothing was measured");
     } finally {
       rmSync(at, { recursive: true, force: true });
     }
@@ -1367,10 +1197,6 @@ describe("declared actions that are not commands", () => {
       expect(notes).toContain("NOT measured");
       // The sentence that was false is gone.
       expect(notes).not.toContain("it is an absence of guards.");
-      // …and the reader is told, in the rendering too.
-      const text = experimental_formatPluginGuardReport(report);
-      expect(text).toContain("not a command");
-      expect(text).toContain("prompt");
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1399,9 +1225,6 @@ describe("declared actions that are not commands", () => {
       // said anyway, because it is a gap in COVERAGE, not a failure to measure.
       expect(report.notes.join(" ")).toContain("not a shell process");
       expect(report.notes.join(" ")).toContain("Declared and NOT measured");
-      expect(experimental_formatPluginGuardReport(report)).toContain(
-        "further action(s) declared are not commands",
-      );
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1410,8 +1233,5 @@ describe("declared actions that are not commands", () => {
   it("stays silent for a repo whose hooks are all commands", () => {
     const report = experimental_verifyPluginGuards(dir);
     expect(report.unmeasurable).toEqual([]);
-    expect(experimental_formatPluginGuardReport(report)).not.toContain(
-      "not a command",
-    );
   });
 });

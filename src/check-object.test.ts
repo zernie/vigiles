@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import {
   check,
   assertChecks,
+  type Check,
   tool,
   toolWith,
   skill,
@@ -321,4 +322,170 @@ describe("check.runs — the compiled-hook shell parser over ToolCall.shell", ()
       ]);
     }, /1 of 1 check\(s\) failed/);
   });
+});
+
+// --- the members that replaced the last throwing assertions over a run ------
+
+import type { HookRunResult } from "./run-hook.js";
+
+function hookResult(over: Partial<HookRunResult> = {}): HookRunResult {
+  return {
+    exitCode: 0,
+    stdout: "",
+    stderr: "",
+    json: null,
+    blocked: false,
+    haltsTurn: false,
+    blockedBy: [],
+    egress: [],
+    filesWritten: [],
+    decision: undefined,
+    ran: true,
+    conditionReason: "no condition declared",
+    delivery: { kind: "silent" },
+    ...over,
+  };
+}
+
+describe("check.delivered — a nudge's text reached the model", () => {
+  test("passes on delivered; each other verdict fails with its own cause", () => {
+    assert.equal(
+      check.delivered().eval(
+        hookResult({
+          delivery: {
+            kind: "delivered",
+            via: ["additional-context"],
+            stranded: [],
+          },
+        }),
+      ).pass,
+      true,
+    );
+    const why = (delivery: HookRunResult["delivery"], ran = true) =>
+      check.delivered().eval(hookResult({ delivery, ran })).message;
+    assert.match(
+      why({
+        kind: "undelivered",
+        stranded: [{ stream: "stderr", bytes: 237, why: "dead stream" }],
+      }),
+      /237 bytes on stderr: dead stream/,
+    );
+    assert.match(
+      why({ kind: "silent" }),
+      /printed nothing addressed to the model/,
+    );
+    assert.match(why({ kind: "silent" }, false), /never ran/);
+    assert.match(
+      why({ kind: "blocked", stranded: [] }),
+      /a block is not a nudge/,
+    );
+    assert.match(
+      why({
+        kind: "unknown",
+        event: "Notification",
+        why: "no row for Notification",
+      }),
+      /cannot be judged: no row/,
+    );
+    assert.deepEqual(check.delivered().toJSON(), { kind: "delivered" });
+  });
+});
+
+describe("check.egressOnly / check.noWrite / check.wroteOnly — a confined run's effects", () => {
+  const reached = hookResult({
+    egress: [
+      { host: "registry.npmjs.org", port: 443, ts: 1 },
+      { host: "evil.example", port: 80, ts: 2 },
+    ],
+    filesWritten: [".omc/state/x.json", "out.txt"],
+  });
+
+  test("egressOnly: [] means nowhere; an allowlist names the offender", () => {
+    assert.equal(check.egressOnly([]).eval(hookResult()).pass, true);
+    assert.match(
+      check.egressOnly([]).eval(reached).message,
+      /registry\.npmjs\.org:443, evil\.example:80/,
+    );
+    assert.equal(
+      check.egressOnly(["registry.npmjs.org", /evil\./]).eval(reached).pass,
+      true,
+    );
+  });
+
+  test("noWrite and wroteOnly name the file; unrecorded writes FAIL, not pass", () => {
+    assert.equal(check.noWrite(".env").eval(reached).pass, true);
+    assert.match(check.noWrite(/\.json$/).eval(reached).message, /x\.json/);
+    assert.match(
+      check.wroteOnly([/^\.omc\//]).eval(reached).message,
+      /out\.txt/,
+    );
+    assert.equal(
+      check.wroteOnly([/^\.omc\//, "out.txt"]).eval(reached).pass,
+      true,
+    );
+    const unrecorded: { readonly filesWritten?: readonly string[] } = {};
+    assert.equal(check.noWrite(".env").eval(unrecorded).pass, false);
+    assert.match(check.wroteOnly([]).eval(unrecorded).message, /record/);
+  });
+
+  test("they compose with assertChecks", () => {
+    assert.throws(() => {
+      const effects: readonly Check<HookRunResult>[] = [
+        check.egressOnly([]),
+        check.noWrite("out.txt"),
+      ];
+      assertChecks(reached, effects);
+    }, /evil\.example[\s\S]*out\.txt/);
+  });
+});
+
+describe("check.tokens — one budget check for every token class", () => {
+  const run = (u: Partial<Record<string, number>>) => ({
+    usage: {
+      costUsd: 0,
+      durationMs: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheCreationTokens: 0,
+      cacheReadTokens: 0,
+      ...u,
+    },
+  });
+  test("max, maxInput, maxOutput and maxCache each bound their class", () => {
+    assert.equal(
+      check.tokens({ max: 10 }).eval(run({ inputTokens: 4, outputTokens: 5 }))
+        .pass,
+      true,
+    );
+    assert.match(
+      check.tokens({ max: 8 }).eval(run({ inputTokens: 4, outputTokens: 5 }))
+        .message,
+      /9/,
+    );
+    assert.match(
+      check.tokens({ maxInput: 3 }).eval(run({ inputTokens: 4 })).message,
+      /input/,
+    );
+    assert.match(
+      check.tokens({ maxOutput: 3 }).eval(run({ outputTokens: 4 })).message,
+      /output/,
+    );
+    assert.match(
+      check
+        .tokens({ maxCache: 5 })
+        .eval(run({ cacheCreationTokens: 3, cacheReadTokens: 3 })).message,
+      /cache/,
+    );
+    assert.deepEqual(check.tokens({ maxInput: 3, maxCache: 5 }).toJSON(), {
+      kind: "tokens",
+      maxInput: 3,
+      maxCache: 5,
+    });
+  });
+});
+
+test("the flat input/output/cache token members are folded into check.tokens", () => {
+  for (const gone of ["inputTokens", "outputTokens", "cacheTokens"]) {
+    assert.ok(!(gone in check), `check.${gone} is folded into check.tokens`);
+  }
 });

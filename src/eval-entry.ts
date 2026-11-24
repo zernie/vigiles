@@ -22,7 +22,7 @@
  *      hand-write as `if (report.n === 0) throw`;
  *   7. fails — exit 2, before `assert` — on a `runEval` report with a stub call
  *      no rule answered: such a trial measured an answer nobody wrote, and the
- *      file's own `assert` may not look (most call only `compareArms`);
+ *      file's own `assert` may not look (most call only `compare`);
  *   8. calls `assert(report)`.
  *
  * ## Not a CLI verb

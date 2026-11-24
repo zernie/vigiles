@@ -59,7 +59,8 @@ import {
   scriptModel,
   claudeAvailable,
 } from "../../dist/harness-test.js";
-import { requestContains, skip } from "../../dist/harness-assert.js";
+import { skip } from "../../dist/harness-assert.js";
+import { check } from "../../dist/check.js";
 import { claudeCodeHookProtocol } from "../../dist/adapters/claude-code/hook-protocol.js";
 import { onPathClaudeVersion } from "../../dist/adapters/claude-code/dialect-drift.js";
 
@@ -168,7 +169,7 @@ try {
     (r.file("fired.ndjson") ?? "").split("\n").filter(Boolean),
   );
   const landed = new Set(
-    declared.filter((e) => requestContains(r, markerFor(e))),
+    declared.filter((e) => check.received(markerFor(e)).eval(r).pass),
   );
 
   for (const e of declared) {
