@@ -719,12 +719,13 @@ const GIT_VALUE_OPTS: ReadonlySet<string> = new Set([
  */
 function subcommandIndex(head: string, args: readonly string[]): number {
   if (head !== "git") return args.length > 0 ? 0 : -1;
-  for (let i = 0; i < args.length; i++) {
-    const a = args[i] ?? "";
+  const from = (i: number): number => {
+    const a = args[i];
+    if (a === undefined) return -1;
     if (!a.startsWith("-")) return i;
-    if (GIT_VALUE_OPTS.has(a)) i++;
-  }
-  return -1;
+    return from(GIT_VALUE_OPTS.has(a) ? i + 2 : i + 1);
+  };
+  return from(0);
 }
 
 /**
