@@ -21,24 +21,35 @@ import { check, skill } from "../../check.js";
 import type { Trace } from "../../core/eval-driver.js";
 import type { ToolCall } from "../../core/harness-driver.js";
 
+/** One completed command: its text, or its text with how it ended. */
+type Command =
+  | string
+  | {
+      readonly command: string;
+      readonly exit: number;
+      readonly output: string;
+    };
+
 /** A `codex exec --json` stream with one completed command per entry. */
-function stream(...commands: string[]): string {
+function stream(...commands: readonly Command[]): string {
   return [
     `{"type":"thread.started","thread_id":"t"}`,
     `{"type":"turn.started"}`,
-    ...commands.map((command, i) =>
-      JSON.stringify({
+    ...commands.map((c, i) => {
+      const { command, exit, output } =
+        typeof c === "string" ? { command: c, exit: 0, output: "" } : c;
+      return JSON.stringify({
         type: "item.completed",
         item: {
           id: `item_${String(i)}`,
           type: "command_execution",
           command,
-          aggregated_output: "",
-          exit_code: 0,
+          aggregated_output: output,
+          exit_code: exit,
           status: "completed",
         },
-      }),
-    ),
+      });
+    }),
     `{"type":"item.completed","item":{"id":"m","type":"agent_message","text":"done"}}`,
     `{"type":"turn.completed","usage":{"input_tokens":1,"output_tokens":1}}`,
   ].join("\n");
@@ -126,6 +137,38 @@ describe("Trace.skills — a SKILL.md read is an activation", () => {
       assert.equal(r.pass, false);
       assert.match(r.message, /expected skill "x" to resolve/);
     });
+
+  test("a later, unrelated failure in the same command does not error the read", () => {
+    // The command's exit status is the LAST statement's; the old codexSkillFired
+    // ignored it, and a read that printed the skill did happen.
+    for (const command of [
+      "cat skills/x/SKILL.md; false",
+      "cat skills/x/SKILL.md && npm test",
+      "cat skills/x/SKILL.md | grep nothing-matches",
+    ]) {
+      const r = skill("x").eval(
+        traceOf(stream({ command, exit: 1, output: "---\nname: x\n---" })),
+      );
+      assert.equal(r.pass, true, `${command}: ${r.message}`);
+    }
+  });
+
+  test("a read that is the whole command and failed is an errored activation", () => {
+    const r = skill("x").eval(
+      traceOf(
+        stream({
+          command: `/bin/bash -lc 'cat skills/x/SKILL.md'`,
+          exit: 1,
+          output: "cat: skills/x/SKILL.md: No such file or directory",
+        }),
+      ),
+    );
+    assert.equal(r.pass, false);
+    assert.match(
+      r.message,
+      /invoked but errored: cat: skills\/x\/SKILL.md: No such file/,
+    );
+  });
 
   test("a skill that left only its effects is a miss no parser can recover", () => {
     // Documented, not fixed: nothing in `node verify-cites.mjs` names the skill.
