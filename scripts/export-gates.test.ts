@@ -329,3 +329,40 @@ describe("gate 1: every export carries a release tag", () => {
     assert.equal(run(false), 0, "the same shape, tagged @public, passes");
   });
 });
+
+describe("entryExports: type-only re-exports are types, not runtime exports", () => {
+  test("`export type { C }` of a class does not count against the budget, `export { C }` does", () => {
+    const dir = mkdtempSync(join(tmpdir(), "type-only-"));
+    try {
+      writeFileSync(
+        join(dir, "package.json"),
+        JSON.stringify({
+          name: "fx",
+          type: "module",
+          exports: { "./a": "./a.ts", "./b": "./b.ts" },
+        }),
+      );
+      writeFileSync(
+        join(dir, "tsconfig.json"),
+        JSON.stringify({
+          compilerOptions: { module: "nodenext", strict: true },
+        }),
+      );
+      writeFileSync(
+        join(dir, "impl.ts"),
+        "export class C {}\nexport function f() {}\n",
+      );
+      writeFileSync(
+        join(dir, "a.ts"),
+        'export type { C } from "./impl.js";\nexport { f } from "./impl.js";\n',
+      );
+      writeFileSync(join(dir, "b.ts"), 'export { C } from "./impl.js";\n');
+      const e = entryExports(dir);
+      assert.deepEqual([...(e.get("./a")?.values.keys() ?? [])], ["f"]);
+      assert.equal(e.get("./a")?.types.has("C"), true);
+      assert.deepEqual([...(e.get("./b")?.values.keys() ?? [])], ["C"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

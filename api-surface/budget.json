@@ -30,7 +30,7 @@
       ]
     },
     "./rule-proof": {
-      "ceiling": 3,
+      "ceiling": 1,
       "grandfathered": []
     },
     "./hook": {

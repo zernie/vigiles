@@ -68,6 +68,12 @@ export function entryExports(root) {
         sym.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(sym) : sym;
       const name = sym.getName();
       if (name === "default") continue;
+      // `export type { X }` (or an `import type` anywhere along the re-export
+      // chain) ships no runtime value even when X is a class: count it as a type.
+      if (typeOnlyAlias(checker, sym)) {
+        types.add(name);
+        continue;
+      }
       if (target.flags & ts.SymbolFlags.Function) values.set(name, "function");
       else if (target.flags & ts.SymbolFlags.Class) values.set(name, "class");
       else if (target.flags & ts.SymbolFlags.Enum) values.set(name, "enum");
@@ -112,4 +118,28 @@ export function budgetNames(entry) {
     else names.push(name);
   }
   return names.sort();
+}
+
+/**
+ * True when any hop of an alias chain is type-only: `export type { X }`,
+ * `export type * from`, or an `import type` that a later `export { X }` re-exports.
+ * Such a name has no runtime value, whatever the declaration it points at.
+ */
+function typeOnlyAlias(checker, sym) {
+  let current = sym;
+  for (let hop = 0; hop < 32 && current.flags & ts.SymbolFlags.Alias; hop++) {
+    for (const d of current.declarations ?? []) {
+      if (
+        (ts.isExportSpecifier(d) || ts.isImportSpecifier(d)) &&
+        (d.isTypeOnly || d.parent.parent.isTypeOnly)
+      )
+        return true;
+      if (ts.isImportClause(d) && d.isTypeOnly) return true;
+      if (ts.isNamespaceExport(d) && d.parent.isTypeOnly) return true;
+    }
+    const next = checker.getImmediateAliasedSymbol(current);
+    if (!next || next === current) break;
+    current = next;
+  }
+  return false;
 }
