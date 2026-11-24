@@ -198,7 +198,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 651 project files. */
+  /** 657 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -395,6 +395,9 @@ declare module "vigiles/generated" {
     | "src/core/audit-snapshot.ts"
     | "src/core/baseline-store.test.ts"
     | "src/core/baseline-store.ts"
+    | "src/core/bash-dirs-table.test.ts"
+    | "src/core/bash-dirs-table.ts"
+    | "src/core/bash-dirs.ts"
     | "src/core/bash-effects-nested.test.ts"
     | "src/core/bash-effects-normalized.test.ts"
     | "src/core/bash-effects.test.ts"
@@ -482,6 +485,7 @@ declare module "vigiles/generated" {
     | "src/core/hook-normalize.test.ts"
     | "src/core/hook-normalize.ts"
     | "src/core/hook-paths.ts"
+    | "src/core/hook-program-dirs.test.ts"
     | "src/core/hook-program-nested-shell.test.ts"
     | "src/core/hook-program.test.ts"
     | "src/core/hook-program.ts"
@@ -683,6 +687,8 @@ declare module "vigiles/generated" {
     | "src/hook-check.test.ts"
     | "src/hook-check.ts"
     | "src/hook-condition.test.ts"
+    | "src/hook-dirs-oracle.test.ts"
+    | "src/hook-dirs.test.ts"
     | "src/hook-dogfood.test.ts"
     | "src/hook-install.test.ts"
     | "src/hook-install.ts"
@@ -1215,6 +1221,9 @@ declare module "vigiles/spec" {
       | "src/core/audit-snapshot.ts"
       | "src/core/baseline-store.test.ts"
       | "src/core/baseline-store.ts"
+      | "src/core/bash-dirs-table.test.ts"
+      | "src/core/bash-dirs-table.ts"
+      | "src/core/bash-dirs.ts"
       | "src/core/bash-effects-nested.test.ts"
       | "src/core/bash-effects-normalized.test.ts"
       | "src/core/bash-effects.test.ts"
@@ -1302,6 +1311,7 @@ declare module "vigiles/spec" {
       | "src/core/hook-normalize.test.ts"
       | "src/core/hook-normalize.ts"
       | "src/core/hook-paths.ts"
+      | "src/core/hook-program-dirs.test.ts"
       | "src/core/hook-program-nested-shell.test.ts"
       | "src/core/hook-program.test.ts"
       | "src/core/hook-program.ts"
@@ -1503,6 +1513,8 @@ declare module "vigiles/spec" {
       | "src/hook-check.test.ts"
       | "src/hook-check.ts"
       | "src/hook-condition.test.ts"
+      | "src/hook-dirs-oracle.test.ts"
+      | "src/hook-dirs.test.ts"
       | "src/hook-dogfood.test.ts"
       | "src/hook-install.test.ts"
       | "src/hook-install.ts"

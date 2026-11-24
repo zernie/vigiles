@@ -39,6 +39,15 @@ export interface BashToolEvent<N extends readonly NeedSpec[] = readonly Provider
 // @public
 export function checkHookImports(source: string): string[];
 
+// @public
+export type CommandDirs = {
+    readonly kind: "candidates";
+    readonly dirs: readonly string[];
+} | {
+    readonly kind: "unresolved";
+    readonly reason: UnresolvedDir | "no-start-dir";
+};
+
 // @public @deprecated
 export type CommandView = ShellCommand;
 
@@ -359,7 +368,7 @@ export function outcomeWrites(outcome: HookProgramOutcome): {
 export function parseFilePath(raw: string, root?: string): FilePath;
 
 // @public
-export function parseShellCommand(raw: string, root?: string): ShellCommand;
+export function parseShellCommand(raw: string, root?: string, start?: string): ShellCommand;
 
 // @public @deprecated
 export type PathView = FilePath;
@@ -532,6 +541,7 @@ export interface SessionEvent<N extends readonly NeedSpec[] = readonly ProviderN
 
 // @public
 export interface ShellCommand {
+    dirs(program?: string): CommandDirs;
     isSideEffecting(): boolean;
     pipesToShell(): boolean;
     readonly raw: string;
@@ -621,6 +631,21 @@ export interface ToolReactEvent<N extends readonly NeedSpec[] = readonly Provide
 export const tools: <const T extends readonly string[]>(...names: T) => {
     readonly tools: T;
 };
+
+// @public
+export type UnresolvedDir =
+/** A construct outside the grammar somewhere in the line (rule 5). */
+"outside-grammar"
+/** A `cd`/`pushd`/`popd` word the grammar did not consume (rule 4). */
+| "uncounted-cd"
+/** A `cd` the grammar does not read: a bare name, `-`, no operand, an option. */
+| "unread-cd"
+/** After a `;` or `||`: an earlier `cd` may have failed. */
+| "after-break"
+/** A word of the leaf is not plain text (quotes, `$`, glob, `~`, …). */
+| "unplain-word"
+/** An option outside its table, a `..` in a table value, a repository override. */
+| "unread-option";
 
 // @public
 export function verifyHookStamp(source: string, stamp: SHA256Hash): boolean;
