@@ -149,6 +149,12 @@ const PARALLEL = [
   // The budget file cannot vouch for itself: shrink-only is judged against the
   // base branch's copy (CI's `check` job fetches full history).
   { name: "budget-shrink", cmd: "node scripts/check-budget-shrink.mjs" },
+  // Same for eslint-suppressions.json: ESLint fails on a stale suppression, but
+  // only the base branch's copy can show one that `--suppress-all` added.
+  {
+    name: "suppressions-shrink",
+    cmd: "node scripts/check-suppressions-shrink.mjs",
+  },
   { name: "typedoc", cmd: "npx typedoc" },
   {
     name: "corpus-guards",

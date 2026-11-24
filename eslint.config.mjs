@@ -1,10 +1,11 @@
 import eslint from "@eslint/js";
 import tseslint from "@typescript-eslint/eslint-plugin";
 import tsparser from "@typescript-eslint/parser";
+import eslintComments from "@eslint-community/eslint-plugin-eslint-comments";
 import sonarjs from "eslint-plugin-sonarjs";
 import globals from "globals";
 
-import { readdirSync, readFileSync } from "node:fs";
+import { readdirSync } from "node:fs";
 
 import experimentalName from "./eslint-rules/experimental-name.mjs";
 import frameMint from "./eslint-rules/frame-mint.mjs";
@@ -23,7 +24,7 @@ import {
   AS_UNKNOWN_AS,
   ONE_COLLECTION_LIBRARY,
   PURE_LIBRARIES,
-  ceilings,
+  SIZE_LIMITS,
   functionalCode,
   ioGlobals,
   layers,
@@ -325,9 +326,6 @@ const reportViewFences = {
   },
 };
 
-/** Per-file ceilings for functions older than the size limits. Generated, then only lowered. */
-const CEILINGS = JSON.parse(readFileSync("eslint-ceilings.json", "utf8"));
-
 /**
  * The same invariant over `src/cli-main.ts`, narrowed from "may not SPELL a
  * harness" to "may not DECIDE by one" — because in the composition root the
@@ -386,6 +384,22 @@ export default [
     ignores: ["dist/", "node_modules/", "test/dogfood/", "src/*.md.spec.ts"],
   },
   eslint.configs.recommended,
+  // SonarJS's recommended set, before our own blocks so their settings win
+  // (cognitive-complexity 5 from packages/eslint-config, not Sonar's 15). Only
+  // its rules: the next block registers the plugin, and ESLint refuses a second
+  // registration of the same name.
+  {
+    files: ["src/**/*.ts"],
+    rules: {
+      ...sonarjs.configs.recommended.rules,
+      // Security hotspots, not defects: they flag every process spawn, every
+      // command found on PATH and every temp directory. Running the user's
+      // linters and harness binaries in scratch directories is this tool's job.
+      "sonarjs/os-command": "off",
+      "sonarjs/no-os-command-from-path": "off",
+      "sonarjs/publicly-writable-directories": "off",
+    },
+  },
   {
     files: ["src/**/*.ts"],
     languageOptions: {
@@ -620,9 +634,25 @@ export default [
     },
   },
   // The strict rules shared with paperlint (packages/eslint-config). Old code is
-  // grandfathered: counting rules in eslint-suppressions.json, function sizes in
-  // eslint-ceilings.json. Both may only shrink.
+  // grandfathered in eslint-suppressions.json (ESLint's own bulk suppressions),
+  // which may only shrink: ESLint fails on a suppression nothing needs any more.
   strictTypeScript(["src/**/*.ts"]),
+  // The other way around a limit: an inline `eslint-disable` for it. Disabling a
+  // size or SonarJS rule in a comment is refused, so the only exception left is a
+  // suppression, which may only shrink (scripts/check-suppressions-shrink.mjs).
+  // A bare `eslint-disable` (every rule at once) is refused for the same reason.
+  {
+    files: ["src/**/*.ts"],
+    plugins: { "@eslint-community/eslint-comments": eslintComments },
+    rules: {
+      "@eslint-community/eslint-comments/no-restricted-disable": [
+        "error",
+        ...Object.keys(SIZE_LIMITS),
+        "sonarjs/*",
+      ],
+      "@eslint-community/eslint-comments/no-unlimited-disable": "error",
+    },
+  },
   functionalCode({ files: ["src/**/*.ts"], ignores: ["src/**/*.test.ts"] }),
   layers({
     files: ["src/**/*.ts"],
@@ -673,6 +703,4 @@ export default [
     },
   },
   testSizes(["src/**/*.test.ts"]),
-  // Last, so a ceiling overrides the limit it raises.
-  ...ceilings(CEILINGS),
 ];

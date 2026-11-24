@@ -11,9 +11,8 @@
  * eslint-plugin-functional and eslint-plugin-sonarjs itself, and the imports
  * below resolve to that copy.
  *
- * What each repo keeps for itself: its folder layout (passed to `layers`), its
- * ceiling table for old functions (passed to `ceilings`) and its
- * eslint-suppressions.json.
+ * What each repo keeps for itself: its folder layout (passed to `layers`) and
+ * its eslint-suppressions.json.
  */
 import boundaries from "eslint-plugin-boundaries";
 import functional from "eslint-plugin-functional";
@@ -36,24 +35,48 @@ export const AS_UNKNOWN_AS = {
     "`as unknown as` switches the type checker off. Convert with a function, or fix the type.",
 };
 
-/** A function is one job; at thirty lines a second one starts to hide. */
-const MAX_LINES = { max: 30, skipComments: true, skipBlankLines: true };
+/**
+ * The size limits, each the strictest default a published tool ships, so no
+ * number here is hand-picked:
+ *
+ * | rule                   | limit | from                                       |
+ * | ---------------------- | ----- | ------------------------------------------ |
+ * | max-lines (file)       | 250   | Code Climate `file-lines`                  |
+ * | max-lines-per-function | 25    | Code Climate `method-lines`                |
+ * | max-statements         | 10    | ESLint's default                           |
+ * | cognitive complexity   | 5     | Code Climate `method-complexity`           |
+ * | complexity             | 10    | ours; stricter than any published default  |
+ * | max-depth              | 3     | ours; stricter than any published default  |
+ * | max-params             | 3     | ESLint's default                           |
+ * | max-nested-callbacks   | 3     | ours; stricter than any published default  |
+ *
+ * Tests get twice the line and statement limits (see `testSizes`): a test file
+ * is a list of cases, and a test reads top to bottom.
+ */
+const LINE_COUNT = { skipComments: true, skipBlankLines: true };
+const MAX_FUNCTION_LINES = 25;
+const MAX_FILE_LINES = 250;
 
 /**
- * Limits on the size of a function. These rules report one finding per function
- * however far over the limit it is, so a suppressed finding would let the
- * function keep growing. Old functions get a ceiling instead (see `ceilings`).
+ * Old code is grandfathered in the repo's eslint-suppressions.json. A
+ * suppression counts findings, not their size: a grandfathered function can
+ * still grow, and only a NEW oversized one fails.
  */
 export const SIZE_LIMITS = {
   complexity: 10,
-  "sonarjs/cognitive-complexity": 10,
+  "sonarjs/cognitive-complexity": 5,
   "max-depth": 3,
-  "max-params": 4,
-  "max-lines-per-function": MAX_LINES.max,
+  "max-params": 3,
+  "max-statements": 10,
+  "max-lines-per-function": MAX_FUNCTION_LINES,
+  "max-lines": MAX_FILE_LINES,
   "max-nested-callbacks": 3,
 };
 
 /** @typedef {keyof typeof SIZE_LIMITS} SizeRule */
+
+/** The rules that count lines, and so skip comments and blank lines. */
+const COUNTS_LINES = new Set(["max-lines-per-function", "max-lines"]);
 
 /**
  * @param {string} rule
@@ -61,9 +84,7 @@ export const SIZE_LIMITS = {
  * @returns {RuleEntry}
  */
 const sizeRule = (rule, n) =>
-  rule === "max-lines-per-function"
-    ? ["error", { ...MAX_LINES, max: n }]
-    : ["error", n];
+  COUNTS_LINES.has(rule) ? ["error", { ...LINE_COUNT, max: n }] : ["error", n];
 
 /**
  * The strict rules for TypeScript source. Needs the @typescript-eslint plugin registered.
@@ -103,24 +124,18 @@ export const strictTypeScript = (files) => ({
  */
 export const testSizes = (files) => ({
   files,
-  rules: { "max-lines-per-function": sizeRule("max-lines-per-function", 60) },
-});
-
-/**
- * Per-file ceilings for functions written before the limits: each number is the
- * file's measured maximum, so its functions may shrink and may not grow. Lower a
- * number after a refactor; a file leaves the table once it is under the limits.
- *
- * @param {Record<string, Partial<Record<SizeRule, number>>>} table
- * @returns {Config[]}
- */
-export const ceilings = (table) =>
-  Object.entries(table).map(([file, max]) => ({
-    files: [file],
-    rules: Object.fromEntries(
-      Object.entries(max).map(([rule, n]) => [rule, sizeRule(rule, n)]),
+  rules: {
+    "max-lines-per-function": sizeRule(
+      "max-lines-per-function",
+      2 * MAX_FUNCTION_LINES,
     ),
-  }));
+    "max-lines": sizeRule("max-lines", 2 * MAX_FILE_LINES),
+    "max-statements": sizeRule(
+      "max-statements",
+      2 * SIZE_LIMITS["max-statements"],
+    ),
+  },
+});
 
 /**
  * No `let`, no mutation, no loops, readonly parameters. Tests may mutate their fixtures.

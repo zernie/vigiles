@@ -9,5 +9,5 @@
     "moduleResolution": "nodenext",
     "target": "es2022"
   },
-  "files": ["packages/eslint-config/index.mjs", "scripts/lint-ceilings.mjs"]
+  "files": ["packages/eslint-config/index.mjs"]
 }

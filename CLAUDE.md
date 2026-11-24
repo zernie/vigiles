@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:5fe2c139f936a4d6 compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:ea9e493f19b5951b compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -129,7 +129,7 @@ BUILD + TOOLING + GENERATED:
 ### Cognitive Complexity
 
 **Enforced by:** `sonarjs/cognitive-complexity`
-**Why:** Keep functions under 10 cognitive complexity (the shared limit in packages/eslint-config).
+**Why:** Keep functions at or below 5 cognitive complexity (the shared limit in packages/eslint-config).
 
 ### Core Not Adapter
 
