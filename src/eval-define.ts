@@ -7,7 +7,7 @@
  *
  *   const report = await measureTriggerRate({ … });    // ← top level
  *   console.log(formatTriggerRateReport(report));
- *   assertTriggerRate(report, { min: 0.6 });
+ *   assertRates(report, { min: 0.6 });
  *
  * In ESM, `import` IS execution. So the cheapest imaginable question — "does
  * this file even parse?" — answered with `import()` launched a real, paid run
@@ -17,7 +17,7 @@
  *
  *   export default defineEval({
  *     measureTriggerRate: { … },                       // ← data
- *     assert: (r) => assertTriggerRate(r, { min: 0.6 }),
+ *     assert: (r) => assertRates(r, { min: 0.6 }),
  *   });
  *
  * `defineEval` builds a plain value. There is nothing in it to run, so importing

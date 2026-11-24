@@ -1133,7 +1133,7 @@ export function evalTierQuestion(kind: SurfaceKind): string | null {
         `competitors instead of failing (measured).\n` +
         `See the \`test-harness\` skill: run the real-model tier (\`runEval\` / ` +
         `\`measure\`) and keep the assertions your deterministic test already ` +
-        `makes — \`check.subagent(name, [...])\` for the nested trace, \`check.notTool\` for ` +
+        `makes — \`check.subagent(name, [...])\` for the nested trace, \`check.tool(name, { max: 0 })\` for ` +
         `the tool contract, \`experimental_assertAgentOk\` for the typed result. Those two ` +
         `calls drive Claude Code and take no \`evalDriver\`, so on another ` +
         `harness this tier has no public dispatch yet.`

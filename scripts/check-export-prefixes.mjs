@@ -66,10 +66,7 @@ export const SURFACES = [
       "compare",
       "assertImproves",
       "assertNoRegression",
-      "assertTriggerRate",
       "assertRates",
-      "readBaseline",
-      "writeBaseline",
       // Builds the arms a paid eval runs; its one proving run uses the scripted model.
       "experimental_outputStyleArms",
     ],

@@ -24,10 +24,10 @@ import { check, assertChecks } from "./check.js";
 
 // The v50 throwing forms, as the checks that replaced them.
 const assertNoWrite = (
-  r: Parameters<ReturnType<typeof check.noWrite>["eval"]>[0],
+  r: { readonly filesWritten?: readonly string[] },
   pattern: string | RegExp,
 ): void => {
-  assertChecks(r, [check.noWrite(pattern)]);
+  assertChecks(r, [check.writes({ none: [pattern] })]);
 };
 
 /** A temp dir holding one script file. */

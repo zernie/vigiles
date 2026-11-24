@@ -18,10 +18,6 @@
     "max-depth": 4,
     "sonarjs/cognitive-complexity": 11
   },
-  "src/adapters/claude-code/agent-result.ts": {
-    "max-lines-per-function": 42,
-    "complexity": 11
-  },
   "src/adapters/claude-code/agent-runtime.ts": {
     "sonarjs/cognitive-complexity": 11
   },
@@ -114,6 +110,10 @@
     "max-lines-per-function": 43,
     "sonarjs/cognitive-complexity": 11,
     "complexity": 15
+  },
+  "src/core/agent-result.ts": {
+    "max-lines-per-function": 42,
+    "complexity": 11
   },
   "src/core/bash-effects.ts": {
     "max-lines-per-function": 49,
@@ -520,7 +520,7 @@
     "complexity": 11
   },
   "src/run-hook.ts": {
-    "max-lines-per-function": 41
+    "max-lines-per-function": 40
   },
   "src/run-script.ts": {
     "max-lines-per-function": 85

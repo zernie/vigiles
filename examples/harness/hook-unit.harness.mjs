@@ -39,14 +39,14 @@ const blocked = runHook(guard, {
   tool_name: "Bash",
   tool_input: { command: "git commit --no-verify -m wip" },
 });
-assertChecks(blocked, [check.blocked()]);
+assertChecks(blocked, [check.hookFired("PreToolUse", { blocked: true })]);
 
 const allowed = runHook(guard, {
   hook_event_name: "PreToolUse",
   tool_name: "Bash",
   tool_input: { command: "git commit -m wip" },
 });
-assertChecks(allowed, [check.allowed()]);
+assertChecks(allowed, [check.hookFired("PreToolUse", { blocked: false })]);
 
 console.log(
   "  ✓ guard blocks --no-verify and allows a clean commit (no claude needed)",

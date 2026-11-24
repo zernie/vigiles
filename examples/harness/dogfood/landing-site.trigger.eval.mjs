@@ -24,7 +24,7 @@
  */
 import { defineEval } from "../../../dist/entries/index.js";
 import { check } from "../../../dist/check.js";
-import { assertTriggerRate } from "../../../dist/entries/eval.js";
+import { assertRates } from "../../../dist/entries/eval.js";
 import { fileURLToPath } from "node:url";
 
 const skillsDir = fileURLToPath(
@@ -70,7 +70,7 @@ export default defineEval({
     trials: 1,
   },
   assert: (report) => {
-    assertTriggerRate(report, { min: 0.7, maxFalsePositive: 0.2 });
+    assertRates(report, { min: 0.7, maxFalsePositive: 0.2 });
     console.log(`\n✓ ${skill}: recall + precision within bounds.`);
   },
 });

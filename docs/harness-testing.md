@@ -37,7 +37,7 @@ const r = runHook(
   { env: { GUARD: guardPath } },
 );
 
-assertChecks(r, [check.blocked()]); // exit 2 / decision:"block" / permissionDecision:"deny"
+assertChecks(r, [check.hookFired("PreToolUse", { blocked: true })]); // exit 2 / decision:"block" / permissionDecision:"deny"
 ```
 
 A red ✗ means your guard silently lets `--no-verify` through. That's the whole
@@ -105,13 +105,12 @@ teaches the reader the field means nothing.
 
 **Asserting what it wrote needs confinement.** `filesWritten` comes from diffing
 the work dir, which only a confined run does, so it is `undefined` after a plain
-run — deliberately not `[]` ("recorded, wrote nothing"). `check.noWrite` /
-`check.wroteOnly` **fail** on an unrecorded result rather than pass having
-looked at nothing:
+run — deliberately not `[]` ("recorded, wrote nothing"). `check.writes`
+**fails** on an unrecorded result rather than pass having looked at nothing:
 
 ```ts
 const r = runScript("bash scripts/build.sh", { cwd: repoDir, sandbox: "auto" });
-assertChecks(r, [check.wroteOnly([/^dist\//])]); // meaningful: writes were actually recorded
+assertChecks(r, [check.writes({ only: [/^dist\//] })]); // meaningful: writes were actually recorded
 ```
 
 ## Test a hook in isolation (`runHook`)
@@ -130,7 +129,7 @@ const r = runHook(hookCmd, {
   tool_name: "Edit",
   tool_input: { file_path: "README.md" },
 });
-assertChecks(r, [check.allowed()]);
+assertChecks(r, [check.hookFired("PreToolUse", { blocked: false })]); // ran, and let it through
 ```
 
 ### Assert a nudge reaches the model (`check.delivered`)
@@ -169,7 +168,7 @@ assertChecks(r, [check.delivered()]);
 | ------------- | ---------------------------------------------------------------------------------------------------------- |
 | `delivered`   | text reached the model — `via` lists how (`additional-context`, `plain-stdout`, `exit-code-feedback`, …)   |
 | `undelivered` | text was printed, none reached the model — `stranded` names each stream, its bytes, and the cure           |
-| `blocked`     | the hook vetoed the action; a block is not a nudge — use `check.blocked()`                                 |
+| `blocked`     | the hook vetoed the action; a block is not a nudge — use `check.hookFired(event, { blocked: true })`       |
 | `silent`      | nothing addressed to the model (or the hook never ran — see `r.ran`)                                       |
 | `unknown`     | the harness's capability table has no row for this event, so delivery is not judged — and the assert fails |
 
@@ -508,15 +507,13 @@ When a subagent does real work, the question is _"did it succeed, with the right
 result?"_ — normally a job for an **LLM judge** (slow, costs tokens,
 non-deterministic). A **`result()` contract** turns it into a **deterministic
 assert** instead: the subagent ends its turn with a typed block — `vigiles:ok` on
-the success track, `vigiles:err` on the error track — and `experimental_assertAgentOk` /
-`experimental_assertAgentErr` / `experimental_assertAgentResult` parse and validate it against the contract.
+the success track, `vigiles:err` on the error track — and `experimental_assertAgentOk`
+(which returns the success value) and `check.experimental_agentResult` (the error
+track, or any predicate) parse and validate it against the contract.
 
 ```ts
-import {
-  experimental_agent,
-  experimental_assertAgentOk,
-  experimental_assertAgentResult,
-} from "vigiles/spec";
+import { experimental_agent, experimental_assertAgentOk } from "vigiles/spec";
+import { check, assertChecks } from "vigiles";
 const { result } = experimental_agent;
 
 // The worker's contract: success = the files it changed + a summary.
@@ -531,12 +528,13 @@ const ok = experimental_assertAgentOk(r.output, implementer); // throws unless i
 assert.deepEqual(ok.files, ["src/parser.ts"]);
 
 // The general form — assert RICH detail, still model-free:
-experimental_assertAgentResult(
-  r.output,
-  (res) =>
-    res.kind === "ok" && res.value.files.some((f) => f.endsWith(".test.ts")),
-  implementer,
-);
+assertChecks(r, [
+  check.experimental_agentResult(
+    (res) =>
+      res.kind === "ok" && res.value.files.some((f) => f.endsWith(".test.ts")),
+    implementer,
+  ),
+]);
 ```
 
 This **replaces** `judged(output, "did the worker succeed and add a test?")` — the
@@ -549,7 +547,7 @@ and no key** — see the runnable example below. **Full guide:**
 [`railway-subagents.md`](railway-subagents.md) (the `agent()`/`result()`/`railway()`
 contract end to end, and why it's a subagent — not skill — primitive).
 
-## Assert a side-effect boundary (`wrote` / `didNotWrite` / `notTool`)
+## Assert a side-effect boundary (`check.writes` / `check.tool(…, { max: 0 })`)
 
 The other half of a typed contract is _where a unit writes/calls_. A skill that
 declares it writes only `out.txt` and never pushes should be **asserted to stay
@@ -560,13 +558,13 @@ vocabulary is the seam:
 import { check, assertChecks } from "vigiles";
 
 assertChecks(r, [
-  check.wrote("out.txt"), // produced the artifact it promised
-  check.didNotWrite("secrets.env"), // left NOTHING outside the declared surface
-  check.notTool("Bash", { command: /git push/ }), // never reached for a forbidden effect
+  check.writes({ include: ["out.txt"] }), // produced the artifact it promised
+  check.writes({ none: ["secrets.env"] }), // left NOTHING outside the declared surface
+  check.tool("Bash", { with: { command: /git push/ }, max: 0 }), // never reached for a forbidden effect
 ]);
 ```
 
-`wrote`/`didNotWrite` read the real post-run work dir; `notTool` reads the decision
+`check.writes` reads the real post-run work dir; `check.tool(…, { max: 0 })` reads the decision
 to act (a check a completion-grader structurally cannot make — it sees the agent's
 final text, not the tool call it _almost_ made). All three are **deterministic** —
 the scripted mock model only does what the script says, so a `Write` either landed
@@ -590,7 +588,7 @@ it (see [Eval files describe their eval](#eval-files-describe-their-eval)):
 
 ```ts
 import { defineEval, check } from "vigiles";
-import { assertTriggerRate } from "vigiles/eval";
+import { assertRates } from "vigiles/eval";
 
 export default defineEval({
   measureTriggerRate: {
@@ -602,8 +600,7 @@ export default defineEval({
     trials: 2,
   },
   // the report is printed for you — this is the part only you can write
-  assert: (report) =>
-    assertTriggerRate(report, { min: 0.8, maxFalsePositive: 0.1 }),
+  assert: (report) => assertRates(report, { min: 0.8, maxFalsePositive: 0.1 }),
 });
 ```
 
@@ -764,7 +761,7 @@ the committed diff — `recall: 0.90 → 0.65` is the quality gate.
 Two things keep it low-noise:
 
 - ✅ **Change a threshold** in your test → valid replay, no model call. Your own
-  `assertTriggerRate` / `assertImproves` re-run against the saved numbers.
+  `assertRates` / `assertImproves` re-run against the saved numbers.
 - ❌ **Change an input** (skill text, prompts) → stale → re-run `--update`.
 
 ℹ️ **Honest scope:** the lock proves "your saved numbers match your current
@@ -879,7 +876,7 @@ const trials = Number(process.env.VIGILES_TRIALS || process.argv[2] || 3);
 const report = await paid_measureTriggerRate({ …spec…, trials });
 console.log(formatTriggerRateReport(report));
 if (report.n === 0) throw new Error("no runs executed");
-assertTriggerRate(report, { min: 0.8 });
+assertRates(report, { min: 0.8 });
 ```
 
 with
@@ -887,7 +884,7 @@ with
 ```js
 export default defineEval({
   measureTriggerRate: { …spec…, trials: 3 },
-  assert: (report) => assertTriggerRate(report, { min: 0.8 }),
+  assert: (report) => assertRates(report, { min: 0.8 }),
 });
 ```
 
@@ -972,7 +969,7 @@ paying for a real model only at the eval tier.
 - [`policy-gate.harness.mjs`](../examples/harness/policy-gate.harness.mjs) — a PreToolUse Bash gate + SessionStart setup, deterministic.
 - [`plugin-cohesion.harness.mjs`](../examples/harness/plugin-cohesion.harness.mjs) — load a whole plugin, assert multiple hooks fire together.
 - [`railway-result.harness.mjs`](../examples/harness/railway-result.harness.mjs) — assert a subagent's typed outcome (`experimental_assertAgentOk`/`Err`/`Result`), deterministic, no key.
-- [`effect-boundary.harness.mjs`](../examples/harness/effect-boundary.harness.mjs) — assert a unit stayed inside its declared write surface (`wrote`/`didNotWrite`/`notTool`), deterministic, no key.
+- [`effect-boundary.harness.mjs`](../examples/harness/effect-boundary.harness.mjs) — assert a unit stayed inside its declared write surface (`check.writes` / `check.tool(…, { max: 0 })`), deterministic, no key.
 - [`skill-trigger-rate.eval.mjs`](../examples/harness/skill-trigger-rate.eval.mjs) — does a skill's description _fire_? (`measureTriggerRate`)
 - [`skill-outcome.eval.mjs`](../examples/harness/skill-outcome.eval.mjs) — does a skill change the agent's output?
 

@@ -2,7 +2,7 @@
  * Dogfood of the new check vocabulary on the DETERMINISTIC tiers (no API key).
  *
  * Exercises `assertChecks` + the strict-check path end to end:
- *   - hook scope (`runHook`): a PreToolUse Bash gate → `check.blocked()` / `check.allowed()`.
+ *   - hook scope (`runHook`): a PreToolUse Bash gate → `check.hookFired("PreToolUse", { blocked })`.
  *   - harness scope (`runHarnessTest`, mock model): a scripted run → `tool()`,
  *     `check.turns()`, `check.output()`.
  *
@@ -28,8 +28,12 @@ const ev = (command) => ({
   tool_input: { command },
 });
 
-assertChecks(runHook(gate, ev("git commit --no-verify")), [check.blocked()]);
-assertChecks(runHook(gate, ev("git commit -m ok")), [check.allowed()]);
+assertChecks(runHook(gate, ev("git commit --no-verify")), [
+  check.hookFired("PreToolUse", { blocked: true }),
+]);
+assertChecks(runHook(gate, ev("git commit -m ok")), [
+  check.hookFired("PreToolUse", { blocked: false }),
+]);
 console.log("✓ hook checks: blocked --no-verify, allowed a clean commit");
 
 // --- harness scope: real claude + scripted mock model (needs the binary) ---

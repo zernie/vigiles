@@ -15,7 +15,7 @@ const r = runHook(hookCommand, {
   tool_name: "Bash",
   tool_input: { command: "git commit --no-verify" },
 });
-assertChecks(r, [check.blocked()]); // exit 2 / decision:"block" / permissionDecision:"deny"
+assertChecks(r, [check.hookFired("PreToolUse", { blocked: true })]); // exit 2 / decision:"block" / permissionDecision:"deny"
 ```
 
 Testing a hook you didn't write (a vendored third-party script)? Mark it
@@ -144,6 +144,6 @@ a field that is always meaningless is worse than no field.
 ⚠️ **Asserting what a script wrote requires confinement.** `filesWritten` is
 recorded by diffing the work dir, which only a confined run does — so it is
 `undefined` after a plain run. That is deliberately _not_ the same as `[]`
-("recorded, wrote nothing"): `check.noWrite` / `check.wroteOnly` **fail** on an
+("recorded, wrote nothing"): `check.writes({ only, none })` **fails** on an
 unrecorded result rather than pass having inspected nothing. Pass
 `{ sandbox: "auto" }` (Linux + bubblewrap) to actually record writes.

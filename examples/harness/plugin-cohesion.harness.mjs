@@ -44,8 +44,8 @@ const r = await runHarnessTest({
 });
 try {
   assertChecks(r, [
-    check.wrote("SETUP_DONE"), // SessionStart setup hook ran
-    check.wrote("BLOCKED"), // PreToolUse gate blocked `rm -rf`
+    check.writes({ include: ["SETUP_DONE"] }), // SessionStart setup hook ran
+    check.writes({ include: ["BLOCKED"] }), // PreToolUse gate blocked `rm -rf`
   ]);
   if (!(r.file("RESULT") ?? "").includes("ok")) {
     throw new Error("clean command did not run (RESULT missing 'ok')");

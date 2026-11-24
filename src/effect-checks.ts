@@ -1,15 +1,15 @@
 /**
  * The checks over what a hook or script run DID beyond its decision: did its
- * text reach the model, where did it try to connect, what did it write. They
- * were the last throwing assertions (`assertDelivered`, `assertEgressOnly`,
- * `assertNoWrite`, `assertWroteOnly`); as checks they evaluate inside
- * `assertChecks`, `toPass` and a scored `measure`, like every other assertion
- * about a run. Reached as `check.delivered()`, `check.egressOnly([…])`,
- * `check.noWrite(p)`, `check.wroteOnly([…])` (src/check.ts).
+ * text reach the model, where did it try to connect. They were throwing
+ * assertions (`assertDelivered`, `assertEgressOnly`); as checks they evaluate
+ * inside `assertChecks`, `toPass` and a scored `measure`, like every other
+ * assertion about a run. Reached as `check.delivered()`,
+ * `check.egressOnly([…])` (src/check.ts). What a run WROTE is `check.writes`,
+ * in src/check.ts, because it reads an agent run too.
  *
- * Each reads a field the run result already carries (`delivery`, `egress`,
- * `filesWritten`), so the target type names only that field: a `runHook`
- * result and a `runScript` result both fit where they carry it.
+ * Each reads a field the run result already carries (`delivery`, `egress`),
+ * so the target type names only that field: a `runHook` result and a
+ * `runScript` result both fit where they carry it.
  */
 import type { CheckResult, Check } from "./check.js";
 import type { HookRunResult, EgressAttempt } from "./run-hook.js";
@@ -39,7 +39,7 @@ type HasDelivery = Pick<
  * - `undelivered` — text went to a stream this event does not deliver (stderr at
  *   exit 0 on `PostToolUse`, measured). Names the stream, the bytes, the cure.
  * - `silent` — nothing addressed to the model, or the hook never ran.
- * - `blocked` — a veto, which is not a nudge; check that with `check.blocked()`.
+ * - `blocked` — a veto, which is not a nudge; check that with `check.hookFired(event, { blocked: true })`.
  * - `unknown` — the event has no row in the harness's capability table, so
  *   delivery cannot be judged. FAILS rather than passes (`no-silent-skips`).
  */
@@ -71,7 +71,7 @@ function deliveryVerdict(r: HasDelivery): CheckResult {
       );
     case "blocked":
       return no(
-        `expected a delivered nudge, but the hook BLOCKED the action (exit ${String(r.exitCode)}) — a block is not a nudge; check it with check.blocked()`,
+        `expected a delivered nudge, but the hook BLOCKED the action (exit ${String(r.exitCode)}) — a block is not a nudge; check it with check.hookFired(event, { blocked: true })`,
       );
     case "unknown":
       return no(
@@ -121,67 +121,6 @@ export function egressOnly(
     },
     toJSON: () => ({
       kind: "egressOnly",
-      allowed: allowed.map(serializePattern),
-    }),
-  };
-}
-
-/**
- * Anything carrying recorded file writes (a confined `runHook` / `runScript`
- * result). `filesWritten` is OPTIONAL on purpose: `undefined` means the run
- * never recorded writes, a different fact from `[]` ("recorded, wrote
- * nothing") — and a check that read "nobody looked" as "nothing happened" would
- * pass while inspecting no evidence. So an unrecorded run FAILS, naming the fix.
- */
-interface HasWrites {
-  readonly filesWritten?: readonly string[];
-}
-
-const matches = (f: string, p: string | RegExp): boolean =>
-  typeof p === "string" ? f.includes(p) : p.test(f);
-
-const unrecorded = (check: string): CheckResult =>
-  no(
-    `${check} cannot be judged: this result never recorded file writes, so ` +
-      `passing it would assert nothing. Writes are captured by diffing the work ` +
-      `dir, which only a CONFINED run does — pass \`{ sandbox: "auto" }\` (or ` +
-      `\`"strict"\`) to record them. Note confinement needs Linux + bubblewrap.`,
-  );
-
-/** The run wrote NO file matching `pattern` (substring or RegExp). */
-export function noWrite(pattern: string | RegExp): Check<HasWrites> {
-  return {
-    kind: "noWrite",
-    eval: (r) => {
-      if (r.filesWritten === undefined) return unrecorded("noWrite");
-      const bad = r.filesWritten.filter((f) => matches(f, pattern));
-      return bad.length === 0
-        ? ok(`no write matching ${String(pattern)}`)
-        : no(
-            `expected no write matching ${String(pattern)}, but wrote: ${bad.join(", ")}`,
-          );
-    },
-    toJSON: () => ({ kind: "noWrite", pattern: serializePattern(pattern) }),
-  };
-}
-
-/** Every file the run wrote matches one of `allowed` (substring or RegExp). */
-export function wroteOnly(
-  allowed: ReadonlyArray<string | RegExp>,
-): Check<HasWrites> {
-  return {
-    kind: "wroteOnly",
-    eval: (r) => {
-      if (r.filesWritten === undefined) return unrecorded("wroteOnly");
-      const bad = r.filesWritten.filter(
-        (f) => !allowed.some((a) => matches(f, a)),
-      );
-      return bad.length === 0
-        ? ok("every write was allowlisted")
-        : no(`run wrote file(s) outside the allowlist: ${bad.join(", ")}`);
-    },
-    toJSON: () => ({
-      kind: "wroteOnly",
       allowed: allowed.map(serializePattern),
     }),
   };

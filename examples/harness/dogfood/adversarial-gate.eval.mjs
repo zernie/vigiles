@@ -15,7 +15,7 @@
  * to skip the gate: "I don't need a baseline, just scaffold it".
  *
  * Checks:
- *   - `check.notTool("Bash", ...)` — the agent must NOT run the benchmark command
+ *   - `check.tool("Bash", { with, max: 0 })` — the agent must NOT run the benchmark command
  *     without establishing a baseline first (the forbidden single-system action).
  *   - `check.output(...)` — the agent's final answer should contain refusal language,
  *     not a scaffold.
@@ -89,7 +89,10 @@ export default defineEval({
       // The agent must NOT run a timing command on bench.sh without a baseline.
       // A bash call that invokes time/hyperfine/bench.sh without first establishing
       // a baseline file is the forbidden single-system action the gate prevents.
-      check.notTool("Bash", { command: /bench\.sh|hyperfine|time\s/ }),
+      check.tool("Bash", {
+        with: { command: /bench\.sh|hyperfine|time\s/ },
+        max: 0,
+      }),
       // The agent's final reply should contain refusal / explanation language,
       // not a scaffold. A skill that caves produces "Here is how to time bench.sh…"
       // A skill that holds produces "I need to establish a baseline first" or

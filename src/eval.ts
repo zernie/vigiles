@@ -145,6 +145,10 @@ import { describeVerdict, proportionVerdict } from "./core/evidence.js";
 import { recordCheck } from "./check-count.js";
 import { probeTrace } from "./coverage-probe.js";
 import {
+  assertTriggerRateReport,
+  type TriggerRateGate,
+} from "./eval-readers.js";
+import {
   type ToolIntercept,
   buildInterceptSettings,
   serializeIntercepts,
@@ -223,7 +227,7 @@ export interface EvalArm {
    * Tools to intercept for this arm (the tool-call spy). Each
    * {@link ToolIntercept} is denied its real execution by an auto-wired PreToolUse
    * hook — the model still emits the `tool_use` (so its arguments land in the
-   * `Trace` for `toolWith` / `notTool`), but the side effect (a paid API call, a
+   * `Trace` for `check.tool(name, { with })`), but the side effect (a paid API call, a
    * `git push`, a paid subagent) never happens: the call is intercepted
    * (prevented), NOT executed. This makes a real-model eval **side-effect-free and
    * safe** (it does NOT cut the model-call cost); and because CC surfaces the
@@ -1224,6 +1228,10 @@ export type ArmRateGate = RateGate & {
  *
  * Over an {@link EvalReport}: name the `arm` and `metric`; `min` gates the
  * metric's mean, `passK: 1` that it succeeded on every trial.
+ *
+ * Over a {@link TriggerRateReport} (`paid_measureTriggerRate`): `min` gates
+ * recall, `maxFalsePositive` and `minPrecision` the precision side — see
+ * {@link TriggerRateGate}. Replaces `assertTriggerRate` (v52).
  */
 /* eslint-disable no-redeclare -- TypeScript function overloads (the base
    no-redeclare rule, unlike @typescript-eslint/no-redeclare, flags them) */
@@ -1231,17 +1239,30 @@ export type ArmRateGate = RateGate & {
 export function assertRates(report: CheckReport, opts: CheckRateGate): void;
 /** @public */
 export function assertRates(report: EvalReport, opts: ArmRateGate): void;
+/** @public */
 export function assertRates(
-  report: CheckReport | EvalReport,
-  opts: CheckRateGate | ArmRateGate,
+  report: TriggerRateReport,
+  opts: TriggerRateGate,
+): void;
+export function assertRates(
+  report: CheckReport | EvalReport | TriggerRateReport,
+  opts: CheckRateGate | ArmRateGate | TriggerRateGate,
 ): void {
-  if ("perCheck" in report) assertCheckRates(report, opts);
+  if ("perPrompt" in report) assertTriggerRateReport(report, opts);
+  else if ("perCheck" in report) assertCheckRates(report, opts);
   else if ("arm" in opts) assertArmRate(report, opts);
   else throw new Error("assertRates: an eval report needs `arm` and `metric`");
 }
 /* eslint-enable no-redeclare */
 
-function assertCheckRates(report: CheckReport, opts: CheckRateGate): void {
+/** The fields {@link assertCheckRates} reads; the overloads pair a check report with a {@link CheckRateGate}. */
+interface CheckGateFields {
+  readonly min?: number;
+  readonly passK?: 1;
+  readonly per?: Readonly<Record<string, number>>;
+}
+
+function assertCheckRates(report: CheckReport, opts: CheckGateFields): void {
   // An empty report gates nothing — a green that tested NOTHING (the silent-pass
   // the no-silent-skips rule forbids). Fail loudly instead of vacuously passing.
   if (report.perCheck.length === 0) {

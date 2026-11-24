@@ -4,9 +4,10 @@ import { assertChecks, check, runHook } from "vigiles";
 const guard = "./hooks/block-force-push.sh";
 
 const blocked = runHook(guard, {
-  event: "PreToolUse",
-  tool: "Bash",
-  input: { command: "git push --force origin main" },
+  hook_event_name: "PreToolUse",
+  tool_name: "Bash",
+  tool_input: { command: "git push --force origin main" },
 });
 
-assertChecks(blocked, [check.blocked()]); // fails CI the day it stops blocking
+// fails CI the day it stops blocking
+assertChecks(blocked, [check.hookFired("PreToolUse", { blocked: true })]);

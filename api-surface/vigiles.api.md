@@ -5,6 +5,9 @@
 ```ts
 
 // @public
+export type AgentResultExpectation = "ok" | "err" | ((r: ParsedAgentResult) => boolean);
+
+// @public
 export type ArgMatcher = Record<string, string | number | boolean | RegExp>;
 
 // @public
@@ -93,8 +96,6 @@ export interface Check<T> {
 // @public
 export const check: typeof customCheck & {
     tool: typeof toolCheck;
-    toolWith: typeof toolWith;
-    notTool: typeof notToolCheck;
     onlyTools: typeof onlyTools;
     toolSequence: typeof toolSequence;
     runs: typeof runs;
@@ -103,20 +104,16 @@ export const check: typeof customCheck & {
     received: typeof received;
     hookFired: typeof hookFiredCheck;
     turns: typeof turns;
-    wrote: typeof wrote;
-    didNotWrite: typeof didNotWrite;
+    writes: typeof writes;
     subagent: typeof subagent;
     mcp: typeof mcp;
-    blocked: typeof blocked;
-    allowed: typeof allowed;
     cost: typeof cost;
     latency: typeof latency;
     tokens: typeof tokens;
     delivered: typeof delivered;
     egressOnly: typeof egressOnly;
-    noWrite: typeof noWrite;
-    wroteOnly: typeof wroteOnly;
     skillContract: typeof skillContract;
+    experimental_agentResult: typeof experimental_agentResult;
 };
 
 // @public
@@ -362,9 +359,6 @@ export function experimental_assertEmittedOk(toolCalls: readonly ToolCall[], con
 }): Record<string, unknown>;
 
 // @beta
-export function experimental_eachReply(matcher: string | Readonly<RegExp>): Readonly<Check<Trace>>;
-
-// @beta
 export function experimental_emitTool(contract: OutputContract, options?: {
     readonly name?: string;
 }): ExperimentalEmitTool;
@@ -373,12 +367,6 @@ export function experimental_emitTool(contract: OutputContract, options?: {
 export function experimental_parseEmitted(toolCalls: readonly ToolCall[], contract: OutputContract, options?: {
     readonly name?: string;
 }): ParsedAgentResult;
-
-// @beta
-export function experimental_replyCount(matcher: string | Readonly<RegExp>, opts: {
-    readonly min?: number;
-    readonly max?: number;
-}): Readonly<Check<Trace>>;
 
 // @public
 export interface ExperimentalEmitTool {
@@ -466,6 +454,11 @@ export interface HookFire {
 }
 
 // @public
+export interface HookFiredOptions {
+    readonly blocked?: boolean;
+}
+
+// @public
 export interface HookInput {
     readonly [k: string]: unknown;
     readonly hook_event_name?: string;
@@ -511,6 +504,7 @@ export interface HookRunResult extends ScriptRunResult {
     readonly conditionReason: string;
     readonly decision: HookOutput["decision"] | "allow" | "deny" | "ask" | undefined;
     readonly delivery: HookDelivery;
+    readonly event?: string;
     readonly haltsTurn: boolean;
     readonly json: HookOutput | null;
     readonly ran: boolean;
@@ -577,6 +571,30 @@ export interface ModelTurn {
     readonly input?: Record<string, unknown>;
     readonly text?: string;
     readonly tool?: string;
+}
+
+// @public
+export interface OutputOptions {
+    readonly eachReply?: boolean;
+}
+
+// @public
+export type ParsedAgentResult<S = Record<string, unknown>, E = Record<string, unknown>> = {
+    readonly kind: "ok";
+    readonly value: S;
+} | {
+    readonly kind: "err";
+    readonly error: E;
+} | {
+    readonly kind: "malformed";
+    readonly reason: string;
+};
+
+// @public
+export interface PathWritesOptions {
+    readonly include?: readonly string[];
+    readonly none?: readonly string[];
+    readonly only?: undefined;
 }
 
 // @public
@@ -817,6 +835,13 @@ export interface ToolCall {
 }
 
 // @public
+export interface ToolOptions {
+    readonly max?: number;
+    readonly min?: number;
+    readonly with?: ArgMatcher;
+}
+
+// @public
 export interface ToolStub {
     // (undocumented)
     readonly name: string;
@@ -879,6 +904,13 @@ export interface TriggerRateSpec {
 }
 
 // @public
+export interface TurnsOptions {
+    readonly matching?: string | Readonly<RegExp>;
+    readonly max?: number;
+    readonly min?: number;
+}
+
+// @public
 export type UnobservableWhy =
 /** The harness has a channel, but this run wrote no request body to read. */
 "no-request-body"
@@ -897,6 +929,16 @@ export const vigilesMatchers: {
     toPass<T>(received: T, check: Check<T>): MatcherOutput;
     toPassAll<T>(received: T, checks: readonly Check<T>[]): MatcherOutput;
 };
+
+// @public
+export type WritePath = string | Readonly<RegExp>;
+
+// @public
+export interface WritesOptions {
+    readonly include?: readonly WritePath[];
+    readonly none?: readonly WritePath[];
+    readonly only?: readonly WritePath[];
+}
 
 // (No @packageDocumentation comment for this package)
 

@@ -219,7 +219,7 @@ const r = await runHarnessTest({
 });
 assertChecks(r, [
   check.skill("demo:greet"), // a non-error Skill activation by that name
-  check.notTool(/^mcp__/), // the safety negative: no MCP tool was used
+  check.tool(/^mcp__/, { max: 0 }), // the safety negative: no MCP tool was used
 ]);
 ```
 
@@ -261,7 +261,7 @@ a run there refuses `tools`, which has no equivalent.
 
 **Assert on the agent's _actions_, not stdout.** With `transcript: true`,
 `r.toolCalls` is the parsed list of tools the agent invoked (each paired with its
-result). The checks `check.tool(name|/regex/)`, `check.notTool(...)` (the safety
+result). The checks `check.tool(name|/regex/)`, `check.tool(name, { max: 0 })` (the safety
 negative — _"the destructive tool was never called"_), and
 `check.skill("plugin:skill")` are correct invariants — unlike
 `r.stdout.includes(marker)`, which false-positives on echoes and needs a marker
@@ -272,7 +272,7 @@ skills this way — no marker needed. This is the deterministic **wiring** tier
 tier.
 
 The action/sequence/argument checks over `r.toolCalls` (`check.toolSequence`,
-`check.tool(name, { min, max })`, `check.toolWith`, `check(name, fn)`) are harness-agnostic —
+`check.tool(name, { min, max, with })`, `check(name, fn)`) are harness-agnostic —
 see the [`Trace` model](testing-api.md#the-trace-model)
 in the testing API reference.
 
@@ -320,7 +320,7 @@ test("Stop hook forces more work", async () => {
       { text: "done" },
     ]),
   });
-  assertChecks(r, [check.wrote("DONE")]);
+  assertChecks(r, [check.writes({ include: ["DONE"] })]);
 });
 ```
 

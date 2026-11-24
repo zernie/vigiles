@@ -52,7 +52,12 @@ test("the check veneer (toPass / toPassAll) works under jest", () => {
   expect(trace).toPass(check.tool("Bash"));
   expect(trace).not.toPass(check.tool("Read"));
   expect(trace).toPassAll([check.tool("Bash"), check.output("done")]);
-  expect({ blocked: true, exitCode: 2 }).toPass(check.blocked());
+  expect({
+    event: "PreToolUse",
+    ran: true,
+    blocked: true,
+    exitCode: 2,
+  }).toPass(check.hookFired("PreToolUse", { blocked: true }));
 });
 
 test("plain helpers work under jest", () => {
@@ -62,7 +67,9 @@ test("plain helpers work under jest", () => {
     arm: "gated",
     metric: "caught",
   });
-  assertChecks(result, [check.wrote("DONE"), check.didNotWrite("MISSING")]);
+  assertChecks(result, [
+    check.writes({ include: ["DONE"], none: ["MISSING"] }),
+  ]);
 });
 
 // The same `check.*` cases node:test and vitest run (checks-cases.cjs).

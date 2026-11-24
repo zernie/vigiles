@@ -42,10 +42,10 @@ different questions:
 | Layer              | What it is                                                                              | When it runs            | What it guarantees                                                            |
 | ------------------ | --------------------------------------------------------------------------------------- | ----------------------- | ----------------------------------------------------------------------------- |
 | **Enforce** (gate) | the `purity` floor / `tools` allowlist → a `PreToolUse` rail that **denies** a bad call | **runtime**, every call | the disallowed action is **impossible in the loop** — deterministic, no model |
-| **Verify** (test)  | `experimental_assertAgentOk`, `wrote`/`didNotWrite`, `notTool`                          | **author-time / CI**    | the harness **does its job** and **stays in its lane** — a different property |
+| **Verify** (test)  | `experimental_assertAgentOk`, `check.writes`, `check.tool(…, { max: 0 })`               | **author-time / CI**    | the harness **does its job** and **stays in its lane** — a different property |
 
 The gate **prevents**; the test **proves behaviour**. A test is not re-checking
-the gate — you use `notTool`/`didNotWrite` to verify a _prose_ instruction that
+the gate — you use `check.tool(…, { max: 0 })` / `check.writes({ none })` to verify a _prose_ instruction that
 has no runtime enforcement (can the agent be talked out of it?), or to assert the
 wiring fires, never to second-guess `decidePurityGate`. Where you have a floor,
 trust it: it's a structural guarantee, not a probabilistic one. Where you only

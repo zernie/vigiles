@@ -30,15 +30,16 @@
  * Every public name lives behind exactly one door, the door of the reader who
  * uses it. What left this barrel, and where it went:
  *
- *   - reading an eval REPORT (`compare`, `assertRates`, `assertTriggerRate`,
- *     `assertImproves`, `assertNoRegression`, `readBaseline`, `writeBaseline`)
- *     → `vigiles/eval`, beside the `paid_*` runners that produce the report.
+ *   - reading an eval REPORT (`compare`, `assertRates`, `assertImproves`,
+ *     `assertNoRegression`) → `vigiles/eval`, beside the `paid_*` runners that produce the report.
  *     `paid_`, not the door, marks a call that can bill you.
  *   - the guard battery (`assertGuardrail`, `verifyGuardrail`, …) →
  *     `vigiles/hook/testing`.
  *   - testing a compiled hook in-process (`experimental_loadHook`, `experimental_assertHookDenies`, …) →
  *     `vigiles/hook/testing` (never `vigiles/hook`, a compiled hook's only import).
- *   - a subagent's outcome (`experimental_assertAgentOk`, …) → `vigiles/spec`.
+ *   - a subagent's outcome as a value (`experimental_assertAgentOk`, which
+ *     throws so the result narrows) → `vigiles/spec`; as a check,
+ *     `check.experimental_agentResult` stays here (v52).
  *   - Claude Code's stream parsers (`parseToolCalls`, `parseClaudeRun`) →
  *     `vigiles/harness/claude-code`; the driver PORT types (`HarnessTestDriver`,
  *     `EvalDriver`, …) → `vigiles/harness/kit`.
@@ -136,27 +137,34 @@ export {
 
 // --- the declarative check vocabulary: ONE callable object ---
 // Every assertion about a run is a member of `check` — `check.tool("Bash")`,
-// `check.blocked()`, `check.delivered()`, `check("name", fn)` — and
-// `assertChecks` throws listing every one that failed. There are no flat check
-// functions here (v50): one name for the whole vocabulary keeps the root to its
-// verbs, and an editor completes `check.` to the full list. `judged` is the one
-// check that bills, so it lives on the paid door as `paid_judged`.
-// `experimental_eachReply` / `experimental_replyCount` stay flat for now: they
-// are experimental checks over the replies a scripted run records.
-export {
-  assertChecks,
-  check,
-  experimental_eachReply,
-  experimental_replyCount,
-} from "../check.js";
+// `check.hookFired("PreToolUse", { blocked: true })`, `check.delivered()`,
+// `check("name", fn)` — and `assertChecks` throws listing every one that
+// failed. There are no flat check functions here (v50): one name for the whole
+// vocabulary keeps the root to its verbs, and an editor completes `check.` to
+// the full list. `judged` is the one check that bills, so it lives on the paid
+// door as `paid_judged`. A member takes OPTIONS rather than spawning a sibling
+// (v52): `check.tool(name, { with, max: 0 })`, `check.writes({ only, none })`,
+// `check.turns({ matching })`, `check.output(m, { eachReply: true })`.
+export { assertChecks, check } from "../check.js";
 export type {
+  AgentResultExpectation,
   ArgMatcher,
   Check,
   CheckJSON,
   CheckResult,
+  HookFiredOptions,
   JudgeFn,
+  OutputOptions,
+  PathWritesOptions,
   TokenBudget,
+  ToolOptions,
+  TurnsOptions,
+  WritePath,
+  WritesOptions,
 } from "../check.js";
+// The parsed vigiles:ok / vigiles:err block `check.experimental_agentResult`'s
+// predicate receives.
+export type { ParsedAgentResult } from "../core/agent-result.js";
 
 // The guard battery ("does my guard block every disaster and let the same text
 // through as data?") is its own door, `vigiles/hook/testing`: it has its own reader —

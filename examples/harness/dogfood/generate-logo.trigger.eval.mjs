@@ -17,7 +17,7 @@
  */
 import { defineEval } from "../../../dist/entries/index.js";
 import { check } from "../../../dist/check.js";
-import { assertTriggerRate } from "../../../dist/entries/eval.js";
+import { assertRates } from "../../../dist/entries/eval.js";
 import { fileURLToPath } from "node:url";
 
 // generate-logo is an INTERNAL skill (not in the shipped plugin), so load it from
@@ -63,7 +63,7 @@ export default defineEval({
   },
   assert: (report) => {
     // A narrow skill: precision should be high; keep recall honest too.
-    assertTriggerRate(report, { min: 0.5, maxFalsePositive: 0.34 });
+    assertRates(report, { min: 0.5, maxFalsePositive: 0.34 });
     console.log(`\n✓ ${skill}: recall + precision within bounds.`);
   },
 });

@@ -22,7 +22,7 @@
  * silent, a fragment calling `result()` with no import does not. It was
  * implemented and run against the corpus before being kept, and the number
  * settled it: **66 findings across 93 blocks.** Docs legitimately name our
- * exports as free variables all over — `skillResolved`, `assertTriggerRate`,
+ * exports as free variables all over — `skillResolved`, `assertTriggerRate` (since folded into `assertRates`),
  * `codexAdapter` — in fragments that deliberately omit the import they already
  * showed three blocks earlier. A gate opening at 66 is muted the same day, which
  * is the founding decision above, re-derived the hard way.

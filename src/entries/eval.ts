@@ -57,9 +57,11 @@
  * noise" per metric, and `compare(before, after)` on two trigger-rate reports
  * which prompts a change gained and lost; `assertImproves` gates on it (`significant: true` for the
  * computed noise floor); `assertRates` gates a check report or an arm × metric
- * on a rate (`min`) or on every trial (`passK: 1`); `assertTriggerRate` gates a
- * skill's firing; `assertNoRegression` + `readBaseline`/`writeBaseline` gate
- * against a committed baseline. They replaced eleven narrower helpers.
+ * on a rate (`min`) or on every trial (`passK: 1`), and a trigger-rate report on
+ * a skill's firing; `assertNoRegression(current, { baseline })` gates against a
+ * committed baseline file, which `update: true` records. They replaced eleven
+ * narrower helpers (v50), and `assertTriggerRate` / `readBaseline` /
+ * `writeBaseline` folded into them (v52).
  *
  * The report TYPES are not here: they are declared in core and exported from
  * the root, because `defineEval` and `vigilesMatchers` speak them too, and one
@@ -138,17 +140,16 @@ export {
   compare,
   assertImproves,
   assertNoRegression,
-  assertTriggerRate,
 } from "../eval-readers.js";
 export type {
   ArmComparison,
   TriggerDiff,
   ImprovesGate,
+  RegressionGate,
   TriggerRateGate,
 } from "../eval-readers.js";
 export { assertRates } from "../eval.js";
 export type { RateGate, CheckRateGate, ArmRateGate } from "../eval.js";
-export { readBaseline, writeBaseline } from "../eval-baseline.js";
 export type { BaselineFile, DiffOptions } from "../eval-baseline.js";
 // `compare`'s verdict and the interval a 0/1 metric is judged by.
 export type { Verdict, Interval } from "../core/evidence.js";

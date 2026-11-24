@@ -63,7 +63,7 @@ Two orthogonal questions govern this, not one:
 | Local, reversible      | file edit, local commit     | **ephemeral CWD** (discard the temp dir)            | ✅ done (`mkdtemp` per run)                          |
 | Local, escapes CWD     | write `~/.gitconfig`, `~/…` | **ephemeral HOME + scrubbed env**                   | ✅ cheap — **gap on the direct path today**          |
 | External via network   | `git push`, paid API, exfil | **deny-all / allowlist net** (bwrap+nft / Seatbelt) | ⚠️ Linux today (bwrap+nft); macOS planned (Seatbelt) |
-| Irreversible, specific | push to prod, charge a card | **`interceptTools` deny / `notTool` assert**        | ✅ harness-layer                                     |
+| Irreversible, specific | push to prod, charge a card | **`interceptTools` deny / `{ max: 0 }` assert**     | ✅ harness-layer                                     |
 
 **The last row is why ephemerality alone isn't enough.** You can throw away a temp dir. You **can't un-push or un-charge** — those escape any box and need interception or a network wall.
 
@@ -116,7 +116,7 @@ In every eval-tier row `CLAUDE_CODE_EFFORT_LEVEL` is set to the declared `effort
 - ⚠️ **DNS rotation** in the `egress` allowlist (IPs resolved at launch) — the resolver-pinned layer is the next step.
 - ℹ️ **Not a kernel sandbox.** This defends against careless/malicious _plugin_ code, not a kernel or unprivileged-userns exploit — `bwrap` leans on the same userns primitive Docker-rootless does. Out of scope.
 
-## Preventing a model's side effects — `interceptTools` / `notTool`
+## Preventing a model's side effects — `interceptTools` / `check.tool(…, { max: 0 })`
 
 **At the eval tier, the model — not you — chooses what to do.** To test "the agent **didn't** push to `main` / call a paid API / spawn a paid subagent" safely, vigiles intercepts the tool before it runs:
 
@@ -135,17 +135,17 @@ export default defineEval({
         denyReason: "blocked in test",
       },
     ],
-    checks: [check.notTool("Bash", { command: /git push/ })], // assert it never (successfully) pushed
+    checks: [check.tool("Bash", { with: { command: /git push/ }, max: 0 })], // assert it never (successfully) pushed
   },
 });
 ```
 
-**This is intercept-and-_prevent_, not a faithful mock.** A `PreToolUse` hook denies the matched call (exit 2). The `tool_use` — with its arguments — still lands in the `Trace`, so `notTool`/`toolWith` can assert on the **attempt**. The model is told the call was _blocked_, not that it _succeeded_.
+**This is intercept-and-_prevent_, not a faithful mock.** A `PreToolUse` hook denies the matched call (exit 2). The `tool_use` — with its arguments — still lands in the `Trace`, so `check.tool(name, { with })` can assert on the **attempt**. The model is told the call was _blocked_, not that it _succeeded_.
 
-- ✅ **Sound for:** "did the agent _attempt_ X?" — safety gates, approval checks, "no paid call", "no push to the wrong branch". `notTool` is the **negative safety assertion** a completion-grading eval structurally can't make: it sees the agent's _decision to act_, not just its final text.
+- ✅ **Sound for:** "did the agent _attempt_ X?" — safety gates, approval checks, "no paid call", "no push to the wrong branch". `check.tool(name, { max: 0 })` is the **negative safety assertion** a completion-grading eval structurally can't make: it sees the agent's _decision to act_, not just its final text.
 - ⚠️ **Not for:** stubbing a tool to return a fake success and letting a multi-step flow continue. The model sees a block, so a sequence that needs the real result breaks. (Claude Code has no "skip-but-return-success" primitive for arbitrary tools; deny is the closest safe thing.)
 
-**Testing that an enforcement gate actually holds** — including under an adversarial prompt that asks the agent to skip it — is done with `notTool` + `output` checks in `measure`. The worked dogfood is [`examples/harness/dogfood/adversarial-gate.eval.mjs`](../examples/harness/dogfood/adversarial-gate.eval.mjs). When that eval shows a prose gate can be talked out of, the deterministic `PreToolUse` hook is the fix.
+**Testing that an enforcement gate actually holds** — including under an adversarial prompt that asks the agent to skip it — is done with `check.tool(…, { max: 0 })` + `check.output` in `measure`. The worked dogfood is [`examples/harness/dogfood/adversarial-gate.eval.mjs`](../examples/harness/dogfood/adversarial-gate.eval.mjs). When that eval shows a prose gate can be talked out of, the deterministic `PreToolUse` hook is the fix.
 
 ## At a glance — what's confined, per tier
 
@@ -182,7 +182,7 @@ Yes — `sandbox: false` is the explicit, greppable opt-out for code you trust, 
   opt-in-not-always-on argument, `recordEgress`, `egress: { allow }`, dogfood findings.
 - [`harness-testing.md`](harness-testing.md) — the three tiers and where the
   boundary sits.
-- [`testing-api.md`](testing-api.md) — `interceptTools`/`notTool` in the
+- [`testing-api.md`](testing-api.md) — `interceptTools` / `check.tool(…, { max: 0 })` in the
   testing API, with the intercept-≠-mock trade-off.
 - [`src/sandbox.ts`](../src/sandbox.ts) · [`src/egress.ts`](../src/egress.ts) ·
   [`src/tool-intercept.ts`](../src/tool-intercept.ts) — the pure, tested seams.

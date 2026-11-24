@@ -75,14 +75,17 @@ test("the eval-report readers live on vigiles/eval, folded", () => {
   for (const name of [
     "compare",
     "assertRates",
-    "assertTriggerRate",
     "assertImproves",
     "assertNoRegression",
-    "readBaseline",
-    "writeBaseline",
   ]) {
     assert.ok(has(evalDoor, name), `vigiles/eval exports ${name}`);
     assert.ok(!has(root, name), `the root no longer exports ${name}`);
+  }
+  // folded in v52: a trigger-rate report gates through assertRates, and the
+  // baseline file is assertNoRegression's `baseline` option
+  for (const gone of ["assertTriggerRate", "readBaseline", "writeBaseline"]) {
+    assert.ok(!has(evalDoor, gone), `vigiles/eval no longer exports ${gone}`);
+    assert.ok(!has(root, gone), `the root does not export ${gone}`);
   }
   for (const gone of [
     "compareArms",
@@ -117,17 +120,24 @@ test("compiled-hook tests live on vigiles/hook/testing, never on vigiles/hook; s
     assert.ok(!has(hook, name), `vigiles/hook does not export ${name}`);
     assert.ok(!has(root, name), `the root does not export ${name}`);
   }
+  // only the throwing form that narrows stays an assertion; the error track
+  // and the predicate are `check.experimental_agentResult` (v52)
+  assert.ok(has(spec, "experimental_assertAgentOk"));
   for (const name of ["assertAgentOk", "assertAgentErr", "assertAgentResult"]) {
-    assert.ok(
-      has(spec, `experimental_${name}`),
-      `vigiles/spec exports experimental_${name}`,
-    );
     assert.ok(
       !has(spec, name),
       `vigiles/spec no longer exports the bare ${name}`,
     );
     assert.ok(!has(root, name), `the root no longer exports ${name}`);
   }
+  for (const name of [
+    "experimental_assertAgentErr",
+    "experimental_assertAgentResult",
+  ]) {
+    assert.ok(!has(spec, name), `vigiles/spec no longer exports ${name}`);
+    assert.ok(!has(root, name), `the root does not export ${name}`);
+  }
+  assert.ok("experimental_agentResult" in root.check);
 });
 
 test("one form for an assertion over a run: the flat assertX and predicate forms a check.* member covers are gone", () => {
@@ -218,21 +228,36 @@ test("shape C: the root is verbs plus one callable check — no flat check funct
     "assertEgressOnly",
     "assertNoWrite",
     "assertWroteOnly",
+    // experimental reply checks folded into members (v52)
+    "experimental_eachReply",
+    "experimental_replyCount",
   ]) {
     assert.ok(!has(root, gone), `the root no longer exports ${gone}`);
   }
   for (const member of [
     "tool",
     "skill",
-    "blocked",
+    "hookFired",
     "delivered",
     "egressOnly",
-    "noWrite",
-    "wroteOnly",
+    "writes",
     "skillContract",
     "tokens",
   ]) {
     assert.ok(member in root.check, `check.${member} is a member`);
+  }
+  // a member takes options instead of spawning a sibling (v52, #518)
+  for (const folded of [
+    "toolWith",
+    "notTool",
+    "blocked",
+    "allowed",
+    "wrote",
+    "didNotWrite",
+    "noWrite",
+    "wroteOnly",
+  ]) {
+    assert.ok(!(folded in root.check), `check.${folded} is folded away`);
   }
 });
 
@@ -256,10 +281,8 @@ test("the root's runtime exports are exactly the test-author verbs", () => {
     "cleanupTmpDir",
     "defineEval",
     "experimental_assertEmittedOk",
-    "experimental_eachReply",
     "experimental_emitTool",
     "experimental_parseEmitted",
-    "experimental_replyCount",
     "makeTmpDir",
     "recordCheck",
     "runHarnessTest",

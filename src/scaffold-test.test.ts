@@ -47,7 +47,7 @@ describe("scaffoldTest — hook (unit tier)", () => {
     expect(content).toContain("runHook(");
     expect(content).toContain('"bash hooks/pre-edit.sh"');
     expect(content).toContain(
-      "assertChecks(runHook(cmd, benign), [check.allowed()])",
+      'check.hookFired("PreToolUse", { blocked: false })',
     );
     expect(content).not.toContain("assertHookAllowed");
   });
@@ -90,10 +90,10 @@ describe("scaffoldTest — skill (eval tier)", () => {
     expect(content).toContain("paid_measureTriggerRate(");
     expect(content).toContain('"vigiles:strengthen"');
     expect(content).toContain("irrelevantPrompts");
-    expect(content).toContain("assertTriggerRate(report, { min: 0.8");
+    expect(content).toContain("assertRates(report, { min: 0.8");
     // the report readers are on vigiles/eval; the formatters are not public
     expect(content).toContain(
-      'import { paid_measureTriggerRate, assertTriggerRate } from "vigiles/eval"',
+      'import { paid_measureTriggerRate, assertRates } from "vigiles/eval"',
     );
     expect(content).not.toContain("formatTriggerRateReport");
     // fired takes the check itself; the skillResolved predicate is gone
@@ -184,17 +184,17 @@ describe("scaffoldTest — agent with a typed contract (the typed-spec payoff)",
     const { content } = scaffoldTest(withContract);
     expect(content).toContain("assertChecks(");
     expect(content).toContain(
-      'notTool("Bash", { command: /git push|rm -rf/ })',
+      'check.tool("Bash", { with: { command: /git push|rm -rf/ }, max: 0 })',
     );
     expect(content).toContain("side-effecting tools: Bash");
   });
 
-  it("derives didNotWrite from a Write/Edit contract", () => {
+  it("derives check.writes({ none }) from a Write/Edit contract", () => {
     const { content } = scaffoldTest({
       ...withContract,
       sideEffectingTools: ["Write"],
     });
-    expect(content).toContain('didNotWrite("secrets.env")');
+    expect(content).toContain('check.writes({ none: ["secrets.env"] })');
   });
 
   it("omits the safety block when no tools are side-effecting", () => {

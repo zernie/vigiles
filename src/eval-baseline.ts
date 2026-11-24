@@ -10,7 +10,8 @@
  * noise, but a Welch t-test over the two runs' summary stats can.
  *
  * Pure + model-free (the diff/serialize/JUnit are fully unit-tested); the only
- * side effects are the two small fs helpers (`readBaseline` / `writeBaseline`).
+ * side effects are the two small fs helpers (`readBaseline` / `writeBaseline`),
+ * which `assertNoRegression`'s `baseline` option calls.
  * Reuses `compareStats` from `src/stats.ts` — the current run is the "arm", the
  * baseline is the "baseline", so `delta = current − baseline`.
  */
@@ -199,9 +200,8 @@ export function formatBaselineDiff(diff: BaselineDiff): string {
 }
 
 /**
- * Read + parse a baseline file, or null if it doesn't exist yet.
- *
- * @public
+ * Read + parse a baseline file, or null if it doesn't exist yet. Internal since
+ * v52: `assertNoRegression(current, { baseline: path })` reads it.
  */
 export function readBaseline(path: string): BaselineFile | null {
   if (!existsSync(path)) return null;
@@ -210,8 +210,8 @@ export function readBaseline(path: string): BaselineFile | null {
 
 /**
  * Write reports as the committed baseline (pretty JSON, parent dirs created).
- *
- * @public
+ * Internal since v52: `assertNoRegression(current, { baseline: path, update:
+ * true })` writes it.
  */
 export function writeBaseline(
   path: string,

@@ -15,9 +15,12 @@
  *   - `assertImproves(report, { …, significant: true })` — the gate on that,
  *     replacing `assertSignificant`.
  *   - `assertRates` (in `src/eval.ts`, beside the check report it reads) with
- *     `passK: 1` replacing `reliable` / `assertReliable`.
- *   - `assertTriggerRate`, `assertNoRegression` + `readBaseline` /
- *     `writeBaseline` — unchanged.
+ *     `passK: 1` replacing `reliable` / `assertReliable`. Since v52 it also
+ *     gates a trigger-rate report, replacing `assertTriggerRate` (the gate
+ *     itself is {@link assertTriggerRateReport} here).
+ *   - `assertNoRegression(current, { baseline })` — the baseline is a path it
+ *     reads (and with `update: true` writes), replacing `readBaseline` /
+ *     `writeBaseline` (v52).
  */
 import type { EvalReport, TriggerRateReport } from "./core/eval-report.js";
 import type { Verdict } from "./core/evidence.js";
@@ -25,6 +28,8 @@ import { describeVerdict } from "./core/evidence.js";
 import { experimental_verdict } from "./stats.js";
 import {
   diffReports,
+  readBaseline,
+  writeBaseline,
   type BaselineFile,
   type DiffOptions,
 } from "./eval-baseline.js";
@@ -257,24 +262,43 @@ function assertSignificantGap(report: EvalReport, opts: ImprovesGate): void {
 }
 
 /**
+ * The options of {@link assertNoRegression}: where the baseline is, and how a
+ * move is judged.
+ *
+ * `baseline` is a PATH (`.vigiles/eval-baseline.json`, read when the gate runs)
+ * or an already-parsed {@link BaselineFile}. With a path, `update: true` records
+ * the current run there instead of gating — the `jest -u` of evals; run it
+ * once, commit the file, and every later run is compared to it. A path with
+ * no file and no `update` FAILS: a gate with nothing to compare against would
+ * pass every run.
+ *
+ * @public
+ */
+export type RegressionGate = DiffOptions &
+  (
+    | { readonly baseline: string; readonly update?: boolean }
+    | { readonly baseline: BaselineFile; readonly update?: undefined }
+  );
+
+/**
  * Assert the current run has not *regressed* against a committed baseline — the
  * CI gate. A regression is an arm×metric that moved **significantly in the bad
- * direction** vs. `baseline` (Welch t-test, so sampling noise doesn't trip it).
- * Higher is better by default; list `lowerIsBetter` metrics (cost/latency) to
- * flip them. Load the baseline with `readBaseline(path)` and record a fresh one
- * with `writeBaseline(path, reports)`.
+ * direction** vs. the baseline (Welch t-test, so sampling noise doesn't trip
+ * it). Higher is better by default; list `lowerIsBetter` metrics (cost/latency)
+ * to flip them. See {@link RegressionGate} for the `baseline` option.
  *
  * @public
  */
 export function assertNoRegression(
   current: EvalReport | readonly EvalReport[],
-  baseline: BaselineFile,
-  opts?: DiffOptions,
+  gate: RegressionGate,
 ): void {
   const reports: readonly EvalReport[] = isReportList(current)
     ? current
     : [current];
-  const diff = diffReports(baseline, reports, opts);
+  const baseline = loadBaseline(reports, gate);
+  if (baseline === "recorded") return;
+  const diff = diffReports(baseline, reports, gate);
   if (!diff.passed) {
     const detail = diff.regressions
       .map(
@@ -286,6 +310,24 @@ export function assertNoRegression(
   }
 }
 
+/** The baseline to gate against, or `"recorded"` when `update` wrote it instead. */
+function loadBaseline(
+  reports: readonly EvalReport[],
+  gate: RegressionGate,
+): BaselineFile | "recorded" {
+  if (typeof gate.baseline !== "string") return gate.baseline;
+  if (gate.update === true) {
+    writeBaseline(gate.baseline, reports);
+    return "recorded";
+  }
+  return (
+    readBaseline(gate.baseline) ??
+    fail(
+      `assertNoRegression: no baseline at ${gate.baseline} — record one with \`{ baseline: "${gate.baseline}", update: true }\` and commit it`,
+    )
+  );
+}
+
 function isReportList(
   x: EvalReport | readonly EvalReport[],
 ): x is readonly EvalReport[] {
@@ -293,19 +335,26 @@ function isReportList(
 }
 
 /**
- * Assert a skill/behaviour triggered reliably — the gate for a skill's
- * *activation*, over a `TriggerRateReport` from `paid_measureTriggerRate`.
- * `min` gates recall (fires when it should). With irrelevant prompts measured,
+ * Gate a skill/behaviour's *activation*, over a `TriggerRateReport` from
+ * `paid_measureTriggerRate` — reached as `assertRates(report, gate)`. `min`
+ * gates recall (fires when it should). With irrelevant prompts measured,
  * `maxFalsePositive` gates the precision side (does NOT fire when it shouldn't)
  * and `minPrecision` gates `firedRight / firedTotal` — so a too-broad
- * description that hijacks unrelated work fails, not just a too-narrow one.
- *
- * @public
+ * description that hijacks unrelated work fails, not just a too-narrow one. A
+ * gate with none of the three FAILS: it would pass any report.
  */
-export function assertTriggerRate(
+export function assertTriggerRateReport(
   report: TriggerRateReport,
   opts: TriggerRateGate,
 ): void {
+  if (
+    opts.min === undefined &&
+    opts.maxFalsePositive === undefined &&
+    opts.minPrecision === undefined
+  )
+    fail(
+      "assertRates: a trigger-rate gate needs `min`, `maxFalsePositive` or `minPrecision` — an empty gate passes anything",
+    );
   if (opts.min !== undefined && report.rate < opts.min) {
     fail(
       `expected a trigger rate ≥ ${String(opts.min)}, got ${report.rate.toFixed(2)} (${String(report.n)} runs)`,
@@ -322,7 +371,8 @@ export function assertTriggerRate(
 }
 
 /**
- * The options of {@link assertTriggerRate}: recall, false positives, precision.
+ * The options of `assertRates` over a trigger-rate report: recall, false
+ * positives, precision.
  *
  * @public
  */

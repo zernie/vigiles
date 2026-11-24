@@ -6,13 +6,14 @@
 /**
  * `vigiles/spec` — what a spec AUTHOR imports to describe a CLAUDE.md /
  * AGENTS.md, a SKILL.md or a subagent: the builders, the verified-reference
- * constructors, their types, and the assertions over a subagent's outcome.
+ * constructors, their types, and the assertion that returns a subagent's
+ * success value.
  * Compiling is the CLI's job (`vigiles compile` / `vigiles lint`), not this
  * door's.
  *
  * A package entry, and so a COMPOSITION ROOT: the builders are core
- * (`src/core/spec.ts`), and `experimental_assertAgentOk` & co. read a subagent's result block
- * through the Claude Code adapter — core cannot import that, an entry can.
+ * (`src/core/spec.ts`), and `experimental_assertAgentOk` reads a subagent's result
+ * block with core's parser.
  *
  * Curated (named, not `export *`) so the compiler's phase types, the internal
  * config shape and the linter catalog stay out of the public surface. One door
@@ -102,22 +103,18 @@ export type {
   VigilesRef,
 } from "../core/spec.js";
 
-// --- a subagent's OUTCOME, asserted: the testing half of `experimental_agent`'s
+// --- a subagent's OUTCOME, as a value: the testing half of `experimental_agent`'s
 // result contract. A subagent with a `result()` contract ends its turn with a
-// vigiles:ok/err block; these wrap `parseAgentResult` (the Claude Code adapter's
-// reader of that block, which is why they live in this composition root and not
-// in core) so a test asserts the worker's outcome the way it asserts a hook
-// decision: `experimental_assertAgentOk(r.output)` instead of substring-matching
-// prose. They THROW, so after one TypeScript has narrowed the result. Prefixed
-// because they read `experimental_agent`'s contract: a stable name resting on an
-// experimental one is the transitive hole the prefix rule exists to close.
+// vigiles:ok/err block; `experimental_assertAgentOk` wraps `parseAgentResult`
+// (src/core/agent-result.ts) so a test gets the worker's success value instead
+// of substring-matching prose. It THROWS, so after it TypeScript has narrowed
+// the result — the one reason it is an assertion and not a check. The other
+// two (the error track, a predicate) are `check.experimental_agentResult` on
+// the root (v52). Prefixed because it reads `experimental_agent`'s contract: a
+// stable name resting on an experimental one is the transitive hole the prefix
+// rule exists to close.
 import type { OutputContract } from "../core/spec.js";
-import {
-  parseAgentResult,
-  type ParsedAgentResult,
-} from "../adapters/claude-code/agent-result.js";
-
-export type { ParsedAgentResult } from "../adapters/claude-code/agent-result.js";
+import { parseAgentResult } from "../core/agent-result.js";
 
 function fail(message: string): never {
   throw new Error(message);
@@ -141,43 +138,4 @@ export function experimental_assertAgentOk(
   if (r.kind === "ok") return r.value;
   const why = r.kind === "err" ? "returned an error result" : r.reason;
   return fail(`expected a success result from the subagent, but ${why}`);
-}
-
-/**
- * Assert the worker's output is an error result, and return its `error`. The
- * railway's error track — proves the worker reported failure with rich detail
- * (not that it crashed or returned prose). A malformed or success result throws.
- *
- * @experimental Reads `experimental_agent`'s result contract.
- *
- * @beta
- */
-export function experimental_assertAgentErr(
-  output: string,
-  contract?: OutputContract,
-): Record<string, unknown> {
-  const r = parseAgentResult(output, contract);
-  if (r.kind === "err") return r.error;
-  const why = r.kind === "ok" ? "returned a success result" : r.reason;
-  return fail(`expected an error result from the subagent, but ${why}`);
-}
-
-/**
- * Assert the parsed result satisfies `predicate` — the general form, for
- * checking rich detail (e.g. `(r) => r.kind === "ok" && r.value.files.length > 0`).
- *
- * @experimental Reads `experimental_agent`'s result contract.
- *
- * @beta
- */
-export function experimental_assertAgentResult(
-  output: string,
-  predicate: (r: ParsedAgentResult) => boolean,
-  contract?: OutputContract,
-): void {
-  const r = parseAgentResult(output, contract);
-  if (!predicate(r)) {
-    const detail = r.kind === "malformed" ? ` (${r.reason})` : "";
-    fail(`subagent result did not satisfy the predicate: ${r.kind}${detail}`);
-  }
 }

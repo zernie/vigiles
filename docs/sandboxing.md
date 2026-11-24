@@ -54,8 +54,10 @@ import { check, assertChecks } from "vigiles";
 const r = runHook(thirdPartyHookCmd, event, { trusted: false });
 // r.filesWritten → [".omc/state/ultrawork-state.json"]
 assertChecks(r, [
-  check.wroteOnly([/^\.omc\//]), // only its own state cache
-  check.noWrite(/\.(env|pem|key)$/), // never a secret-shaped file
+  check.writes({
+    only: [/^\.omc\//], // only its own state cache
+    none: [/\.(env|pem|key)$/], // never a secret-shaped file
+  }),
 ]);
 ```
 
@@ -66,7 +68,7 @@ assertChecks(r, [
 | `undefined` | nobody looked — writes were never recorded |
 | `[]`        | looked, and it wrote nothing               |
 
-`check.noWrite` / `check.wroteOnly` **fail** on `undefined` rather than pass, and the message tells you to pass `{ sandbox: "auto" }`. Collapsing the two would let a write assertion report success having inspected no evidence — a checker that passes while doing nothing is precisely what vigiles exists to catch elsewhere, so it must not be the default here.
+`check.writes` **fails** on `undefined` rather than pass, and the message tells you to pass `{ sandbox: "auto" }`. Collapsing the two would let a write assertion report success having inspected no evidence — a checker that passes while doing nothing is precisely what vigiles exists to catch elsewhere, so it must not be the default here.
 
 Dogfood: `src/run-hook.test.ts` confines oh-my-claudecode's `keyword-detector` and asserts it writes **only** under `.omc/` — its keyword-state cache, nothing else.
 
@@ -135,7 +137,7 @@ The same `session-start` hook is dogfooded a second time under `egress: { allow:
 ## See also
 
 - [Testing your harness](harness-testing.md) — the three tiers + the sandbox boundary.
-- [Testing API](testing-api.md) — `interceptTools`/`notTool`:
+- [Testing API](testing-api.md) — `interceptTools` / `check.tool(name, { max: 0 })`:
   preventing a real model's tool side effects at the eval tier.
 - [`src/sandbox.ts`](../src/sandbox.ts) — `decideSandbox` (the pure policy), `bwrapArgs`, `parseEgressLog`.
 - [`src/egress.ts`](../src/egress.ts) — the `egress: { allow }` allowlist: ruleset builder, counter parser, the pure seams.

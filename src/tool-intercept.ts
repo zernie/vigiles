@@ -5,7 +5,7 @@
  * But letting a side-effecting tool actually run — a paid image API, `git push`,
  * spawning a paid subagent — makes the eval expensive and dangerous. An
  * **intercept** lets the model emit the `tool_use` (so its arguments are captured
- * in the `Trace`, where `toolWith` / `notTool` assert on them) while a PreToolUse
+ * in the `Trace`, where `check.tool(name, { with })` asserts on them) while a PreToolUse
  * hook **denies the real execution** with a block message. The run stays cheap and
  * side-effect-free, but the agent's *decision* — the thing a completion grader
  * can't see — is fully observable.

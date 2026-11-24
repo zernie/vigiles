@@ -57,7 +57,7 @@ export default defineEval({
   },
   assert: (report) => {
     // A trigger-rate eval is a measurement, not a hard gate by default — but you can
-    // gate in CI with assertTriggerRate(report, { min: 0.6 }) from vigiles.
+    // gate in CI with assertRates(report, { min: 0.6 }) from vigiles/eval.
     if (report.n === 0) {
       throw new Error("no runs executed");
     }

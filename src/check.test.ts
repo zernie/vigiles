@@ -10,18 +10,13 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 
 import {
+  check,
   tool,
-  toolWith,
-  notTool,
-  didNotWrite,
   skill,
   output,
   hookFired,
   received,
   turns,
-  wrote,
-  blocked,
-  allowed,
   mcp,
   subagent,
   judged,
@@ -30,6 +25,7 @@ import {
   tokens,
   evalChecks,
   assertChecks,
+  type ArgMatcher,
   type Check,
 } from "./check.js";
 import type { Trace, ToolCall, HookFire } from "./harness-test.js";
@@ -95,7 +91,12 @@ test("tool(): pass when used, actionable message + score when not", () => {
   assert.deepEqual(tool("Bash").toJSON(), { kind: "tool", name: "Bash" });
 });
 
-test("toolWith(): asserts on a tool call's arguments (exact + regex + dot-path)", () => {
+const toolWith = (name: string, args: ArgMatcher) =>
+  check.tool(name, { with: args });
+const notTool = (name: string, args?: ArgMatcher) =>
+  check.tool(name, args === undefined ? { max: 0 } : { with: args, max: 0 });
+
+test("check.tool(name, { with }): asserts on a tool call's arguments (exact + regex + dot-path)", () => {
   const t = makeTrace({
     toolCalls: [
       toolCall("Bash", { input: { command: "git push origin feature" } }),
@@ -125,13 +126,13 @@ test("toolWith(): asserts on a tool call's arguments (exact + regex + dot-path)"
   assert.match(notUsed.message, /expected the agent to use tool "Read"/);
   // serializable (RegExp → string form)
   assert.deepEqual(toolWith("Bash", { command: /main/i }).toJSON(), {
-    kind: "toolWith",
+    kind: "tool",
     name: "Bash",
-    args: { command: "/main/i" },
+    with: { command: "/main/i" },
   });
 });
 
-test("notTool(): the safety/negative assertion, with and without arg-scoping", () => {
+test("check.tool(name, { max: 0 }): the safety/negative assertion, with and without arg-scoping", () => {
   const pushedMain = makeTrace({
     toolCalls: [
       toolCall("Bash", { input: { command: "git push origin main" } }),
@@ -157,11 +158,16 @@ test("notTool(): the safety/negative assertion, with and without arg-scoping", (
   assert.match(tripped.message, /NOT to use "Bash" with command=/);
   assert.match(tripped.message, /git push origin main/);
 
-  assert.deepEqual(notTool("Bash").toJSON(), { kind: "notTool", name: "Bash" });
-  assert.deepEqual(notTool("Bash", { command: /main/ }).toJSON(), {
-    kind: "notTool",
+  assert.deepEqual(notTool("Bash").toJSON(), {
+    kind: "tool",
     name: "Bash",
-    args: { command: "/main/" },
+    max: 0,
+  });
+  assert.deepEqual(notTool("Bash", { command: /main/ }).toJSON(), {
+    kind: "tool",
+    name: "Bash",
+    with: { command: "/main/" },
+    max: 0,
   });
 });
 
@@ -318,41 +324,77 @@ test("turns(): multi-turn observable (min/max)", () => {
   });
 });
 
-test("wrote(): checks the work-dir file presence", () => {
+test("check.writes({ include }) on an agent run: the work-dir file is there", () => {
   const t = makeTrace({ file: (p) => (p === "DONE" ? "x" : null) });
-  assert.equal(wrote("DONE").eval(t).pass, true);
-  const miss = wrote("NOPE").eval(t);
+  assert.equal(check.writes({ include: ["DONE"] }).eval(t).pass, true);
+  const miss = check.writes({ include: ["NOPE"] }).eval(t);
   assert.equal(miss.pass, false);
-  assert.match(miss.message, /expected the agent to create "NOPE"/);
+  assert.match(miss.message, /expected the agent to create NOPE/);
 });
 
-test("didNotWrite(): the side-effect-boundary negative over the work dir", () => {
+test("check.writes({ none }) on an agent run: the side-effect-boundary negative", () => {
   const t = makeTrace({ file: (p) => (p === "out.txt" ? "x" : null) });
   // absent file → ok (stayed inside the declared write surface)
-  assert.equal(didNotWrite("secrets.env").eval(t).pass, true);
-  assert.match(
-    didNotWrite("secrets.env").eval(t).message,
-    /"secrets.env" was not created/,
-  );
+  assert.equal(check.writes({ none: ["secrets.env"] }).eval(t).pass, true);
   // present file → fail (escaped the boundary)
-  const escaped = didNotWrite("out.txt").eval(t);
+  const escaped = check.writes({ none: ["out.txt"] }).eval(t);
   assert.equal(escaped.pass, false);
-  assert.match(escaped.message, /expected the agent NOT to create "out.txt"/);
-  assert.deepEqual(didNotWrite("x").toJSON(), {
-    kind: "didNotWrite",
-    path: "x",
+  assert.match(escaped.message, /expected the agent NOT to leave out.txt/);
+  assert.deepEqual(check.writes({ none: ["x"] }).toJSON(), {
+    kind: "writes",
+    none: ["x"],
   });
 });
 
-test("blocked()/allowed(): hook-decision checks over HookRunResult", () => {
-  const b = hookResult({ blocked: true, exitCode: 2 });
-  const a = hookResult({ blocked: false, exitCode: 0 });
-  assert.equal(blocked().eval(b).pass, true);
-  assert.equal(blocked().eval(a).pass, false);
-  assert.match(blocked().eval(a).message, /expected the hook to block/);
-  assert.equal(allowed().eval(a).pass, true);
-  assert.equal(allowed().eval(b).pass, false);
-  assert.deepEqual(blocked().toJSON(), { kind: "blocked" });
+test("check.writes on an agent run refuses `only` and patterns rather than passing", () => {
+  // What a JavaScript caller can hand these: an agent run (it has `file`) where
+  // the types would only let a recorded run through.
+  const jsTrace = { file: () => null, filesWritten: undefined };
+  for (const c of [
+    check.writes({ only: ["out.txt"] }),
+    check.writes({ none: [/env/] }),
+  ]) {
+    const r = c.eval(jsTrace);
+    assert.equal(r.pass, false);
+    assert.match(r.message, /cannot list every file written/);
+  }
+  assert.throws(() => check.writes({}), /give `only`, `none` or `include`/);
+});
+
+test("check.hookFired over one runHook result: ran, for this event, and decided so", () => {
+  const b = hookResult({ event: "PreToolUse", blocked: true, exitCode: 2 });
+  const a = hookResult({ event: "PreToolUse", blocked: false, exitCode: 0 });
+  const blocks = check.hookFired("PreToolUse", { blocked: true });
+  const allows = check.hookFired("PreToolUse", { blocked: false });
+  assert.equal(blocks.eval(b).pass, true);
+  assert.equal(blocks.eval(a).pass, false);
+  assert.match(blocks.eval(a).message, /expected the hook to block PreToolUse/);
+  assert.equal(allows.eval(a).pass, true);
+  assert.equal(allows.eval(b).pass, false);
+  assert.equal(check.hookFired("PreToolUse").eval(a).pass, true);
+  // the wrong event, an unnamed event, and a hook that never ran all fail
+  assert.match(
+    check.hookFired("Stop").eval(a).message,
+    /but it ran for "PreToolUse"/,
+  );
+  assert.match(
+    allows.eval(hookResult({ blocked: false })).message,
+    /the run named no event/,
+  );
+  const skipped = allows.eval(
+    hookResult({
+      event: "PreToolUse",
+      ran: false,
+      conditionReason: "no match",
+    }),
+  );
+  assert.equal(skipped.pass, false);
+  assert.match(skipped.message, /never ran/);
+  assert.deepEqual(blocks.toJSON(), {
+    kind: "hookFired",
+    event: "PreToolUse",
+    blocked: true,
+  });
 });
 
 test("mcp(): matches an mcp__server__tool call", () => {
