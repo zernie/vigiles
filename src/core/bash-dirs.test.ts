@@ -238,6 +238,9 @@ describe("class 4: every program but git is unknown", () => {
       "env -uX git pull",
       "env -- FOO=bar git pull",
       "env FOO=bar -- git pull",
+      "env -C",
+      "git -C",
+      "env sh x",
     ])
       assert.ok(isUnknown(leafAt(line)), line);
   });

@@ -263,6 +263,7 @@ describe("rule 5: any other construct makes the whole line unknown", () => {
   test("redirects, assignments, substitutions, background and the rest", () => {
     for (const c of [
       "git pull > out",
+      "> out && git pull",
       "X=1 git pull",
       "X=1 && git pull",
       "git -C $(pwd) pull",
