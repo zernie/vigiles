@@ -342,6 +342,24 @@ describe("rule 6: with no start directory, an unresolved answer asks too", () =>
   });
 });
 
+describe("rule 6: a builtin that runs unseen shell code may run the program", () => {
+  test("source, ., command ., builtin source and trap are unresolved for git pull", () => {
+    for (const c of [
+      "source /tmp/actions",
+      ". /tmp/actions",
+      "command . /tmp/actions",
+      "builtin source /tmp/actions",
+      "trap 'true' EXIT",
+      "cd /r && source ./env.sh",
+    ])
+      unknown(c);
+  });
+  test("an unknown line with no such builtin and no git stays empty", () => {
+    known("make deploy", [], "git pull");
+    known("echo $(date)", [], "git pull");
+  });
+});
+
 describe("rule 6: a gate that called dirs() asks on an unknown leaf", () => {
   const guard = experimental_defineHook({
     on: "PreToolUse",

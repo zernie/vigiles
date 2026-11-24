@@ -980,6 +980,17 @@ function readLeafRuns(argv: readonly string[], program: string): boolean {
 }
 
 /**
+ * Builtins that run shell code the line does not show, in this shell: a
+ * sourced file, or a trap's handler. The general reader sees only the builtin
+ * (`command . f` reads as `.`), never the code, so a leaf headed by one may run
+ * any program. `eval` and `builtin` already reach {@link mayRun} as hidden.
+ * Programs that run git in a child process (`make`, `npm run`, `./deploy.sh`)
+ * are outside what a hook can see, by design: see "The limits" in
+ * docs/compiled-hooks.md.
+ */
+const RUNS_SHELL_CODE: readonly string[] = ["source", ".", "trap"];
+
+/**
  * May `text`, which the directory grammar could not read, run `program`? Read
  * by the general reader, through the plain nested forms: a leaf that runs the
  * program's words anywhere in its argv, a leaf of that program whose words or
@@ -991,6 +1002,9 @@ function mayRun(text: string, program: string): boolean {
   const reading = readShell(text);
   return (
     reading.hidden.length > 0 ||
+    reading.effects.some(
+      (e) => e.kind === "leaf" && RUNS_SHELL_CODE.includes(e.leaf.head),
+    ) ||
     reading.effects.some(
       (e) =>
         e.kind === "leaf" &&
