@@ -95,6 +95,10 @@ describe("Trace.skills — a SKILL.md read is an activation", () => {
     "head -n 40 skills/x/SKILL.md",
     "nl -ba ./x/SKILL.md | head",
     "bash -c 'cat skills/x/SKILL.md'",
+    // the file on stdin is the same read (the old substring test counted it)
+    "cat < .codex/skills/x/SKILL.md",
+    "head -n 20 < skills/x/SKILL.md",
+    `/bin/bash -lc "sed -n 1,80p < skills/x/SKILL.md"`,
   ])
     test(`a read fires: ${read}`, () => {
       assert.equal(skill("x").eval(traceOf(stream(read))).pass, true);
@@ -106,6 +110,11 @@ describe("Trace.skills — a SKILL.md read is an activation", () => {
     "echo body >> skills/x/SKILL.md",
     "tee skills/x/SKILL.md < draft.md",
     "sed -i 's/a/b/' skills/x/SKILL.md",
+    // a redirect that WRITES the file is authoring, on any printing program
+    "cat draft.md > skills/x/SKILL.md",
+    "head -n 5 notes.md >> skills/x/SKILL.md",
+    // a non-printing program fed the file on stdin is not reading the skill
+    "wc -l < skills/x/SKILL.md",
     // finding or listing the file is not reading it
     "grep -n description skills/x/SKILL.md",
     "ls skills/x/SKILL.md",
