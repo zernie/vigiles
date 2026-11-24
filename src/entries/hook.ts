@@ -94,11 +94,11 @@ export {
   notice,
   nothing,
   responseView,
-} from "./core/hook-program.js";
+} from "../core/hook-program.js";
 
 // ── testing a compiled hook is NOT here ──────────────────────────────────────
 // `experimental_loadHook`, `runHookProgram` and the `experimental_assertHook*`
-// tests live on `vigiles/hook-test`. This entry is the ONLY import a compiled
+// tests live on `vigiles/hook/testing`. This entry is the ONLY import a compiled
 // hook may have, so whatever it exports, every hook can call: with the loader
 // here, a hook could load a second local module that no capability check reads
 // and no stamp covers (Codex P1 on #510). src/hook-entry-effects.test.ts holds
@@ -129,25 +129,25 @@ export type {
   Injection,
   Reaction,
   RunReaction,
-} from "./core/hook-program.js";
+} from "../core/hook-program.js";
 
 export {
   provide,
   dangerously,
   defineProvider,
   provider,
-} from "./core/hook-providers.js";
+} from "../core/hook-providers.js";
 
 // Runtime-owned named state: `state(k)` in `needs` reads a fact, `record(k)` in a
 // return value declares one. The whole design note lives in `core/hook-state.ts`.
-export { state, record } from "./core/hook-state.js";
+export { state, record } from "../core/hook-state.js";
 
 export type {
   StateFact,
   StateNeed,
   StateWrite,
   Duration,
-} from "./core/hook-state.js";
+} from "../core/hook-state.js";
 
 export type {
   ProviderName,
@@ -158,7 +158,7 @@ export type {
   RegisteredProvider,
   RegisteredRef,
   ProviderRegistry,
-} from "./core/hook-providers.js";
+} from "../core/hook-providers.js";
 
 // Operation-normalized leaf extraction — the primitive `runs()`, `touches()`
 // and `pipesToShell()` match over, so a guard written against the closed
@@ -174,6 +174,6 @@ export type {
 // not as the intended path. Measured 2026-09-03: on the 7 seeds plus every
 // generated spelling (143 cases) v1 and v2 both block 143/143, so v2 is no
 // longer the "hardened" one; see zernie/vigiles#193.
-export { leafCommandsNormalized } from "./core/bash-effects.js";
-export type { NormalizedLeaf, LeafRedirect } from "./core/bash-effects.js";
-export type { UnresolvedDir } from "./core/bash-dirs.js";
+export { leafCommandsNormalized } from "../core/bash-effects.js";
+export type { NormalizedLeaf, LeafRedirect } from "../core/bash-effects.js";
+export type { UnresolvedDir } from "../core/bash-dirs.js";

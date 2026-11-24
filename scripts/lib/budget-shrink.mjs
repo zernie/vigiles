@@ -1,4 +1,19 @@
 /**
+ * Entries renamed since a base that still carries their old key, new -> old.
+ * A renamed entry keeps its row's history, so it is compared against the old
+ * row instead of looking like a brand-new entry (which must start with no
+ * grandfathered names). Only a real rename belongs here: `./hook/testing` is a
+ * MERGE of two entries (both with empty lists), so it is deliberately absent and
+ * is judged as new, which is the right verdict. Added in v51; delete the rows
+ * once a release has shipped with the new keys.
+ */
+export const RENAMED_ENTRIES = Object.freeze({
+  "./harness/claude-code": "./claude-code",
+  "./harness/codex": "./codex",
+  "./harness/kit": "./adapter",
+});
+
+/**
  * The shrink-only half of the function budget (`api-surface/budget.json`).
  *
  * `scripts/export-gates.test.ts` checks the budget against the CURRENT exports,
@@ -14,7 +29,8 @@
 export function budgetShrinkViolations(base, head) {
   const out = [];
   for (const [entry, row] of Object.entries(head.entries)) {
-    const before = base.entries[entry];
+    const before =
+      base.entries[entry] ?? base.entries[RENAMED_ENTRIES[entry] ?? ""];
     if (!before) {
       if (row.grandfathered.length > 0) {
         out.push(

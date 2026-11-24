@@ -2,12 +2,12 @@
 
 The [harness-testing guide](harness-testing.md) is the harness-agnostic core: the
 levels, the `Trace` model, the runners, evals. This page is the **OpenAI Codex
-adapter** (`vigiles/codex`) — how you point the deterministic tier at real
+adapter** (`vigiles/harness/codex`) — how you point the deterministic tier at real
 `codex exec`, what maps from the agnostic API, and the one thing that doesn't
 (subagents, by design).
 
 Codex is **shipped**: registered in `ADAPTERS` (the CLI auto-detects a
-`.codex/config.toml` or `AGENTS.md` repo) and exported as `vigiles/codex`. The
+`.codex/config.toml` or `AGENTS.md` repo) and exported as `vigiles/harness/codex`. The
 layer-2 **deterministic** path — `runHarnessTest(spec, { adapter: codexAdapter })`
 — is full and proven against the real `codex` binary. See the capability matrix in
 [`docs/harnesses.md`](harnesses.md) for where Codex sits relative to Claude Code.
@@ -29,7 +29,7 @@ adapter object — the same surface, a different transport:
 
 ```ts
 import { runHarnessTest } from "vigiles";
-import { codexAdapter } from "vigiles/codex";
+import { codexAdapter } from "vigiles/harness/codex";
 
 const r = await runHarnessTest(spec, { adapter: codexAdapter });
 ```
@@ -51,7 +51,7 @@ the mock recorded the prompt (so the request actually reached the model):
 
 ```ts
 import { runHarnessTest } from "vigiles";
-import { codexAdapter } from "vigiles/codex";
+import { codexAdapter } from "vigiles/harness/codex";
 
 const r = await runHarnessTest(
   {
@@ -95,10 +95,10 @@ one assistant text message. There is no count-tokens endpoint.
 
 `runHarnessTest` starts and stops the mock for you via the driver. To drive it
 directly — or to assert over the captured requests — use `startCodexMock` from
-`vigiles/codex`:
+`vigiles/harness/codex`:
 
 ```ts
-import { startCodexMock } from "vigiles/codex";
+import { startCodexMock } from "vigiles/harness/codex";
 
 const mock = await startCodexMock([{ text: "HELLO_CODEX" }]);
 try {

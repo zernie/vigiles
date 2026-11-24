@@ -14,7 +14,7 @@
  * Needs the `claude` CLI + model auth, and a built dist/ (`npm run build`).
  */
 import { resolve } from "node:path";
-import { defineEval } from "../../dist/test.js";
+import { defineEval } from "../../dist/entries/index.js";
 
 const CLI = resolve("dist/cli.js");
 

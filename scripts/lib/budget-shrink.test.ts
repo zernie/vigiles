@@ -72,4 +72,49 @@ describe("budgetShrinkViolations", () => {
   it("is silent when nothing changed", () => {
     expect(budgetShrinkViolations(base, base)).toEqual([]);
   });
+
+  describe("renamed entries (v51)", () => {
+    const renamedBase = {
+      entries: {
+        "./claude-code": { ceiling: 10, grandfathered: ["a", "b"] },
+        "./adapter": { ceiling: 8, grandfathered: [] },
+      },
+    };
+
+    it("compares a renamed entry against its old row, so its grandfathered names carry over", () => {
+      const head = {
+        entries: {
+          "./harness/claude-code": { ceiling: 10, grandfathered: ["a", "b"] },
+          "./harness/kit": { ceiling: 8, grandfathered: [] },
+        },
+      };
+      expect(budgetShrinkViolations(renamedBase, head)).toEqual([]);
+    });
+
+    it("still fails a renamed entry that adds a grandfathered name or raises its ceiling", () => {
+      const head = {
+        entries: {
+          "./harness/claude-code": {
+            ceiling: 11,
+            grandfathered: ["a", "b", "c"],
+          },
+        },
+      };
+      expect(budgetShrinkViolations(renamedBase, head)).toEqual([
+        "./harness/claude-code: grandfathered may only shrink, but c was added",
+        "./harness/claude-code: ceiling may only fall, but it rose from 10 to 11",
+      ]);
+    });
+
+    it("still fails a brand-new entry with grandfathered names (only listed renames are mapped)", () => {
+      const head = {
+        entries: {
+          "./hook/testing": { ceiling: 13, grandfathered: ["x"] },
+        },
+      };
+      expect(budgetShrinkViolations(renamedBase, head)).toEqual([
+        "./hook/testing: a new entry starts with no grandfathered names (got x)",
+      ]);
+    });
+  });
 });

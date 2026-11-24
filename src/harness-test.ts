@@ -797,7 +797,7 @@ export const claudeCodeDriver: HarnessTestDriver = {
 export interface RunHarnessTestOptions {
   /**
    * Which harness to drive. Defaults to Claude Code. Pass `codexAdapter`
-   * (`vigiles/codex`) to drive real `codex exec` against its Responses mock.
+   * (`vigiles/harness/codex`) to drive real `codex exec` against its Responses mock.
    * The adapter must support pillar 2 (`capabilities.harnessTesting`) and carry
    * a `harnessTestDriver`.
    */

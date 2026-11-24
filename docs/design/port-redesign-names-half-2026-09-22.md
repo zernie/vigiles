@@ -50,7 +50,7 @@ p2-live-driver.ts(41,52): error TS2345: Argument of type 'HarnessLiveDriver' is 
 
 Line 41 is the **positive** case `if (live.firing.kind === "event") measureSelection(live)` — TypeScript narrows `live.firing`, not `live`. P2b (RC 0) settles the construction: a type guard `isEventFiring(d): d is EventFiringDriver` narrows the driver itself; the negative arm still reaches `caveat` for the n/a note. Ship the guard in core beside the type.
 
-`ProbeHarness` is then deleted; `ProbeOptions.harness` → `adapter`. One public-API cost: `SelectionOptions` (which carries `harness?: ProbeHarness`, `scan-behavioral.ts:365`) is exported from `vigiles/claude-code` (`src/claude-code.ts:58-63`). Keep `harness` one release, `@deprecated`, resolved through `getAdapter(name)` — the one sanctioned string→adapter conversion — then drop in the next major.
+`ProbeHarness` is then deleted; `ProbeOptions.harness` → `adapter`. One public-API cost: `SelectionOptions` (which carries `harness?: ProbeHarness`, `scan-behavioral.ts:365`) is exported from `vigiles/harness/claude-code` (`src/claude-code.ts:58-63`). Keep `harness` one release, `@deprecated`, resolved through `getAdapter(name)` — the one sanctioned string→adapter conversion — then drop in the next major.
 
 ### Q3 — the adoptability pair (`cli-main.ts:8500` and `8775`) — **the gate is the defect; delete it**
 
@@ -102,7 +102,7 @@ export type ModelAccess =
  * wrong in both directions — `adapters/codex/eval.ts:21-28`). `caveat` is the
  * sentence the report prints above an inferred number.
  *
- * The same fact as `EvalDriver.experimental` (a public field on `vigiles/codex`,
+ * The same fact as `EvalDriver.experimental` (a public field on `vigiles/harness/codex`,
  * kept for compatibility); the contract test asserts the two agree.
  */
 export type SkillFiringSignal =
@@ -238,8 +238,8 @@ Deleted: `ProbeHarness` (`scan-behavioral.ts:51`), `buildProbe` (`:113-131`), `p
 - **`cli-main.ts:7582`** — stays as a name-check with a disable (§2). The fix is a `verified` column on `EventCapability`, owned by the capability table, not this port.
 - **`init` / `setup-plan.ts:450, 471` and `cli-main.ts:3468, 4141, 4290, 4325`** — onboarding installs vigiles's own plugin into a named harness; the composition root's UI, exempt by the existing header. Four disables, not a redesign.
 - **Live-without-mock harnesses.** Folding `liveDriver` into `harnessTesting: true` makes "can go live, cannot be mocked" inexpressible. Zero implementations have that shape; splitting the arm is mechanical when one does (the rule-of-three the round-2 doc invokes at §10.9).
-- **`EvalDriver.experimental` stays** as a public duplicate of `firing` — `codexEvalDriver` is exported from `vigiles/codex` and `measureTriggerRate` copies the field onto reports. Related by a contract assertion, not removed; removal is a major.
-- **`SelectionOptions.harness`** on `vigiles/claude-code` — deprecated one release, not deleted.
+- **`EvalDriver.experimental` stays** as a public duplicate of `firing` — `codexEvalDriver` is exported from `vigiles/harness/codex` and `measureTriggerRate` copies the field onto reports. Related by a contract assertion, not removed; removal is a major.
+- **`SelectionOptions.harness`** on `vigiles/harness/claude-code` — deprecated one release, not deleted.
 - **`installsStubs: false` on Codex** encodes an unvalidated measurement, not a capability; it is on the port because the alternative was `probe.stub` keyed by name. The docblock says which it is.
 - **`advisories` reading `~`** — the reader serves the home dir because `installed_plugins.json` lives there; that is a read of the machine, never of the repo, and it is advisory-only. If the owner wants no `~` reads at all, `home` goes and the reachability check loses its global-install source (it would then misreport a correctly installed plugin — the exact misread its header at `skill-reachability.ts:22-29` warns about).
 - **The name stays a string.** P1 (RC 0): a `class HarnessId` makes `a.id === "codex"` TS2367 while `String(a.id)`, `JSON.stringify`, template strings and the registry lookup all compile — **and `a.id.value === "codex"` compiles too.** The comparison moves one member deeper; it does not go away. Not worth `--harness=`/report/config churn for a lint the rule already gives.

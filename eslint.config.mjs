@@ -35,14 +35,14 @@ import {
 const NO_BARREL_IMPORTS = {
   group: [
     "**/linting.js",
-    "**/test.js",
-    "**/eval-surface.js",
-    "**/battery.js",
-    "**/fixtures.js",
-    "**/hook.js",
-    "**/hook-test.js",
-    "**/claude-code.js",
-    "**/codex.js",
+    "**/entries/index.js",
+    "**/entries/eval.js",
+    "**/entries/fixtures.js",
+    "**/entries/hook.js",
+    "**/entries/hook/testing.js",
+    "**/entries/harness/claude-code.js",
+    "**/entries/harness/codex.js",
+    "**/entries/harness/kit.js",
   ],
   message:
     "No barrel imports: import the leaf module that defines this symbol (e.g. ./core/spec.js, ./run-hook.js), not the public barrel entry point (vigiles/<x>). Barrels pull their whole re-export graph and re-leak internal seams. The barrels themselves and tests are exempt.",
@@ -91,7 +91,7 @@ const PARSES_SHELL = [
   "src/core/bash-dirs.ts",
   "src/core/hook-providers.ts",
   // The public `vigiles/hook` barrel re-exports the gate vocabulary.
-  "src/hook.ts",
+  "src/entries/hook.ts",
   // Claude Code's `if` condition is matched against the tool-input command.
   "src/adapters/claude-code/hook-condition.ts",
   // Attributes a command a harness EXECUTED to the script it ran (a run, not a config).
@@ -152,7 +152,7 @@ const HARNESS_LITERALS = {
  * The CLI, and each package entry in `src/entries/` — an entry is where a
  * library user's import is assembled, which is the same job.
  */
-const CLI_ROOT = "src/{cli,cli-main,entries/*}.ts";
+const CLI_ROOT = "src/{cli,cli-main,entries/*,entries/*/*}.ts";
 const HOST_AND_HARNESS_ADAPTERS = "src/{adapters/*,host}";
 const IO_FILES = "src/{adapters/*,host}/*.io.ts";
 
@@ -488,8 +488,7 @@ export default [
   },
   // No barrel imports: internal modules must import the LEAF that defines a
   // symbol, never the package's own public barrel entry points (the
-  // `vigiles/<x>` surfaces — src/{linting,test,eval-surface,battery,
-  // fixtures,hook,hook-test,claude-code,codex,adapter}.ts). Importing a barrel pulls its whole
+  // `vigiles/<x>` surfaces — everything under src/entries/). Importing a barrel pulls its whole
   // re-export graph (slow in the test runner / any non-treeshaking consumer,
   // and a circular-import risk), and re-leaks the internal seams the curated
   // barrels deliberately drop. The canonical eslint-plugin-barrel-files is
@@ -502,19 +501,13 @@ export default [
   // ladder; that ladder is gone — the two cost-split barrels are siblings and
   // neither imports the other.)
   //
-  // `**/<name>.js` matches the relative specifier at every depth
-  // (`./x.js`, `../x.js`, `../../x.js`). The public `vigiles/adapter` barrel
-  // (src/adapter.ts) is intentionally NOT listed: its basename collides with two
-  // legitimate leaves — the `HarnessDialect`/`HarnessAdapter` port interface in
-  // src/core/adapter.ts and each harness's src/adapters/<h>/adapter.ts — so a
-  // basename glob can't target it without false-positiving the leaves. It's the
-  // smallest barrel and nothing internal imports it, so the omission is safe.
+  // `**/entries/<path>.js` matches the relative specifier at every depth
+  // (`./entries/x.js`, `../entries/x.js`). Every entry module lives in
+  // src/entries/ and mirrors its export path, so each barrel has a unique path
+  // and the list below names them one by one (src/entries/CLAUDE.md).
   {
     files: ["src/**/*.ts"],
-    ignores: [
-      "src/**/*.test.ts",
-      "src/{linting,test,eval-surface,battery,fixtures,hook,hook-test,claude-code,codex,adapter}.ts",
-    ],
+    ignores: ["src/**/*.test.ts", "src/entries/**/*.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -534,11 +527,7 @@ export default [
   // Restates the option sets above: flat config replaces a rule's options.
   {
     files: ["src/**/*.ts"],
-    ignores: [
-      "src/**/*.test.ts",
-      "src/{linting,test,eval-surface,battery,fixtures,hook,hook-test,claude-code,codex,adapter}.ts",
-      ...PARSES_SHELL,
-    ],
+    ignores: ["src/**/*.test.ts", "src/entries/**/*.ts", ...PARSES_SHELL],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -549,12 +538,11 @@ export default [
       ],
     },
   },
-  // The public barrels: exempt from the barrel rule, not from this one. `hook.ts`
-  // is in PARSES_SHELL, so the glob skips it.
+  // The public barrels: exempt from the barrel rule, not from this one.
+  // `entries/hook.ts` is in PARSES_SHELL, so the glob skips it.
   {
-    files: [
-      "src/{linting,test,eval-surface,battery,fixtures,hook-test,claude-code,codex,adapter}.ts",
-    ],
+    files: ["src/entries/**/*.ts"],
+    ignores: ["src/entries/hook.ts"],
     rules: {
       "no-restricted-imports": [
         "error",

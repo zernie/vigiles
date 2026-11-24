@@ -34,7 +34,7 @@ import {
 } from "./check-count.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
-const HOOK_ENTRY = resolve(__dirname, "..", "dist", "hook.js");
+const HOOK_ENTRY = resolve(__dirname, "..", "dist", "entries/hook.js");
 
 const GATE = `import { experimental_defineHook, tool, deny, allow } from ${JSON.stringify(HOOK_ENTRY)};
 export default experimental_defineHook({

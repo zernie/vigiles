@@ -16,7 +16,7 @@ import {
   type HookProtocol,
   type ModelMock,
   assertAdapterConformance,
-} from "vigiles/adapter";
+} from "vigiles/harness/kit";
 ```
 
 ## The five ports
@@ -44,7 +44,7 @@ surface the audit found on its own:
 ```ts
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { layoutClaims, type HarnessAdapter } from "vigiles/adapter";
+import { layoutClaims, type HarnessAdapter } from "vigiles/harness/kit";
 
 const dialect: HarnessDialect = {
   name: "my-harness",
@@ -179,7 +179,7 @@ import { test } from "vitest";
 import {
   assertAdapterConformance,
   assertAdapterLoadsHooks,
-} from "vigiles/adapter";
+} from "vigiles/harness/kit";
 import { myHarnessAdapter } from "./my-harness-adapter.js";
 
 test("my adapter conforms", () => {

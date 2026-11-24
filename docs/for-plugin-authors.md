@@ -71,7 +71,7 @@ npx vigiles audit ./my-plugin --prompts=prompts.json
 **For automation / CI** (no human to consent), drive the primitives directly in a test:
 
 - **`measureTriggerRate`** — recall across varied prompts, plus precision when you supply irrelevant ones, so a too-broad description that hijacks unrelated work fails too. Pair with `assertTriggerRate({ min, maxFalsePositive })`.
-- **`measureSelectionMatrix`** — the selection-collision matrix as an assertable value: prompts are auto-derived from your descriptions (zero setup), or supply your own. Pair with `assertNoCollision({ maxOffDiagonal })` to **fail the build when one skill hijacks a sibling's prompt**. It's Claude-Code-only (import from `vigiles/claude-code`), since it reads which skill the selector chose.
+- **`measureSelectionMatrix`** — the selection-collision matrix as an assertable value: prompts are auto-derived from your descriptions (zero setup), or supply your own. Pair with `assertNoCollision({ maxOffDiagonal })` to **fail the build when one skill hijacks a sibling's prompt**. It's Claude-Code-only (import from `vigiles/harness/claude-code`), since it reads which skill the selector chose.
 
 That's the designed path for testing skills in a script. See [measuring skills](measuring-skills.md) and the [testing API](testing-api.md).
 

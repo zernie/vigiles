@@ -1,7 +1,7 @@
 /**
  * Codex adapter validation — proves the harness-adapter kit generalizes beyond
  * Claude Code. codexAdapter is SHIPPED (registered in the registry, exported as
- * `vigiles/codex`); this suite drives it through the conformance kit and the real
+ * `vigiles/harness/codex`); this suite drives it through the conformance kit and the real
  * compiler + loader against Codex-shaped fixtures (AGENTS.md, TOML config.toml
  * `[hooks]`, `${PLUGIN_ROOT}`). Findings → research/codex-prototype-findings.md.
  */
@@ -11,7 +11,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { codexAdapter } from "./adapter.js";
-import * as door from "../../codex.js";
+import * as door from "../../entries/harness/codex.js";
 import { codexDialect } from "./dialect.js";
 import { codexLayout } from "./layout.js";
 import { findOutputStyles } from "../../core/output-style.js";
@@ -353,7 +353,7 @@ test("codex drops a skill's agent and model: its dialect reads neither (#401)", 
   assert.ok(!markdown.includes("model:"));
 });
 
-test("vigiles/codex: the adapter and its helpers, the ports reached through the adapter", () => {
+test("vigiles/harness/codex: the adapter and its helpers, the ports reached through the adapter", () => {
   for (const name of [
     "codexAdapter",
     "parseCodexRun",
@@ -361,7 +361,7 @@ test("vigiles/codex: the adapter and its helpers, the ports reached through the 
     "codexEvalDriver",
     "codexLiveDriver",
   ]) {
-    assert.ok(name in door, `vigiles/codex exports ${name}`);
+    assert.ok(name in door, `vigiles/harness/codex exports ${name}`);
   }
   for (const gone of [
     "codexLayout",
@@ -371,6 +371,6 @@ test("vigiles/codex: the adapter and its helpers, the ports reached through the 
     "codexSkillFired",
     "codexEvalRunner",
   ]) {
-    assert.ok(!(gone in door), `vigiles/codex hides ${gone}`);
+    assert.ok(!(gone in door), `vigiles/harness/codex hides ${gone}`);
   }
 });

@@ -8,7 +8,7 @@
  * real model (every one named `paid_`, because it can spend money) and the
  * readers of the report they produce (which spend nothing).
  *
- * The package root, [`vigiles`](./test.ts), is the free testing surface. A
+ * The package root, [`vigiles`](./index.ts), is the free testing surface. A
  * report reader is free too, but its only reader is someone who just ran an
  * eval, so it lives here beside the runner (v50) rather than on the root.
  * "Can this call bill me?" is answered by the NAME — `paid_*` — not by the
@@ -66,8 +66,8 @@
  * name has one door. Import `type { EvalReport } from "vigiles"`.
  *
  * Harness-specific eval drivers are not here either — `codexEvalDriver` lives
- * on `vigiles/codex`, and `measureSelectionMatrix` / `assertNoCollision` on
- * `vigiles/claude-code`, because those surfaces are chosen by harness.
+ * on `vigiles/harness/codex`, and `measureSelectionMatrix` / `assertNoCollision` on
+ * `vigiles/harness/claude-code`, because those surfaces are chosen by harness.
  */
 
 // --- the runners: each one drives a real model ---
@@ -78,7 +78,7 @@
  * ⚠️ The `paid_` prefix overstates slightly: pass your own `evalDriver` and no
  * model of ours is called. The DEFAULT path bills.
  */
-export { runEval as paid_runEval } from "./eval.js";
+export { runEval as paid_runEval } from "../eval.js";
 
 /**
  * Score checks over N trials of one task with a real model. Spends money.
@@ -86,7 +86,7 @@ export { runEval as paid_runEval } from "./eval.js";
  * ⚠️ `paid_` overstates slightly: with an injected `evalDriver` this drives
  * whatever you supply. The DEFAULT path bills.
  */
-export { measure as paid_measure } from "./eval.js";
+export { measure as paid_measure } from "../eval.js";
 
 /**
  * Score the same checks per arm (a hook/skill/rule on vs off) with a real model.
@@ -95,7 +95,7 @@ export { measure as paid_measure } from "./eval.js";
  * ⚠️ `paid_` overstates slightly: an injected `evalDriver` replaces the billed
  * path. The DEFAULT path bills.
  */
-export { measureArms as paid_measureArms } from "./eval.js";
+export { measureArms as paid_measureArms } from "../eval.js";
 
 /**
  * Measure whether a skill's description actually FIRES (recall + precision) by
@@ -105,7 +105,7 @@ export { measureArms as paid_measureArms } from "./eval.js";
  * path, and `stubSkillBodies` makes the default path much cheaper without making
  * it free. The DEFAULT path bills.
  */
-export { measureTriggerRate as paid_measureTriggerRate } from "./eval.js";
+export { measureTriggerRate as paid_measureTriggerRate } from "../eval.js";
 
 /**
  * The model-graded judge (harness-agnostic — grades text against a rubric).
@@ -114,7 +114,7 @@ export { measureTriggerRate as paid_measureTriggerRate } from "./eval.js";
  * ⚠️ Unlike the others this one has no injection seam — it always calls a model,
  * so here `paid_` is exact.
  */
-export { judge as paid_judge } from "./judge.js";
+export { judge as paid_judge } from "../judge.js";
 
 /**
  * The one member of the declarative check vocabulary that bills: its default
@@ -125,13 +125,13 @@ export { judge as paid_judge } from "./judge.js";
  * most: `paid_judged(rubric, { judge: myFn })` calls YOUR function and spends
  * nothing. Only `paid_judged(rubric)` — the default — bills.
  */
-export { judged as paid_judged } from "./check.js";
+export { judged as paid_judged } from "../check.js";
 
 /**
  * The Claude-Code eval driver: the transport `paid_runEval` and friends use by
  * default. Naming it here is how you pass it explicitly; using it spends money.
  */
-export { claudeEvalDriver as paid_claudeEvalDriver } from "./eval.js";
+export { claudeEvalDriver as paid_claudeEvalDriver } from "../eval.js";
 
 // --- reading the report: free, so unprefixed ---
 export {
@@ -139,24 +139,24 @@ export {
   assertImproves,
   assertNoRegression,
   assertTriggerRate,
-} from "./eval-readers.js";
+} from "../eval-readers.js";
 export type {
   ArmComparison,
   TriggerDiff,
   ImprovesGate,
   TriggerRateGate,
-} from "./eval-readers.js";
-export { assertRates } from "./eval.js";
-export type { RateGate, CheckRateGate, ArmRateGate } from "./eval.js";
-export { readBaseline, writeBaseline } from "./eval-baseline.js";
-export type { BaselineFile, DiffOptions } from "./eval-baseline.js";
+} from "../eval-readers.js";
+export { assertRates } from "../eval.js";
+export type { RateGate, CheckRateGate, ArmRateGate } from "../eval.js";
+export { readBaseline, writeBaseline } from "../eval-baseline.js";
+export type { BaselineFile, DiffOptions } from "../eval-baseline.js";
 // `compare`'s verdict and the interval a 0/1 metric is judged by.
-export type { Verdict, Interval } from "./core/evidence.js";
+export type { Verdict, Interval } from "../core/evidence.js";
 
 // --- building the arms: free, so unprefixed ---
 // The with/without arms of an output-style eval, for `paid_measureArms`. Free:
 // the one run it makes to prove the style reaches the model uses the scripted
 // model. Its only reader is someone about to run that eval, so it shares this
 // door with the runner it feeds.
-export { experimental_outputStyleArms } from "./output-style-arms.js";
-export type { OutputStyleArms } from "./output-style-arms.js";
+export { experimental_outputStyleArms } from "../output-style-arms.js";
+export type { OutputStyleArms } from "../output-style-arms.js";

@@ -101,7 +101,7 @@ export const claudeCodeAdapter = {
   ...claudeCodePorts,
   /**
    * The tools a Claude Code agent has built in — the vocabulary a typed
-   * `experimental_agent` / `experimental_skill` from `vigiles/claude-code`
+   * `experimental_agent` / `experimental_skill` from `vigiles/harness/claude-code`
    * checks `purity` against. A Claude Code fact, so it is reached through this
    * adapter rather than exported on its own. `@beta`: the catalog tracks the
    * CLI's tool list.

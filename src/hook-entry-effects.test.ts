@@ -2,13 +2,13 @@
  * `vigiles/hook` is the ONLY import a compiled hook may have (`checkHookImports`),
  * so whatever that entry can reach, every compiled hook can reach — past the
  * capability check and outside the stamp. This test holds the entry to the
- * promise the check makes: nothing reachable from `src/hook.ts` can read a file,
+ * promise the check makes: nothing reachable from `src/entries/hook.ts` can read a file,
  * spawn a process, open a socket or load a module it was not built with.
  *
  * It broke once, which is why it exists: `experimental_loadHook` was moved onto
  * this entry beside the vocabulary it tests, and a hook could then load any local
  * module with no capability check and no stamp (Codex P1 on #510). The loader and
- * the assertions now live on `vigiles/hook-test`.
+ * the assertions now live on `vigiles/hook/testing`.
  *
  * HOW: the TypeScript parser walks the entry's SOURCE graph — every relative
  * import, followed — and checks each module's AST. A static scan cannot see a
@@ -30,7 +30,7 @@ import ts from "typescript";
 
 // Vitest runs this file from src/, so __dirname is src/.
 const SRC = __dirname;
-const ENTRY = resolve(SRC, "hook.ts");
+const ENTRY = resolve(SRC, "entries", "hook.ts");
 
 /** The non-relative modules the entry's graph may import statically. */
 const STATIC_MODULES: ReadonlySet<string> = new Set(["node:crypto"]);
@@ -179,10 +179,10 @@ test("nothing reachable from vigiles/hook can read a file, spawn, or load a modu
   );
 });
 
-test("the sweep fires: the hook-test entry's loader is caught", () => {
+test("the sweep fires: the hook/testing entry's loader is caught", () => {
   // Both directions, because an "is absent" check that can only pass is worth
-  // nothing: the same walk over vigiles/hook-test finds the dynamic import.
-  const { findings } = sweep(resolve(SRC, "hook-test.ts"));
+  // nothing: the same walk over vigiles/hook/testing finds the dynamic import.
+  const { findings } = sweep(resolve(SRC, "entries", "hook", "testing.ts"));
   assert.ok(
     findings.some((f) => f.what.startsWith("dynamic load: import(")),
     `expected the loader's dynamic import, got ${JSON.stringify(findings)}`,

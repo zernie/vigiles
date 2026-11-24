@@ -626,7 +626,7 @@ they actually **block** (the #1 verified hook pain: a guard that _looks_ like it
 blocks and silently doesn't). Because running arbitrary hooks safely needs
 cross-platform confinement that isn't shipped yet, it's **not** part of the
 zero-config report; you run it where you opt in explicitly — `guardrail-check` /
-`assertGuardrail` from `vigiles/battery`, or via the `test-harness` skill.
+`assertGuardrail` from `vigiles/hook/testing`, or via the `test-harness` skill.
 
 Each deterministic finding carries its **fix inline** under the report — the
 cross-reference cause + a one-line correction (`FIX` a dead-end, `DIFFERENTIATE` a
@@ -1142,7 +1142,7 @@ then verifies every reference deterministically. Claude Code only in v1; never w
 anything to the repo. Runs on your subscription ($0 metered).
 ⁵ The safety battery (run your hooks against the disaster catalog) is **not** an
 `audit` check — it needs cross-platform confinement that isn't shipped, so it lives
-in the `vigiles/battery` testing API (`assertGuardrail`).
+in the `vigiles/hook/testing` testing API (`assertGuardrail`).
 
 **Where each runs:**
 

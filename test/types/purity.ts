@@ -1,5 +1,5 @@
 /**
- * Type-level constraint: typed purity. The `vigiles/claude-code` `agent` /
+ * Type-level constraint: typed purity. The `vigiles/harness/claude-code` `agent` /
  * `experimental_skill` builders enforce the `purity` floor AGAINST the Claude Code tool
  * catalog at `tsc` time — a strict addition to the runtime/compile purity
  * checks. Compiled with `tsc --noEmit` (npm run test:types); it asserts types,
@@ -12,7 +12,7 @@
 import {
   experimental_agent,
   experimental_skill,
-} from "../../dist/claude-code.js";
+} from "../../dist/entries/harness/claude-code.js";
 import {
   experimental_agent as coreAgent,
   experimental_skill as coreSkill,

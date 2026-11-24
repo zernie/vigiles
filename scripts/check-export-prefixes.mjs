@@ -56,7 +56,7 @@ import { createRequire } from "node:module";
 export const SURFACES = [
   {
     subpath: "./eval",
-    dts: "dist/eval-surface.d.ts",
+    dts: "dist/entries/eval.d.ts",
     prefix: "paid_",
     // The report READERS share this door with the runners (v50): their only
     // reader is someone who just ran an eval. They spend nothing, so they carry

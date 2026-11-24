@@ -1,5 +1,5 @@
 /**
- * Testing a COMPILED hook in-process — the assertions behind `vigiles/hook-test`.
+ * Testing a COMPILED hook in-process — the assertions behind `vigiles/hook/testing`.
  *
  * `experimental_loadHook(file)` loads the hook the way the runtime does, and these assert its
  * decision on a raw event: no subprocess, no model. They are NOT on `vigiles/hook`:

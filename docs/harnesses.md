@@ -2,7 +2,7 @@
 
 An agent is **Model + Harness**. The _harness_ is the machine around the model: the CLI, the hook protocol, the plugin layout, the instruction-file dialect. vigiles keeps its **core harness-agnostic** — harness-specific pieces live behind a swappable **adapter**.
 
-> ✅ **Supported today: Claude Code and Codex.** `vigiles/codex` is auto-detected by the CLI. It verifies references, compiles Codex-shaped instructions (`AGENTS.md`) and skills (minimal `SKILL.md`), and runs Test-layer harness tests against the real `codex` binary (keyless, OpenAI-Responses mock) via `runHarnessTest({ adapter: codexAdapter })`. Subagents are a deliberate boundary — see the matrix below. Adding a harness never touches the core.
+> ✅ **Supported today: Claude Code and Codex.** `vigiles/harness/codex` is auto-detected by the CLI. It verifies references, compiles Codex-shaped instructions (`AGENTS.md`) and skills (minimal `SKILL.md`), and runs Test-layer harness tests against the real `codex` binary (keyless, OpenAI-Responses mock) via `runHarnessTest({ adapter: codexAdapter })`. Subagents are a deliberate boundary — see the matrix below. Adding a harness never touches the core.
 
 ## You pick the harness by which subpath you import
 
@@ -14,17 +14,17 @@ import { paid_runEval } from "vigiles/eval";
 import { runHarnessTest, check, assertChecks } from "vigiles";
 
 // Adapter — the Claude Code-specific pieces, named explicitly.
-import { loadPlugin, scriptModel } from "vigiles/claude-code";
+import { loadPlugin, scriptModel } from "vigiles/harness/claude-code";
 ```
 
 The `vigiles` root (plus `vigiles/eval` for the model-calling half) is the part that never changes when the harness changes. It includes `runHarnessTest`, `paid_runEval`, `runHook`, the `check` vocabulary over a `Trace`, and its assertions.
 
-`vigiles/claude-code` is the adapter. It reads real Claude Code layouts (`.claude-plugin/plugin.json`, `.claude/settings.json`, `${CLAUDE_PLUGIN_ROOT}`, `skills/`, `agents/`) and provides the scriptable Anthropic Messages mock you point `claude` at.
+`vigiles/harness/claude-code` is the adapter. It reads real Claude Code layouts (`.claude-plugin/plugin.json`, `.claude/settings.json`, `${CLAUDE_PLUGIN_ROOT}`, `skills/`, `agents/`) and provides the scriptable Anthropic Messages mock you point `claude` at.
 
 A second harness sits **beside** the first — same core, a different import. Codex already ships this way:
 
 ```ts
-import { startCodexMock, codexAdapter } from "vigiles/codex";
+import { startCodexMock, codexAdapter } from "vigiles/harness/codex";
 ```
 
 Nothing in `vigiles` or `vigiles/eval` changes, and unused adapters tree-shake out. Importing the adapter (rather than a `harness:` config key) means the bundle carries only what you use, and the choice is type-checked where you write it.
@@ -64,19 +64,19 @@ Not every harness can reach every tier. Pretending otherwise produces adapters t
 
 Where the harnesses land (✅ shipped · 🧪 internal prototype · ⛔ **blocked**, with why):
 
-| Harness                    | Lint | Test (mockable)        | Shell hooks              | Status                                                                       |
-| -------------------------- | ---- | ---------------------- | ------------------------ | ---------------------------------------------------------------------------- |
-| **Claude Code**            | ✅   | ✅ Anthropic SSE       | ✅ exit 2 / decision     | ✅ **shipped** — the reference adapter                                       |
-| **Codex**                  | ✅¹  | ✅ Responses SSE       | ✅ veto (exit 2)         | ✅ **shipped** (`vigiles/codex`) — Lint & Test² (subagents differ by design) |
-| **OpenCode**               | ✅   | 🚧 openai-compat³      | ⛔ **code-module hooks** | 🧪 prototype (`src/adapters/opencode/`) — `shellHooks:false`                 |
-| **Cursor**                 | ✅   | ⛔ **closed, no BYOM** | ⛔                       | not built — Lint-only at best                                                |
-| **Devin / Amp / Amazon Q** | ✅   | ⛔ **un-mockable**     | varies                   | not built — Lint-only (closed backend)                                       |
+| Harness                    | Lint | Test (mockable)        | Shell hooks              | Status                                                                               |
+| -------------------------- | ---- | ---------------------- | ------------------------ | ------------------------------------------------------------------------------------ |
+| **Claude Code**            | ✅   | ✅ Anthropic SSE       | ✅ exit 2 / decision     | ✅ **shipped** — the reference adapter                                               |
+| **Codex**                  | ✅¹  | ✅ Responses SSE       | ✅ veto (exit 2)         | ✅ **shipped** (`vigiles/harness/codex`) — Lint & Test² (subagents differ by design) |
+| **OpenCode**               | ✅   | 🚧 openai-compat³      | ⛔ **code-module hooks** | 🧪 prototype (`src/adapters/opencode/`) — `shellHooks:false`                         |
+| **Cursor**                 | ✅   | ⛔ **closed, no BYOM** | ⛔                       | not built — Lint-only at best                                                        |
+| **Devin / Amp / Amazon Q** | ✅   | ⛔ **un-mockable**     | varies                   | not built — Lint-only (closed backend)                                               |
 
 ¹ **Codex Lint is format-correct for the surfaces that map.** References are verified against the Codex dialect, and `compile` emits Codex-shaped output — `AGENTS.md` (plain markdown) and minimal `SKILL.md` (`name`/`description` only, driven by `dialect.skillFrontmatterKeys`), with Claude Code output byte-identical (the dogfood integrity hash is the guardrail).
 
 **Subagents are a deliberate boundary, not a gap.** A Codex subagent is an `[agents.<name>]` TOML concurrency table (`max_threads`/`max_depth`), not a tool-contract file. vigiles's `agent()` doesn't map onto it, so it isn't compiled to Codex (it is still _verified_). The loader reads Codex's TOML manifest format-aware, so its `[mcp_servers]` table is detected like CC's JSON `mcpServers`.
 
-² **Codex is shipped**: registered in the CLI's adapter registry (the CLI auto-detects a `.codex/config.toml` or `AGENTS.md` repo) and exported as `vigiles/codex`. **Test is full and usable through the public API** — `runHarnessTest(spec, { adapter: codexAdapter })` drives real `codex exec` against the OpenAI Responses mock (`src/adapters/codex/mock-model.ts`), keylessly. A gated `harness-test.test.ts` runs the real-codex turn (request shape + SSE captured from live traffic, not guessed). **Trigger-rate IS usable** through the public API — `paid_measureTriggerRate(spec, { evalDriver: codexEvalDriver })`, with `codexEvalDriver` exported from `vigiles/codex` — but the number is **experimental** (`CODEX_TRIGGER_RATE_EXPERIMENTAL`, printed as a loud caveat on every run): Codex has no skill-selection event, so firing is inferred from a `SKILL.md` read, which is wrong in both directions (a cached skill is not re-read → false negative; an exploratory read is not a fire → false positive). Treat it as directional, not a measurement. **`paid_runEval` still has no public dispatch**: `paid_runEval(spec)` always drives Claude Code, and neither the Codex runner nor the `runEvalWith(spec, runner)` seam that would take it is exported.
+² **Codex is shipped**: registered in the CLI's adapter registry (the CLI auto-detects a `.codex/config.toml` or `AGENTS.md` repo) and exported as `vigiles/harness/codex`. **Test is full and usable through the public API** — `runHarnessTest(spec, { adapter: codexAdapter })` drives real `codex exec` against the OpenAI Responses mock (`src/adapters/codex/mock-model.ts`), keylessly. A gated `harness-test.test.ts` runs the real-codex turn (request shape + SSE captured from live traffic, not guessed). **Trigger-rate IS usable** through the public API — `paid_measureTriggerRate(spec, { evalDriver: codexEvalDriver })`, with `codexEvalDriver` exported from `vigiles/harness/codex` — but the number is **experimental** (`CODEX_TRIGGER_RATE_EXPERIMENTAL`, printed as a loud caveat on every run): Codex has no skill-selection event, so firing is inferred from a `SKILL.md` read, which is wrong in both directions (a cached skill is not re-read → false negative; an exploratory read is not a fire → false positive). Treat it as directional, not a measurement. **`paid_runEval` still has no public dispatch**: `paid_runEval(spec)` always drives Claude Code, and neither the Codex runner nor the `runEvalWith(spec, runner)` seam that would take it is exported.
 
 ³ OpenCode's mockable tier is **declared but not yet built**: it needs the openai-compat (Chat Completions) SSE renderer, and the `opencode` binary isn't wired here yet. The Codex path proves the same work generalizes.
 

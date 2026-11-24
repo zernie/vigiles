@@ -43,8 +43,8 @@
  * `record()` returns a VALUE… this API hands out no writer". Exporting a store
  * writer there would hand out exactly that writer, to exactly the code the
  * guarantee is about. So the seeding handle lives on a TEST entry
- * (`vigiles/battery`), like `experimental_loadHook` and the `assertHook*` helpers on
- * `vigiles/hook-test`, where a test can reach it and a hook cannot.
+ * (`vigiles/hook/testing`), like `experimental_loadHook` and the `assertHook*` helpers on
+ * `vigiles/hook/testing`, where a test can reach it and a hook cannot.
  */
 import {
   mkdirSync,
@@ -321,7 +321,7 @@ export interface HookStateHandle {
  *
  * ```js
  * import { runHook } from "vigiles";
- * import { experimental_hookState } from "vigiles/battery";
+ * import { experimental_hookState } from "vigiles/hook/testing";
  *
  * const st = experimental_hookState(hookFile, { cwd });
  * st.clear();

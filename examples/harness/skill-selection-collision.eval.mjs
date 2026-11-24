@@ -11,12 +11,12 @@
  *   npx vigiles eval examples/harness/skill-selection-collision.eval.mjs
  *
  * Claude-Code-only (it reads which skill the selector chose — Codex has no
- * skill-selection event), so it imports from `vigiles/claude-code`. Prompts are
+ * skill-selection event), so it imports from `vigiles/harness/claude-code`. Prompts are
  * auto-derived from each skill's description here (zero setup); pass your own for
  * a curated benchmark. Real model → real cost; needs `claude` + auth + a built dist/.
  */
-import { defineEval } from "../../dist/test.js";
-import { assertNoCollision } from "../../dist/claude-code.js";
+import { defineEval } from "../../dist/entries/index.js";
+import { assertNoCollision } from "../../dist/entries/harness/claude-code.js";
 import { fileURLToPath } from "node:url";
 
 // A real, pinned vendored plugin with several skills — the case collisions matter.

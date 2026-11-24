@@ -47,7 +47,7 @@ thing."
   CC-only?
 - Are the examples CC-only (CLAUDE.md, `claude` CLI) in a way that makes a Codex
   user feel like a second-class citizen?
-- Would they know `vigiles/codex` exists and what works vs. what's a documented
+- Would they know `vigiles/harness/codex` exists and what works vs. what's a documented
   follow-on?
 
 ### 3. Senior / staff engineer (the skeptic)

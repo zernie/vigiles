@@ -712,14 +712,6 @@
       "count": 2
     }
   },
-  "src/claude-code.ts": {
-    "boundaries/dependencies": {
-      "count": 4
-    },
-    "local/no-harness-names": {
-      "count": 10
-    }
-  },
   "src/cli-adopter-reports.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
@@ -866,14 +858,6 @@
   "src/cli.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 2
-    }
-  },
-  "src/codex.ts": {
-    "boundaries/dependencies": {
-      "count": 4
-    },
-    "local/no-harness-names": {
-      "count": 12
     }
   },
   "src/colocated-execution.test.ts": {

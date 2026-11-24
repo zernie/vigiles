@@ -2,7 +2,7 @@
  * Compiled hooks — a hook as a CONSTRAINED TYPED PROGRAM, not arbitrary shell.
  *
  * The pure core behind the public `vigiles/hook` surface (re-exported in
- * `src/hook.ts`; compiled by `vigiles compile`, run by `vigiles hook-runtime
+ * `src/entries/hook.ts`; compiled by `vigiles compile`, run by `vigiles hook-runtime
  * run-program`). A hook today is opaque shell (`bash guard.sh`) —
  * un-analyzable (Rice), and the author hand-writes the fragile parts (exit code,
  * JSON field, a `grep` matcher) that the verified #1 pains come from. Invert it:

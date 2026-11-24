@@ -6,7 +6,7 @@
  * groups a harness's five port implementations plus a `detect` predicate, so
  * **adding a harness is writing one object** — `codexAdapter`, `geminiAdapter`,
  * `myHarnessAdapter` — not editing the core. The library stays import-named
- * (`import { claudeCodeAdapter } from "vigiles/claude-code"`); the bundle is the
+ * (`import { claudeCodeAdapter } from "vigiles/harness/claude-code"`); the bundle is the
  * thing the CLI auto-detects and the conformance kit checks.
  *
  * See `docs/authoring-an-adapter.md` (third-party guide) and

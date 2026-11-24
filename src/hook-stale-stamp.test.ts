@@ -39,7 +39,9 @@ import type { DispatchKind } from "./core/hook-program.js";
 
 const REPO_ROOT = resolve(__dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
-const HOOK_DIST = pathToFileURL(resolve(REPO_ROOT, "dist", "hook.js")).href;
+const HOOK_DIST = pathToFileURL(
+  resolve(REPO_ROOT, "dist", "entries/hook.js"),
+).href;
 
 /** Every registered harness that runs shell hooks — the runtime is theirs. */
 const HARNESSES = ADAPTERS.flatMap((a) =>

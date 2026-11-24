@@ -18,8 +18,8 @@
 // rules over its argv. The rule shapes (`ToolStub`, `StubRule`, …) stay on the
 // root, because `EvalSpec.stubs` speaks them; writing the shims is internal
 // (`tool-stub.ts`).
-export { experimental_stub } from "./stub.js";
-export type { StubCalledBounds } from "./stub.js";
+export { experimental_stub } from "../stub.js";
+export type { StubCalledBounds } from "../stub.js";
 
 // --- R3: the disposable-service tier (⚠️ EXPERIMENTAL, and it has REAL EFFECTS) ---
 // It is free of MODEL cost, which is why it is not on `vigiles/eval` (every
@@ -36,9 +36,9 @@ export {
   type ServiceHandle,
   type ServiceSession,
   type ContainerRuntime,
-} from "./services.js";
+} from "../services.js";
 
 export {
   experimental_dockerRuntime,
   type DockerExec,
-} from "./services-docker.js";
+} from "../services-docker.js";

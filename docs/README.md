@@ -61,13 +61,13 @@ The docs are grouped by what you're trying to do:
   - `vigiles/spec` — what a spec author imports: the builders (`instructionFile`, `enforce`, `guidance`, `file`, `cmd`, `symbol`, …), their types, the subagent-outcome assertions (`experimental_assertAgentOk` & co.), and the module-augmentation target for generated types. Compiling and verifying is the CLI's job (`vigiles compile`, `vigiles lint`).
   - `vigiles` (the package root) — the free testing surface: the harness/hook runners, the `check` vocabulary, the runner-agnostic assertions and the report types.
   - `vigiles/eval` — the moment you measure: the runners that can spend money, every one prefixed `paid_` (`paid_runEval`, `paid_measure`, `paid_measureArms`, `paid_measureTriggerRate`, `paid_judge`, `paid_judged`, `paid_claudeEvalDriver`), the free readers of their report (`compare`, `assertRates`, `assertTriggerRate`, `assertImproves`, `assertNoRegression`, `readBaseline` / `writeBaseline`), and `experimental_outputStyleArms`, which builds the arms of an output-style eval.
-  - `vigiles/battery` — prove a guard blocks every disaster: `assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState`.
+  - `vigiles/hook/testing` — prove a guard blocks every disaster: `assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState`.
   - `vigiles/fixtures` — what a test runs against: `experimental_stub` (tool stubs on PATH) and `experimental_startServices` / `experimental_dockerRuntime` (disposable services).
   - `vigiles/hook` — the compiled-hook vocabulary: the only import a compiled hook may have.
-  - `vigiles/hook-test` — test a compiled hook in-process: `experimental_loadHook`, `runHookProgram`, `experimental_assertHookDenies` & co.
+  - `vigiles/hook/testing` — test a compiled hook in-process: `experimental_loadHook`, `runHookProgram`, `experimental_assertHookDenies` & co.
   - `defineEval` is on the **free** root, not here, and that is the point: a `*.eval.mjs` file DESCRIBES its eval and `vigiles eval` runs it, so importing one cannot spend. See [eval files describe their eval](harness-testing.md#eval-files-describe-their-eval).
-  - `vigiles/claude-code`, `vigiles/codex` — the per-harness adapters.
-  - `vigiles/adapter` — the adapter-authoring kit.
+  - `vigiles/harness/claude-code`, `vigiles/harness/codex` — the per-harness adapters.
+  - `vigiles/harness/kit` — the adapter-authoring kit.
 - **[API reference (generated) →](https://zernie.github.io/vigiles/api/)** — every exported symbol across all entry points, generated from the source. The hand-written guides here are the human-facing layer; this is the exhaustive symbol-level reference.
 
 ## Explanation — "why it's built this way"

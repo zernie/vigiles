@@ -241,7 +241,7 @@ export type ModelOutputParser = (out: RunOut) => ParsedModelRun;
 /**
  * An eval-tier transport: how to RUN a real harness turn and PARSE its output.
  * The default is Claude Code (`claudeEvalDriver`); a second harness supplies its
- * own (e.g. `codexEvalDriver` from `vigiles/codex`) and passes it as
+ * own (e.g. `codexEvalDriver` from `vigiles/harness/codex`) and passes it as
  * `measureTriggerRate(spec, { evalDriver })` — the eval-tier analog of
  * `runHarnessTest`'s `{ adapter }`. `runError` lets the loop drop an
  * errored/rate-limited turn instead of scoring it as a miss.

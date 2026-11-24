@@ -51,7 +51,7 @@ describe("gate 2: one name, one entry", () => {
    */
   const SHARED: Readonly<Record<string, string>> = {
     experimental_agent:
-      "generic builder in vigiles/spec; vigiles/claude-code re-exports it typed against Claude Code's tool catalog. Goes away with #517 (tools typed from the declared harnesses, not from the import path).",
+      "generic builder in vigiles/spec; vigiles/harness/claude-code re-exports it typed against Claude Code's tool catalog. Goes away with #517 (tools typed from the declared harnesses, not from the import path).",
     experimental_skill: "same pair as experimental_agent; goes away with #517.",
   };
 

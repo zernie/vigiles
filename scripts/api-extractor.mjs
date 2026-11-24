@@ -29,19 +29,42 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // module — the old aliasing (`.` + `./spec` on one file, `./e2e` on
 // `./integration`) is gone, so the map here is 1:1 with package.json `exports`.
 const ENTRIES = [
-  { name: "vigiles", dts: "dist/test.d.ts" }, // "." — the free testing surface
-  { name: "vigiles-spec", dts: "dist/entries/spec.d.ts" }, // "./spec"
-  { name: "vigiles-eval", dts: "dist/eval-surface.d.ts" }, // "./eval" — spends money
-  { name: "vigiles-rule-proof", dts: "dist/entries/rule-proof.d.ts" },
-  { name: "vigiles-hook", dts: "dist/hook.d.ts" },
-  { name: "vigiles-hook-test", dts: "dist/hook-test.d.ts" },
-  { name: "vigiles-battery", dts: "dist/battery.d.ts" },
-  { name: "vigiles-fixtures", dts: "dist/fixtures.d.ts" },
-  { name: "vigiles-claude-code", dts: "dist/claude-code.d.ts" },
-  { name: "vigiles-codex", dts: "dist/codex.d.ts" },
-  { name: "vigiles-adapter", dts: "dist/adapter.d.ts" },
-  { name: "vigiles-vitest", dts: "dist/vitest.d.mts" },
-  { name: "vigiles-jest", dts: "dist/jest.d.ts" },
+  { key: ".", name: "vigiles", dts: "dist/entries/index.d.ts" }, // the free testing surface
+  { key: "./spec", name: "vigiles-spec", dts: "dist/entries/spec.d.ts" },
+  { key: "./eval", name: "vigiles-eval", dts: "dist/entries/eval.d.ts" }, // spends money
+  {
+    key: "./rule-proof",
+    name: "vigiles-rule-proof",
+    dts: "dist/entries/rule-proof.d.ts",
+  },
+  { key: "./hook", name: "vigiles-hook", dts: "dist/entries/hook.d.ts" },
+  {
+    key: "./hook/testing",
+    name: "vigiles-hook-testing",
+    dts: "dist/entries/hook/testing.d.ts",
+  },
+  {
+    key: "./fixtures",
+    name: "vigiles-fixtures",
+    dts: "dist/entries/fixtures.d.ts",
+  },
+  {
+    key: "./harness/claude-code",
+    name: "vigiles-harness-claude-code",
+    dts: "dist/entries/harness/claude-code.d.ts",
+  },
+  {
+    key: "./harness/codex",
+    name: "vigiles-harness-codex",
+    dts: "dist/entries/harness/codex.d.ts",
+  },
+  {
+    key: "./harness/kit",
+    name: "vigiles-harness-kit",
+    dts: "dist/entries/harness/kit.d.ts",
+  },
+  { key: "./vitest", name: "vigiles-vitest", dts: "dist/vitest.d.mts" },
+  { key: "./jest", name: "vigiles-jest", dts: "dist/jest.d.ts" },
 ];
 
 // 🔴 THIS LIST IS HAND-MAINTAINED, so it can drift from `package.json` exports —
@@ -55,9 +78,7 @@ const ENTRIES = [
 {
   const pkg = JSON.parse(readFileSync(path.join(root, "package.json"), "utf8"));
   const subpaths = Object.keys(pkg.exports).sort();
-  const covered = ENTRIES.map((e) =>
-    e.name === "vigiles" ? "." : "./" + e.name.replace(/^vigiles-/, ""),
-  ).sort();
+  const covered = ENTRIES.map((e) => e.key).sort();
   const missing = subpaths.filter((s) => !covered.includes(s));
   const extra = covered.filter((c) => !subpaths.includes(c));
   if (missing.length || extra.length) {

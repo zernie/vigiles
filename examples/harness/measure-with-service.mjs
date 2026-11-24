@@ -18,7 +18,7 @@
 import {
   experimental_startServices,
   experimental_dockerRuntime,
-} from "../../dist/fixtures.js";
+} from "../../dist/entries/fixtures.js";
 import { runEval } from "../../dist/eval.js";
 
 if (!experimental_dockerRuntime.available()) {

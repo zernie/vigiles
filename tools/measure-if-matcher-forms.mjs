@@ -39,7 +39,7 @@
  *
  * Run: node tools/measure-if-matcher-forms.mjs   (needs `claude` on PATH)
  */
-import cc from "vigiles/claude-code";
+import cc from "vigiles/harness/claude-code";
 import v from "vigiles";
 const { scriptModel, claudeAvailable } = cc;
 const { runHarnessTest } = v;
