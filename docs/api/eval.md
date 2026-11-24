@@ -34,7 +34,8 @@ export default defineEval({
     stubSkillBodies: true,
     prompts: ["...tasks the skill should handle..."],
     irrelevantPrompts: ["...unrelated tasks it should ignore..."],
-    fired: check.skill("my-plugin:greet"),
+    // Loose skills are packaged under the namespace `vigiles-loose-skills`.
+    fired: check.skill("vigiles-loose-skills:greet"),
     trials: 2,
   },
   assert: (report) => assertRates(report, { min: 0.8, maxFalsePositive: 0.1 }),
@@ -116,7 +117,7 @@ const report = await paid_measureTriggerRate({
   pluginDir: "./my-plugin", //    already-packaged plugin. XOR skillsDir.
   prompts: [...], //              recall set (≥ minPrompts, NCD-diverse)
   irrelevantPrompts: [...], //    precision set (→ falsePositiveRate / precision)
-  fired: check.skill("my-plugin:greet"),
+  fired: check.skill("my-plugin:greet"), // with skillsDir: "vigiles-loose-skills:greet"
   stubSkillBodies: true, //       stop at SELECTION (frontmatter decides firing)
   fixture: { "path": "contents" }, // seed repo STATE a skill triggers on
   installSet: [otherPluginsOrDirs], // co-install the rest of the harness (release gate)
@@ -133,7 +134,9 @@ assertRates(report, { min: 0.8, maxFalsePositive: 0.1 }); // recall, precision s
   `.claude/skills` into a throwaway plugin for you.
 - **`fired`** — a check or a predicate over the run's trace.
   `check.skill("my-plugin:greet")` asks the harness's adapter, so it works on
-  every harness; a function `(t) => boolean` still works. Switching between the
+  every harness. The id is exact: a `pluginDir` skill is `<plugin name>:<skill>`
+  (the name in the plugin's manifest), a `skillsDir` skill is
+  `vigiles-loose-skills:<skill>` (the report's `namespace` says which); a function `(t) => boolean` still works. Switching between the
   two does not make a recorded lock stale: the lock pins what the model sees, not
   how the script reads the run.
 - **`stubSkillBodies`** — triggering is decided by frontmatter _before_ the body

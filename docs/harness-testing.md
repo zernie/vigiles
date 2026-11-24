@@ -349,7 +349,7 @@ export default defineEval({
     stubSkillBodies: true, // measure SELECTION only (stub bodies → much cheaper)
     prompts: ["…≥10 varied tasks the skill should handle…"], // recall
     irrelevantPrompts: ["…≥10 unrelated tasks it should ignore…"], // precision
-    fired: check.skill("my-plugin:greet"),
+    fired: check.skill("vigiles-loose-skills:greet"), // loose skills install under this namespace
     trials: 2,
   },
   // the report is printed for you — this is the part only you can write
