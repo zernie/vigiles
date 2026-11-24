@@ -239,6 +239,20 @@ describe("check.tool(name, { max: 0 }) — a RegExp names the tool it caught", (
       true,
     );
   });
+
+  test("a global or sticky RegExp in `with` counts every matching call, not every other one", () => {
+    const t = makeTrace({
+      toolCalls: [
+        call("Bash", { input: { command: "git push" } }),
+        call("Bash", { input: { command: "git push" } }),
+      ],
+    });
+    for (const re of [/git push/g, /git push/y]) {
+      const r = check.tool("Bash", { with: { command: re }, max: 1 }).eval(t);
+      assert.equal(r.pass, false, String(re));
+      assert.equal(re.lastIndex, 0, `${String(re)} left untouched`);
+    }
+  });
 });
 
 describe("check.hookFired — event or label, a RegExp, { blocked }", () => {
