@@ -46,7 +46,10 @@ describe("scaffoldTest — hook (unit tier)", () => {
     expect(content).toContain('from "vigiles"');
     expect(content).toContain("runHook(");
     expect(content).toContain('"bash hooks/pre-edit.sh"');
-    expect(content).toContain("assertHookAllowed");
+    expect(content).toContain(
+      "assertChecks(runHook(cmd, benign), [check.allowed()])",
+    );
+    expect(content).not.toContain("assertHookAllowed");
   });
 
   it("takes the guard battery from vigiles/battery, and prints no hidden formatter", () => {
@@ -93,6 +96,9 @@ describe("scaffoldTest — skill (eval tier)", () => {
       'import { paid_measureTriggerRate, assertTriggerRate } from "vigiles/eval"',
     );
     expect(content).not.toContain("formatTriggerRateReport");
+    // fired takes the check itself; the skillResolved predicate is gone
+    expect(content).toContain("fired: check.skill(skill)");
+    expect(content).not.toContain("skillResolved");
   });
 
   it("falls back to a <plugin> placeholder when the plugin name is unknown", () => {
@@ -130,13 +136,13 @@ describe("scaffoldTest — agent (harness tier)", () => {
   it("asserts the declared tool contract when tools are known", () => {
     const { content } = scaffoldTest(input);
     expect(content).toContain("runHarnessTest(");
-    expect(content).toContain('assertToolUsed(r, "Read")');
+    expect(content).toContain('assertChecks(r, [check.tool("Read")])');
     expect(content).toContain("Read, Grep");
   });
 
   it("falls back to asserting Task dispatch when tools are absent", () => {
     const { content } = scaffoldTest({ ...input, tools: null });
-    expect(content).toContain('assertToolUsed(r, "Task")');
+    expect(content).toContain('assertChecks(r, [check.tool("Task")])');
   });
 
   it("produces syntactically valid JS", () => {
@@ -164,9 +170,9 @@ describe("scaffoldTest — agent with a typed contract (the typed-spec payoff)",
   it("generates an assertAgentOk outcome test from the result() contract", () => {
     const { content } = scaffoldTest(withContract);
     expect(content).toContain(
-      'import { experimental_agent, assertAgentOk } from "vigiles/spec"',
+      'import { experimental_agent, experimental_assertAgentOk } from "vigiles/spec"',
     );
-    expect(content).toContain("assertAgentOk(okOutput, contract)");
+    expect(content).toContain("experimental_assertAgentOk(okOutput, contract)");
     // the contract is reconstructed with the REAL parsed fields
     expect(content).toContain('{ summary: "string" }');
     expect(content).toContain('{ findings: "string[]", blocking: "boolean" }');
@@ -204,6 +210,10 @@ describe("scaffoldTest — agent with a typed contract (the typed-spec payoff)",
     assertValidJs(scaffoldTest(withContract).content);
     assertValidJs(
       scaffoldTest({ ...withContract, sideEffectingTools: ["Write"] }).content,
+    );
+    // no contract AND side effects: one import line, no binding imported twice
+    assertValidJs(
+      scaffoldTest({ ...withContract, resultContract: undefined }).content,
     );
   });
 });
