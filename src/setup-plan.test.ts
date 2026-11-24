@@ -19,6 +19,8 @@ import {
   rerunScope,
   missingVigilesDevDep,
   fullSetupFollowUps as followUpsFor,
+  starterHarnessName,
+  STARTER_HARNESS_NAMES,
   type AskFn,
 } from "./setup-plan.js";
 import { configFor } from "./core/config-schema.js";
@@ -718,7 +720,7 @@ test("missingVigilesDevDep: adds only when no field declares vigiles, never edit
 const NO_GAP = {
   workflow: false,
   config: "has-preset",
-  harnessTest: false,
+  harnessTest: null,
   unspecced: [],
   generated: false,
   installs: [],
@@ -743,4 +745,24 @@ test("fullSetupFollowUps: names each missing piece, then the flag", () => {
   assert.ok(lines.some((l) => l.includes("1 hand-written file(s): CLAUDE.md")));
   assert.ok(lines.some((l) => l.includes("(yours: ^33.3.0)")));
   assert.match(lines.at(-1) ?? "", /npx vigiles init --full/);
+});
+
+test("starterHarnessName: TypeScript whenever something can run it, else JavaScript", () => {
+  assert.equal(starterHarnessName(true), "vigiles.harness.ts");
+  assert.equal(starterHarnessName(false), "vigiles.harness.mjs");
+  assert.deepEqual([...STARTER_HARNESS_NAMES].sort(), [
+    "vigiles.harness.mjs",
+    "vigiles.harness.ts",
+  ]);
+});
+
+test("fullSetupFollowUps: names the starter file it would scaffold", () => {
+  const lines = fullSetupFollowUps({
+    ...NO_GAP,
+    harnessTest: "vigiles.harness.ts",
+  });
+  assert.ok(
+    lines.some((l) => l.includes("scaffold vigiles.harness.ts")),
+    lines.join("\n"),
+  );
 });
