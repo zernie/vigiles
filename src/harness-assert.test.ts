@@ -7,33 +7,14 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 
 import {
-  improvement,
-  compareArms,
-  assertImproves,
-  significantlyBeats,
-  assertSignificant,
-  reliable,
-  assertReliable,
-  assertNoRegression,
-  toBaselineFile,
   assertCreated,
   assertNotCreated,
-  assertServedTurns,
   assertHookBlocked,
   assertHookAllowed,
   assertDelivered,
-  assertHookDenies,
-  assertHookAllows,
-  assertHookNotices,
-  assertHookSilent,
-  assertNoEgress,
   assertEgressOnly,
-  egressHosts,
   assertNoWrite,
   assertWroteOnly,
-  assertAgentOk,
-  assertAgentErr,
-  assertAgentResult,
   usedTool,
   toolCount,
   skillResolved,
@@ -54,6 +35,19 @@ import {
   assertToolCalls,
   vigilesMatchers,
 } from "./harness-assert.js";
+import {
+  assertHookDenies,
+  assertHookAllows,
+  assertHookNotices,
+  assertHookSilent,
+} from "./hook-test.js";
+import {
+  assertAgentOk,
+  assertAgentErr,
+  assertAgentResult,
+} from "./entries/spec.js";
+import { assertNoRegression } from "./eval-readers.js";
+import { toBaselineFile } from "./eval-baseline.js";
 import { experimental_agent } from "./core/spec.js";
 const { result } = experimental_agent;
 import { experimental_defineHook, deny, allow } from "./core/hook-program.js";
@@ -67,7 +61,7 @@ import {
   tools,
 } from "./core/hook-program.js";
 import type { Check } from "./check.js";
-import { aggregateStats, type EvalReport } from "./eval.js";
+import type { EvalReport } from "./eval.js";
 import type { HarnessTestResult, HookFire } from "./harness-test.js";
 import type { HookRunResult } from "./run-hook.js";
 
@@ -146,204 +140,9 @@ function fakeResult(
     modelRequests: extra.modelRequests ?? [],
     file: (p: string) => (present.includes(p) ? "content" : null),
     cleanup: () => undefined,
+    [Symbol.asyncDispose]: () => Promise.resolve(),
   };
 }
-
-test("improvement returns the arm − baseline gap", () => {
-  assert.equal(improvement(report, "vanilla", "gated", "caught"), 0.5);
-  assert.equal(improvement(report, "gated", "vanilla", "caught"), -0.5);
-});
-
-test("improvement throws on a metric an arm never reported, never reads it as 0", () => {
-  assert.throws(
-    () => improvement(report, "vanilla", "gated", "missing"),
-    /no data to compare/,
-  );
-  assert.throws(
-    () => improvement(report, "nobody", "gated", "caught"),
-    /no data to compare/,
-  );
-});
-
-/** A two-arm report whose 0/1 metric `pass` went `k` of `n` per arm. */
-function passReport(kArm: number, kBase: number, n: number): EvalReport {
-  const arm = (k: number) => {
-    const stats = aggregateStats(
-      Array.from({ length: n }, (_, i) => ({ pass: i < k })),
-    );
-    return {
-      runs: n,
-      metrics: { pass: k / n },
-      stats,
-      ...NO_MISSES,
-    };
-  };
-  return {
-    name: "p10",
-    trials: n,
-    totalCostUsd: 0,
-    aborted: false,
-    arms: { base: arm(kBase), skill: arm(kArm) },
-  };
-}
-
-// vigiles#416 point 3: every trial agreeing gave both arms se = 0, and the
-// t-test read it as p = 0 — 1/1 against 0/1 passed assertSignificant.
-test("assertSignificant on a 0/1 metric needs disjoint Wilson intervals (P10)", () => {
-  const sig = (r: EvalReport) => () => {
-    assertSignificant(r, { baseline: "base", arm: "skill", metric: "pass" });
-  };
-  assert.throws(sig(passReport(1, 0, 1)), /NO SIGNAL/);
-  assert.throws(sig(passReport(3, 0, 3)), /NO SIGNAL/);
-  assert.doesNotThrow(sig(passReport(10, 0, 10)));
-  assert.equal(
-    significantlyBeats(passReport(3, 0, 3), "base", "skill", "pass"),
-    false,
-  );
-  assert.equal(
-    significantlyBeats(passReport(10, 0, 10), "base", "skill", "pass"),
-    true,
-  );
-});
-
-test("compareArms agrees with the verdict on a 0/1 metric", () => {
-  const sig = (r: EvalReport) =>
-    compareArms(r, "base", "skill", "pass")?.significant;
-  assert.equal(sig(passReport(3, 0, 3)), false);
-  assert.equal(sig(passReport(10, 0, 10)), true);
-});
-
-test("assertImproves passes on a positive gap and throws otherwise", () => {
-  assert.doesNotThrow(() => {
-    assertImproves(report, {
-      baseline: "vanilla",
-      arm: "gated",
-      metric: "caught",
-    });
-  });
-  assert.throws(() => {
-    assertImproves(report, {
-      baseline: "vanilla",
-      arm: "gated",
-      metric: "caught",
-      by: 0.9,
-    });
-  });
-});
-
-test("significantlyBeats / assertSignificant use a computed noise floor", () => {
-  const stat = (mean: number, se: number, n: number) => ({
-    mean,
-    se,
-    n,
-    std: se * Math.sqrt(n),
-    passK: 0,
-  });
-  const sigReport: EvalReport = {
-    name: "sig",
-    trials: 20,
-    totalCostUsd: 0,
-    aborted: false,
-    arms: {
-      base: {
-        runs: 20,
-        metrics: { caught: 0.1 },
-        stats: { caught: stat(0.1, 0.05, 20) },
-        ...NO_MISSES,
-      },
-      // a real, tight separation → significant
-      good: {
-        runs: 20,
-        metrics: { caught: 0.6 },
-        stats: { caught: stat(0.6, 0.05, 20) },
-        ...NO_MISSES,
-      },
-      // a small gap drowned in wide se → not significant
-      noisy: {
-        runs: 5,
-        metrics: { caught: 0.2 },
-        stats: { caught: stat(0.2, 0.2, 5) },
-        ...NO_MISSES,
-      },
-    },
-  };
-
-  assert.equal(significantlyBeats(sigReport, "base", "good", "caught"), true);
-  assert.equal(significantlyBeats(sigReport, "base", "noisy", "caught"), false);
-  assert.equal(significantlyBeats(sigReport, "base", "good", "missing"), false);
-
-  assert.doesNotThrow(() => {
-    assertSignificant(sigReport, {
-      baseline: "base",
-      arm: "good",
-      metric: "caught",
-    });
-  });
-  // a real but not-significant gap throws
-  assert.throws(() => {
-    assertSignificant(sigReport, {
-      baseline: "base",
-      arm: "noisy",
-      metric: "caught",
-    });
-  });
-  // missing data throws with the no-data message
-  assert.throws(() => {
-    assertSignificant(sigReport, {
-      baseline: "base",
-      arm: "good",
-      metric: "missing",
-    });
-  }, /no data to compare/);
-  // assertImproves delegates to the significance test when asked
-  assert.doesNotThrow(() => {
-    assertImproves(sigReport, {
-      baseline: "base",
-      arm: "good",
-      metric: "caught",
-      significant: true,
-    });
-  });
-  assert.throws(() => {
-    assertImproves(sigReport, {
-      baseline: "base",
-      arm: "noisy",
-      metric: "caught",
-      significant: true,
-    });
-  });
-});
-
-test("reliable / assertReliable gate on pass^k (succeeded every trial)", () => {
-  const rep: EvalReport = {
-    name: "rel",
-    trials: 4,
-    totalCostUsd: 0,
-    aborted: false,
-    arms: {
-      flaky: {
-        runs: 4,
-        metrics: { safe: 0.75 },
-        stats: { safe: { mean: 0.75, std: 0.5, se: 0.25, n: 4, passK: 0 } },
-        ...NO_MISSES,
-      },
-      solid: {
-        runs: 4,
-        metrics: { safe: 1 },
-        stats: { safe: { mean: 1, std: 0, se: 0, n: 4, passK: 1 } },
-        ...NO_MISSES,
-      },
-    },
-  };
-  assert.equal(reliable(rep, "solid", "safe"), true);
-  assert.equal(reliable(rep, "flaky", "safe"), false);
-  assert.doesNotThrow(() => {
-    assertReliable(rep, { arm: "solid", metric: "safe" });
-  });
-  assert.throws(() => {
-    assertReliable(rep, { arm: "flaky", metric: "safe" });
-  });
-});
 
 test("assertCreated / assertNotCreated check the sandbox", () => {
   const r = fakeResult(["RESULT"]);
@@ -358,16 +157,6 @@ test("assertCreated / assertNotCreated check the sandbox", () => {
   });
   assert.throws(() => {
     assertNotCreated(r, "RESULT");
-  });
-});
-
-test("assertServedTurns checks the mock turn count", () => {
-  const r = fakeResult([]); // fakeResult sets turns: 2
-  assert.doesNotThrow(() => {
-    assertServedTurns(r, 2);
-  });
-  assert.throws(() => {
-    assertServedTurns(r, 3);
   });
 });
 
@@ -426,12 +215,11 @@ test("assertDelivered: passes only on delivered, and names the cause of every ot
   }, /cannot be judged: no row/);
 });
 
-test("assertNoEgress / assertEgressOnly / egressHosts (recordEgress results)", () => {
+test('assertEgressOnly (recordEgress results); [] is "no egress at all"', () => {
   const clean = { egress: [] };
   assert.doesNotThrow(() => {
-    assertNoEgress(clean);
+    assertEgressOnly(clean, []);
   });
-  assert.deepEqual(egressHosts(clean), []);
 
   const reached = {
     egress: [
@@ -439,14 +227,10 @@ test("assertNoEgress / assertEgressOnly / egressHosts (recordEgress results)", (
       { host: "evil.example", port: 80, ts: 2 },
     ],
   };
-  assert.deepEqual(egressHosts(reached), [
-    "registry.npmjs.org:443",
-    "evil.example:80",
-  ]);
-  // no-egress assertion names the offenders
+  // an empty allowlist names every offender as host:port
   assert.throws(() => {
-    assertNoEgress(reached);
-  }, /evil\.example/);
+    assertEgressOnly(reached, []);
+  }, /registry\.npmjs\.org:443, evil\.example:80/);
   // allowlist by host string leaves the non-allowlisted one as a failure
   assert.throws(() => {
     assertEgressOnly(reached, ["registry.npmjs.org"]);

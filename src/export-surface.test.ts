@@ -15,7 +15,6 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import ts from "typescript";
 
 import * as root from "./test.js";
@@ -23,22 +22,19 @@ import * as evalDoor from "./eval-surface.js";
 import * as battery from "./battery.js";
 import * as hook from "./hook.js";
 import * as spec from "./entries/spec.js";
-import * as claudeCode from "./claude-code.js";
-import * as codex from "./codex.js";
 import * as adapter from "./adapter.js";
 
-const SRC = dirname(fileURLToPath(import.meta.url));
+// Vitest runs this file from src/, so __dirname is src/.
+const SRC = __dirname;
 const ROOT = resolve(SRC, "..");
 
 const has = (door: object, name: string): boolean => name in door;
 
 test("package.json exports: ./battery is a door, ./linting is gone", () => {
-  const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf-8")) as {
-    exports: Record<string, unknown>;
-  };
-  assert.equal(pkg.exports["./battery"], "./dist/battery.js");
-  assert.equal(pkg.exports["./spec"], "./dist/entries/spec.js");
-  assert.equal("./linting" in pkg.exports, false);
+  const raw = readFileSync(join(ROOT, "package.json"), "utf-8");
+  assert.match(raw, /"\.\/battery": "\.\/dist\/battery\.js"/);
+  assert.match(raw, /"\.\/spec": "\.\/dist\/entries\/spec\.js"/);
+  assert.doesNotMatch(raw, /"\.\/linting"/);
 });
 
 test("the guard battery lives on vigiles/battery, not the root", () => {
@@ -124,26 +120,19 @@ test("one runHarnessTest; the removed and hidden names are gone from the root", 
   ]) {
     assert.ok(!has(root, gone), `the root no longer exports ${gone}`);
   }
-  assert.ok(has(claudeCode, "parseToolCalls"));
-  assert.ok(!has(claudeCode, "formatSelectionReport"));
 });
 
-test("Claude Code constants are fields of claudeCodeAdapter, the ports reached through adapters", () => {
-  for (const gone of [
-    "claudeCodeBuiltinAgentTools",
-    "claudeCodeSideEffectingTools",
-    "claudeCodeLayout",
-    "claudeCodeDriver",
-  ]) {
-    assert.ok(!has(claudeCode, gone), `vigiles/claude-code hides ${gone}`);
-  }
-  for (const gone of ["codexLayout", "codexDriver", "codexDialect"]) {
-    assert.ok(!has(codex, gone), `vigiles/codex hides ${gone}`);
-  }
+test("the adapter registry is the CLI's, not a public door", () => {
   for (const gone of ["ADAPTERS", "getAdapter", "detectAdapter"]) {
     assert.ok(!has(adapter, gone), `vigiles/adapter hides ${gone}`);
   }
+  for (const port of ["assertAdapterConformance", "assertAdapterLoadsHooks"]) {
+    assert.ok(has(adapter, port), `vigiles/adapter exports ${port}`);
+  }
 });
+
+// The two harness doors are checked beside their adapters
+// (src/adapters/<harness>/), where a test may spell its own harness's name.
 
 /** Every non-test `.ts`/`.mts` file under `src/`. */
 function sourceFiles(dir: string): string[] {

@@ -16,7 +16,6 @@ import {
   verifyGuardrail,
   unblockedDisasters,
   assertGuardrail,
-  assertBlocksDisasters,
   experimental_alternateSpellings,
   experimental_harmlessTwins,
   formatGuardrailReport,
@@ -258,11 +257,6 @@ test("a compiled hook that is not a gate is refused, not scored", () => {
     produce: () => inject("hello"),
   });
   assert.throws(() => verifyGuardrail(nudge), TypeError);
-});
-
-test("assertBlocksDisasters is the deprecated alias of assertGuardrail", () => {
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the alias under test
-  assert.equal(assertBlocksDisasters, assertGuardrail);
 });
 
 // ---------------------------------------------------------------------------

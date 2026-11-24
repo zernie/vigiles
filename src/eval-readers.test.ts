@@ -54,24 +54,27 @@ const stat = (mean: number, se: number, n: number) => ({
   passK: 0,
 });
 
+const BASE = {
+  runs: 20,
+  metrics: { caught: 0.1 },
+  stats: { caught: stat(0.1, 0.05, 20) },
+  ...NO_MISSES,
+};
+const GOOD = {
+  runs: 20,
+  metrics: { caught: 0.6 },
+  stats: { caught: stat(0.6, 0.05, 20) },
+  ...NO_MISSES,
+};
+
 const welchReport: EvalReport = {
   name: "sig",
   trials: 20,
   totalCostUsd: 0,
   aborted: false,
   arms: {
-    base: {
-      runs: 20,
-      metrics: { caught: 0.1 },
-      stats: { caught: stat(0.1, 0.05, 20) },
-      ...NO_MISSES,
-    },
-    good: {
-      runs: 20,
-      metrics: { caught: 0.6 },
-      stats: { caught: stat(0.6, 0.05, 20) },
-      ...NO_MISSES,
-    },
+    base: BASE,
+    good: GOOD,
     noisy: {
       runs: 5,
       metrics: { caught: 0.2 },
@@ -117,8 +120,8 @@ test("compare leaves out a metric only one arm reported, and throws on an unknow
   const r: EvalReport = {
     ...welchReport,
     arms: {
-      base: { ...welchReport.arms.base!, metrics: { caught: 0.1, extra: 1 } },
-      good: welchReport.arms.good!,
+      base: { ...BASE, metrics: { caught: 0.1, extra: 1 } },
+      good: GOOD,
     },
   };
   assert.deepEqual(Object.keys(compare(r, "base", "good")), ["caught"]);
@@ -129,8 +132,8 @@ test("compare: a metric with no per-trial stats has a gap but no verdict", () =>
   const r: EvalReport = {
     ...welchReport,
     arms: {
-      base: { ...welchReport.arms.base!, stats: {} },
-      good: { ...welchReport.arms.good!, stats: {} },
+      base: { ...BASE, stats: {} },
+      good: { ...GOOD, stats: {} },
     },
   };
   const c = compare(r, "base", "good").caught;
@@ -232,4 +235,25 @@ test("assertRates reads an EvalReport arm × metric: min gates the mean, passK e
   assert.throws(() => {
     assertRates(rep, { arm: "nobody", metric: "safe", passK: 1 });
   }, /no data/);
+});
+
+test("assertImproves without `significant` gates the plain gap against `by`", () => {
+  const gap = { baseline: "base", arm: "good", metric: "caught" } as const;
+  assert.doesNotThrow(() => {
+    assertImproves(welchReport, gap);
+  });
+  assert.throws(() => {
+    assertImproves(welchReport, { ...gap, by: 0.9 });
+  }, /by > 0\.9, got 0\.500/);
+  assert.throws(() => {
+    assertImproves(welchReport, { ...gap, metric: "missing" });
+  }, /no data to compare/);
+});
+
+test("assertRates over an eval report without an arm is refused, not read as a check report", () => {
+  const rep = passReport(1, 1, 1);
+  assert.throws(() => {
+    // @ts-expect-error — an eval report needs `arm` and `metric`
+    assertRates(rep, { passK: 1 });
+  }, /needs `arm` and `metric`/);
 });

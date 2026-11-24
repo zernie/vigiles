@@ -298,35 +298,35 @@ behaves the same way.
 
 ```ts
 import { test } from "node:test";
-import { withHarness, assertCreated } from "vigiles";
+import { runHarnessTest, assertCreated } from "vigiles";
 import { scriptModel } from "vigiles/claude-code";
 
 test("Stop hook forces more work", async () => {
-  await withHarness(
-    {
-      settings: {
-        hooks: {
-          Stop: [
-            {
-              hooks: [
-                { type: "command", command: "test -f {cwd}/DONE || exit 2" },
-              ],
-            },
-          ],
-        },
+  await using r = await runHarnessTest({
+    settings: {
+      hooks: {
+        Stop: [
+          {
+            hooks: [
+              { type: "command", command: "test -f {cwd}/DONE || exit 2" },
+            ],
+          },
+        ],
       },
-      model: scriptModel([
-        { text: "done?" }, // blocked
-        { tool: "Bash", input: { command: "touch DONE" } },
-        { text: "done" },
-      ]),
     },
-    (r) => assertCreated(r, "DONE"),
-  );
+    model: scriptModel([
+      { text: "done?" }, // blocked
+      { tool: "Bash", input: { command: "touch DONE" } },
+      { text: "done" },
+    ]),
+  });
+  assertCreated(r, "DONE");
 });
 ```
 
-`withHarness` auto-cleans the sandbox (try/finally) so you don't leak temp dirs.
+`await using` removes the run's temp directory when `r` leaves scope, even when
+the assertion throws (TypeScript 5.2+, or Node 24+ for plain `.mjs`; on older
+Node call `r.cleanup()` in a `finally`).
 `scriptModel` and the mock are Claude-Code-specific (a different harness scripts a
 different wire format — Codex uses the OpenAI **Responses** mock, see
 [harness-testing-codex.md](harness-testing-codex.md)).

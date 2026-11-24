@@ -16,10 +16,8 @@
  * Write-don't-run in a keyless env; runs where a key is.
  */
 import { defineEval } from "../../../dist/test.js";
-import {
-  skillResolved,
-  assertTriggerRate,
-} from "../../../dist/harness-assert.js";
+import { skillResolved } from "../../../dist/harness-assert.js";
+import { assertTriggerRate } from "../../../dist/eval-surface.js";
 import { fileURLToPath } from "node:url";
 
 // generate-logo is an INTERNAL skill (not in the shipped plugin), so load it from

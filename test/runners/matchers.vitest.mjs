@@ -8,12 +8,8 @@
  *   npm run test:vitest
  */
 import { test, expect } from "vitest";
-import {
-  improvement,
-  assertImproves,
-  assertCreated,
-  assertNotCreated,
-} from "../../dist/harness-assert.js";
+import { assertCreated, assertNotCreated } from "../../dist/harness-assert.js";
+import { compare, assertImproves } from "../../dist/eval-surface.js";
 import { tool, output, blocked } from "../../dist/check.js";
 // Matchers are registered by the `vigiles/vitest` entry via setupFiles
 // (vitest.config.ts) — this file asserts that wiring works end-to-end.
@@ -60,7 +56,7 @@ test("the check veneer (toPass / toPassAll) works under vitest", () => {
 });
 
 test("plain helpers work under vitest", () => {
-  expect(improvement(report, "vanilla", "gated", "caught")).toBe(0.5);
+  expect(compare(report, "vanilla", "gated").caught.gap).toBe(0.5);
   assertImproves(report, {
     baseline: "vanilla",
     arm: "gated",

@@ -53,7 +53,9 @@
  * thesis, validated on vigiles's OWN contract. (NOTE: all three rows label as
  * "subagent(code-reviewer)" — they're nested checks; order is (1)/(2)/(3) above.)
  */
-import { compareCheck, defineEval } from "../../../dist/test.js";
+import { defineEval } from "../../../dist/test.js";
+// Internal (not a public export): the per-check significance read.
+import { compareCheck } from "../../../dist/eval.js";
 import { subagent, tool, output } from "../../../dist/check.js";
 import { fileURLToPath } from "node:url";
 

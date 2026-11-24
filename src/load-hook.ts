@@ -53,7 +53,7 @@ function isTypeScriptRuntimeError(e: unknown): boolean {
  * reported as itself.
  *
  * ```js
- * import { loadHook, assertHookDenies } from "vigiles";
+ * import { loadHook, assertHookDenies } from "vigiles/hook";
  *
  * const guard = await loadHook(".vigiles/hooks/guard.hook.mjs");
  * assertHookDenies(guard, {

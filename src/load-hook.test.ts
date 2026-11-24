@@ -19,7 +19,7 @@ import { pathToFileURL } from "node:url";
 
 import { loadHook } from "./load-hook.js";
 import { HookCompileError } from "./core/hook-program.js";
-import { assertHookDenies, assertHookAllows } from "./harness-assert.js";
+import { assertHookDenies, assertHookAllows } from "./hook-test.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 const HOOK_DIST = pathToFileURL(

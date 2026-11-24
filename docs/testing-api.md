@@ -113,20 +113,26 @@ assertToolCalls(r, (calls) => /* any custom rule over the list */ true);
 
 assertHookBlocked(r); // exit 2 / decision:"block" / permissionDecision:"deny"
 assertDelivered(r); // a runHook result's text REACHED the model (not just stderr) — see harness-testing.md
-assertGuardrail("bash hooks/guard.sh"); // denies every disaster, allows the same text as data
 assertHookFired(r, "UserPromptSubmit");
 assertOutputContains(r, /on it/);
 assertCreated(r, "DONE"); // a file was created
 ```
 
-`withHarness(spec, fn)` wraps a deterministic run with try/finally cleanup so a
-test doesn't leak temp dirs.
+A `runHarnessTest` result owns its temp directory. Remove it in a `finally` with
+`r.cleanup()`, or let TypeScript (5.2+) or Node 24+ do it for you:
+`await using r = await runHarnessTest(spec)` disposes the result when it leaves
+scope, even when an assertion throws.
+
+To prove a guard blocks every disaster and allows the same text as data, use the
+battery on [`vigiles/battery`](harness-testing.md#prove-a-guard-actually-blocks-the-disaster-battery):
+`assertGuardrail("bash hooks/guard.sh")`.
 
 ### Test a compiled hook in-process (no subprocess)
 
 A [compiled hook](compiled-hooks.md) (a `vigiles/hook` program) has a **pure**
 decision, so you can test it without spawning the CLI at all — pass the hook's
-default export and a raw event:
+default export and a raw event. The test functions live on `vigiles/hook`,
+beside the vocabulary they test:
 
 ```ts
 import {
@@ -135,8 +141,8 @@ import {
   assertHookAllows,
   assertHookNotices,
   assertHookSilent,
-} from "vigiles";
-import { runHookProgram } from "vigiles/hook";
+  runHookProgram,
+} from "vigiles/hook";
 
 // loadHook takes the hook's PATH — what a .harness.mjs file actually has. It is
 // the same loader the runtime uses, and it handles a .hook.ts under tsx / Node
@@ -179,12 +185,17 @@ For the railway/result subagent contract, `assertAgentOk` / `assertAgentErr` /
 `assertAgentResult` test a subagent's outcome via `parseAgentResult` — a
 **deterministic assert that replaces an LLM judge**. A subagent with a `result()`
 contract ends its turn with a `vigiles:ok` / `vigiles:err` block; these helpers
-parse it and validate it against the declared shape:
+parse it and validate it against the declared shape. They live on `vigiles/spec`,
+beside the `experimental_agent` contract they read:
 
 ```ts
-import { experimental_agent } from "vigiles/spec";
+import {
+  experimental_agent,
+  assertAgentOk,
+  assertAgentErr,
+  assertAgentResult,
+} from "vigiles/spec";
 const { result } = experimental_agent;
-import { assertAgentOk, assertAgentErr, assertAgentResult } from "vigiles";
 
 const contract = result(
   { files: "string[]", summary: "string" }, // the ok track
@@ -217,12 +228,12 @@ check is evaluated two ways — write the assertion once:
 import { tool, skill, output, hookFired, blocked, assertChecks } from "vigiles";
 
 // STRICT (deterministic tiers): throws, collecting ALL failures with messages.
-assertChecks(await runHarness(spec), [tool("Bash"), output(/done/)]);
+assertChecks(await runHarnessTest(spec), [tool("Bash"), output(/done/)]);
 assertChecks(runHook(cmd, event), [blocked()]);
 
 // SCORED (eval): the SAME checks, as a rate ± se across trials.
-import { paid_measure } from "vigiles/eval"; // the `paid_` prefix = it calls a model
-import { assertRates, checkReportToJUnit } from "vigiles"; // reading the report is free
+// the `paid_` prefix = it calls a model; reading the report (assertRates) is free
+import { paid_measure, assertRates } from "vigiles/eval";
 const report = await paid_measure({
   pluginDir: "./my-plugin", // or skillsDir: ".claude/skills" (loose, auto-packaged)
   task: "…",
@@ -232,7 +243,7 @@ const report = await paid_measure({
   model: "sonnet",
 });
 assertRates(report, { min: 0.8 }); // gate the rate, not one noisy run
-writeFileSync("checks.junit.xml", checkReportToJUnit(report, { min: 0.8 }));
+assertRates(report, { passK: 1 }); // or: every check passed on EVERY trial
 ```
 
 A check's **failure message is the product** (`expected the agent to use tool
@@ -258,9 +269,8 @@ so lives on `vigiles/eval`):
 | `blocked()` / `allowed()`  | the hook blocked / allowed                        | `runHook` result |
 
 `paid_measureArms({ arms, checks })` scores the same checks per arm (a hook/skill/rule
-**on vs off**); `compareCheck(report, baseline, arm, i)` returns a Welch verdict.
-It takes `stubSkillBodies` too. `propertyHook({ seed, mutate, decide, invariants })`
-fuzzes a hook's `(event) → decision` and shrinks any counterexample.
+**on vs off**): `report.arms[name].perCheck[i]` lines up across arms. It takes
+`stubSkillBodies` too.
 
 ## vitest / jest matchers
 
@@ -460,7 +470,7 @@ The `measure` ctx is a full `Trace`, so a metric reads the agent's **actions**
   - `assertRates({ min })`. The oracle promptfoo/DeepEval lead with.
 - **Relative — "does this change _move_ behaviour vs off?"** The lift a change buys
   (regression gating, proving a gap isn't noise): `runEval` with `off`/`on` arms +
-  `assertSignificant`.
+  `assertImproves({ significant: true })`.
 
 **Cost / caching / concurrency:**
 
@@ -510,38 +520,39 @@ platform.
 
 ## Significance &amp; regression gating
 
-**Significance.** `se` gives the spread; `assertSignificant` throws unless the
-arm beats the baseline by a margin the trials can actually show — the noise floor
-is **computed**, not hand-fed. The test depends on the metric:
+The report readers live on `vigiles/eval`, beside the runners that produce the
+report. None of them calls a model, so none is named `paid_`.
+
+**Significance.** `se` gives the spread; `compare` says, metric by metric, how far
+apart two arms are and whether the gap clears a noise floor the trials can
+actually show — the floor is **computed**, not hand-fed. The test depends on the
+metric:
 
 - **A 0/1 metric** (pass/fail, `true`/`false`): each arm gets a 95% Wilson
-  interval, and the arm wins only when the two intervals do not overlap. A
-  metric counts as 0/1 when every trial reported 0 or 1; the report records the
-  tally as `stats[metric].successes`. A report saved before that field existed
-  has no tally, so it is judged by Welch's test.
+  interval, and the gap is significant only when the two intervals do not
+  overlap. A metric counts as 0/1 when every trial reported 0 or 1; the report
+  records the tally as `stats[metric].successes`. A report saved before that
+  field existed has no tally, so it is judged by Welch's test.
 - **Any other metric**: Welch's t-test at `alpha` (default 0.05).
 
 ```ts
-import {
-  assertSignificant,
-  significantlyBeats,
-  compareArms,
-  experimental_verdict,
-} from "vigiles";
+import { compare, assertImproves } from "vigiles/eval";
 
-assertSignificant(report, {
+const c = compare(report, "vanilla", "gated"); // one entry per metric both arms report
+c.marked; // → { gap, significant, verdict }
+// verdict: { kind: "better" | "worse" | "no-signal", test: "wilson", arm, baseline }
+//       or { kind, test: "welch", delta, pValue } · { kind: "unmeasured", why }
+
+assertImproves(report, {
   baseline: "vanilla",
   arm: "gated",
   metric: "marked",
+  significant: true, // the verdict must be `better`, not just a positive gap
 });
-significantlyBeats(report, "vanilla", "gated", "marked"); // bare predicate
-experimental_verdict(report, "vanilla", "gated", "marked");
-// → { kind: "better" | "worse" | "no-signal", test: "wilson", arm, baseline }
-//   or { kind, test: "welch", delta, pValue } · { kind: "unmeasured", why }
-const c = compareArms(report, "vanilla", "gated", "marked");
-// → { delta, seDelta, t, df, pValue, significant }  (Welch's numbers;
-//   `significant` is the verdict above, so it is false on 3/3 vs 0/3)
 ```
+
+A significant LOSS is `significant` with a negative `gap`. An arm name the report
+does not have throws (a typo is not an arm that scored nothing).
 
 **Why 0/1 metrics are not t-tested.** When every trial agrees — 3 of 3 against
 0 of 3 — both arms have zero spread, and a t-test has nothing to divide by. Read
@@ -553,22 +564,16 @@ interval never shrinks to a point at 0 or 1, so 3/3 still admits a true rate nea
 intervals is stricter than a two-proportion test at the same level: a cautious
 verdict costs a re-run, an eager one costs a shipped regression.
 
-`formatEvalReport(report, { baseline: "vanilla" })` prints the same verdict, one
-line per other arm and metric. `improvement` throws when an arm never reported the
-metric, instead of reading it as 0. `assertReliable(report, { arm, metric })` is the
-stricter bar: the metric succeeded on **every** trial (pass^k = 1).
+`vigiles eval` prints the same verdict, one line per other arm and metric.
+`assertImproves` throws when an arm never reported the metric, instead of reading
+it as 0. `assertRates(report, { arm, metric, passK: 1 })` is the stricter bar: the
+metric succeeded on **every** trial (pass^k = 1).
 
 **Regression gating** compares one run against a **committed baseline** — "jest
 snapshots for agent behaviour, with a real noise floor":
 
 ```ts
-import {
-  writeBaseline,
-  readBaseline,
-  assertNoRegression,
-  diffToJUnit,
-  diffReports,
-} from "vigiles";
+import { writeBaseline, readBaseline, assertNoRegression } from "vigiles/eval";
 
 // Record once (commit .vigiles/eval-baseline.json):
 writeBaseline(".vigiles/eval-baseline.json", [report]);
@@ -577,7 +582,6 @@ writeBaseline(".vigiles/eval-baseline.json", [report]);
 const baseline = readBaseline(".vigiles/eval-baseline.json");
 if (baseline) {
   assertNoRegression(report, baseline, { lowerIsBetter: ["cost"] });
-  // or emit JUnit: diffToJUnit(diffReports(baseline, [report]))
 }
 ```
 
@@ -586,29 +590,29 @@ them. A new arm/metric absent from the baseline is skipped (not a regression).
 
 ## Imports &amp; harness selection
 
-**One canonical entry point per layer** — import from these:
+**One door per reader** — every name lives behind exactly one of these:
 
-| Layer                  | Canonical import  | What it re-exports                                                                                                                        |
-| ---------------------- | ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| Test your harness      | `vigiles`         | every check, assertion, matcher, hook/harness runner and tool stub — everything that costs nothing to run                                 |
-| Measure with a model   | `vigiles/eval`    | `paid_runEval` · `paid_measure` · `paid_measureArms` · `paid_measureTriggerRate` · `paid_judge` · `paid_judged` · `paid_claudeEvalDriver` |
-| Declare an eval file   | `vigiles`         | `defineEval` (free — a description cannot spend; see [eval files](harness-testing.md#eval-files-describe-their-eval))                     |
-| Lint instruction files | `vigiles/linting` | the spec builders and their types (compiling is `vigiles compile` / `vigiles lint`)                                                       |
+| Reader                        | Import            | What it holds                                                                                                                                                |
+| ----------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Test your harness             | `vigiles`         | the runners, every check and assertion over a run, the matchers, tool stubs, `defineEval`, and the report types — everything that costs nothing to run       |
+| Measure with a model          | `vigiles/eval`    | the `paid_*` runners, and the free readers of their report: `compare`, `assertRates`, `assertTriggerRate`, `assertImproves`, `assertNoRegression`, baselines |
+| Prove a guard blocks          | `vigiles/battery` | `assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`, `experimental_verifyPluginGuards`, `experimental_hookState`                                        |
+| Write or test a compiled hook | `vigiles/hook`    | the hook vocabulary, and `loadHook` / `assertHookDenies` / `assertHookAllows` / `assertHookNotices` / `assertHookSilent`                                     |
+| Author a spec                 | `vigiles/spec`    | the spec builders and their types, and `assertAgentOk` / `assertAgentErr` / `assertAgentResult` (compiling is `vigiles compile` / `vigiles lint`)            |
 
 **In a `*.eval.mjs` file the runners below are DECLARED, not called** —
 `export default defineEval({ measure: spec })` — because importing a file that
 calls one spends real money. See
 [eval files describe their eval](harness-testing.md#eval-files-describe-their-eval).
 
-**The testing surface splits on COST, not on test tier.** Free is the package
-root; anything that can call a model is `vigiles/eval`. There is no
-`vigiles/test` — the bare package name _is_ the testing surface — and the old
-`vigiles/unit` / `vigiles/integration` / `vigiles/e2e` / `vigiles/testing`
-barrels are gone. Tiers were never a property of the module graph: express them
-where they belong, in test-file naming and runner config (`vitest --project
-integration`), the way `@playwright/test` does.
+**The testing surface splits by reader, not by test tier.** The package root is
+the free testing surface; there is no `vigiles/test` — the bare package name _is_
+the testing surface — and the old `vigiles/unit` / `vigiles/integration` /
+`vigiles/e2e` / `vigiles/testing` barrels are gone. Tiers were never a property
+of the module graph: express them where they belong, in test-file naming and
+runner config (`vitest --project integration`), the way `@playwright/test` does.
 
-**Every runtime export on `vigiles/eval` is also named `paid_`.** The import path
+**Every runtime export on `vigiles/eval` that can call a model is named `paid_`.** The import path
 warns once, at the top of the file; the name warns at every call site, which is
 where the money is spent. Same device the package already uses for
 `experimental_` on every call site. ⚠️ The prefix overstates slightly —
@@ -623,17 +627,21 @@ Two consequences worth stating plainly:
 - **Free is not fast.** `runHarnessTest` spawns a real `claude` under bubblewrap
   and can take ~40 seconds. It bills nothing, so it is on the free root, and the
   import no longer warns you about the wall clock.
-- **The eval-analysis helpers stay free and unprefixed.** `assertSignificant`,
-  `assertNoRegression`, `diffReports`, `cost` / `latency` / `tokens` and friends
-  read a report without running anything, so they are on `vigiles`. Their argument
-  TYPES (`EvalReport`, `CheckReport`, …) are re-exported from both barrels, so you
-  never import `vigiles/eval` for a type alone.
+- **The report readers are free and unprefixed, on `vigiles/eval`.** `compare`,
+  `assertRates`, `assertNoRegression` and friends read a report without running
+  anything; their only reader just ran an eval, so they sit beside the runners.
+  To forbid spending in CI, match the `paid_*` names, not the door. The report
+  TYPES (`EvalReport`, `CheckReport`, …) are on `vigiles`, since `defineEval`
+  speaks them too.
 
 The remaining entry points are deliberate surfaces, not aliases:
 
 - **Authoring** — `vigiles/spec`: the spec builders for `.spec.ts` files.
-- **CC-specific transport** — `scriptModel`, `loadPlugin`, `resolveHarness`,
-  `LoadedPlugin` live in `vigiles/claude-code`, not on the root surface.
+- **CC-specific transport** — `scriptModel`, `loadPlugin`, `LoadedPlugin`,
+  `startMock` and the stream-json parsers `parseToolCalls` / `parseClaudeRun` live
+  in `vigiles/claude-code`, not on the root surface. Its ports (`layout`,
+  `dialect`, `harnessTestDriver()`, …) and tool catalog (`builtinAgentTools`,
+  `sideEffectingTools`) are fields of `claudeCodeAdapter`.
 - **CC-only measurement** — `measureSelectionMatrix` / `assertNoCollision` live in
   `vigiles/claude-code` too. They read which skill the selector chose (Codex has no
   such event), so they can't sit on the agnostic surface. Everything else measured

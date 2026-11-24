@@ -511,7 +511,7 @@ function decideCases(
 ): readonly GuardrailResult[] {
   const ctx = gateContext(hook, opts);
   return cases.map((c) => {
-    // Counted and attributed like `assertHookDenies` (see harness-assert.ts
+    // Counted and attributed like `assertHookDenies` (see hook-test.ts
     // `runCountedHookProgram`): an in-process decision is a check.
     recordCheck();
     const source = hookSource(hook);
@@ -747,15 +747,6 @@ export function assertGuardrail(
     parts.filter((p) => p !== "").join("\n\n") + skippedNote(results),
   );
 }
-
-/**
- * The old name of {@link assertGuardrail}. It now runs the harmless half too,
- * like the new name (`harmless: []` restores the blocking-only check).
- *
- * @deprecated Renamed {@link assertGuardrail}, which also checks the harmless
- * look-alikes; this alias is removed in the next major.
- */
-export const assertBlocksDisasters = assertGuardrail;
 
 /**
  * A harmless case the hook's condition does not select: the harness never

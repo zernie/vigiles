@@ -9,11 +9,10 @@
  *   npm run test:jest
  */
 const {
-  improvement,
-  assertImproves,
   assertCreated,
   assertNotCreated,
 } = require("../../dist/harness-assert.js");
+const { compare, assertImproves } = require("../../dist/eval-surface.js");
 const { tool, output, blocked } = require("../../dist/check.js");
 // Matchers are registered by the `vigiles/jest` entry via setupFilesAfterEnv
 // (jest.config.cjs) — this file asserts that wiring works end-to-end.
@@ -60,7 +59,7 @@ test("the check veneer (toPass / toPassAll) works under jest", () => {
 });
 
 test("plain helpers work under jest", () => {
-  expect(improvement(report, "vanilla", "gated", "caught")).toBe(0.5);
+  expect(compare(report, "vanilla", "gated").caught.gap).toBe(0.5);
   assertImproves(report, {
     baseline: "vanilla",
     arm: "gated",

@@ -717,10 +717,10 @@
   },
   "src/claude-code.ts": {
     "boundaries/dependencies": {
-      "count": 9
+      "count": 4
     },
     "local/no-harness-names": {
-      "count": 11
+      "count": 10
     }
   },
   "src/cli-adopter-reports.test.ts": {
@@ -873,10 +873,10 @@
   },
   "src/codex.ts": {
     "boundaries/dependencies": {
-      "count": 9
+      "count": 4
     },
     "local/no-harness-names": {
-      "count": 9
+      "count": 12
     }
   },
   "src/colocated-execution.test.ts": {
@@ -2576,6 +2576,11 @@
       "count": 1
     }
   },
+  "src/entries/spec.ts": {
+    "functional/prefer-immutable-types": {
+      "count": 2
+    }
+  },
   "src/eval-baseline.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
@@ -2772,7 +2777,7 @@
       "count": 32
     },
     "functional/prefer-immutable-types": {
-      "count": 52
+      "count": 51
     },
     "local/no-harness-names": {
       "count": 20
@@ -2853,10 +2858,7 @@
   },
   "src/harness-assert.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 5
-    },
-    "boundaries/dependencies": {
-      "count": 1
+      "count": 3
     },
     "functional/no-let": {
       "count": 1
@@ -2865,10 +2867,7 @@
       "count": 1
     },
     "functional/prefer-immutable-types": {
-      "count": 31
-    },
-    "local/no-harness-names": {
-      "count": 1
+      "count": 23
     },
     "no-restricted-globals": {
       "count": 1
@@ -3076,6 +3075,11 @@
     },
     "no-restricted-globals": {
       "count": 5
+    }
+  },
+  "src/hook-test.ts": {
+    "functional/prefer-immutable-types": {
+      "count": 1
     }
   },
   "src/hook.test.ts": {

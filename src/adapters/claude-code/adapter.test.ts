@@ -7,6 +7,7 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { claudeCodeAdapter } from "./adapter.js";
+import * as door from "../../claude-code.js";
 import {
   assertAdapterConformance,
   assertAdapterLoadsHooks,
@@ -39,7 +40,31 @@ test("claudeCodeAdapter carries Claude Code's tool constants as fields", () => {
   // Code fact belongs to the Claude Code adapter.
   assert.ok(claudeCodeAdapter.builtinAgentTools.includes("Bash"));
   assert.ok(claudeCodeAdapter.sideEffectingTools.includes("Write"));
-  assert.ok(!claudeCodeAdapter.sideEffectingTools.includes("Read"));
+  assert.ok(!new Set<string>(claudeCodeAdapter.sideEffectingTools).has("Read"));
+});
+
+test("vigiles/claude-code: the adapter and its helpers, the ports reached through the adapter", () => {
+  for (const name of [
+    "claudeCodeAdapter",
+    "parseToolCalls",
+    "parseClaudeRun",
+    "scriptModel",
+    "startMock",
+  ]) {
+    assert.ok(name in door, `vigiles/claude-code exports ${name}`);
+  }
+  for (const gone of [
+    "claudeCodeBuiltinAgentTools",
+    "claudeCodeSideEffectingTools",
+    "claudeCodeLayout",
+    "claudeCodeDriver",
+    "claudeCodeDialect",
+    "formatSelectionReport",
+    "resolveHarness",
+    "agent",
+  ]) {
+    assert.ok(!(gone in door), `vigiles/claude-code hides ${gone}`);
+  }
 });
 
 test("claudeCodeAdapter passes the conformance kit", () => {

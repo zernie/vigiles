@@ -23,10 +23,8 @@
  * template's defaults, not calibrated by a run.
  */
 import { defineEval } from "../../../dist/test.js";
-import {
-  skillResolved,
-  assertTriggerRate,
-} from "../../../dist/harness-assert.js";
+import { skillResolved } from "../../../dist/harness-assert.js";
+import { assertTriggerRate } from "../../../dist/eval-surface.js";
 import { fileURLToPath } from "node:url";
 
 const skillsDir = fileURLToPath(

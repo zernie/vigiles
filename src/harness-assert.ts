@@ -5,85 +5,16 @@
  * they already work inside any runner (node:test, vitest, jest, mocha). These
  * helpers remove the last bit of boilerplate without coupling to a runner:
  *
- *   - `withHarness` — run a harness test and auto-clean the sandbox (try/finally),
- *     so you don't leak temp dirs in `afterEach`.
  *   - plain `assert*` helpers that throw — usable in every runner, including
  *     node:test which has no `expect.extend`.
  *   - `vigilesMatchers` — register with `expect.extend(vigilesMatchers)` for
  *     `expect(...).toHaveCreated(...)` sugar. The signature is identical for
  *     vitest and jest, so the same object supports both.
  */
-import {
-  runHarnessTest,
-  type HarnessTestSpec,
-  type HarnessTestResult,
-  type ToolCall,
-  type Trace,
-} from "./harness-test.js";
-import type { EvalReport, TriggerRateReport } from "./eval.js";
+import type { HarnessTestResult, ToolCall, Trace } from "./harness-test.js";
+import type { EvalReport } from "./core/eval-report.js";
 import type { HookRunResult, EgressAttempt } from "./run-hook.js";
-import { hookSource, runHookProgram } from "./core/hook-program.js";
-import type {
-  AnyHook,
-  RawHookEvent,
-  HookProgramOutcome,
-} from "./core/hook-program.js";
 import { evalChecks, type Check } from "./check.js";
-import { recordCheck, recordSurfaceProbe } from "./check-count.js";
-import type { OutputContract } from "./core/spec.js";
-import {
-  parseAgentResult,
-  type ParsedAgentResult,
-} from "./adapters/claude-code/agent-result.js";
-import { experimental_verdict } from "./stats.js";
-import { describeVerdict } from "./core/evidence.js";
-import {
-  diffReports,
-  type BaselineFile,
-  type DiffOptions,
-} from "./eval-baseline.js";
-
-// Re-export the significance primitives so the whole eval-analysis surface lives
-// re-exported from the `vigiles` root (there is no `vigiles/harness-assert` entry
-// point — it was advertised in this very comment and never existed).
-export { compareArms, experimental_verdict } from "./stats.js";
-export type { Verdict, Interval } from "./core/evidence.js";
-export type { Comparison } from "./stats.js";
-export {
-  diffReports,
-  toBaselineFile,
-  parseBaselineFile,
-  readBaseline,
-  writeBaseline,
-  formatBaselineDiff,
-  diffToJUnit,
-} from "./eval-baseline.js";
-export type {
-  BaselineFile,
-  BaselineDiff,
-  MetricDiff,
-  DiffStatus,
-  DiffOptions,
-} from "./eval-baseline.js";
-
-/**
- * Run a harness test, hand the result to `fn`, and always clean up the sandbox.
- * Returns whatever `fn` returns. Use this instead of calling `cleanup()` by
- * hand — it survives assertion failures.
- */
-/* v8 ignore start -- thin wrapper over runHarnessTest (spawns the real CLI) */
-export async function withHarness<T>(
-  spec: HarnessTestSpec,
-  fn: (r: HarnessTestResult) => T | Promise<T>,
-): Promise<T> {
-  const r = await runHarnessTest(spec);
-  try {
-    return await fn(r);
-  } finally {
-    r.cleanup();
-  }
-}
-/* v8 ignore stop */
 
 // --- Plain throwing assertions (any runner) --------------------------------
 
@@ -115,13 +46,6 @@ export function assertCreated(r: HarnessTestResult, path: string): void {
 /** Assert the sandbox does NOT contain `path` (e.g. a blocked action's output). */
 export function assertNotCreated(r: HarnessTestResult, path: string): void {
   if (r.file(path) !== null) fail(`expected the run NOT to create ${path}`);
-}
-
-/** Assert the scripted model served at least `n` turns (e.g. a Stop hook forced more). */
-export function assertServedTurns(r: HarnessTestResult, n: number): void {
-  if (r.turns < n) {
-    fail(`expected ≥ ${String(n)} model turns, got ${String(r.turns)}`);
-  }
 }
 
 /** Assert a `runHook` result blocked (exit 2 / decision:block / permission:deny). */
@@ -188,139 +112,6 @@ export function assertDelivered(r: HookRunResult): void {
   }
 }
 
-/**
- * `runHookProgram`, counted AND attributed. An in-process hook decision is an
- * observation the CLI runner can see — without it, a `*.harness.*` file that only
- * tests compiled hooks would look like it did nothing at all. See check-count.ts.
- *
- * 🔴 THE PROBE BELONGS HERE, AND NOWHERE EARLIER OR LATER. The documented
- * in-process path — `loadHook(file)` then `assertHookDenies(hook, event)` — used
- * to record a check and no SURFACE, so the child exited a non-vacuous pass with
- * an empty `surfaces` list, `runsFromResults` discarded it, and a harness that
- * genuinely executed a compiled hook produced NO execution record. The hook then
- * showed as untested unless filename colocation happened to cover it. Unlike
- * every other coverage finding in this review that is a false NEGATIVE — real
- * execution going unrecorded — which is why the bar for what gets recorded here
- * is the high one, not the cheap one.
- *
- * Not at LOAD: `loadHook` only remembers the path. Someone loading a hook to
- * inspect its shape has not run it, and crediting that would be the "an empty
- * file counts" substitution the execution tier exists to remove.
- *
- * Not in `runHookProgram`: that is the PURE evaluator, and it is what the CLI's
- * `hook-runtime run-program` calls on every live event in production. Recording
- * there would make the pure decision impure and would fire outside any test.
- *
- * This function is the only place that has both facts — the hook is about to be
- * evaluated, and (when it came from `loadHook`) we know its file. Four public
- * assertions funnel through it, so none of them can be added without inheriting
- * the attribution.
- *
- * ⚠️ WHAT THIS DELIBERATELY DOES NOT ATTRIBUTE — run, not asserted. A hook built
- * in-process rather than loaded from disk has no file to name, so nothing is
- * recorded and nothing is invented:
- *
- *     const h = experimental_defineHook({…}); assertHookDenies(h, e);  → surfacesRecorded() === []
- *
- * …and a direct `runHookProgram(hook, event)` call (the pure evaluator, public
- * via `vigiles/hook`) records nothing either, for the reason above. Both cost a
- * missed record, never a false one.
- */
-function runCountedHookProgram(
-  hook: AnyHook,
-  event: RawHookEvent,
-): HookProgramOutcome {
-  recordCheck();
-  // `command`, the same shape a parsed hook ref gets — but note the provenance
-  // differs: that one is inferred from a command string and is best-effort; this
-  // one is the path `loadHook` resolved, so it is exact by construction.
-  const source = hookSource(hook);
-  if (source !== undefined) recordSurfaceProbe("command", source);
-  return runHookProgram(hook, event);
-}
-
-/** Render a {@link HookProgramOutcome} for an assertion message. */
-function describeOutcome(o: HookProgramOutcome): string {
-  if (o.kind === "decision") return `${o.decision.kind} (a gate decision)`;
-  if (o.kind === "injection") return `an injection`;
-  return `${o.reaction.kind} (a reaction)`;
-}
-
-/**
- * Assert a COMPILED hook (a `vigiles/hook` program) denies an event — evaluated
- * in-process, no subprocess, no model. The cheapest way to test a gate's logic:
- * pass the hook's default export and a raw event. (For the wired-into-the-real-CLI
- * check, use {@link assertHookBlocked} over `runHook`.)
- */
-export function assertHookDenies(hook: AnyHook, event: RawHookEvent): void {
-  const o = runCountedHookProgram(hook, event);
-  if (o.kind !== "decision" || o.decision.kind !== "deny") {
-    fail(`expected the hook to deny, got ${describeOutcome(o)}`);
-  }
-}
-
-/** Assert a COMPILED hook allows an event (in-process). The twin of {@link assertHookDenies}. */
-export function assertHookAllows(hook: AnyHook, event: RawHookEvent): void {
-  const o = runCountedHookProgram(hook, event);
-  if (o.kind !== "decision" || o.decision.kind !== "allow") {
-    fail(`expected the hook to allow, got ${describeOutcome(o)}`);
-  }
-}
-
-/**
- * Assert a COMPILED **react** hook emits a `notice(…)` for an event, optionally
- * matching its message — the react-tier twin of {@link assertHookDenies}.
- *
- * A react hook can't block, so the gate assertions don't apply to it, and there
- * was no assertion that did. That left `notice()` a live trap: a probe built on
- * `execFileSync` (which returns stdout only) reported a perfectly healthy react
- * hook as DEAD — measured against three real hooks on 2026-08-03. Reading the
- * reaction in-process means no stream enters into it, which is why this
- * assertion did not change when delivery did: since 2026-09-07 a notice also
- * goes to stdout as `additionalContext` on an event the harness injects (see
- * `noticeDelivery`), so WHICH stream carries it now depends on the event — a
- * stream probe is even less answerable than before, and this one is unaffected.
- */
-export function assertHookNotices(
-  hook: AnyHook,
-  event: RawHookEvent,
-  matcher?: string | RegExp,
-): void {
-  const o = runCountedHookProgram(hook, event);
-  if (o.kind !== "reaction" || o.reaction.kind !== "notice") {
-    fail(`expected the hook to notice, got ${describeOutcome(o)}`);
-  }
-  if (matcher === undefined) return;
-  const { message } = o.reaction;
-  const matched =
-    typeof matcher === "string"
-      ? message.includes(matcher)
-      : matcher.test(message);
-  if (!matched) {
-    fail(
-      `expected the notice to match ${String(matcher)}, got ${JSON.stringify(message)}`,
-    );
-  }
-}
-
-/**
- * Assert a COMPILED **react** hook stays silent for an event — it returns
- * `nothing()` (a `"none"` reaction). The twin of {@link assertHookNotices}: together they pin both
- * halves of a react hook's behaviour — it fires when it should, and (the half
- * that actually regresses) it does NOT fire when it shouldn't.
- *
- * A `run(…)` reaction is not silent for this purpose: the hook still reacted.
- */
-export function assertHookSilent(hook: AnyHook, event: RawHookEvent): void {
-  const o = runCountedHookProgram(hook, event);
-  if (o.kind !== "reaction") {
-    fail(`expected a react hook, got ${describeOutcome(o)}`);
-  }
-  if (o.reaction.kind !== "none") {
-    fail(`expected the hook to stay silent, got ${describeOutcome(o)}`);
-  }
-}
-
 // --- egress (network) — recordEgress runs ----------------------------------
 //
 // A `runHook(..., { recordEgress: true })` confines the hook AND records every
@@ -333,20 +124,6 @@ interface HasEgress {
 }
 
 const hostPort = (e: EgressAttempt): string => `${e.host}:${String(e.port)}`;
-
-/** The `host:port` strings a run attempted, e.g. `["registry.npmjs.org:443"]`. */
-export function egressHosts(r: HasEgress): string[] {
-  return r.egress.map(hostPort);
-}
-
-/** Assert the confined run made NO network egress attempt at all. */
-export function assertNoEgress(r: HasEgress): void {
-  if (r.egress.length > 0) {
-    fail(
-      `expected no egress, but it tried to reach: ${egressHosts(r).join(", ")}`,
-    );
-  }
-}
 
 /**
  * Assert every egress attempt went to an allowed host. `allowed` matches a host
@@ -430,59 +207,6 @@ export function assertWroteOnly(
   );
   if (bad.length > 0) {
     fail(`run wrote file(s) outside the allowlist: ${bad.join(", ")}`);
-  }
-}
-
-// --- subagent railway outcome (parse the worker's result block) ------------
-//
-// A subagent with a result() contract ends its turn with a vigiles:ok/err block.
-// These wrap parseAgentResult so a test can assert the worker's *outcome* the
-// same way it asserts a hook decision — the testing-framework payoff of the
-// railway contract: `assertAgentOk(r.output)` instead of substring-matching prose.
-
-/**
- * Assert the worker's output is a success result, and return its `value`. With a
- * `contract`, the value is validated against the success shape (a wrong/missing
- * field fails the assertion). A malformed or error result throws.
- */
-export function assertAgentOk(
-  output: string,
-  contract?: OutputContract,
-): Record<string, unknown> {
-  const r = parseAgentResult(output, contract);
-  if (r.kind === "ok") return r.value;
-  const why = r.kind === "err" ? "returned an error result" : r.reason;
-  return fail(`expected a success result from the subagent, but ${why}`);
-}
-
-/**
- * Assert the worker's output is an error result, and return its `error`. The
- * railway's error track — proves the worker reported failure with rich detail
- * (not that it crashed or returned prose). A malformed or success result throws.
- */
-export function assertAgentErr(
-  output: string,
-  contract?: OutputContract,
-): Record<string, unknown> {
-  const r = parseAgentResult(output, contract);
-  if (r.kind === "err") return r.error;
-  const why = r.kind === "ok" ? "returned a success result" : r.reason;
-  return fail(`expected an error result from the subagent, but ${why}`);
-}
-
-/**
- * Assert the parsed result satisfies `predicate` — the general form, for
- * checking rich detail (e.g. `(r) => r.kind === "ok" && r.value.files.length > 0`).
- */
-export function assertAgentResult(
-  output: string,
-  predicate: (r: ParsedAgentResult) => boolean,
-  contract?: OutputContract,
-): void {
-  const r = parseAgentResult(output, contract);
-  if (!predicate(r)) {
-    const detail = r.kind === "malformed" ? ` (${r.reason})` : "";
-    fail(`subagent result did not satisfy the predicate: ${r.kind}${detail}`);
   }
 }
 
@@ -805,196 +529,6 @@ export function assertToolCalls(
   }
 }
 
-/**
- * Did `arm` succeed on EVERY trial for `metric` — τ-bench pass^k = 1? The
- * reliability predicate over an eval report (vs. `improvement`, which reads the
- * mean gap). Reads `report.arms[arm].stats[metric].passK`.
- */
-export function reliable(
-  report: EvalReport,
-  arm: string,
-  metric: string,
-): boolean {
-  return report.arms[arm]?.stats[metric]?.passK === 1;
-}
-
-/**
- * Assert `arm` passed `metric` on every trial (pass^k = 1) — the reliability
- * gate for a non-deterministic harness ("worked every time", not "on average").
- */
-export function assertReliable(
-  report: EvalReport,
-  opts: { arm: string; metric: string },
-): void {
-  if (!reliable(report, opts.arm, opts.metric)) {
-    const pk = report.arms[opts.arm]?.stats[opts.metric]?.passK;
-    fail(
-      `expected ${opts.arm} to pass ${opts.metric} on every trial (pass^k=1), got pass^k=${String(pk ?? "n/a")}`,
-    );
-  }
-}
-
-/**
- * The gap on `metric` between two arms (arm − baseline). Throws when either arm
- * never reported the metric: an unmeasured arm is not an arm that scored 0.
- */
-export function improvement(
-  report: EvalReport,
-  baseline: string,
-  arm: string,
-  metric: string,
-): number {
-  const a = report.arms[arm]?.metrics[metric];
-  const b = report.arms[baseline]?.metrics[metric];
-  if (a === undefined || b === undefined) {
-    fail(`no data to compare ${arm} vs ${baseline} on ${metric}`);
-  }
-  return a - b;
-}
-
-/**
- * Did `arm` *significantly* beat `baseline` on `metric`? True only when the
- * verdict is `better`: disjoint Wilson intervals for a 0/1 metric, Welch's
- * t-test at `alpha` (default 0.05) for any other. False when either arm/metric
- * is missing. See `experimental_verdict` in `src/stats.ts`.
- */
-// eslint-disable-next-line max-params -- positional predicate mirrors `improvement` + alpha
-export function significantlyBeats(
-  report: EvalReport,
-  baseline: string,
-  arm: string,
-  metric: string,
-  alpha = 0.05,
-): boolean {
-  return (
-    experimental_verdict(report, baseline, arm, metric, alpha).kind === "better"
-  );
-}
-
-/**
- * Assert `arm` significantly beats `baseline` on `metric`: the verdict must be
- * `better`. A 0/1 metric needs disjoint Wilson intervals (3/3 against 0/3 is
- * not enough — raise `trials`); any other metric a Welch gap at `alpha`. The
- * noise floor is computed, not supplied — the honest version of
- * `assertImproves(..., { by: se })`.
- */
-export function assertSignificant(
-  report: EvalReport,
-  opts: { baseline: string; arm: string; metric: string; alpha?: number },
-): void {
-  const alpha = opts.alpha ?? 0.05;
-  const v = experimental_verdict(
-    report,
-    opts.baseline,
-    opts.arm,
-    opts.metric,
-    alpha,
-  );
-  if (v.kind === "unmeasured") {
-    fail(
-      `no data to compare ${opts.arm} vs ${opts.baseline} on ${opts.metric}`,
-    );
-  }
-  if (v.kind !== "better") {
-    fail(
-      `expected ${opts.arm} to significantly beat ${opts.baseline} on ${opts.metric} (α=${String(alpha)}); ${describeVerdict(v)}`,
-    );
-  }
-}
-
-/**
- * Assert `arm` beats `baseline` on `metric`. By default just a positive gap > `by`
- * (pass the combined se to clear the noise floor by hand). Pass `{ significant:
- * true }` to demand the `assertSignificant` verdict instead — the computed noise
- * floor.
- */
-export function assertImproves(
-  report: EvalReport,
-  opts: {
-    baseline: string;
-    arm: string;
-    metric: string;
-    by?: number;
-    significant?: boolean;
-    alpha?: number;
-  },
-): void {
-  if (opts.significant === true) {
-    assertSignificant(report, opts);
-    return;
-  }
-  const by = opts.by ?? 0;
-  const delta = improvement(report, opts.baseline, opts.arm, opts.metric);
-  if (delta <= by) {
-    fail(
-      `expected ${opts.arm} to beat ${opts.baseline} on ${opts.metric} by > ${String(by)}, got ${delta.toFixed(3)}`,
-    );
-  }
-}
-
-/**
- * Assert the current run has not *regressed* against a committed baseline — the
- * CI gate (Phase C). A regression is an arm×metric that moved **significantly in
- * the bad direction** vs. `baseline` (Welch t-test, so sampling noise doesn't
- * trip it; see `src/eval-baseline.ts`). Higher is better by default; list
- * `lowerIsBetter` metrics (cost/latency) to flip them. Load the baseline with
- * `readBaseline(path)` and record a fresh one with `writeBaseline(path, reports)`.
- */
-export function assertNoRegression(
-  current: EvalReport | readonly EvalReport[],
-  baseline: BaselineFile,
-  opts?: DiffOptions,
-): void {
-  const reports = Array.isArray(current)
-    ? (current as readonly EvalReport[])
-    : [current as EvalReport];
-  const diff = diffReports(baseline, reports, opts);
-  if (!diff.passed) {
-    const detail = diff.regressions
-      .map(
-        (r) =>
-          `${r.report}/${r.arm}/${r.metric} Δ=${r.comparison.delta.toFixed(3)} p=${r.comparison.pValue.toFixed(3)}`,
-      )
-      .join("; ");
-    fail(`regression vs baseline: ${detail}`);
-  }
-}
-
-/**
- * Assert a skill/behaviour triggered reliably — the gate for a skill's
- * *activation*, over a {@link TriggerRateReport} from `measureTriggerRate`.
- * `min` gates recall (fires when it should). With irrelevant prompts measured,
- * `maxFalsePositive` gates the precision side (does NOT fire when it shouldn't)
- * and `minPrecision` gates `firedRight / firedTotal` — so a too-broad
- * description that hijacks unrelated work fails, not just a too-narrow one.
- */
-export function assertTriggerRate(
-  report: TriggerRateReport,
-  opts: { min?: number; maxFalsePositive?: number; minPrecision?: number },
-): void {
-  if (opts.min !== undefined && report.rate < opts.min) {
-    fail(
-      `expected a trigger rate ≥ ${String(opts.min)}, got ${report.rate.toFixed(2)} (${String(report.n)} runs)`,
-    );
-  }
-  if (
-    opts.maxFalsePositive !== undefined &&
-    (report.falsePositiveRate ?? 0) > opts.maxFalsePositive
-  ) {
-    fail(
-      `expected a false-positive rate ≤ ${String(opts.maxFalsePositive)}, got ${(report.falsePositiveRate ?? 0).toFixed(2)}`,
-    );
-  }
-  if (
-    opts.minPrecision !== undefined &&
-    (report.precision ?? 0) < opts.minPrecision
-  ) {
-    fail(
-      `expected precision ≥ ${String(opts.minPrecision)}, got ${report.precision === undefined ? "n/a (nothing fired)" : report.precision.toFixed(2)}`,
-    );
-  }
-}
-
 // --- jest / vitest matchers (expect.extend) --------------------------------
 
 interface MatcherOutput {
@@ -1036,7 +570,12 @@ export const vigilesMatchers = {
     metric: string,
     by = 0,
   ): MatcherOutput {
-    const delta = improvement(received, baseline, arm, metric);
+    const a = received.arms[arm]?.metrics[metric];
+    const b = received.arms[baseline]?.metrics[metric];
+    if (a === undefined || b === undefined) {
+      fail(`no data to compare ${arm} vs ${baseline} on ${metric}`);
+    }
+    const delta = a - b;
     const pass = delta > by;
     return {
       pass,

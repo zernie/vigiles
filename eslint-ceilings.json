@@ -424,10 +424,7 @@
     "complexity": 18
   },
   "src/harness-assert.test.ts": {
-    "max-lines-per-function": 75
-  },
-  "src/harness-assert.ts": {
-    "complexity": 11
+    "max-lines-per-function": 61
   },
   "src/harness-test.ts": {
     "max-params": 5,

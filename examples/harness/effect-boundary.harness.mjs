@@ -10,13 +10,13 @@
  *   - notTool(name, {…})— it never reached for a forbidden side effect (git push)
  *
  * Part A is pure (a hand-built Trace) and ALWAYS runs. Part B drives a real
- * scripted mock turn through `runHarness` — needs the `claude` BINARY but NO
+ * scripted mock turn through `runHarnessTest` — needs the `claude` BINARY but NO
  * key, so it RUNS here and in CI.
  *
  *   npx vigiles test examples/harness/effect-boundary.harness.mjs
  */
 import {
-  runHarness,
+  runHarnessTest,
   scriptModel,
   claudeAvailable,
 } from "../../dist/harness-test.js";
@@ -70,7 +70,7 @@ if (!claudeAvailable()) {
 } else {
   // Default prompt only: a custom prompt makes the scripted turn a no-op, so the
   // Write never runs (see harness-test.test.ts). Script a single Write.
-  const r = await runHarness({
+  const r = await runHarnessTest({
     transcript: true,
     model: scriptModel([
       { tool: "Write", input: { file_path: "out.txt", content: "result" } },

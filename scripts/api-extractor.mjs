@@ -29,11 +29,11 @@ const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 // `./integration`) is gone, so the map here is 1:1 with package.json `exports`.
 const ENTRIES = [
   { name: "vigiles", dts: "dist/test.d.ts" }, // "." — the free testing surface
-  { name: "vigiles-spec", dts: "dist/core/spec.d.ts" }, // "./spec"
+  { name: "vigiles-spec", dts: "dist/entries/spec.d.ts" }, // "./spec"
   { name: "vigiles-eval", dts: "dist/eval-surface.d.ts" }, // "./eval" — spends money
-  { name: "vigiles-linting", dts: "dist/linting.d.ts" },
   { name: "vigiles-rule-proof", dts: "dist/entries/rule-proof.d.ts" },
   { name: "vigiles-hook", dts: "dist/hook.d.ts" },
+  { name: "vigiles-battery", dts: "dist/battery.d.ts" },
   { name: "vigiles-claude-code", dts: "dist/claude-code.d.ts" },
   { name: "vigiles-codex", dts: "dist/codex.d.ts" },
   { name: "vigiles-adapter", dts: "dist/adapter.d.ts" },

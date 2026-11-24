@@ -85,12 +85,6 @@ export {
   ask,
   parseShellCommand,
   parseFilePath,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the pre-#465 alias, kept for one major
-  commandView,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the pre-#465 alias, kept for one major
-  pathView,
-  gateAction,
-  hookMode,
   // inject vocabulary
   experimental_defineInject,
   inject,
@@ -100,40 +94,29 @@ export {
   notice,
   nothing,
   responseView,
-  // runtime + decode (used by the `vigiles hook-runtime run-program` runtime and tests)
-  decideProgram,
-  decideFileGate,
-  decidePromptGate,
-  decideStopGate,
-  runInject,
-  runReact,
+  // the pure evaluator: one event in, the hook's outcome out
   runHookProgram,
-  decisionExitCode,
-  dispatchKind,
-  hookRouting,
-  hookNeeds,
-  injectionOf,
-  outcomeWrites,
-  matchesTool,
-  invalidToolPatterns,
-  // compile + integrity
-  compileHookProgram,
-  checkHookImports,
-  stampHook,
-  verifyHookStamp,
-  HookCompileError,
 } from "./core/hook-program.js";
+
+// ── testing a compiled hook in-process ────────────────────────────────────────
+// `loadHook(file)` loads it the way the runtime does; the assertions read its
+// decision on a raw event, with no subprocess and no model. They sit here beside
+// the vocabulary they test (v49). Both modules are small on purpose: this barrel
+// is a compiled hook's import, so whatever it loads is paid on every tool call
+// (src/hook-runtime-graph.test.ts holds the graph).
+export { loadHook } from "./load-hook.js";
+export {
+  assertHookDenies,
+  assertHookAllows,
+  assertHookNotices,
+  assertHookSilent,
+} from "./hook-test.js";
 
 export type {
   Decision,
   HookMode,
-  GateAction,
   ShellCommand,
   FilePath,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the pre-#465 alias, kept for one major
-  CommandView,
-  // eslint-disable-next-line @typescript-eslint/no-deprecated -- the pre-#465 alias, kept for one major
-  PathView,
   ResponseView,
   BashToolEvent,
   FileToolEvent,
@@ -150,12 +133,9 @@ export type {
   InjectHook,
   ReactHook,
   AnyHook,
-  DispatchKind,
   Injection,
   Reaction,
   RunReaction,
-  CompiledHookProgram,
-  CompileHookOptions,
   RawHookEvent,
   HookProgramOutcome,
 } from "./core/hook-program.js";
@@ -169,21 +149,10 @@ export {
 
 // Runtime-owned named state: `state(k)` in `needs` reads a fact, `record(k)` in a
 // return value declares one. The whole design note lives in `core/hook-state.ts`.
-export {
-  state,
-  record,
-  stateFact,
-  isValidStateKey,
-  isStateNeed,
-  isStateWrite,
-  admissibleWrites,
-  durationSeconds,
-  HookStateError,
-} from "./core/hook-state.js";
+export { state, record } from "./core/hook-state.js";
 
 export type {
   StateFact,
-  StateEntry,
   StateNeed,
   StateWrite,
   Duration,

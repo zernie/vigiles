@@ -4,12 +4,6 @@
 
 ```ts
 
-// @public
-export function admissibleWrites(writes: readonly unknown[]): {
-    readonly ok: readonly StateWrite[];
-    readonly refused: readonly string[];
-};
-
 // @public (undocumented)
 export const allow: () => Decision;
 
@@ -18,6 +12,18 @@ export type AnyHook = HookProgram<ErasedNeeds> | FileGateHook<ErasedNeeds> | Pro
 
 // @public (undocumented)
 export const ask: (reason: string) => Decision;
+
+// @public
+export function assertHookAllows(hook: AnyHook, event: RawHookEvent): void;
+
+// @public
+export function assertHookDenies(hook: AnyHook, event: RawHookEvent): void;
+
+// @public
+export function assertHookNotices(hook: AnyHook, event: RawHookEvent, matcher?: string | RegExp): void;
+
+// @public
+export function assertHookSilent(hook: AnyHook, event: RawHookEvent): void;
 
 // @public
 export interface BashReactEvent<N extends readonly NeedSpec[] = readonly ProviderName[]> extends ToolReactEvent<N> {
@@ -37,71 +43,7 @@ export interface BashToolEvent<N extends readonly NeedSpec[] = readonly Provider
 }
 
 // @public
-export function checkHookImports(source: string): string[];
-
-// @public @deprecated
-export type CommandView = ShellCommand;
-
-// @public @deprecated
-export const commandView: typeof parseShellCommand;
-
-// @public
-export interface CompiledHookProgram {
-    // (undocumented)
-    readonly hooks: Record<string, readonly {
-        readonly matcher?: string;
-        readonly hooks: readonly {
-            readonly type: "command";
-            readonly command: string;
-        }[];
-    }[]>;
-    readonly settingsBlock: string;
-    readonly stamp: SHA256Hash;
-    readonly warnings?: readonly string[];
-}
-
-// @public
-export interface CompileHookOptions {
-    readonly dialect?: HarnessDialect;
-    readonly gateCommand?: string;
-    readonly hookProtocol?: HookProtocol;
-    readonly registeredProviders?: readonly string[];
-    readonly settings?: SettingsCodec;
-}
-
-// @public
-export function compileHookProgram(source: string, hook: AnyHook, opts?: CompileHookOptions): CompiledHookProgram;
-
-// @public
 export const dangerously: <const Name extends string>(name: Name, run: string) => InlineProvider<Name>;
-
-// @public
-export function decideFileGate<N extends readonly NeedSpec[]>(hook: FileGateHook<N>, raw: {
-    tool_name?: string;
-    tool_input?: {
-        file_path?: unknown;
-    };
-    cwd?: unknown;
-}, ctx?: RawCtx, root?: string | undefined): Decision;
-
-// @public
-export function decideProgram<N extends readonly NeedSpec[]>(program: HookProgram<N>, rawEvent: {
-    tool_name?: string;
-    tool_input?: {
-        command?: unknown;
-    };
-    cwd?: unknown;
-}, ctx?: RawCtx, root?: string | undefined): Decision;
-
-// @public
-export function decidePromptGate<N extends readonly NeedSpec[]>(hook: PromptGateHook<N>, raw: {
-    prompt?: unknown;
-}, ctx?: RawCtx): Decision;
-
-// @public
-export function decideStopGate<N extends readonly NeedSpec[]>(hook: StopGateHook<N>, raw: {
-    stop_hook_active?: unknown;
-}, ctx?: RawCtx): Decision;
 
 // @public (undocumented)
 export type Decision = {
@@ -115,9 +57,6 @@ export type Decision = {
 };
 
 // @public
-export function decisionExitCode(d: Decision): number;
-
-// @public
 export const defineProvider: <const Name extends string>(p: {
     readonly name: Name;
     readonly run: string;
@@ -128,16 +67,7 @@ export const defineProvider: <const Name extends string>(p: {
 export const deny: (reason: string) => Decision;
 
 // @public
-export type DispatchKind = "bash-gate" | "file-gate" | "prompt-gate" | "stop-gate" | "inject" | "react";
-
-// @public (undocumented)
-export function dispatchKind(hook: AnyHook): DispatchKind;
-
-// @public
 export type Duration = `${number}${"s" | "m" | "h" | "d"}`;
-
-// @public
-export function durationSeconds(d: string): number | null;
 
 // @public
 export function experimental_defineFileGate<const N extends readonly NeedSpec[] = readonly []>(p: Omit<FileGateHook<N>, "role">): FileGateHook<N>;
@@ -192,40 +122,12 @@ export interface FileToolEvent<N extends readonly NeedSpec[] = readonly Provider
 }
 
 // @public
-export type GateAction = {
-    readonly kind: "block";
-    readonly reason: string;
-} | {
-    readonly kind: "ask";
-    readonly reason: string;
-} | {
-    readonly kind: "observe";
-    readonly would: "deny" | "ask";
-    readonly reason: string;
-} | {
-    readonly kind: "allow";
-};
-
-// @public
-export function gateAction(decision: Decision, mode?: HookMode): GateAction;
-
-// @public (undocumented)
-export class HookCompileError extends Error {
-}
-
-// @public
 export type HookCtx<N extends readonly NeedSpec[] = readonly ProviderName[]> = {
     readonly [E in N[number] as NeedName<E>]: NeedValue<E>;
 };
 
 // @public
 export type HookMode = "enforce" | "observe";
-
-// @public
-export function hookMode(hook: AnyHook): HookMode;
-
-// @public
-export function hookNeeds(hook: AnyHook): readonly NeedSpec[];
 
 // @public
 export interface HookProgram<N extends readonly NeedSpec[] = readonly ProviderName[]> {
@@ -251,16 +153,6 @@ export type HookProgramOutcome = {
 };
 
 // @public
-export function hookRouting(hook: AnyHook): {
-    on: string;
-    matcher?: string;
-};
-
-// @public
-export class HookStateError extends Error {
-}
-
-// @public
 export const inject: (context: string, ...records: readonly StateWrite[]) => Injection;
 
 // @public (undocumented)
@@ -283,11 +175,6 @@ export interface Injection {
 }
 
 // @public
-export function injectionOf<N extends readonly NeedSpec[]>(hook: InjectHook<N>, raw: {
-    source?: string;
-}, ctx?: RawCtx): Injection;
-
-// @public
 export interface InlineProvider<Name extends string = string> {
     // (undocumented)
     readonly dangerous: boolean;
@@ -298,18 +185,6 @@ export interface InlineProvider<Name extends string = string> {
     // (undocumented)
     readonly run: string;
 }
-
-// @public
-export function invalidToolPatterns(tools: readonly string[]): string[];
-
-// @public
-export function isStateNeed(need: unknown): need is StateNeed;
-
-// @public
-export function isStateWrite(w: unknown): w is StateWrite;
-
-// @public (undocumented)
-export function isValidStateKey(key: string): boolean;
 
 // @public
 export function leafCommandsNormalized(command: string): NormalizedLeaf[];
@@ -323,7 +198,7 @@ export interface LeafRedirect {
 }
 
 // @public
-export function matchesTool(tools: readonly string[], name: string): boolean;
+export function loadHook(file: string, root?: string): Promise<AnyHook>;
 
 // @public
 export type NeedSpec = ProviderName | InlineProvider | RegisteredRef | StateNeed;
@@ -348,22 +223,10 @@ export const nothing: (...records: readonly StateWrite[]) => Reaction;
 export const notice: (message: string, ...records: readonly StateWrite[]) => Reaction;
 
 // @public
-export function outcomeWrites(outcome: HookProgramOutcome): {
-    readonly ok: readonly StateWrite[];
-    readonly refused: readonly string[];
-};
-
-// @public
 export function parseFilePath(raw: string, root?: string): FilePath;
 
 // @public
 export function parseShellCommand(raw: string, root?: string): ShellCommand;
-
-// @public @deprecated
-export type PathView = FilePath;
-
-// @public @deprecated
-export const pathView: typeof parseFilePath;
 
 // @public
 export interface PromptEvent<N extends readonly NeedSpec[] = readonly ProviderName[]> {
@@ -486,27 +349,6 @@ export const run: (command: string, ...records: readonly StateWrite[]) => RunRea
 // @public
 export function runHookProgram(hook: AnyHook, event: RawHookEvent, ctx?: RawCtx, root?: string | undefined): HookProgramOutcome;
 
-// @public
-export function runInject<N extends readonly NeedSpec[]>(hook: InjectHook<N>, raw: {
-    source?: string;
-}, ctx?: RawCtx): {
-    hookSpecificOutput: {
-        hookEventName: string;
-        additionalContext: string;
-    };
-};
-
-// @public
-export function runReact<N extends readonly NeedSpec[], T extends readonly string[]>(hook: ReactHook<N, T>, raw: {
-    tool_name?: string;
-    tool_input?: {
-        file_path?: unknown;
-        command?: unknown;
-    };
-    tool_response?: unknown;
-    cwd?: unknown;
-}, ctx?: RawCtx, root?: string | undefined): Reaction;
-
 // @public (undocumented)
 export interface RunReaction {
     // (undocumented)
@@ -542,20 +384,7 @@ export interface ShellCommand {
 }
 
 // @public
-export function stampHook(source: string): SHA256Hash;
-
-// @public
 export function state<const Name extends string>(name: Name): StateNeed<Name>;
-
-// @public
-export interface StateEntry {
-    // (undocumented)
-    readonly at: string;
-    // (undocumented)
-    readonly by?: string;
-    // (undocumented)
-    readonly value: string;
-}
 
 // @public
 export interface StateFact {
@@ -566,9 +395,6 @@ export interface StateFact {
     readonly recorded: boolean;
     readonly value: string;
 }
-
-// @public
-export function stateFact(entry: StateEntry | null, nowMs: number): StateFact;
 
 // @public
 export interface StateNeed<Name extends string = string> {
@@ -619,9 +445,6 @@ export interface ToolReactEvent<N extends readonly NeedSpec[] = readonly Provide
 export const tools: <const T extends readonly string[]>(...names: T) => {
     readonly tools: T;
 };
-
-// @public
-export function verifyHookStamp(source: string, stamp: SHA256Hash): boolean;
 
 // (No @packageDocumentation comment for this package)
 

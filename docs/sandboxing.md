@@ -75,11 +75,11 @@ Dogfood: `src/run-hook.test.ts` confines oh-my-claudecode's `keyword-detector` a
 **`recordEgress` — record what it tried to reach, while still blocking it.** A deny-all wall tells you nothing about _what_ a hook wanted. For the supply-chain question — "what does this skill phone home to / which registry would its install hit?" — turn on recording:
 
 ```ts
-import { runHook, assertNoEgress, assertEgressOnly } from "vigiles";
+import { runHook, assertEgressOnly } from "vigiles";
 
 const r = runHook(thirdPartyHookCmd, event, { recordEgress: true });
 // r.egress → [{ host: "registry.npmjs.org", port: 443, ts }]   (recorded)
-assertNoEgress(r); // a hook that should phone home to nothing
+assertEgressOnly(r, []); // a hook that should phone home to nothing
 // or: assertEgressOnly(r, ["registry.npmjs.org", /\.pypi\.org$/]);
 ```
 
@@ -123,7 +123,7 @@ rest; the per-rule `counter`s read back what was reached and what was dropped.
 
 The egress recorder runs against the **real, vendored** `oh-my-claudecode` plugin in the gate (`src/run-hook.test.ts`, skips where bwrap can't confine):
 
-- **`keyword-detector` (UserPromptSubmit)** → `assertNoEgress` confirms it phones home to nothing, while still doing its job.
+- **`keyword-detector` (UserPromptSubmit)** → `assertEgressOnly(r, [])` confirms it phones home to nothing, while still doing its job.
 - **`session-start` (SessionStart)** → it `fetch()`es `registry.npmjs.org` for an **update check on every session start**. The recorder captures it (Node `fetch` via `NODE_USE_ENV_PROXY`), blocks it, and `assertEgressOnly(r, ["registry.npmjs.org"])` proves it phones the npm registry **and nowhere else**.
 
 That second one isn't a toy curl — it's a genuine supply-chain/privacy property of a popular plugin, asserted from its actual code.

@@ -218,8 +218,38 @@ export interface HarnessTestResult extends Trace {
   readonly cwd: string;
   /** Number of model turns the agent took (mock turns served). */
   readonly turns: number;
-  /** Remove the temp working dir. */
+  /**
+   * Remove the temp working dir. Call it in a `finally`, or let
+   * `await using` call it for you (below).
+   */
   cleanup(): void;
+  /**
+   * The same cleanup, for explicit resource management:
+   * `await using r = await runHarnessTest(spec)` removes the directory when `r`
+   * leaves scope, even when an assertion throws. Needs TypeScript 5.2+ (which
+   * lowers the syntax) or Node 24+ for plain `.mjs`; on older Node call
+   * `cleanup()` in a `finally`.
+   */
+  [Symbol.asyncDispose](): Promise<void>;
+}
+
+/**
+ * The cleanup half of a run result: one removal, reachable as `cleanup()` and
+ * as `Symbol.asyncDispose`, so `await using` and a `finally` do the same thing.
+ */
+export function disposableRun(
+  cwd: string,
+): Pick<HarnessTestResult, "cleanup" | typeof Symbol.asyncDispose> {
+  const cleanup = (): void => {
+    rmSync(cwd, { recursive: true, force: true });
+  };
+  return {
+    cleanup,
+    [Symbol.asyncDispose]: (): Promise<void> => {
+      cleanup();
+      return Promise.resolve();
+    },
+  };
 }
 
 function contentText(content: unknown): string {
@@ -840,9 +870,7 @@ function makeResult(
       const f = resolve(cwd, p);
       return existsSync(f) ? readFileSync(f, "utf-8") : null;
     },
-    cleanup: (): void => {
-      rmSync(cwd, { recursive: true, force: true });
-    },
+    ...disposableRun(cwd),
   };
 }
 
@@ -1006,35 +1034,6 @@ export async function runHarnessTestIn(
   } finally {
     await mock.close();
   }
-}
-
-/**
- * `runHarness` — the harness-scope entry of the revamped API (Phase 2 of
- * `research/testing-api-design.md`). The harness has two execution scopes, `hook`
- * (`runHook`) and `harness` (the whole assembled agent); today's `integration` /
- * `e2e` / `eval` are all the **harness** scope under realness flags. This entry is
- * the **deterministic** harness run (`model: "mock"`, the default) — the
- * workhorse you gate every commit, with no key. A **real-model** harness run is
- * non-deterministic by definition, so you don't *assert* a single one — you
- * `measure()` it across trials (the eval scope). `egress` is a capability of this
- * scope (the e2e tier), not a separate tier.
- *
- * Behaviour is identical to `runHarnessTest` (which it wraps); the new name +
- * `model` flag make the scope/realness explicit and steer real-model runs to the
- * right tool.
- */
-export async function runHarness(
-  spec: HarnessTestSpec,
-  opts: RunHarnessTestOptions & { model?: "mock" | "real" } = {},
-): Promise<HarnessTestResult> {
-  if (opts.model === "real") {
-    throw new Error(
-      "runHarness runs the harness DETERMINISTICALLY (model: 'mock'). A real-model " +
-        "harness run is non-deterministic, so a single one can't be asserted — " +
-        "measure it across trials with `measure()` / `runEval` (the eval scope) instead.",
-    );
-  }
-  return runHarnessTest(spec, opts);
 }
 
 /**

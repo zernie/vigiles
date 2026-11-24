@@ -25,15 +25,15 @@
  *   npx vigiles test examples/harness/railway-result.harness.mjs
  */
 import assert from "node:assert/strict";
-import { experimental_agent } from "../../dist/core/spec.js";
-const { result } = experimental_agent;
 import {
+  experimental_agent,
   assertAgentOk,
   assertAgentErr,
   assertAgentResult,
-} from "../../dist/harness-assert.js";
+} from "../../dist/entries/spec.js";
+const { result } = experimental_agent;
 import {
-  runHarness,
+  runHarnessTest,
   scriptModel,
   claudeAvailable,
 } from "../../dist/harness-test.js";
@@ -90,7 +90,7 @@ console.log("✓ malformed: prose-only output is caught, not passed");
 if (!claudeAvailable()) {
   console.log("ℹ harness-scope check needs the `claude` CLI — skipping it");
 } else {
-  const r = await runHarness({
+  const r = await runHarnessTest({
     transcript: true,
     prompt: "implement the thing, then end your turn with your result block",
     model: scriptModel([

@@ -9,7 +9,6 @@ import { mkdtempSync, writeFileSync } from "node:fs";
 
 import {
   assertDelivered,
-  assertNoEgress,
   assertEgressOnly,
   assertWroteOnly,
   assertNoWrite,
@@ -116,7 +115,7 @@ test("decideHook: continue:false halts the turn, and counts as blocked", () => {
   const json: HookOutput = { continue: false, stopReason: "no pushing" };
   const r = decideHook(0, json);
   // The regression this pins: a real PreToolUse guard that stops every command
-  // in the disaster battery was reported by `assertBlocksDisasters` as blocking
+  // in the disaster battery was reported by `assertGuardrail` as blocking
   // none of them, because this returned false here.
   assert.equal(r.blocked, true);
   assert.equal(r.haltsTurn, true);
@@ -493,7 +492,7 @@ test.skipIf(!sandboxAvailable())(
       /ULTRAWORK/,
     );
     // … and it reached out to nothing.
-    assertNoEgress(r);
+    assertEgressOnly(r, []);
   },
 );
 

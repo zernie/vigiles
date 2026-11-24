@@ -316,7 +316,8 @@ export interface HookStateHandle {
  * with a different root points at a different (empty) store.
  *
  * ```js
- * import { experimental_hookState, runHook } from "vigiles";
+ * import { runHook } from "vigiles";
+ * import { experimental_hookState } from "vigiles/battery";
  *
  * const st = experimental_hookState(hookFile, { cwd });
  * st.clear();

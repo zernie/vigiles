@@ -4,18 +4,6 @@
 
 ```ts
 
-// @public @deprecated (undocumented)
-export const agent: typeof agentSpec & {
-    result: typeof result;
-    delegate: typeof delegate;
-    railway: typeof railway;
-    needs: typeof experimental_needs;
-    pipeStep: typeof experimental_pipeStep;
-    start: typeof experimental_start;
-    andThen: typeof experimental_andThen;
-    pipe: typeof experimental_pipe;
-};
-
 // @public
 export interface AgentSpec {
     readonly body?: string | InstructionFragment[];
@@ -44,16 +32,19 @@ export type AgentSpecInput<P extends AuthoredPurity | undefined, V extends ToolV
 export type AllowedAt<P extends AuthoredPurity | undefined, V extends ToolVocabulary> = P extends "pure" ? V["readOnly"] : P extends "bounded" ? V["bounded"] : string;
 
 // @public
-export type AuthoredPurity = "pure" | "bounded" | "dangerously-unrestricted";
+export function assertAgentErr(output: string, contract?: OutputContract): Record<string, unknown>;
 
 // @public
-export const BUILTIN_LINTERS: readonly ["eslint", "stylelint", "ruff", "clippy", "pylint", "rubocop", "detekt", "ktlint", "checkstyle", "golangci-lint", "cedar"];
+export function assertAgentOk(output: string, contract?: OutputContract): Record<string, unknown>;
+
+// @public
+export function assertAgentResult(output: string, predicate: (r: ParsedAgentResult) => boolean, contract?: OutputContract): void;
+
+// @public
+export type AuthoredPurity = "pure" | "bounded" | "dangerously-unrestricted";
 
 // @public (undocumented)
 export type BuiltinLinter = (typeof BUILTIN_LINTERS)[number];
-
-// @public @deprecated (undocumented)
-export const claude: typeof instructionFile;
 
 // @public (undocumented)
 export interface ClaudeSpec {
@@ -79,9 +70,6 @@ export interface CmdRef {
     // (undocumented)
     readonly _ref: "cmd";
 }
-
-// @public (undocumented)
-export function defineConfig(config: VigilesV2Config): VigilesV2Config;
 
 // @public
 export function dir(path: string): DirRef;
@@ -211,9 +199,6 @@ export function instructionFile(spec: ClaudeSpecInput): ClaudeSpec;
 // @public (undocumented)
 export type InstructionFragment = string | Ref | EffectRegion;
 
-// @public @deprecated (undocumented)
-export const instructions: typeof prose;
-
 // @public
 export type InstructionTarget = "CLAUDE.md" | "AGENTS.md" | (string & {});
 
@@ -236,21 +221,10 @@ export interface KnownProjectFiles {
 }
 
 // @public
-export type LinterMode = boolean | "catalog-only";
-
-// @public
 export type LinterRule = `${BuiltinLinter}/${string}` | ScopedPlugin;
-
-// @public
-export type LintersVerified<T extends ClaudeSpec | SkillSpec = ClaudeSpec> = T & {
-    readonly [__stage]: "linters-verified";
-};
 
 // @internal
 export type NeedsContract<N extends Shape> = N;
-
-// @public
-export type OkOf<T> = T extends TypedOutcome<infer Ok, Shape> ? Ok : Shape;
 
 // @public
 export interface OpenToolVocabulary extends ToolVocabulary {
@@ -274,7 +248,16 @@ export interface OutputContract<Ok extends Shape = Shape, Err extends Shape = Sh
 export type OutputFieldType = "string" | "number" | "boolean" | "string[]" | readonly [string, ...string[]];
 
 // @public
-export type OutputPath<Spec extends `${string}.md.spec.ts`> = Spec extends `${infer Base}.spec.ts` ? Base : never;
+export type ParsedAgentResult<S = Record<string, unknown>, E = Record<string, unknown>> = {
+    readonly kind: "ok";
+    readonly value: S;
+} | {
+    readonly kind: "err";
+    readonly error: E;
+} | {
+    readonly kind: "malformed";
+    readonly reason: string;
+};
 
 // @internal
 export interface Pipeline<Ok extends Shape, Err extends Shape> {
@@ -329,26 +312,11 @@ export interface RailwayStep {
     readonly task?: string;
 }
 
-// @public
-export type RawSpec<T extends ClaudeSpec | SkillSpec = ClaudeSpec> = T & {
-    readonly [__stage]: "raw";
-};
-
-// @public
-export type ReadyToEmit<T extends ClaudeSpec | SkillSpec = ClaudeSpec> = T & {
-    readonly [__stage]: "ready";
-};
-
 // @public (undocumented)
 export type Ref = FileRef | CmdRef | SkillRef | SymbolRef | DirRef | GlobRef;
 
 // @public
 export function ref(path: string): SkillRef;
-
-// @public
-export type RefsValidated<T extends ClaudeSpec | SkillSpec = ClaudeSpec> = T & {
-    readonly [__stage]: "refs-validated";
-};
 
 // @public
 export interface RoleGate {
@@ -436,9 +404,6 @@ export interface SkillStep {
     readonly retry?: number;
 }
 
-// @public
-export type SpecPath<Output extends `${string}.md`> = `${Output}.spec.ts`;
-
 // @public (undocumented)
 export type StrictCmd = [keyof KnownNpmScripts] extends [never] ? string : `npm run ${KnownNpmScripts[keyof KnownNpmScripts] & string}` | `npm ${KnownNpmScripts[keyof KnownNpmScripts] & string}` | (string & {});
 
@@ -520,17 +485,6 @@ export type VerifiedRef = string & {
 
 // @public
 export type VigilesRef = `vigiles/${string}`;
-
-// @public (undocumented)
-export interface VigilesV2Config {
-    readonly discover?: boolean;
-    readonly linters?: Record<string, LinterMode>;
-    readonly maxRules?: number;
-    readonly maxSectionLines?: number;
-    readonly maxTokens?: number;
-    readonly specs?: string;
-    readonly verifyLinters?: boolean;
-}
 
 // (No @packageDocumentation comment for this package)
 

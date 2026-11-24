@@ -39,11 +39,11 @@
   "types": "./dist/test.d.ts",
   "exports": {
     ".": "./dist/test.js",
-    "./spec": "./dist/core/spec.js",
+    "./spec": "./dist/entries/spec.js",
     "./eval": "./dist/eval-surface.js",
-    "./linting": "./dist/linting.js",
     "./rule-proof": "./dist/entries/rule-proof.js",
     "./hook": "./dist/hook.js",
+    "./battery": "./dist/battery.js",
     "./claude-code": "./dist/claude-code.js",
     "./codex": "./dist/codex.js",
     "./adapter": "./dist/adapter.js",

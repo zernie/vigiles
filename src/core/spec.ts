@@ -1,8 +1,7 @@
-// 🔴 PUBLIC ENTRY POINT `vigiles/spec` — every export here is a promise to users. The default for a
-// symbol is INTERNAL. It is exported only if (a) a NAMED external consumer uses it, or (b) it is
-// a deliberate extension point listed in STABILITY.md (the adapter kit is the example). "Might
-// be useful" is neither. Review point: the diff of `api-surface/vigiles-spec.api.md`, which
-// `npm run api:check` fails on.
+// The spec builders and their types. NOT itself a package entry: the
+// `vigiles/spec` door is `src/entries/spec.ts`, which re-exports a curated list
+// from here (so an `export` in this file is not, by itself, public). Review
+// point for what IS public: the diff of `api-surface/vigiles-spec.api.md`.
 /**
  * vigiles v2 — Executable specification system.
  *
@@ -1710,20 +1709,6 @@ export function defineConfig(config: VigilesV2Config): VigilesV2Config {
 // воспроизвёлся бы дословно, при живом абзаце, который его запрещает.
 
 /**
- * @deprecated Renamed to {@link instructionFile}. The builder compiles to
- * `CLAUDE.md` **and** `AGENTS.md` (see `InstructionTarget`), so a name taken from
- * one of the two harnesses was never right. Removed one major AFTER the one that introduces it.
- */
-export const claude = instructionFile;
-
-/**
- * @deprecated Renamed to {@link prose}. It builds a prose FRAGMENT with typed
- * refs; the plural read as "the instruction file", which is what
- * {@link instructionFile} builds. Removed one major AFTER the one that introduces it.
- */
-export const instructions = prose;
-
-/**
  * Define a subagent — and the ROOT of the subagent vocabulary.
  *
  * Everything that only makes sense for subagents hangs off this one symbol:
@@ -1755,15 +1740,3 @@ export const experimental_agent = Object.assign(agentSpec, {
   andThen: experimental_andThen,
   pipe: experimental_pipe,
 });
-
-/**
- * @deprecated Renamed to {@link experimental_agent} — the shape is not settled.
- * Removed one major AFTER the one that introduces it.
- *
- * @experimental
- * vigiles:experimental-name-ok this IS the old spelling — prefixing a deprecated
- * alias would defeat the alias, which exists precisely so code written against
- * the unprefixed name keeps compiling for one major. It carries the tag because
- * it is the same function, and the tag is what the deprecation notice points at.
- */
-export const agent = experimental_agent;

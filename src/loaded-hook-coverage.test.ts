@@ -25,7 +25,7 @@ import {
   assertHookAllows,
   assertHookNotices,
   assertHookSilent,
-} from "./harness-assert.js";
+} from "./hook-test.js";
 import { runHookProgram } from "./core/hook-program.js";
 import {
   surfacesRecorded,

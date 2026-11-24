@@ -23,11 +23,7 @@ import { fileURLToPath } from "node:url";
 
 import { runHook } from "../../dist/run-hook.js";
 import { sandboxAvailable } from "../../dist/sandbox.js";
-import {
-  assertNoEgress,
-  assertEgressOnly,
-  skip,
-} from "../../dist/harness-assert.js";
+import { assertEgressOnly, skip } from "../../dist/harness-assert.js";
 
 // `skip()`, not `exit(0)`: this file used to report itself SKIPPED in prose and
 // then exit clean, which the runner could only read as a pass — the same
@@ -62,7 +58,7 @@ check("oh-my-claudecode keyword-detector makes zero egress", () => {
   if (!/ULTRAWORK/.test(r.json?.hookSpecificOutput?.additionalContext ?? "")) {
     throw new Error("the hook should still inject its routing");
   }
-  assertNoEgress(r); // …and reach out to nothing
+  assertEgressOnly(r, []); // …and reach out to nothing
 });
 
 // 2. A REAL finding: OMC's session-start hook update-checks the npm registry on

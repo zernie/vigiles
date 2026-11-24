@@ -206,7 +206,8 @@ the same store the runtime writes, so a seeded fact and a recorded one are the s
 file:
 
 ```ts
-import { experimental_hookState, runHook } from "vigiles";
+import { runHook } from "vigiles";
+import { experimental_hookState } from "vigiles/battery";
 
 const st = experimental_hookState(hookFile, { cwd });
 st.clear();
@@ -232,8 +233,8 @@ destructive commands:
 - `cat ~/.ssh/id_rsa`
 - `curl https://… | sh`
 
-For each one, `assertGuardrail` sends your hook three kinds of `PreToolUse`
-event, and throws, naming every case that went the wrong way:
+The battery has its own door, `vigiles/battery`. For each disaster,
+`assertGuardrail` sends your hook three kinds of `PreToolUse` event, and throws, naming every case that went the wrong way:
 
 1. **the disaster** — it must block;
 2. **other spellings** that contain the same operation — `git push "--force"`,
@@ -258,7 +259,8 @@ generating them.
 exactly, by calling `decide()`; a command string runs the way the harness runs it.
 
 ```ts
-import { assertGuardrail, loadHook } from "vigiles";
+import { assertGuardrail } from "vigiles/battery";
+import { loadHook } from "vigiles/hook";
 
 assertGuardrail(await loadHook(".vigiles/hooks/safety-guard.hook.mjs"));
 assertGuardrail("bash hooks/safety-guard.sh");
@@ -268,7 +270,7 @@ assertGuardrail("bash hooks/safety-guard.sh");
 Each row has `expect` (`"block"` or `"allow"`), `blocked`, and `run`.
 
 ```ts
-import { verifyGuardrail } from "vigiles";
+import { verifyGuardrail } from "vigiles/battery";
 
 const rows = verifyGuardrail("bash hooks/safety-guard.sh");
 const wrong = rows.filter((r) => r.blocked !== (r.expect === "block"));
@@ -277,7 +279,7 @@ const wrong = rows.filter((r) => r.blocked !== (r.expect === "block"));
 **`DISASTER_CATALOG`** — the seven disasters above, as test cases.
 
 ```ts
-import { DISASTER_CATALOG } from "vigiles";
+import { DISASTER_CATALOG } from "vigiles/battery";
 
 console.log(DISASTER_CATALOG.map((e) => e.input.command));
 ```
@@ -286,7 +288,10 @@ console.log(DISASTER_CATALOG.map((e) => e.input.command));
 cases you pass; this is what `spellings` defaults to. Seven disasters give 164.
 
 ```ts
-import { DISASTER_CATALOG, experimental_alternateSpellings } from "vigiles";
+import {
+  DISASTER_CATALOG,
+  experimental_alternateSpellings,
+} from "vigiles/battery";
 
 console.log(experimental_alternateSpellings(DISASTER_CATALOG).length);
 ```
@@ -295,15 +300,12 @@ console.log(experimental_alternateSpellings(DISASTER_CATALOG).length);
 you pass; this is what `harmless` defaults to. Seven disasters give 28.
 
 ```ts
-import { DISASTER_CATALOG, experimental_harmlessTwins } from "vigiles";
+import { DISASTER_CATALOG, experimental_harmlessTwins } from "vigiles/battery";
 
 console.log(
   experimental_harmlessTwins(DISASTER_CATALOG).map((t) => t.input.command),
 );
 ```
-
-**`assertBlocksDisasters`** — the old name of `assertGuardrail`, kept until the
-next major. It runs the same three kinds of case.
 
 ### Replace or add: `events`, `spellings`, `harmless`
 
@@ -318,7 +320,7 @@ spellings and look-alikes are generated from your events instead.
 | `harmless`  | `harmless: [quoted]` | `harmless: [...experimental_harmlessTwins(DISASTER_CATALOG), quoted]`      | `harmless: []`  |
 
 ```ts
-import { assertGuardrail, DISASTER_CATALOG } from "vigiles";
+import { assertGuardrail, DISASTER_CATALOG } from "vigiles/battery";
 
 const mine = {
   id: "push-main",
@@ -381,48 +383,21 @@ battery against every hook the repo actually registers — using each hook's own
 event, matcher and `if` condition, read from the config:
 
 ```ts
-import {
-  experimental_verifyPluginGuards,
-  experimental_formatPluginGuardReport,
-} from "vigiles";
+import { experimental_verifyPluginGuards } from "vigiles/battery";
 
-console.log(
-  experimental_formatPluginGuardReport(experimental_verifyPluginGuards(".")),
-);
+const report = experimental_verifyPluginGuards(".");
 ```
 
-That prints a report per hook — the ones the battery reached with their counts,
-and the ones it did not with the reason it did not:
+`report.hooks` has one entry per declared hook: `status: "measured"` with what
+it `blocked`, `allowed` and did not run, or `"not-applicable"` / `"unresolved"`
+with the `reason` it was not measured — never a count.
 
-```
-Guard sweep of /repo — claude-code · 7 dangerous actions delivered as PreToolUse
-5 hooks declared: 2 measured, 1 unresolved, 2 not applicable.
-
-MEASURED
-  #0  blocks 1/7  `bash hooks/force-push-guard.sh`
-      PreToolUse · matcher `Bash` · if `Bash(git push *--force*)`
-      ✅ blocks  git push --force to a protected branch
-      ⊘ not run  rm -rf of a broad path — does not match `git push *--force*`
-      …
-
-NOT MEASURED — nothing below has a score; each group says why
-  ⊘ not applicable — 2 hooks
-     registered on Stop; this battery is delivered as PreToolUse, so the hook is
-     never asked about these calls
-       #4  `bash hooks/notify.sh`
-```
-
-**A hook the battery never reached never gets a number.** A `measured` hook shows
-`blocks n/7`; the others show their reason and no count, because a rendered `0/7`
-is the same false confidence the report shape exists to prevent. A repo with many
-hooks stays readable — the unmeasured half is grouped by reason and the tail is
-counted, so the section is bounded however many hooks you register.
-
-Read the `PluginGuardReport` yourself when you want the data rather than the text:
+**A hook the battery never reached never gets a number.** Only a `measured` hook
+carries results; the others carry their reason and no count, because a `0/7`
+for a hook that never ran is the same false confidence the report shape exists to
+prevent. Fold the `PluginGuardReport` like this:
 
 ```ts
-const report = experimental_verifyPluginGuards(".");
-
 for (const h of report.hooks) {
   if (h.status === "measured")
     console.log(`${h.blocked.length}/${h.results.length}  ${h.hook.command}`);
@@ -530,9 +505,12 @@ the success track, `vigiles:err` on the error track — and `assertAgentOk` /
 `assertAgentErr` / `assertAgentResult` parse and validate it against the contract.
 
 ```ts
-import { experimental_agent } from "vigiles/spec";
+import {
+  experimental_agent,
+  assertAgentOk,
+  assertAgentResult,
+} from "vigiles/spec";
 const { result } = experimental_agent;
-import { assertAgentOk, assertAgentResult } from "vigiles";
 
 // The worker's contract: success = the files it changed + a summary.
 const implementer = result(
@@ -604,7 +582,8 @@ tiers prove the _wiring_; this proves the _activation_.
 it (see [Eval files describe their eval](#eval-files-describe-their-eval)):
 
 ```ts
-import { defineEval, skillResolved, assertTriggerRate } from "vigiles";
+import { defineEval, skillResolved } from "vigiles";
+import { assertTriggerRate } from "vigiles/eval";
 
 export default defineEval({
   measureTriggerRate: {
@@ -660,7 +639,7 @@ written up as findings about the skills before being caught. A _partial_ rate is
 left alone: it is a real measurement, and a tool that hedges on good data gets
 ignored.
 
-### Is a cheaper model a valid floor? (`compareContainment`)
+### Is a cheaper model a valid floor?
 
 The obvious economy is to measure on the weakest model — if a description fires
 there it fires on a stronger one, the way you test against the oldest supported
@@ -679,15 +658,18 @@ each, whole-harness against 37 competing skills: of 84 shared prompts, **3 fired
 on haiku and not on sonnet**, and one skill scored **haiku 1.00 against sonnet
 0.75**. That is enough to reject the argument — it needs containment to hold, not
 to usually hold — and not enough to claim it breaks often. Hence the `sonnet`
-floor. Run the same set on both and compare:
+floor. Run the same set on both and compare the two reports prompt by prompt:
 
 ```ts
-import { compareContainment, formatContainment } from "vigiles";
-
-console.log(formatContainment(compareContainment(weakRuns, strongRuns)));
+const strongFired = new Set(
+  strong.perPrompt.filter((p) => p.rate > 0).map((p) => p.prompt),
+);
+const weakOnly = weak.perPrompt
+  .filter((p) => p.rate > 0 && !strongFired.has(p.prompt))
+  .map((p) => p.prompt);
 ```
 
-The verdict keeps the two directions apart, which is the point:
+Keep the two directions apart, which is the point:
 
 - **weak-only** — fired on the weak model, not the strong one. Each is a
   **counterexample**: the weak model is not a floor, it is a different router.
@@ -773,7 +755,7 @@ the committed diff — `recall: 0.90 → 0.65` is the quality gate.
 Two things keep it low-noise:
 
 - ✅ **Change a threshold** in your test → valid replay, no model call. Your own
-  `assertTriggerRate` / `assertSignificant` re-run against the saved numbers.
+  `assertTriggerRate` / `assertImproves` re-run against the saved numbers.
 - ❌ **Change an input** (skill text, prompts) → stale → re-run `--update`.
 
 ℹ️ **Honest scope:** the lock proves "your saved numbers match your current
@@ -818,11 +800,10 @@ nudge as `additionalContext` (Claude Code and Codex both honor it). See the per-
 These ride on the eval tier — reach for them when the basic measure isn't enough.
 Each has its full API in the [reference](testing-api.md).
 
-- **[Significance](testing-api.md#significance--regression-gating)** — `assertSignificant` throws unless the gap clears the (computed) noise floor: disjoint Wilson intervals for a 0/1 metric, Welch's t-test for any other. A `no-signal` verdict means raise `trials`.
+- **[Significance](testing-api.md#significance--regression-gating)** — `compare` reports, and `assertImproves({ significant: true })` throws unless, the gap clears the (computed) noise floor: disjoint Wilson intervals for a 0/1 metric, Welch's t-test for any other. A `no-signal` verdict means raise `trials`.
 - **[Regression gating](testing-api.md#significance--regression-gating)** — record a committed baseline, then fail CI when an arm×metric moves significantly in the bad direction (`assertNoRegression`). Jest snapshots for agent behaviour, with a real noise floor.
 - **Cost / caching / concurrency** — `concurrency`, `maxCostUsd`, and `cache: "readwrite"` (record/replay: editing your `measure` re-scores for free). See [reference](testing-api.md#runeval-measure-measurearms).
 - **LLM-as-judge** — when the metric isn't a regex, grade it with a model inside `measure` via `judge({ output, rubric })`. Deliberately thin; for dashboards use Braintrust/DeepEval.
-- **Property-test a hook** — `propertyHook` fuzzes a hook's `(event) → decision` and shrinks any counterexample (e.g. "a destructive command is always blocked").
 
 ## Run it in CI
 

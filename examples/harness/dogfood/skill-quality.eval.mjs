@@ -11,7 +11,8 @@
  * Real model → real cost. Needs the `claude` CLI + model auth + a built dist/.
  * Write-don't-run in a keyless env; this is the artifact that runs where a key is.
  */
-import { assertRates, defineEval } from "../../../dist/test.js";
+import { defineEval } from "../../../dist/test.js";
+import { assertRates } from "../../../dist/eval-surface.js";
 import { skill, judged, cost } from "../../../dist/check.js";
 import { fileURLToPath } from "node:url";
 

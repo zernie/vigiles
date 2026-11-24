@@ -3,7 +3,7 @@
  *
  * Exercises `assertChecks` + the strict-check path end to end:
  *   - hook scope (`runHook`): a PreToolUse Bash gate → `blocked()` / `allowed()`.
- *   - harness scope (`runHarness`, mock model): a scripted run → `tool()`,
+ *   - harness scope (`runHarnessTest`, mock model): a scripted run → `tool()`,
  *     `turns()`, `output()`.
  *
  * This is the revamped surface used for real (not just unit-tested with fakes).
@@ -11,7 +11,7 @@
  *   npx vigiles test examples/harness/checks-dogfood.harness.mjs
  */
 import {
-  runHarness,
+  runHarnessTest,
   scriptModel,
   claudeAvailable,
 } from "../../dist/harness-test.js";
@@ -42,7 +42,7 @@ console.log("✓ hook checks: blocked --no-verify, allowed a clean commit");
 if (!claudeAvailable()) {
   console.log("ℹ harness-scope checks need the `claude` CLI — skipping those");
 } else {
-  const r = await runHarness({
+  const r = await runHarnessTest({
     transcript: true,
     prompt: "do a couple of things then finish",
     model: scriptModel([

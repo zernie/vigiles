@@ -17,7 +17,8 @@
  *   npx vigiles test examples/harness/compiled-hook-inprocess.harness.mjs
  *   node examples/harness/compiled-hook-inprocess.harness.mjs   # standalone
  *
- * External users import from the package: `from "vigiles"`. A hook
+ * External users import from the package: `from "vigiles/hook"`, the door of
+ * the hook vocabulary these test. A hook
  * authored in TypeScript (`guard.hook.ts`) loads the same way, under tsx or
  * Node >= 23.6.
  */
@@ -27,7 +28,7 @@ import {
   assertHookAllows,
   assertHookNotices,
   assertHookSilent,
-} from "../../dist/test.js";
+} from "../../dist/hook.js";
 
 // --- a GATE: load it by path, assert over its decisions ---------------------
 

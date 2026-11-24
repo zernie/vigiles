@@ -17,10 +17,6 @@ import {
   deny,
   ask,
   parseShellCommand,
-  commandView,
-  pathView,
-  type CommandView,
-  type PathView,
   decideProgram,
   decisionExitCode,
   compileHookProgram,
@@ -2803,16 +2799,4 @@ test("#396a: only a react declared for Bash ALONE gets e.command — in the type
       // with another tool has no overlap: the dead branch is a type error.
       e.tool === "Edit" ? notice("never") : nothing(),
   });
-});
-
-test("the names before #465 are the same functions, not copies", () => {
-  /* eslint-disable @typescript-eslint/no-deprecated -- this test exists to call the deprecated aliases */
-  assert.equal(commandView, parseShellCommand);
-  assert.equal(pathView, parseFilePath);
-  // A hook still written against the old names keeps working.
-  const old: CommandView = commandView("echo x > papers/a.tex", MINE_ROOT);
-  const oldPath: PathView = pathView(`${MINE_ROOT}/papers/a.tex`, MINE_ROOT);
-  /* eslint-enable @typescript-eslint/no-deprecated */
-  assert.equal(old.writesTo(["papers"]), true);
-  assert.equal(oldPath.under(["papers"]), true);
 });

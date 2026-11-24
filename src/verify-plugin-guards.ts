@@ -808,7 +808,7 @@ function sweepNotes(
  * each hook's OWN event, matcher and condition, and report per hook.
  *
  * ```ts
- * import { experimental_verifyPluginGuards } from "vigiles";
+ * import { experimental_verifyPluginGuards } from "vigiles/battery";
  *
  * const report = experimental_verifyPluginGuards(".");
  * for (const h of report.hooks) {
@@ -1073,18 +1073,8 @@ function footer(measured: readonly MeasuredOutcome[]): string[] {
 }
 
 /**
- * Render a {@link PluginGuardReport} as terminal text.
- *
- * ```ts
- * import {
- *   experimental_verifyPluginGuards,
- *   experimental_formatPluginGuardReport,
- * } from "vigiles";
- *
- * console.log(
- *   experimental_formatPluginGuardReport(experimental_verifyPluginGuards(".")),
- * );
- * ```
+ * Render a {@link PluginGuardReport} as terminal text. Internal since v49 (the
+ * CLI prints it); a library caller folds `report.hooks` itself.
  *
  * NEUTRAL, the same way {@link formatGuardrailReport} is: it reports what each
  * hook blocks without deciding whether that was the hook's job. A repo's config

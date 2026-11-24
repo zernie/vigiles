@@ -72,12 +72,8 @@ import {
   buildAgentArgs,
   parseClaudeRun,
 } from "./eval.js";
-import {
-  usedTool,
-  skillResolved,
-  outputContains,
-  assertTriggerRate,
-} from "./harness-assert.js";
+import { usedTool, skillResolved, outputContains } from "./harness-assert.js";
+import { assertTriggerRate } from "./eval-readers.js";
 import { tool, output, turns, judged } from "./check.js";
 import { parseIntercepts } from "./tool-intercept.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
