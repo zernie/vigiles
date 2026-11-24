@@ -8,7 +8,7 @@ the `Skill` tool), the scriptable Anthropic Messages mock (`scriptModel`), and t
 safe-by-default bubblewrap sandbox + egress.
 
 Imports here come from the adapter surface `vigiles/claude-code` (CC-specific
-transport: `scriptModel`, `loadPlugin`, `resolveHarness`); the runners and
+transport: `scriptModel`, `loadPlugin`, `parseToolCalls`); the runners and
 assertions come from the agnostic package root `vigiles` (and, for anything that
 calls a model, `vigiles/eval`). Claude Code is the
 **default** adapter — `runHarnessTest(spec)` with no `{ adapter }` drives it.

@@ -15,7 +15,7 @@
  * door: a CI rule that forbids spending matches `paid_*`, not `vigiles/eval`.
  * The name rhymes with the `vigiles eval` CLI verb.
  *
- * ## Why every runtime export is also named `paid_`
+ * ## Why every runner is also named `paid_`
  *
  * The import path warns ONCE, at the top of the file. The name warns EVERY time,
  * at the call site. Reading `await judged(trace, "did it refuse?")` on line 140,
@@ -46,8 +46,10 @@
  * test importing only from that barrel could still spend money, and the one line
  * a reader would have relied on to know otherwise was the false one. `judged`
  * moved HERE and became `paid_judged`, which makes that class of defect
- * unrepresentable rather than apologised for: on this path, billing is the
- * advertised property, in the subpath and in every name.
+ * unrepresentable rather than apologised for: billing is advertised in every
+ * name that can do it. The readers below share the door and carry no prefix —
+ * a closed list in `scripts/check-export-prefixes.mjs`, so a new unprefixed
+ * export here still fails until someone decides it is free.
  *
  * ## The readers, and why they are few
  *
