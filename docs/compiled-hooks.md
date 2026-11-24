@@ -27,6 +27,7 @@ vigiles lets you author a hook as a **pure typed function** `(event) => Decision
 - [The roles](#the-roles)
 - [Role and event have to fit](#role-and-event-have-to-fit)
 - [The vocabulary](#the-vocabulary)
+  - [Where a command runs: `dirs()`](#where-a-command-runs-dirs)
   - [A react that reads the command](#a-react-that-reads-the-command)
 - [Testing a hook that remembers](#testing-a-hook-that-remembers)
 - [Observe mode (shadow rollout)](#observe-mode-shadow-rollout)
@@ -121,6 +122,7 @@ export default experimental_defineHook({
   - `writeTargets(prefixes)` — the same write targets as the **list of files** rather than a boolean, for a gate that has to tell _which_ file (`writeTargets(PAPER_SOURCES).some(isPaperSource)`); `writesTo` is exactly `writeTargets(prefixes).length > 0`. Spelling is as-written after normalization (quotes removed by the parser, `$HOME` canonicalized, a leaf's own `env -C` / `sudo -D` directory resolved), duplicates collapsed — so filter by basename or suffix. `prefixes` is required and there is no unfiltered form: a consumer holding the raw list has to re-implement prefix matching by hand, which is where every measured gate bypass came from.
   - `pipesToShell()` — pipes into a bare shell (`curl … | sh`) — remote-code execution. A shell _with_ a script file (`sh deploy.sh`) is **not** flagged.
   - `isSideEffecting()` — the deterministic Bash-effect classifier's verdict.
+  - `dirs(program?)` — the directories the leaves run in (with `program`, the leaves that run it, matched like `runs`), as absolute paths placed under the directory the tool call starts in — the event's `cwd`. Read on a small closed grammar; anything else is `unresolved`. See [Where a command runs](#where-a-command-runs-dirs).
 
   > **`touches` ≠ `writesTo` — conflating them is the trap.** `touches` answers _mentioned_: `grep -c x notes/S.md` matches, and so does `rm -rf notes`. `isSideEffecting()` does not rescue it, because it classifies the **whole command line** — `grep -c x notes/S.md 2>/dev/null` is side-effecting (there's a redirection), so a `touches() && isSideEffecting()` gate blocks a plain read. Use `writesTo` to gate writes and `touches` for "don't even look at this path". Deletion is reported by neither — pair with `runs("rm")` if a gate needs it.
 
@@ -143,7 +145,7 @@ export default experimental_defineHook({
 
 - **`e.path`** (Edit/Write) — a `FilePath` with `under(prefixes)` for path confinement, plus `raw` (the path as the tool sent it) and `rel` (the same path repo-relative, or `undefined` — see below).
 
-  The two types and the functions that build them, `parseShellCommand(raw, root)` and `parseFilePath(raw, root)`, were called `CommandView`/`PathView` and `commandView`/`pathView` before #465. The old names still work, marked deprecated, until the next major release.
+  The two types and the functions that build them, `parseShellCommand(raw, root, start?)` and `parseFilePath(raw, root)`, were called `CommandView`/`PathView` and `commandView`/`pathView` before #465. The old names still work, marked deprecated, until the next major release.
 
   > **Write your prefixes repo-relative; the runtime handles the rest.** Claude Code's Edit/Write/MultiEdit tools send an **absolute** `file_path`, so `under(["src"])` has to reconcile the two. It does that with the project root — `$CLAUDE_PROJECT_DIR`, else the event's own `cwd`, never the hook process's working directory (under a git worktree that can be a different checkout). An absolute prefix (`under(["/etc"])`) is matched against the absolute path instead, so both spellings work.
   >
@@ -157,6 +159,69 @@ export default experimental_defineHook({
 - **`allow()` / `deny(reason)` / `ask(reason)`** — the gate decision (every gate role).
 - **`inject(text)`** — inject output. **`run(cmd)` / `notice(msg)` / `nothing()`** — react output.
 - **`state(name)` in `needs`, `record(name, value?)` in a return** — **runtime-owned named memory**, so a hook can remember a fact without reaching for the filesystem. See below.
+
+### Where a command runs: `dirs()`
+
+A guard that judges a repository — "no `git pull` outside the trusted checkout" — needs the directory the command acts in, not the session's. `cd /foreign && git pull` pulls in `/foreign`. `e.command.dirs(program)` says where each leaf that runs `program` runs:
+
+```ts
+import { experimental_defineHook, allow, deny } from "vigiles/hook";
+
+const TRUSTED = "/work/repo";
+export default experimental_defineHook({
+  on: "PreToolUse",
+  decide: (e) => {
+    const at = e.command.dirs("git pull");
+    if (at.kind === "unresolved") return allow(); // the runtime turns this into an ask
+    return at.dirs.every((d) => d === TRUSTED || d.startsWith(TRUSTED + "/"))
+      ? allow()
+      : deny("git pull outside the trusted checkout");
+  },
+});
+```
+
+**Built for an allow that needs every candidate trusted.** The answer is `{ kind: "candidates", dirs }` — absolute, normalized (no `..`, no trailing `/`), duplicates collapsed, empty when no leaf runs the program — or `{ kind: "unresolved", reason }`. A gate that called `dirs()`, met an unresolved leaf that may run the program, and then **allowed** gets an `ask` instead, as with a command handed to a program it cannot read. An unknown leaf that cannot be the program (`cd repo && npm test`, asked about `git pull`) does not make the gate ask.
+
+**The grammar, and nothing beyond it.** Earlier versions tried to interpret most of bash; review found a way around them four rounds running. `dirs()` now reads a closed set of forms and calls everything else unknown:
+
+1. **A chain of simple commands** joined by `&&`, `;` or `||`; a plain pipeline `a | b` counts as one link, every part in the same directory. The directory carries **only across `&&`**: after a `;` or `||`, every later leaf is unknown, because a `cd` that failed leaves the old directory.
+2. **`cd <word>`** is read only when the word is plain text — no quotes, `\`, `$`, glob, brace or `~` — and is absolute or starts with `./` or `../`. CDPATH never applies to those forms. A bare `cd repo` (CDPATH may send it elsewhere), `cd ..`, `cd -`, a bare `cd` and any `cd` option make the later leaves unknown.
+3. **A program call** with plain argv runs in the chain's directory, moved by its own option from the table below or by a wrapper read through its option table. Any other wrapper option, a `..` in a table option's value (the program resolves it through symlinks, the model only by text), or a word that is not plain makes that leaf unknown.
+4. **Every `cd`, `pushd` and `popd` word in the raw line** — inside quotes, nested shells, here-docs and comments — must be one the grammar read. Otherwise the whole line is unknown: `echo "cd /x" && git pull` asks.
+5. **Any other construct** anywhere makes the whole line unknown: functions, loops, `if`/`case`, subshells, `{ }`, `|&`, `bash -c`/`sh -c` (any shell), `eval`, `source`/`.`, redirects, assignments (`X=1 git pull`, `CDPATH=/x …`), command substitution, `pushd`/`popd`, `trap`, `exec`, `builtin`, `set`, `shopt`, `!`, `&`.
+
+| program                                         | its "run in directory" option      | notes                                                                            |
+| ----------------------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------- |
+| `git`                                           | `-C <dir>`, before the subcommand  | cumulative, in order; `--git-dir`, `--work-tree`, `-c core.worktree=…` → unknown |
+| `env`                                           | `-C`/`--chdir`                     | wrapper; a `GIT_*=…` operand → unknown                                           |
+| `sudo`                                          | `-D`/`--chdir`                     | wrapper; `-i`, `-s` and other unlisted options → unknown                         |
+| `nice`, `timeout`, `command`, `xargs`           | —                                  | wrappers, read through their option tables                                       |
+| `make`                                          | `-C`/`--directory`                 | cumulative; a cluster (`-sC`) or abbreviation (`--dir`) → unknown                |
+| `npm`                                           | `--prefix`                         | `-C` → unknown                                                                   |
+| `docker exec`, `docker run`                     | `-w`/`--workdir`                   | a directory **inside the container**; absolute only, and required                |
+| `terraform`, `tofu`                             | `-chdir=<dir>`                     | before the subcommand                                                            |
+| `cargo`                                         | `-C`                               | before the subcommand (nightly)                                                  |
+| `cargo watch`                                   | `-C`/`--workdir`                   |                                                                                  |
+| `bun`, `bun pm`                                 | `--cwd`                            | before the first operand for `bun` itself                                        |
+| `just`                                          | `--working-directory`/`-d`         | before the first recipe                                                          |
+| `go build`, `run`, `test`, `install`, `list`, … | `-C`                               | must be the first flag                                                           |
+| `hg`                                            | `--cwd`                            | `-R`/`--repository` → unknown                                                    |
+| `tig`, `terramate`                              | `-C` (`terramate`: also `--chdir`) |                                                                                  |
+| `turbo`                                         | `--cwd`                            |                                                                                  |
+
+Every row is checked against [Fig's completion specs](https://github.com/withfig/autocomplete) — Fig must know the option for that program and subcommand with one argument — or carries a reviewed reason why Fig does not (most often a newer option, such as `env -C` or `sudo -D`). The extra rows came from [carapace-bin](https://github.com/carapace-sh/carapace-bin)'s completers, which change into the directory a command names before completing. Neither package is loaded by a hook.
+
+The `reason` of an unresolved answer is `outside-grammar`, `uncounted-cd`, `unread-cd`, `after-break`, `unplain-word`, `unread-option`, or `no-start-dir` when the event carried no `cwd` and a leaf's directory is relative.
+
+**Where the start comes from.** Both Claude Code and Codex put `cwd` in the hook event. In Claude Code it follows the agent: after a `cd` in an earlier call, `cwd` is the new directory.
+
+**The limits.** The hook reads the command text, not the shell it runs in:
+
+- **Aliases and functions from rc files.** A non-interactive shell does not expand aliases, but a function defined in a startup file the shell reads (`BASH_ENV`) can shadow `cd` or `git`.
+- **The session's environment.** A `GIT_DIR`, `GIT_WORK_TREE` or `CDPATH` exported before the call is not visible to the hook. The grammar's `cd` forms are the ones CDPATH never applies to, but an inherited `GIT_DIR` still sends `git` to another repository.
+- **Symlinks give one directory two names.** Paths join the way bash's default `cd` does, by text: `cd /trusted/link` is reported as `/trusted/link` even when the link points elsewhere.
+
+The model is checked against real bash on generated command lines ([`src/hook-dirs-oracle.test.ts`](../src/hook-dirs-oracle.test.ts)): every leaf bash ran is where the grammar said, or the grammar said unknown. One run: 1,335 leaves ran — 388 known, 947 unknown, 0 outside the model.
 
 ### A react that reads the command
 
