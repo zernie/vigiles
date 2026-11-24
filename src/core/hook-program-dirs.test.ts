@@ -168,6 +168,45 @@ describe("a directory the gate cannot know turns allow into ask", () => {
     assert.equal(decide("git push -f", pushWhere).kind, "allow");
   });
 
+  test("a flag in a variable: dirs() of a flag pattern asks, never an empty answer (Codex on #508)", () => {
+    const pushIn = experimental_defineHook({
+      on: "PreToolUse",
+      decide: (e) => {
+        const at = e.command.dirs("git push --force");
+        return at.kind === "candidates" && at.dirs.includes("/protected")
+          ? deny("force-push in /protected")
+          : allow();
+      },
+    });
+    assert.equal(
+      decide("cd /protected && F=--force; git push $F", pushIn).kind,
+      "deny",
+    );
+    assert.equal(decide("F=--force; git push $F", pushIn).kind, "ask");
+    assert.deepEqual(
+      parseShellCommand("cd /p && git push $F", undefined, CWD).dirs(
+        "git push --force",
+      ),
+      { kind: "candidates", dirs: ["/p"] },
+    );
+    assert.equal(decide("git push origin main", pushIn).kind, "allow");
+  });
+
+  test.each([
+    "command -p cd /foreign && git pull",
+    "builtin cd /foreign && git pull",
+    "a(){ b; }; b(){ c; }; c(){ d; }; d(){ cd /foreign; }; a; git pull",
+  ])("Codex on #508: %s is not judged in the start directory", (cmd) => {
+    assert.notEqual(decide(cmd).kind, "allow");
+  });
+
+  test("Codex on #508: GIT_DIR on the launching shell asks", () => {
+    assert.equal(
+      decide("GIT_DIR=/foreign/.git bash -c 'git pull'").kind,
+      "ask",
+    );
+  });
+
   test("an event without cwd asks rather than placing a relative leaf", () => {
     assert.equal(decide("git pull", trustedPullGuard, null).kind, "ask");
   });

@@ -154,3 +154,86 @@ test("every leaf the old walk found is still found (C2)", () => {
   ])
     assert.ok(heads.includes(want), want);
 });
+
+// Codex review on #508: each of these was a silent "start directory" for a
+// leaf bash runs elsewhere. The rule they pin: what the model does not
+// explicitly understand makes the leaf unresolved, never keeps the old one.
+describe("builtin-invoking forms move the shell too", () => {
+  test.each([
+    ["command -p cd /foreign && git pull", "/foreign"],
+    ["command -- cd /foreign && git pull", "/foreign"],
+    ["builtin cd /foreign && git pull", "/foreign"],
+    ["builtin -- cd /foreign && git pull", "/foreign"],
+    ["command builtin pushd /foreign && git pull", "/foreign"],
+  ])("%s → %s", (cmd, dir) => {
+    assert.deepEqual(dirs(cmd), [dir]);
+  });
+
+  test("command -v cd only describes it", () => {
+    assert.deepEqual(dirs("command -v cd /foreign && git pull"), ["."]);
+  });
+
+  test("a builtin-invoker the model cannot read is unresolved", () => {
+    assert.equal(at("command -x cd /foreign && git pull").kind, "unresolved");
+    assert.equal(at('builtin "$B" /foreign && git pull').kind, "unresolved");
+  });
+});
+
+describe("a child shell inherits the launching leaf's GIT_DIR", () => {
+  test.each([
+    "GIT_DIR=/foreign/.git bash -c 'git pull'",
+    "GIT_WORK_TREE=/foreign bash -c 'git pull'",
+    "env GIT_DIR=/foreign/.git sh -c 'git pull'",
+    "GIT_DIR=/foreign/.git eval 'git pull'",
+  ])("%s → git-dir-override", (cmd) => {
+    assert.equal(reason(cmd), "git-dir-override");
+  });
+
+  test("git -c core.worktree= overrides the directory too", () => {
+    assert.equal(
+      reason("git -c core.worktree=/foreign pull"),
+      "git-dir-override",
+    );
+    assert.equal(reason('git -c "$K" pull'), "git-dir-override");
+  });
+});
+
+describe("dir-moving functions are found to a fixed point", () => {
+  test("a chain of four", () => {
+    assert.equal(
+      reason(
+        "a(){ b; }; b(){ c; }; c(){ d; }; d(){ cd /foreign; }; a; git pull",
+      ),
+      "opaque-dir-change",
+    );
+  });
+
+  test("a chain of eight", () => {
+    const names = ["a", "b", "c", "d", "e", "f", "g", "h"];
+    const defs = names
+      .map((n, i) => `${n}(){ ${names[i + 1] ?? "cd /foreign"}; }`)
+      .join("; ");
+    assert.equal(reason(`${defs}; a; git pull`), "opaque-dir-change");
+  });
+});
+
+describe("what changes cd's own inputs is not guessed", () => {
+  test.each([
+    "CDPATH=/foreign; cd x && git pull",
+    "CDPATH=/foreign cd x && git pull",
+    "export CDPATH=/foreign; cd x && git pull",
+    "HOME=/foreign; cd && git pull",
+    "cd a && OLDPWD=/foreign && cd - && git pull",
+    "PWD=/foreign; cd .. && git pull",
+    "shopt -s cdable_vars; cd x && git pull",
+    "trap 'cd /foreign' DEBUG; git pull",
+    'trap "$T" DEBUG; git pull',
+    "cd $'\\x2fforeign' && git pull",
+  ])("%s → unresolved", (cmd) => {
+    assert.equal(at(cmd).kind, "unresolved");
+  });
+
+  test("a trap that does not move keeps the directory", () => {
+    assert.deepEqual(dirs("trap 'rm -f t' EXIT; git pull"), ["."]);
+  });
+});

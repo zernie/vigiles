@@ -2,8 +2,9 @@
  * The directory model behind `e.command.dirs()` against real bash.
  *
  * Commands are generated from a small grammar — `cd`, `pushd`, `popd`,
- * `cd -`, a bare `cd`, `env -C`, `git -C`, `&&`, `||`, `;`, `|`, `&`,
- * subshells, groups and `if` — over a temp tree with a directory that does not
+ * `cd -`, a bare `cd`, `command [-p] cd`, `builtin cd`, `eval "cd …"`, a
+ * function chain that `cd`s, `env -C`, `git -C`, `bash -c "cd … && …"`,
+ * `&&`, `||`, `;`, `|`, `&`, subshells, groups and `if` — over a temp tree with a directory that does not
  * exist, so every `cd` can fail as well as succeed. Every leaf records where it
  * actually ran: `pwd >> out/L<k>`, or for git `git -C D rev-parse
  * --show-prefix >> out/L<k>`, which is git's own word for its directory.
@@ -65,6 +66,7 @@ function generator(seed: number, out: string, abs: string) {
       `pwd >> ${target}`,
       `git -C ${pick([".", "a", "a/b", "nope", "b"])} rev-parse --show-prefix >> ${target}`,
       `env -C ${pick(["a", "b", "nope"])} pwd >> ${target}`,
+      `bash -c "cd ${dir()} && pwd >> ${target}"`,
     ]);
   };
   const atom = (depth: number): string => {
@@ -74,6 +76,11 @@ function generator(seed: number, out: string, abs: string) {
       () => "popd >/dev/null",
       () => "cd -",
       () => "cd",
+      () => `command cd ${dir()}`,
+      () => `command -p cd ${dir()}`,
+      () => `builtin cd ${dir()}`,
+      () => `eval "cd ${dir()}"`,
+      () => `m(){ n; }; n(){ cd ${dir()}; }; m`,
       leaf,
       leaf,
     ];
