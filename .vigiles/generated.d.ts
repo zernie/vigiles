@@ -397,7 +397,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 662 project files. */
+  /** 663 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -866,6 +866,7 @@ declare module "vigiles/generated" {
     | "src/eval-lock.test.ts"
     | "src/eval-lock.ts"
     | "src/eval-node-test-guard.test.ts"
+    | "src/eval-program.ts"
     | "src/eval-readers.test.ts"
     | "src/eval-readers.ts"
     | "src/eval-stubs.test.ts"
@@ -1896,6 +1897,7 @@ declare module "vigiles/spec" {
       | "src/eval-lock.test.ts"
       | "src/eval-lock.ts"
       | "src/eval-node-test-guard.test.ts"
+      | "src/eval-program.ts"
       | "src/eval-readers.test.ts"
       | "src/eval-readers.ts"
       | "src/eval-stubs.test.ts"
