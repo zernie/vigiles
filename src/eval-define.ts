@@ -61,10 +61,10 @@ import type {
   EvalReport,
   EvalSpec,
   MeasureSpec,
-  Metrics,
   TriggerRateReport,
   TriggerRateSpec,
 } from "./eval.js";
+import type { Metrics } from "./core/eval-aggregate.js";
 import type {
   SelectionMatrixOptions,
   SelectionReport,

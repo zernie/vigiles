@@ -260,10 +260,10 @@ export type {
   ArmsCheckReport,
   CheckRate,
   CheckReport,
-  Metrics,
   RunContext,
   TriggerRateSpec,
 } from "../eval.js";
+export type { Metrics } from "../core/eval-aggregate.js";
 
 // --- R3: the disposable-service tier ---
 // `experimental_startServices` and `experimental_dockerRuntime` live on

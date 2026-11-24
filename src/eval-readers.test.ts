@@ -9,12 +9,12 @@ import assert from "node:assert/strict";
 
 import { compare, assertImproves } from "./eval-readers.js";
 import {
-  aggregateStats,
   assertRates,
   type CheckReport,
   type EvalReport,
   type TriggerRateReport,
 } from "./eval.js";
+import { aggregateStats } from "./core/eval-aggregate.js";
 
 const NO_USAGE = {
   totalCostUsd: 0,

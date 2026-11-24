@@ -14,7 +14,8 @@ import {
   verdictOf,
   experimental_verdict,
 } from "./stats.js";
-import { aggregateStats, type EvalReport, type MetricStat } from "./eval.js";
+import type { EvalReport, MetricStat } from "./eval.js";
+import { aggregateStats } from "./core/eval-aggregate.js";
 
 const close = (a: number, b: number, tol = 1e-3): boolean =>
   Math.abs(a - b) < tol;

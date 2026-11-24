@@ -56,13 +56,15 @@ import {
   type EvalReport,
   type EvalSpec,
   type MeasureSpec,
-  type Metrics,
   type TriggerRateReport,
   type EvalDriver,
   type TriggerRateSpec,
+} from "./eval.js";
+import type { Metrics } from "./core/eval-aggregate.js";
+import {
   unansweredInReport,
   contextInReport,
-} from "./eval.js";
+} from "./core/eval-report-failures.js";
 import { parseToolStubs } from "./core/eval-spec-parse.js";
 import {
   paid_measureSelectionMatrix,

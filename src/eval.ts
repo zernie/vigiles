@@ -56,7 +56,6 @@ import {
   costFromArm,
   sumCosts,
 } from "./eval-cost.js";
-import { ncd } from "./core/proofs.js";
 import type { HarnessLiveDriver } from "./core/live-driver.js";
 import {
   hasModelAccess,
@@ -163,7 +162,6 @@ import {
 import {
   isUnanswered,
   unloggedMisses,
-  unansweredMessage,
   encodeStub,
   type StubCall,
   type ToolStub,
@@ -171,12 +169,26 @@ import {
 import { parseRunEnv, parseToolStubs } from "./core/eval-spec-parse.js";
 import { makeTmpDir } from "./core/tmp-root.js";
 import {
-  contextFailure,
   contextSummaryLines,
   type ContextEvidence,
 } from "./core/context-evidence.js";
 import { startContextCapture } from "./eval-context.js";
-import { editDistance } from "./core/edit-distance.js";
+import {
+  aggregate,
+  aggregateStats,
+  aggregateUsage,
+  type Metrics,
+} from "./core/eval-aggregate.js";
+import { assertPromptDiversity } from "./core/prompt-diversity.js";
+import {
+  contextInReport,
+  unansweredInReport,
+} from "./core/eval-report-failures.js";
+import { assertKnownKeys } from "./core/known-keys.js";
+import {
+  stubSkillBody,
+  unregisteredSkillFiles,
+} from "./core/eval-skill-files.js";
 
 /**
  * The harness the eval tier spawns. ONE binding on purpose: the paid tier is
@@ -281,9 +293,6 @@ export interface RunContext extends Trace {
   /** Run a shell command in the working dir; returns trimmed stdout ("" on error). */
   sh(command: string): string;
 }
-
-/** @public */
-export type Metrics = Record<string, number | boolean>;
 
 /** @public */
 export interface EvalSpec<M extends Metrics> {
@@ -672,37 +681,6 @@ export function closedRun(c: {
  * working model auth (e.g. `ANTHROPIC_API_KEY`). Thin wrapper over
  * `runEvalWith` with the real agent runner.
  */
-/**
- * A `SKILL.md` written straight into a run's cwd (via an arm's `files`) is NOT
- * registered as a skill by the harness. Claude Code — and Codex — load skills only
- * from a plugin / `.claude/skills` layout, so a bare cwd `SKILL.md` sits unread:
- * the arm silently measures NOTHING (baseline and "skill" become the same run). This
- * is the exact footgun the ecosystem benchmark hit — a skill file delivered where it
- * can never activate, with no error. Detect it so {@link runEval} / {@link measureArms}
- * can WARN and point at `pluginDir` (a real `--plugin-dir` install) or `skillsDir`.
- *
- * HIGH-PRECISION (don't cry wolf): only a file whose basename is `SKILL.md` AND that
- * carries real skill frontmatter (a `---` block naming `name`/`description`) is flagged
- * — so an empty scratch `SKILL.md` a task is asked to AUTHOR is never flagged. Pure +
- * exported for testing.
- */
-export function unregisteredSkillFiles(
-  files: Record<string, string> | undefined,
-): string[] {
-  if (files === undefined) return [];
-  return Object.entries(files)
-    .filter(([p, c]) => skillBasename(p) && hasSkillFrontmatter(c))
-    .map(([p]) => p);
-}
-
-function skillBasename(path: string): boolean {
-  return (path.split(/[\\/]/).pop() ?? path) === "SKILL.md";
-}
-
-function hasSkillFrontmatter(content: string): boolean {
-  const m = /^\uFEFF?\s*---\s*\r?\n([\s\S]*?)\r?\n---/.exec(content);
-  return m !== null && /(^|\n)\s*(name|description)\s*:/.test(m[1]);
-}
 
 /** Warn (loud, non-fatal) for every arm that drops an unregistered skill file. */
 function warnUnregisteredSkillArms(arms: Record<string, EvalArm>): void {
@@ -1534,79 +1512,6 @@ export async function runSkillSelectionTrial(args: {
   } finally {
     rmSync(cwd, { recursive: true, force: true });
   }
-}
-
-/** Coerce a metric value to a number (booleans → 0/1), or null if absent. */
-function numeric(v: number | boolean | undefined): number | null {
-  if (typeof v === "number") return v;
-  if (typeof v === "boolean") return v ? 1 : 0;
-  return null;
-}
-
-/** Aggregate per-run metrics: mean for numbers, fraction-true (0..1) for booleans. */
-export function aggregate(rows: readonly Metrics[]): Record<string, number> {
-  const stats = aggregateStats(rows);
-  const out: Record<string, number> = {};
-  for (const [k, s] of Object.entries(stats)) out[k] = s.mean;
-  return out;
-}
-
-/**
- * Aggregate per-run metrics with spread: mean, sample std, standard error, and
- * n. The se/std let you judge whether an A/B gap between arms is real or noise —
- * a difference smaller than the combined se is not yet significant.
- */
-export function aggregateStats(
-  rows: readonly Metrics[],
-): Record<string, MetricStat> {
-  const keys = new Set<string>();
-  for (const r of rows) for (const k of Object.keys(r)) keys.add(k);
-  const out: Record<string, MetricStat> = {};
-  for (const k of keys) {
-    out[k] = statOf(
-      rows.map((r) => numeric(r[k])).filter((v): v is number => v !== null),
-    );
-  }
-  return out;
-}
-
-/** One metric's {@link MetricStat} from the values its trials reported. */
-function statOf(values: readonly number[]): MetricStat {
-  const n = values.length;
-  const mean = n > 0 ? values.reduce((a, b) => a + b, 0) / n : 0;
-  const std =
-    n > 1
-      ? Math.sqrt(values.reduce((a, b) => a + (b - mean) ** 2, 0) / (n - 1))
-      : 0;
-  const passK = n > 0 && values.every((v) => v > 0) ? 1 : 0;
-  // Recorded from the observations, never inferred from mean and spread: a
-  // sample like [-0.6, 0.4, 0.4, 0.4, 0.4] has the moments of 1 success in 5.
-  const binary = n > 0 && values.every((v) => v === 0 || v === 1);
-  return {
-    mean,
-    std,
-    se: n > 0 ? std / Math.sqrt(n) : 0,
-    n,
-    passK,
-    ...(binary ? { successes: values.filter((v) => v === 1).length } : {}),
-  };
-}
-
-/** Aggregate per-run usage into an arm's cost / latency / token totals + means. */
-export function aggregateUsage(usages: readonly EvalUsage[]): ArmUsage {
-  const n = usages.length;
-  const sum = (f: (u: EvalUsage) => number): number =>
-    usages.reduce((a, u) => a + f(u), 0);
-  const totalCostUsd = sum((u) => u.costUsd);
-  return {
-    totalCostUsd,
-    meanCostUsd: n > 0 ? totalCostUsd / n : 0,
-    meanDurationMs: n > 0 ? sum((u) => u.durationMs) / n : 0,
-    totalInputTokens: sum((u) => u.inputTokens),
-    totalOutputTokens: sum((u) => u.outputTokens),
-    totalCacheCreationTokens: sum((u) => u.cacheCreationTokens),
-    totalCacheReadTokens: sum((u) => u.cacheReadTokens),
-  };
 }
 
 /** Resolved per-run settings shared across an eval's trials. */
@@ -2590,91 +2495,11 @@ const TRIGGER_RATE_SPEC_KEYS = {
   concurrency: true,
 } satisfies Record<keyof TriggerRateSpec, true>;
 
-/**
- * The closest declared field to an unknown one, or undefined when nothing is
- * close — a wrong suggestion is worse than none (it invites "fixing" a field the
- * author never meant). Same tight threshold as the CLI's unknown-flag hint.
- */
-function nearestField(
-  unknown: string,
-  known: readonly string[],
-): string | undefined {
-  let best: { name: string; d: number } | undefined;
-  for (const name of known) {
-    const d = editDistance(unknown.toLowerCase(), name.toLowerCase());
-    if (!best || d < best.d) best = { name, d };
-  }
-  return best && best.d <= Math.max(2, Math.floor(unknown.length / 4))
-    ? best.name
-    : undefined;
-}
-
-/**
- * Throw when `spec` carries a field outside `known` — every unknown one named,
- * with a did-you-mean where a declared field is one typo away. `at` says which
- * runner and spec type the message is about (`arm` labels a nested arm). Runs
- * before anything is packaged or spent.
- */
-function assertKnownKeys(
-  spec: object,
-  known: Record<string, true>,
-  at: { readonly caller: string; readonly type: string; readonly arm?: string },
-): void {
-  const declared = Object.keys(known);
-  const where = at.arm === undefined ? "" : ` on arm "${at.arm}"`;
-  const problems = Object.keys(spec)
-    .filter((key) => !Object.hasOwn(known, key))
-    .map((key) => {
-      const near = nearestField(key, declared);
-      const hint = near === undefined ? "" : ` — did you mean \`${near}\`?`;
-      return `${at.caller}: unknown ${at.type} field "${key}"${where}${hint}`;
-    });
-  if (problems.length === 0) return;
-  throw new Error(
-    `${problems.join("\n")}\n  ${at.type} fields: ${declared.join(", ")}.\n` +
-      "  An unknown field is refused rather than ignored: a dropped field would " +
-      "make the run measure a setup you did not ask for.",
-  );
-}
-
 /** An {@link EvalSpec} after the boundary: stubs and env parsed, arms resolved. */
 type ParsedEvalSpec<M extends Metrics> = EvalSpec<M> & {
   readonly stubs: readonly ToolStub[];
   readonly env: RunEnv;
 };
-
-/**
- * The author-facing failure for a report whose stubs left a call unanswered, or
- * undefined. One owner for the rule — `vigiles eval`'s exit 2 and the lock's
- * refusal both read it — so a consumer whose `assert` calls no helper still
- * fails. Pure.
- */
-export function unansweredInReport(
-  report: Pick<EvalReport, "arms">,
-  stubs: readonly ToolStub[],
-): string | undefined {
-  const calls = Object.values(report.arms).flatMap(
-    (a) => a.unansweredStubCalls,
-  );
-  const message = unansweredMessage(calls, stubs);
-  return message === undefined
-    ? undefined
-    : `${message}\n  The report is not a measurement: no lock is written, and \`vigiles eval\` exits 2.`;
-}
-
-/**
- * The author-facing failure for a report where an instruction file missed the
- * model's request in some trial, or undefined (vigiles#416). One owner, like
- * {@link unansweredInReport}: the lock's refusal and `vigiles eval` read it.
- */
-export function contextInReport(
-  report: Pick<EvalReport, "arms">,
-): string | undefined {
-  const lines = contextFailure(report.arms);
-  return lines === undefined
-    ? undefined
-    : `${lines}\n  Those trials are not scored: no lock is written, and the eval fails.`;
-}
 
 /**
  * `runEval` with its author-facing output, over any runner — so the real one and
@@ -3257,21 +3082,6 @@ export function packageSkillsDir(
   return root;
 }
 
-/**
- * Rewrite a SKILL.md to keep its YAML frontmatter (the trigger surface — name +
- * description) but replace the body with a no-op stub. Trigger-rate is a property
- * of the frontmatter ONLY: the model picks a skill from its name + description
- * before the body is ever loaded, so the body is causally downstream of selection
- * and irrelevant to whether the skill fires. Stubbing it lets a trigger run stop
- * AT selection instead of executing an expensive multi-step procedure — cheaper,
- * faster, and side-effect-free, without changing what's measured. Pure.
- */
-export function stubSkillBody(skillMd: string): string {
-  const m = /^(---\n[\s\S]*?\n---\n)/.exec(skillMd);
-  const frontmatter = m ? m[1] : "";
-  return `${frontmatter}\nThis skill was selected (trigger-test stub). Acknowledge and stop — do not perform any actions.\n`;
-}
-
 /** The skills directory inside a plugin (`skills/` or `.claude/skills/`). */
 function skillsDirOf(pluginDir: string): string {
   const direct = join(pluginDir, "skills");
@@ -3303,83 +3113,6 @@ export function stubbedPluginDir(pluginDir: string): string {
     stub: true,
     name: pluginName(pluginDir),
   });
-}
-
-// ---------------------------------------------------------------------------
-// Prompt-set diversity (deterministic, pre-eval) — a trigger rate is only
-// meaningful over ENOUGH and DIFFERENT prompts. Catch a too-small or
-// near-duplicate set before spending a single model token. We measure
-// "different" with Normalized Compression Distance (gzip) — the SAME engine
-// `findSimilarRules` uses for near-duplicate rule detection — not edit
-// distance: NCD scores shared structure/redundancy (a templated prompt with one
-// word swapped compresses together), which is exactly the lazy-copy-paste set
-// we want to reject, and it's the project's house algorithm for "are these two
-// texts basically the same".
-// ---------------------------------------------------------------------------
-
-/** Normalize for comparison: lowercase, trim, collapse whitespace. */
-function normalizePrompt(s: string): string {
-  return s.toLowerCase().trim().replace(/\s+/g, " ");
-}
-
-/**
- * Distance between two prompts in ~0..1 (0 = identical, higher = more
- * different) via Normalized Compression Distance over the normalized text.
- * Reuses {@link ncd} from the proof engine.
- */
-export function promptDistance(a: string, b: string): number {
-  return ncd(normalizePrompt(a), normalizePrompt(b));
-}
-
-export interface PromptDiversityIssue {
-  readonly kind: "too-few" | "too-similar";
-  readonly message: string;
-}
-
-/**
- * Deterministically check a prompt set is big and varied enough to measure a
- * trigger rate: at least `minPrompts` entries, and no two closer than
- * `minDistance` in NCD. Pure — no model. `label` names the set in messages.
- */
-export function checkPromptDiversity(
-  prompts: readonly string[],
-  opts: { minPrompts?: number; minDistance?: number; label?: string } = {},
-): PromptDiversityIssue[] {
-  const minPrompts = opts.minPrompts ?? 10;
-  const minDistance = opts.minDistance ?? 0.3;
-  const label = opts.label ?? "prompts";
-  const issues: PromptDiversityIssue[] = [];
-  if (prompts.length < minPrompts) {
-    issues.push({
-      kind: "too-few",
-      message: `${label}: ${String(prompts.length)} prompt(s), need at least ${String(minPrompts)} to measure a rate (set minPrompts to override).`,
-    });
-  }
-  for (let i = 0; i < prompts.length; i++) {
-    for (let j = i + 1; j < prompts.length; j++) {
-      const dist = promptDistance(prompts[i], prompts[j]);
-      if (dist < minDistance) {
-        issues.push({
-          kind: "too-similar",
-          message: `${label}: prompts #${String(i + 1)} and #${String(j + 1)} are near-duplicates (NCD ${dist.toFixed(2)} < ${String(minDistance)}) — vary the phrasing:\n    - ${prompts[i]}\n    - ${prompts[j]}`,
-        });
-      }
-    }
-  }
-  return issues;
-}
-
-/** Throw if a prompt set isn't big/varied enough. See {@link checkPromptDiversity}. */
-export function assertPromptDiversity(
-  prompts: readonly string[],
-  opts: { minPrompts?: number; minDistance?: number; label?: string } = {},
-): void {
-  const issues = checkPromptDiversity(prompts, opts);
-  if (issues.length > 0) {
-    throw new Error(
-      `Prompt set is not eval-ready:\n  ${issues.map((i) => i.message).join("\n  ")}`,
-    );
-  }
 }
 
 /**

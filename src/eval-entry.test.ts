@@ -22,7 +22,8 @@ import {
   unansweredFailure,
   UNANSWERED_STUB_EXIT_CODE,
 } from "./eval-entry.js";
-import { aggregateUsage, type EvalReport } from "./eval.js";
+import type { EvalReport } from "./eval.js";
+import { aggregateUsage } from "./core/eval-aggregate.js";
 import { ARGV_REST, type StubCall } from "./core/stub-rules.js";
 
 const DIST = resolve("dist");

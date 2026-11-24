@@ -2388,6 +2388,20 @@
       "count": 1
     }
   },
+  "src/core/eval-aggregate.ts": {
+    "functional/immutable-data": {
+      "count": 3
+    },
+    "functional/no-loop-statements": {
+      "count": 4
+    },
+    "functional/prefer-immutable-types": {
+      "count": 4
+    },
+    "sonarjs/cognitive-complexity": {
+      "count": 1
+    }
+  },
   "src/core/eval-driver.ts": {
     "functional/prefer-immutable-types": {
       "count": 2
@@ -2401,6 +2415,17 @@
   "src/core/eval-load-phase.ts": {
     "functional/no-let": {
       "count": 1
+    }
+  },
+  "src/core/eval-skill-files.ts": {
+    "functional/immutable-data": {
+      "count": 1
+    },
+    "functional/prefer-immutable-types": {
+      "count": 2
+    },
+    "sonarjs/slow-regex": {
+      "count": 2
     }
   },
   "src/core/eval-spec-parse.ts": {
@@ -3214,6 +3239,17 @@
       "count": 1
     }
   },
+  "src/core/known-keys.ts": {
+    "functional/no-let": {
+      "count": 1
+    },
+    "functional/no-loop-statements": {
+      "count": 1
+    },
+    "functional/prefer-immutable-types": {
+      "count": 2
+    }
+  },
   "src/core/layout.test.ts": {
     "local/no-harness-names": {
       "count": 5
@@ -3681,6 +3717,29 @@
     },
     "functional/prefer-immutable-types": {
       "count": 2
+    }
+  },
+  "src/core/prompt-diversity.ts": {
+    "functional/immutable-data": {
+      "count": 2
+    },
+    "functional/no-let": {
+      "count": 2
+    },
+    "functional/no-loop-statements": {
+      "count": 2
+    },
+    "functional/prefer-immutable-types": {
+      "count": 2
+    },
+    "max-lines-per-function": {
+      "count": 1
+    },
+    "max-statements": {
+      "count": 1
+    },
+    "sonarjs/cognitive-complexity": {
+      "count": 1
     }
   },
   "src/core/proofs.test.ts": {
@@ -5207,16 +5266,16 @@
       "count": 5
     },
     "functional/immutable-data": {
-      "count": 28
+      "count": 22
     },
     "functional/no-let": {
-      "count": 17
+      "count": 14
     },
     "functional/no-loop-statements": {
-      "count": 32
+      "count": 25
     },
     "functional/prefer-immutable-types": {
-      "count": 51
+      "count": 41
     },
     "local/no-harness-names": {
       "count": 20
@@ -5225,19 +5284,19 @@
       "count": 1
     },
     "max-lines-per-function": {
-      "count": 28
+      "count": 27
     },
     "max-params": {
       "count": 7
     },
     "max-statements": {
-      "count": 14
+      "count": 13
     },
     "no-restricted-globals": {
       "count": 11
     },
     "sonarjs/cognitive-complexity": {
-      "count": 15
+      "count": 13
     },
     "sonarjs/different-types-comparison": {
       "count": 3
@@ -5252,9 +5311,6 @@
       "count": 2
     },
     "sonarjs/no-unused-vars": {
-      "count": 2
-    },
-    "sonarjs/slow-regex": {
       "count": 2
     },
     "sonarjs/todo-tag": {
