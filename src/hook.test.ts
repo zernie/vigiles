@@ -12,7 +12,7 @@
  *   - `compile` REJECTS an out-of-vocabulary import (capability = API);
  *   - a stamped artifact that is then hand-edited is REFUSED at runtime (exit 2).
  *
- * The fixtures import the built `dist/hook.js` by absolute path, so this runs
+ * The fixtures import the built `dist/entries/hook.js` by absolute path, so this runs
  * after `npm run build` like the other CLI-driven suites.
  */
 import { test } from "vitest";
@@ -34,7 +34,9 @@ import { makeTmpDir, cleanupTmpDir, initGitRepo } from "./core/test-utils.js";
 
 const REPO_ROOT = resolve(__dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
-const HOOK_DIST = pathToFileURL(resolve(REPO_ROOT, "dist", "hook.js")).href;
+const HOOK_DIST = pathToFileURL(
+  resolve(REPO_ROOT, "dist", "entries/hook.js"),
+).href;
 
 /** Write a .mjs hook fixture importing the built public API; return its path. */
 function fixture(dir: string, name: string, body: string): string {
@@ -399,7 +401,7 @@ test("compile (hook): a stale stamp does NOT wedge the repo — the recompile ge
 // Codex P1 on #510: `experimental_loadHook` sat on `vigiles/hook`, the one
 // entry a compiled hook may import, so a hook could load a second local module
 // that the capability check never reads and the stamp never covers — and that
-// module wrote a file through `node:fs`. The loader is on `vigiles/hook-test`
+// module wrote a file through `node:fs`. The loader is on `vigiles/hook/testing`
 // now: the same hook no longer loads, so it neither compiles nor runs, and the
 // nested module never executes.
 test("compile (hook): a hook that reaches for experimental_loadHook does not compile or run", () => {

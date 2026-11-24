@@ -25,8 +25,8 @@
  * External users import from the package: `defineEval` + the free checks from
  * `"vigiles"`. An eval file declares its measurement; `vigiles eval` runs it.
  */
-import { defineEval } from "../../dist/test.js";
-import { assertRates } from "../../dist/eval-surface.js";
+import { defineEval } from "../../dist/entries/index.js";
+import { assertRates } from "../../dist/entries/eval.js";
 import { check } from "../../dist/check.js";
 import { execSync } from "node:child_process";
 

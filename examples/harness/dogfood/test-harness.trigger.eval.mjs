@@ -16,9 +16,9 @@
  * Real model → real cost. Needs the `claude` CLI + model auth + a built dist/.
  * Write-don't-run in a keyless env; this is the artifact that runs where a key is.
  */
-import { defineEval } from "../../../dist/test.js";
+import { defineEval } from "../../../dist/entries/index.js";
 import { check } from "../../../dist/check.js";
-import { assertTriggerRate } from "../../../dist/eval-surface.js";
+import { assertTriggerRate } from "../../../dist/entries/eval.js";
 import { fileURLToPath } from "node:url";
 
 // The vigiles plugin root (the dir that holds .claude-plugin/), installed

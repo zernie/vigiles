@@ -4,7 +4,7 @@
  * PARKED (2026-08-16) — this drives the generator form, so it is parked with it;
  * see the header of `src/core/compile-generator.ts`. `runSkill` is reachable
  * from no package subpath. `scriptModel` is NOT parked: it is public from
- * `vigiles/claude-code` and serves the harness testing API independently.
+ * `vigiles/harness/claude-code` and serves the harness testing API independently.
  *
  * A thin wrapper over the generator driver (`driveSkill`) for use inside an
  * ordinary `node:test` / Vitest `test()` — no custom runner, no DSL. You script

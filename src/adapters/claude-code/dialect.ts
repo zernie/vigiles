@@ -222,7 +222,7 @@ export const claudeCodeDialect: HarnessDialect = {
 // Typed tool vocabulary — the compile-time half of the purity contract.
 //
 // Derives literal unions from the `const` catalogs above so the
-// `vigiles/claude-code` typed `agent`/`skill` can reject an invalid
+// `vigiles/harness/claude-code` typed `agent`/`skill` can reject an invalid
 // `purity`×`tools` combination at the spec's own `tsc`. Mirrors the runtime
 // ladder in `core/effects.ts`: `pure` = read-only built-ins; `bounded` =
 // read-only ∪ decidable side-effecting ∪ `Bash`.

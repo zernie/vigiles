@@ -184,14 +184,14 @@ describe("local/no-kit-names — rule-proof's generic files spell no linter kit"
 });
 
 describe("boundaries — a package entry is a composition root", () => {
-  it("src/entries/*.ts is in the `root` category", async () => {
+  it("src/entries/**/*.ts is in the `root` category", async () => {
     const config = (await eslint.calculateConfigForFile(
       "src/entries/rule-proof.ts",
     )) as { settings: Record<string, unknown> };
     expect(config.settings["boundaries/files"]).toContainEqual(
       expect.objectContaining({
         category: "root",
-        pattern: "src/{cli,cli-main,entries/*}.ts",
+        pattern: "src/{cli,cli-main,entries/*,entries/*/*}.ts",
       }),
     );
   });

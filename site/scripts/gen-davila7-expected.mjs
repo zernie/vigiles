@@ -31,7 +31,7 @@ import { format } from "prettier";
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
 const require = createRequire(import.meta.url);
 
-const enginePath = here("../../dist/battery.js");
+const enginePath = here("../../dist/entries/hook/testing.js");
 if (!existsSync(enginePath)) {
   console.error(
     `no built engine at ${enginePath} — run \`npm run build\` at the repo root first`,

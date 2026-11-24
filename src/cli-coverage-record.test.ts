@@ -30,8 +30,8 @@ import { initGitRepo, makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 const CLI = resolve(__dirname, "..", "dist", "cli.js");
 const RUN_HOOK = resolve(__dirname, "..", "dist", "run-hook.js");
 const LOAD_HOOK = resolve(__dirname, "..", "dist", "load-hook.js");
-const ASSERT = resolve(__dirname, "..", "dist", "hook-test.js");
-const HOOK_ENTRY = resolve(__dirname, "..", "dist", "hook.js");
+const ASSERT = resolve(__dirname, "..", "dist", "entries/hook/testing.js");
+const HOOK_ENTRY = resolve(__dirname, "..", "dist", "entries/hook.js");
 
 let dir: string;
 

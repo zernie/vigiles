@@ -35,20 +35,19 @@
   "bin": {
     "vigiles": "dist/cli.js"
   },
-  "main": "./dist/test.js",
-  "types": "./dist/test.d.ts",
+  "main": "./dist/entries/index.js",
+  "types": "./dist/entries/index.d.ts",
   "exports": {
-    ".": "./dist/test.js",
+    ".": "./dist/entries/index.js",
     "./spec": "./dist/entries/spec.js",
-    "./eval": "./dist/eval-surface.js",
+    "./eval": "./dist/entries/eval.js",
     "./rule-proof": "./dist/entries/rule-proof.js",
-    "./hook": "./dist/hook.js",
-    "./hook-test": "./dist/hook-test.js",
-    "./battery": "./dist/battery.js",
-    "./fixtures": "./dist/fixtures.js",
-    "./claude-code": "./dist/claude-code.js",
-    "./codex": "./dist/codex.js",
-    "./adapter": "./dist/adapter.js",
+    "./hook": "./dist/entries/hook.js",
+    "./hook/testing": "./dist/entries/hook/testing.js",
+    "./fixtures": "./dist/entries/fixtures.js",
+    "./harness/claude-code": "./dist/entries/harness/claude-code.js",
+    "./harness/codex": "./dist/entries/harness/codex.js",
+    "./harness/kit": "./dist/entries/harness/kit.js",
     "./vitest": {
       "types": "./dist/vitest.d.mts",
       "default": "./dist/vitest.mjs"

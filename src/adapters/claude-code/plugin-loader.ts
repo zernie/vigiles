@@ -5,7 +5,7 @@
  * takes a `PluginLayout` by injection, so no adapter imports a sibling adapter.
  * This thin wrapper supplies the Claude Code layout as the default, preserving
  * the `loadPlugin(dir)` / `resolveHarness(opts)` ergonomics and the public
- * `vigiles/claude-code` + `vigiles/plugin-loader` exports unchanged.
+ * `vigiles/harness/claude-code` + `vigiles/plugin-loader` exports unchanged.
  */
 import type { PluginLayout } from "../../core/layout.js";
 import {
@@ -21,7 +21,7 @@ export type { LoadedPlugin } from "../../plugin-loader.js";
  *
  * 🔴 DELIBERATELY NOT FORWARDING an `ExcludeSet`. The generic loader takes one
  * (`.vigilesrc.json#exclude` filters surface discovery), but this is the PUBLIC
- * `vigiles/claude-code` face, and a parameter whose type and constructor are both
+ * `vigiles/harness/claude-code` face, and a parameter whose type and constructor are both
  * internal would land in the published surface as a name no consumer can write.
  * In-repo callers that hold an ExcludeSet — `scan.ts` — import the composition
  * root directly, which is where the layout is required anyway.

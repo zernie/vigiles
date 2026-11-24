@@ -22,7 +22,7 @@ import {
 } from "node:fs";
 import { basename, dirname, join, resolve } from "node:path";
 
-// The COMPOSITION-ROOT loader, not the `vigiles/claude-code` wrapper: this
+// The COMPOSITION-ROOT loader, not the `vigiles/harness/claude-code` wrapper: this
 // module always passes a layout explicitly (it never wanted the wrapper's
 // Claude Code default), and only the generic one takes the `ExcludeSet` that
 // makes `.vigilesrc.json#exclude` reach surface discovery.

@@ -26,7 +26,7 @@
  * `pluginDir: "/path/to/a/whole/plugin"` instead — that installs it natively via
  * `claude --plugin-dir`. See `src/harness-test.test.ts` and the coverage matrix.
  */
-import { defineEval } from "../../dist/test.js";
+import { defineEval } from "../../dist/entries/index.js";
 
 const SKILL = `# commit-message
 

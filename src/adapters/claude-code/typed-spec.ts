@@ -9,7 +9,7 @@
  * `claudeCodeDialect`, so authoring a spec with an invalid `purity`×`tools`
  * combination is a `tsc` error at EDIT TIME, before any vigiles command runs:
  *
- *   import { experimental_agent } from "vigiles/claude-code";
+ *   import { experimental_agent } from "vigiles/harness/claude-code";
  *
  *   experimental_agent({ purity: "pure", tools: ["Read", "Bash"] });
  *   //                                       ^^^^^^ tsc error — Bash side-effecting

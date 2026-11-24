@@ -828,7 +828,7 @@ test("skillTestNudge: the firing remedy is runnable on a NON-default harness too
   assert.ok(msg, "a Codex repo's skill must still be nudged about firing");
   assert.match(msg, /FIRES/);
   // Runnable: `measureTriggerRate(spec, { evalDriver: codexEvalDriver })` is
-  // exported from `vigiles/codex`, so the tier IS reachable here — what the old
+  // exported from `vigiles/harness/codex`, so the tier IS reachable here — what the old
   // wording omitted was the argument that points it at THIS harness.
   assert.match(msg, /evalDriver/);
   cleanupTmpDir(dir);

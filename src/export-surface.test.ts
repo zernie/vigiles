@@ -7,7 +7,7 @@
  * cover them).
  *
  * The structural rule is the last test: no module imports the root barrel
- * (`src/test.ts`). An entry that re-exported the root would make every name the
+ * (`src/entries/index.ts`). An entry that re-exported the root would make every name the
  * root holds reachable from two doors again, and an internal module that
  * imported it would pull the whole testing surface into whatever loads it.
  */
@@ -17,14 +17,13 @@ import { readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import ts from "typescript";
 
-import * as root from "./test.js";
-import * as evalDoor from "./eval-surface.js";
-import * as battery from "./battery.js";
-import * as fixtures from "./fixtures.js";
-import * as hook from "./hook.js";
-import * as hookTest from "./hook-test.js";
+import * as root from "./entries/index.js";
+import * as evalDoor from "./entries/eval.js";
+import * as fixtures from "./entries/fixtures.js";
+import * as hook from "./entries/hook.js";
+import * as hookTesting from "./entries/hook/testing.js";
 import * as spec from "./entries/spec.js";
-import * as adapter from "./adapter.js";
+import * as adapter from "./entries/harness/kit.js";
 
 // Vitest runs this file from src/, so __dirname is src/.
 const SRC = __dirname;
@@ -32,16 +31,32 @@ const ROOT = resolve(SRC, "..");
 
 const has = (door: object, name: string): boolean => name in door;
 
-test("package.json exports: ./battery is a door, ./linting is gone", () => {
-  const raw = readFileSync(join(ROOT, "package.json"), "utf-8");
-  assert.match(raw, /"\.\/battery": "\.\/dist\/battery\.js"/);
-  assert.match(raw, /"\.\/fixtures": "\.\/dist\/fixtures\.js"/);
-  assert.match(raw, /"\.\/hook-test": "\.\/dist\/hook-test\.js"/);
-  assert.match(raw, /"\.\/spec": "\.\/dist\/entries\/spec\.js"/);
-  assert.doesNotMatch(raw, /"\.\/linting"/);
+test("package.json exports: every entry module mirrors its export path under src/entries", () => {
+  const pkg: unknown = JSON.parse(
+    readFileSync(join(ROOT, "package.json"), "utf-8"),
+  );
+  assert.ok(typeof pkg === "object" && pkg !== null && "exports" in pkg);
+  const map = pkg.exports;
+  assert.ok(typeof map === "object" && map !== null);
+  const MATCHER_ENTRIES = new Set(["./vitest", "./jest"]);
+  for (const [key, value] of Object.entries(map)) {
+    if (MATCHER_ENTRIES.has(key)) continue;
+    const mirrored = key === "." ? "index" : key.slice(2);
+    assert.equal(value, `./dist/entries/${mirrored}.js`, key);
+  }
+  // v51 moved these; a flat spelling of any of them would be an alias.
+  for (const gone of ["linting", "battery", "hook-test", "adapter"]) {
+    assert.ok(!(`./${gone}` in map), `./${gone} is gone (v51: no aliases)`);
+  }
+  const nested = Object.keys(map).filter((k) => k.startsWith("./harness/"));
+  assert.equal(nested.length, 3, "the harness family lives under ./harness/");
+  assert.ok(
+    Object.keys(map).every((k) => k.split("/").length <= 3),
+    "at most two path levels",
+  );
 });
 
-test("the guard battery lives on vigiles/battery, not the root", () => {
+test("the guard battery lives on vigiles/hook/testing, not the root", () => {
   for (const name of [
     "assertGuardrail",
     "verifyGuardrail",
@@ -51,7 +66,7 @@ test("the guard battery lives on vigiles/battery, not the root", () => {
     "experimental_hookState",
     "experimental_verifyPluginGuards",
   ]) {
-    assert.ok(has(battery, name), `vigiles/battery exports ${name}`);
+    assert.ok(has(hookTesting, name), `vigiles/hook/testing exports ${name}`);
     assert.ok(!has(root, name), `the root no longer exports ${name}`);
   }
 });
@@ -85,7 +100,7 @@ test("the eval-report readers live on vigiles/eval, folded", () => {
   }
 });
 
-test("compiled-hook tests live on vigiles/hook-test, never on vigiles/hook; subagent outcomes on vigiles/spec", () => {
+test("compiled-hook tests live on vigiles/hook/testing, never on vigiles/hook; subagent outcomes on vigiles/spec", () => {
   // Both families are experimental: the hook tests ride on the experimental
   // hook vocabulary, the outcome assertions on `experimental_agent`'s contract.
   // The hook tests are OFF `vigiles/hook` because that entry is a compiled hook's
@@ -98,7 +113,7 @@ test("compiled-hook tests live on vigiles/hook-test, never on vigiles/hook; suba
     "experimental_assertHookSilent",
     "runHookProgram",
   ]) {
-    assert.ok(has(hookTest, name), `vigiles/hook-test exports ${name}`);
+    assert.ok(has(hookTesting, name), `vigiles/hook/testing exports ${name}`);
     assert.ok(!has(hook, name), `vigiles/hook does not export ${name}`);
     assert.ok(!has(root, name), `the root does not export ${name}`);
   }
@@ -258,10 +273,10 @@ test("the root's runtime exports are exactly the test-author verbs", () => {
 
 test("the adapter registry is the CLI's, not a public door", () => {
   for (const gone of ["ADAPTERS", "getAdapter", "detectAdapter"]) {
-    assert.ok(!has(adapter, gone), `vigiles/adapter hides ${gone}`);
+    assert.ok(!has(adapter, gone), `vigiles/harness/kit hides ${gone}`);
   }
   for (const port of ["assertAdapterConformance", "assertAdapterLoadsHooks"]) {
-    assert.ok(has(adapter, port), `vigiles/adapter exports ${port}`);
+    assert.ok(has(adapter, port), `vigiles/harness/kit exports ${port}`);
   }
 });
 
@@ -293,8 +308,8 @@ function specifiers(file: string): string[] {
   );
 }
 
-test("no module imports the root barrel (src/test.ts)", () => {
-  const rootBarrel = join(SRC, "test.ts");
+test("no module imports the root barrel (src/entries/index.ts)", () => {
+  const rootBarrel = join(SRC, "entries", "index.ts");
   const offenders = sourceFiles(SRC).filter((file) =>
     specifiers(file).some(
       (s) =>

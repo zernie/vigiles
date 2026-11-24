@@ -48,7 +48,7 @@
  * +11% (762 → 842 tok/run) at +$0.002/run, correctness intact on both (Canberra) —
  * a headline "cuts tokens %" would have lied. Exactly the failure mode this catches.
  */
-import { defineEval } from "../../dist/test.js";
+import { defineEval } from "../../dist/entries/index.js";
 
 const CAVEMAN = `# answer-style
 

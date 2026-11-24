@@ -821,7 +821,7 @@ function sweepNotes(
  * each hook's OWN event, matcher and condition, and report per hook.
  *
  * ```ts
- * import { experimental_verifyPluginGuards } from "vigiles/battery";
+ * import { experimental_verifyPluginGuards } from "vigiles/hook/testing";
  *
  * const report = experimental_verifyPluginGuards(".");
  * for (const h of report.hooks) {

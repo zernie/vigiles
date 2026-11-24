@@ -20,9 +20,11 @@
         "../tools/measured/validate-overlap.json"
       ],
       "@engine/*": ["../dist/*.d.ts"],
-      "vigiles": ["../dist/test.d.ts"],
-      "vigiles/eval": ["../dist/eval-surface.d.ts"],
-      "vigiles/claude-code": ["../dist/claude-code.d.ts"]
+      "vigiles": ["../dist/entries/index.d.ts"],
+      "vigiles/eval": ["../dist/entries/eval.d.ts"],
+      "vigiles/harness/claude-code": [
+        "../dist/entries/harness/claude-code.d.ts"
+      ]
     }
   },
   "include": ["src", "vite.config.ts", "vite.aliases.ts"]

@@ -38,14 +38,16 @@ their exit codes. Most of the churn is in the library API underneath it.
     `paid_claudeEvalDriver`), and the free readers of their report (`compare`,
     `assertRates`, `assertTriggerRate`, `assertImproves`, `assertNoRegression`,
     `readBaseline`, `writeBaseline`), which carry none.
-  - `vigiles/battery` — prove a guard blocks: `assertGuardrail`,
-    `verifyGuardrail`, `DISASTER_CATALOG` (the `experimental_*` names beside them
-    are not stable).
+  - `vigiles/hook/testing` — everything for testing a hook: prove a guard
+    blocks (`assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`) and test a
+    compiled hook in process (`experimental_loadHook`, `experimental_assertHook*`).
+    The `experimental_*` names are not stable. Two earlier entries merged into this
+    one in v51 (see the [migration table](docs/testing-api.md#migrating-to-v51)).
   - `vigiles/fixtures` — what a test runs against: `experimental_stub` (tool
     stubs on PATH) and `experimental_startServices` / `experimental_dockerRuntime`
     (disposable services). All experimental; nothing here is stable yet.
-  - `vigiles/claude-code`, `vigiles/codex` — the per-harness surfaces.
-  - `vigiles/adapter` — the adapter-authoring kit. This is a **deliberate
+  - `vigiles/harness/claude-code`, `vigiles/harness/codex` — the per-harness surfaces.
+  - `vigiles/harness/kit` — the adapter-authoring kit. This is a **deliberate
     extension point**: third-party harness adapters are an intended use, so the
     kit is public before a named external adapter exists.
 - **Hook and provider file names.** `vigiles compile` compiles a file in
@@ -95,28 +97,27 @@ One row per subpath in `package.json` `exports`; a test fails if this table and
 `beta` (usable, may change in a minor release; its `experimental_*` names carry
 no promise at all) or `internal` (published for our own tooling, not for you).
 
-| entry                 | audience                                                             | stability |
-| --------------------- | -------------------------------------------------------------------- | --------- |
-| `vigiles`             | test authors: the free harness-test and `check` vocabulary           | stable    |
-| `vigiles/spec`        | spec authors: builders and verified-reference types                  | stable    |
-| `vigiles/eval`        | eval authors: the paid model runners and the free report readers     | stable    |
-| `vigiles/battery`     | guard authors proving a guard blocks                                 | stable    |
-| `vigiles/fixtures`    | test authors needing tool stubs and disposable services              | beta      |
-| `vigiles/hook`        | compiled-hook authors (effect-free, the only import a hook may have) | beta      |
-| `vigiles/hook-test`   | compiled-hook authors testing a hook in process                      | beta      |
-| `vigiles/claude-code` | test authors targeting Claude Code                                   | stable    |
-| `vigiles/codex`       | test authors targeting Codex                                         | stable    |
-| `vigiles/adapter`     | authors of a harness adapter                                         | stable    |
-| `vigiles/rule-proof`  | repositories proving their linter config fires                       | beta      |
-| `vigiles/vitest`      | vitest users: registers the matchers                                 | stable    |
-| `vigiles/jest`        | jest users: registers the matchers                                   | stable    |
+| entry                         | audience                                                                | stability |
+| ----------------------------- | ----------------------------------------------------------------------- | --------- |
+| `vigiles`                     | test authors: the free harness-test and `check` vocabulary              | stable    |
+| `vigiles/spec`                | spec authors: builders and verified-reference types                     | stable    |
+| `vigiles/eval`                | eval authors: the paid model runners and the free report readers        | stable    |
+| `vigiles/fixtures`            | test authors needing tool stubs and disposable services                 | beta      |
+| `vigiles/hook`                | compiled-hook authors (effect-free, the only import a hook may have)    | beta      |
+| `vigiles/hook/testing`        | hook authors testing a hook: loading, asserting, proving a guard blocks | beta      |
+| `vigiles/harness/claude-code` | test authors targeting Claude Code                                      | stable    |
+| `vigiles/harness/codex`       | test authors targeting Codex                                            | stable    |
+| `vigiles/harness/kit`         | authors of a harness adapter                                            | stable    |
+| `vigiles/rule-proof`          | repositories proving their linter config fires                          | beta      |
+| `vigiles/vitest`              | vitest users: registers the matchers                                    | stable    |
+| `vigiles/jest`                | jest users: registers the matchers                                      | stable    |
 
 ## What's still evolving — pin if you rely on it
 
 - **The library API is 0.x.** Symbols outside the entry points above (and the
   internal modules under `dist/core/…` reached by deep import) may change in a
   minor release. Import from the published subpaths, not deep paths.
-- **`vigiles/hook`** (compiled hooks) and **`vigiles/hook-test`** (since v50, the
+- **`vigiles/hook`** (compiled hooks) and **`vigiles/hook/testing`** (since v51, the
   in-process hook tests `experimental_loadHook` / `experimental_assertHookDenies`
   & co., on their own entry because a compiled hook may import only
   `vigiles/hook`) are exported and usable but **not yet
@@ -202,7 +203,7 @@ merges only with `function` declarations (`experimental_skill` is a `const`).
 
 ### What's on the list
 
-- **`experimental_skill()`** in `vigiles/spec` / `vigiles/claude-code` — skill
+- **`experimental_skill()`** in `vigiles/spec` / `vigiles/harness/claude-code` — skill
   authoring. Compiles, and its gates are verified, but no real skill corpus has
   been converted and a compiled `SKILL.md` has never been exercised as an
   installed skill. See `docs/skills.md` §Status.

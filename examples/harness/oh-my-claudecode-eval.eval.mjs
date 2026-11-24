@@ -19,7 +19,7 @@
  */
 import { fileURLToPath } from "node:url";
 
-import { defineEval } from "../../dist/test.js";
+import { defineEval } from "../../dist/entries/index.js";
 import { check } from "../../dist/check.js";
 
 const pluginDir = fileURLToPath(

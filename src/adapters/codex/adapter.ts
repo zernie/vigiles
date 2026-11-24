@@ -2,7 +2,7 @@
  * codexAdapter — the OpenAI Codex `HarnessAdapter`. Bundles the five Codex ports
  * + a `detect`. SHIPPED: registered in `src/adapter-registry.ts` (the CLI
  * auto-detects a `.codex/config.toml` or `AGENTS.md` repo) and exported as
- * `vigiles/codex`. It passes `assertAdapterConformance`/`assertAdapterLoadsHooks`,
+ * `vigiles/harness/codex`. It passes `assertAdapterConformance`/`assertAdapterLoadsHooks`,
  * drives the compiler + loader against real Codex fixtures (codex.test.ts), and
  * its transport (`mock-model.ts`) is proven against the real `codex` binary.
  *

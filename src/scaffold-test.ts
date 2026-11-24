@@ -117,7 +117,7 @@ function hookScaffold(input: ScaffoldInput): string {
     `npx vigiles test ${suggestedPath(input)}`,
   )}
 import { runHook, assertChecks, check } from "vigiles";
-import { assertGuardrail } from "vigiles/battery";
+import { assertGuardrail } from "vigiles/hook/testing";
 
 const cmd = ${JSON.stringify(cmd)};
 

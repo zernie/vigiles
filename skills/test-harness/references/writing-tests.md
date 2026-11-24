@@ -38,7 +38,7 @@ mock model, assert the hook fired (or the context landed):
 import { runHarnessTest, check, assertChecks } from "vigiles";
 // `scriptModel` is the Claude-Code TRANSPORT, deliberately not re-exported from
 // the harness-agnostic root surface — import it from the harness package:
-import { scriptModel } from "vigiles/claude-code";
+import { scriptModel } from "vigiles/harness/claude-code";
 
 const r = await runHarnessTest({
   pluginDir: "./", // or { settings: { hooks: {...} } }

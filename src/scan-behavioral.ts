@@ -104,7 +104,7 @@ export interface ProbeOptions {
  *
  * 🔴 THE ONE SANCTIONED STRING→ADAPTER CONVERSION. `opts.adapter` is the way in;
  * the deprecated `harness` NAME is accepted for one release because
- * `SelectionOptions` is public API (`vigiles/claude-code`), and it is resolved
+ * `SelectionOptions` is public API (`vigiles/harness/claude-code`), and it is resolved
  * HERE, through the registry, rather than compared to a literal anywhere.
  */
 function adapterFor(opts: {
@@ -404,7 +404,7 @@ export interface SelectionOptions {
   readonly adapter?: HarnessAdapter;
   /**
    * @deprecated Pass {@link SelectionOptions.adapter} instead. Kept for one
-   * release because this options type is public API (`vigiles/claude-code`);
+   * release because this options type is public API (`vigiles/harness/claude-code`);
    * a name is resolved through the registry, never compared to a literal.
    */
   readonly harness?: string;

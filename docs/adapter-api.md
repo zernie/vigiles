@@ -1,4 +1,4 @@
-# `vigiles/adapter` — API reference
+# `vigiles/harness/kit` — API reference
 
 The harness-adapter authoring API. Everything an adapter author needs — yours or
 ours — in one import. This is the **reference**; for a guided walkthrough see
@@ -21,7 +21,7 @@ import {
   assertAdapterConformance,
   assertAdapterLoadsHooks,
   type ConformanceResult,
-} from "vigiles/adapter";
+} from "vigiles/harness/kit";
 ```
 
 **Stability.** The five port interfaces and `HarnessAdapter` are the stable
@@ -161,7 +161,7 @@ before any decision — measured by `weighAlwaysLoaded` in
 | `skillListing`       | `HarnessDialect`            | `{ entry(skill, settings): string \| null; capturedFrom; budget? }` | `- dir: description - when_to_use` as Claude Code 2.1.187 renders it, cut at 1,536 chars with `…` (`skillListingMaxDescChars`) | `- name: description (file: path)`, description cut at 1,024 with `...`; unparseable skills not listed |
 | `selected(settings)` | `PluginLayout.outputStyles` | `→ { kind: "unset" \| "default" } \| { kind: "named"; name }`       | reads `outputStyle`                                                                                                            | — (Codex has no output styles)                                                                         |
 
-The types are exported from `vigiles/adapter` as `SkillListingRules`,
+The types are exported from `vigiles/harness/kit` as `SkillListingRules`,
 `ListedSkill`, `SkillListingBudget`, `ListingLimit` and `StyleSelection`. `entry` receives one `ListedSkill` read by
 the core (`path`, `dirName`, parsed
 `frontmatter` or `null` when its YAML does not parse, `body`) and the
@@ -371,7 +371,7 @@ import { test } from "vitest";
 import {
   assertAdapterConformance,
   assertAdapterLoadsHooks,
-} from "vigiles/adapter";
+} from "vigiles/harness/kit";
 import { myHarnessAdapter } from "./my-harness-adapter.js";
 
 test("my adapter conforms", () => {
@@ -393,13 +393,13 @@ the library takes the adapter object you pass (`{ adapter }`).
 
 ## Applying an adapter (the programmatic path)
 
-`vigiles/adapter` gives you the **contract**; you validate it with the conformance
+`vigiles/harness/kit` gives you the **contract**; you validate it with the conformance
 kit and apply it through the public loaders. This path is fully supported for
 third-party adapters today:
 
 ```ts
-import { assertAdapterConformance } from "vigiles/adapter";
-import { loadPlugin } from "vigiles/claude-code";
+import { assertAdapterConformance } from "vigiles/harness/kit";
+import { loadPlugin } from "vigiles/harness/claude-code";
 import { myHarnessAdapter } from "./my-harness-adapter.js";
 
 // every port populated, the ports agree, and the dialect's own built-in tool

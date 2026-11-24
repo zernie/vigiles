@@ -8,7 +8,7 @@
  *   npm run test:vitest
  */
 import { test, expect } from "vitest";
-import { compare, assertImproves } from "../../dist/eval-surface.js";
+import { compare, assertImproves } from "../../dist/entries/eval.js";
 import { check, assertChecks } from "../../dist/check.js";
 import checksCases from "./checks-cases.cjs";
 // Matchers are registered by the `vigiles/vitest` entry via setupFiles

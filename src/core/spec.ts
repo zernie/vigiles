@@ -152,7 +152,7 @@ export type StrictCmd = [keyof KnownNpmScripts] extends [never]
 //
 // Core stays harness-agnostic: it defines only the MECHANISM (the `AllowedAt`
 // conditional) parameterized by a `ToolVocabulary`. The concrete tool names are
-// a HARNESS fact, so the CC vocabulary is wired in at the `vigiles/claude-code`
+// a HARNESS fact, so the CC vocabulary is wired in at the `vigiles/harness/claude-code`
 // composition layer (derived from `claudeCodeDialect`), never hard-coded here.
 // The DEFAULT vocabulary is fully open (`string` at every level), so core
 // `experimental_agent()`/`skill()` with no vocabulary param accept any tools, exactly as
@@ -1013,7 +1013,7 @@ export type SkillSpecInput<
  *
  * Generic over a tool `Vocabulary` (default `OpenToolVocabulary` — no
  * constraint), exactly like `experimental_agent()`: a vocabulary-bound `experimental_skill`
- * (e.g. `vigiles/claude-code`) makes `purity: "pure"` + a side-effecting tool a
+ * (e.g. `vigiles/harness/claude-code`) makes `purity: "pure"` + a side-effecting tool a
  * `tsc` error; the bare core one accepts any tools, as before.
  *
  * The name also disambiguates: `vigiles/testing` exports a `skill()` that is a
@@ -1221,7 +1221,7 @@ export type OkOf<T> = T extends TypedOutcome<infer Ok, Shape> ? Ok : Shape;
  *
  * Generic over a tool `Vocabulary` (default `OpenToolVocabulary` — no
  * constraint). A harness adapter re-exports a vocabulary-bound `agent` (e.g.
- * `vigiles/claude-code`) so `purity: "pure"` + a side-effecting tool is a `tsc`
+ * `vigiles/harness/claude-code`) so `purity: "pure"` + a side-effecting tool is a `tsc`
  * error at edit time; the bare core `experimental_agent()` accepts any tools, as before.
  *
  * Also generic over the result's `Ok`/`Err` shapes, inferred from `output:

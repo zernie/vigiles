@@ -1,14 +1,14 @@
 /**
  * ONE set of `check.*` cases, run unchanged by three runners — node:test
  * (`checks.node-test.mjs`), vitest (`matchers.vitest.mjs`) and jest
- * (`matchers.jest.cjs`). Loaded from the built package root (`dist/test.js`, the
+ * (`matchers.jest.cjs`). Loaded from the built package root (`dist/entries/index.js`, the
  * `vigiles` entry), so what is exercised is what a user imports.
  *
  * Each case: a target, the checks, and whether `assertChecks` must pass. The
  * runner only iterates; nothing here depends on which runner calls it, which is
  * the claim being tested.
  */
-const { check, assertChecks } = require("../../dist/test.js");
+const { check, assertChecks } = require("../../dist/entries/index.js");
 
 const call = (name, extra = {}) => ({
   name,

@@ -46,7 +46,7 @@
  *
  * 🔴 That drop was only SAFE after a separate change, and the order matters. The
  * six compiled-hook entry points used to be declared unprefixed and gain the
- * prefix at their re-export in `src/hook.ts` — so at the declaration site, 14
+ * prefix at their re-export in `src/entries/hook.ts` — so at the declaration site, 14
  * tagged symbols looked like violations, and a per-file rule would have opened at
  * 14 false findings and been switched off within the day. The de-aliasing landed
  * first (one spelling per symbol, everywhere). Re-measured after it, on the whole

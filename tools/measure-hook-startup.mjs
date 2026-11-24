@@ -49,7 +49,7 @@
  *   layer                                    before → after
  *   bare `node -e ''`                            42 →  41 ms
  *   require dist/core/hook-program.js           170 →  64 ms
- *   require dist/hook.js                        171 →  64 ms
+ *   require dist/entries/hook.js                        171 →  64 ms
  *   require dist/cli.js                         623 → 504 ms
  *   require @iarna/toml                          56 ms  (compile-time only)
  *   require mvdan-sh                            144 ms  (bash predicates only)
@@ -114,7 +114,7 @@ import { spawnSync } from "node:child_process";
 const ROOT = resolve(import.meta.dirname, "..");
 /** The built `vigiles/hook` entry, imported by absolute path so a fixture in
  *  a tmpdir resolves it without an install. */
-const HOOK_ENTRY = join(ROOT, "dist", "hook.js");
+const HOOK_ENTRY = join(ROOT, "dist", "entries/hook.js");
 const RUNS = Number(
   (process.argv.find((a) => a.startsWith("--runs=")) ?? "").split("=")[1] || 20,
 );
@@ -258,7 +258,7 @@ try {
   row("bare `node -e ''`", timeSpawn(["-e", ""]));
   for (const mod of [
     "./dist/core/hook-program.js",
-    "./dist/hook.js",
+    "./dist/entries/hook.js",
     "./dist/cli.js",
     "@iarna/toml",
     "mvdan-sh",

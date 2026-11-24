@@ -1,7 +1,7 @@
 /**
  * Adapter registry — the composition-root list the CLI uses to auto-detect which
  * harness a repo targets. The library API selects an adapter by import
- * (`vigiles/claude-code`); the CLI can't, so it walks this registry. Claude Code
+ * (`vigiles/harness/claude-code`); the CLI can't, so it walks this registry. Claude Code
  * is the default, so detection is backwards-compatible: an undetected repo (or a
  * repo with no adapter markers) resolves to Claude Code exactly as before.
  *

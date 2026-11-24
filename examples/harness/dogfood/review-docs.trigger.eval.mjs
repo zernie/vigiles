@@ -23,9 +23,9 @@
  * Write-don't-run in a keyless env; runs where a key is. The thresholds are the
  * template's defaults, not calibrated by a run.
  */
-import { defineEval } from "../../../dist/test.js";
+import { defineEval } from "../../../dist/entries/index.js";
 import { check } from "../../../dist/check.js";
-import { assertTriggerRate } from "../../../dist/eval-surface.js";
+import { assertTriggerRate } from "../../../dist/entries/eval.js";
 import { fileURLToPath } from "node:url";
 
 const skillsDir = fileURLToPath(

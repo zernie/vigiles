@@ -8,7 +8,7 @@
  *
  *   npm run test:jest
  */
-const { compare, assertImproves } = require("../../dist/eval-surface.js");
+const { compare, assertImproves } = require("../../dist/entries/eval.js");
 const { check, assertChecks } = require("../../dist/check.js");
 const checksCases = require("./checks-cases.cjs");
 // Matchers are registered by the `vigiles/jest` entry via setupFilesAfterEnv

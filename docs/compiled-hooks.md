@@ -149,7 +149,7 @@ export default experimental_defineHook({
   >
   > `under` is the **allowlist / coverage** primitive, and an unprovable answer is `false`: a path in another checkout, or an absolute path with no root in sight, matches no repo-relative prefix. A confinement gate (`under(ok) ? allow() : deny()`) therefore fails closed, and a nudge stays quiet. The reverse shape — `under(secret) ? deny() : allow()` — reads that `false` as **allow**, so do not build a denylist on it. When there is genuinely no root, the runtime says so on stderr rather than deciding silently.
   >
-  > Testing a file hook? Build the event with **`fileToolEvents(path)`** (from `vigiles/claude-code`), which returns _both_ spellings. Hand-written relative events are what let three shipped hooks stay dead while their tests passed.
+  > Testing a file hook? Build the event with **`fileToolEvents(path)`** (from `vigiles/harness/claude-code`), which returns _both_ spellings. Hand-written relative events are what let three shipped hooks stay dead while their tests passed.
 
 - **`e.prompt`** (UserPromptSubmit) — the user's prompt text (a plain string).
 - **`e.stopHookActive`** (Stop) — the loop guard; `allow()` when it's `true`.
@@ -270,11 +270,11 @@ Throttling is not a separate feature — it is this one, read as "when did I las
 
 ### Testing a hook that remembers
 
-A throttle only does anything interesting against an **old** fact — and "old" is not something a test can produce by waiting. So the store is seedable, through one handle on `vigiles/battery`:
+A throttle only does anything interesting against an **old** fact — and "old" is not something a test can produce by waiting. So the store is seedable, through one handle on `vigiles/hook/testing`:
 
 ```js
 import { runHook } from "vigiles";
-import { experimental_hookState } from "vigiles/battery";
+import { experimental_hookState } from "vigiles/hook/testing";
 
 const st = experimental_hookState(hookFile, { cwd: projectRoot });
 st.clear(); // start from "never recorded"
@@ -672,7 +672,7 @@ import {
   experimental_loadHook,
   experimental_assertHookDenies,
   experimental_assertHookAllows,
-} from "vigiles/hook-test";
+} from "vigiles/hook/testing";
 
 const guard = await experimental_loadHook(".vigiles/hooks/guard.hook.mjs");
 
@@ -690,7 +690,7 @@ it("blocks a force-push, even hidden in a compound command", () => {
 
 `experimental_loadHook` is the same loader the runtime uses (so a hook that loads in a test loads identically in production) and it is what makes this tier reachable from a `.harness.mjs` file, which has a hook's PATH and not its object. A TypeScript hook (`guard.hook.ts`) loads the same way under tsx / Node ≥ 23.6. If you already have the object — a static `import guard from "./guard.hook.mjs"` — pass it directly.
 
-The test functions are on their own entry, `vigiles/hook-test`, and never on `vigiles/hook`. A compiled hook may import only `vigiles/hook`, so anything that entry exports is callable from inside every hook — and a loader there would let a hook run a second module that the import check never reads and the stamp never covers. A hook that imports `vigiles/hook-test` does not compile.
+The test functions are on their own entry, `vigiles/hook/testing`, and never on `vigiles/hook`. A compiled hook may import only `vigiles/hook`, so anything that entry exports is callable from inside every hook — and a loader there would let a hook run a second module that the import check never reads and the stamp never covers. A hook that imports `vigiles/hook/testing` does not compile.
 
 **React hooks get their own pair.** A react can't block, so the gate assertions don't apply; use `experimental_assertHookNotices(hook, event, matcher?)` and `experimental_assertHookSilent(hook, event)`:
 
@@ -698,7 +698,7 @@ The test functions are on their own entry, `vigiles/hook-test`, and never on `vi
 import {
   experimental_assertHookNotices,
   experimental_assertHookSilent,
-} from "vigiles/hook-test";
+} from "vigiles/hook/testing";
 
 const warn = await experimental_loadHook(
   ".vigiles/hooks/warn-on-failure.hook.mjs",
@@ -784,7 +784,7 @@ import {
   DISASTER_CATALOG,
   experimental_alternateSpellings,
   assertGuardrail,
-} from "vigiles/battery";
+} from "vigiles/hook/testing";
 
 const guard = "node … hook-runtime run-program guard.hook.mjs";
 assertGuardrail(guard, {
@@ -919,7 +919,7 @@ that uses named state is archaeology today. The runtime derives the store's path
 from the hook's own location and validates the key charset, so a test that wants
 to seed 'this fact was recorded four days ago' must reconstruct a private path.
 The dogfood repo does exactly that, hard-coded, and it broke when the facts were
-renamed."_ `experimental_hookState` on `vigiles/battery` is that API —
+renamed."_ `experimental_hookState` on `vigiles/hook/testing` is that API —
 [Testing a hook that remembers](#testing-a-hook-that-remembers). It is a thin
 handle over the store functions the live runtime calls, not a second copy of the
 path rule, and both directions are pinned end to end against the real runtime: a

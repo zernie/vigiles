@@ -1,7 +1,7 @@
 /**
  * codexLayout — the OpenAI Codex `PluginLayout`: `.agents/skills` skills,
  * `.codex/config.toml` (TOML) settings/hooks, `AGENTS.md`, `${PLUGIN_ROOT}`.
- * Exported as `vigiles/codex` and registered in `src/adapter-registry.ts`.
+ * Exported as `vigiles/harness/codex` and registered in `src/adapter-registry.ts`.
  *
  * 🔴 SKILLS LIVE AT `.agents/skills`, NOT `.codex/skills`. This descriptor said
  * `.codex` + `skills` until 2026-09-21 — so the loader read `<root>/skills` and

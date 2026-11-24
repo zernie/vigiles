@@ -106,7 +106,7 @@ export interface EvalMeasurements {
   readonly measureTriggerRate?: TriggerRateSpec;
   /**
    * The N×N skill-selection collision matrix — `measureSelectionMatrix` from
-   * `vigiles/claude-code`. Declared here because a description is a description
+   * `vigiles/harness/claude-code`. Declared here because a description is a description
    * whatever harness answers it; only `eval-entry.ts` resolves it to a runner.
    */
   readonly measureSelectionMatrix?: SelectionMatrixSpec;
@@ -154,7 +154,7 @@ export interface EvalHooks<K extends EvalKind> {
    * Drive the measurement with this harness instead of the real `claude` CLI —
    * the declarative home for the second argument of
    * `measureTriggerRate(spec, { evalDriver })`, e.g. `codexEvalDriver` from
-   * `vigiles/codex`, or a fake runner in a test.
+   * `vigiles/harness/codex`, or a fake runner in a test.
    *
    * ⚠️ `measureTriggerRate` ONLY. That is not a limitation of this shape but of
    * the product as it stands: `measureTriggerRate` is the one measurement with a
