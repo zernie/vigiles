@@ -51,9 +51,8 @@ describe("gate 2: one name, one entry", () => {
    */
   const SHARED: Readonly<Record<string, string>> = {
     experimental_agent:
-      "vigiles/spec is the generic builder; vigiles/claude-code is the same name typed against Claude Code's tool catalog (a `purity` check). Chosen by import path on purpose; renaming one is not a breaking change (experimental_) and is the open decision.",
-    experimental_skill:
-      "same pair as experimental_agent: generic in vigiles/spec, catalog-typed in vigiles/claude-code.",
+      "generic builder in vigiles/spec; vigiles/claude-code re-exports it typed against Claude Code's tool catalog. Goes away with #517 (tools typed from the declared harnesses, not from the import path).",
+    experimental_skill: "same pair as experimental_agent; goes away with #517.",
   };
 
   function homes(): Map<string, string[]> {

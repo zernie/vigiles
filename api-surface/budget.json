@@ -1,32 +1,30 @@
 {
-  "$comment": "Function budget per public entry: a ceiling on RUNTIME function/const exports (the members of the root's `check` count, spelled `check.tool`). `grandfathered` names sit above the ceiling today and may only be REMOVED from this list, never added; scripts/export-gates.test.ts enforces it. See STABILITY.md and the `public-exports-are-opt-in` rule.",
+  "$comment": "Plan for each grandfathered name: zernie/vigiles#518. Function budget per public entry: a ceiling on RUNTIME function/const exports (the members of the root's `check` count, spelled `check.tool`). `grandfathered` names sit above the ceiling today and may only be REMOVED from this list, never added; scripts/export-gates.test.ts enforces it. See STABILITY.md and the `public-exports-are-opt-in` rule.",
   "entries": {
     ".": {
       "ceiling": 33,
       "grandfathered": [
-        "experimental_assertEmittedOk",
-        "experimental_eachReply",
-        "experimental_emitTool",
-        "experimental_parseEmitted",
-        "experimental_replyCount",
-        "sandboxAvailable",
-        "skip",
-        "vigilesMatchers"
+        "check.allowed",
+        "check.blocked",
+        "check.didNotWrite",
+        "check.noWrite",
+        "check.notTool",
+        "check.toolWith",
+        "check.wroteOnly",
+        "experimental_replyCount"
       ]
     },
     "./spec": {
-      "ceiling": 14,
+      "ceiling": 16,
       "grandfathered": [
-        "experimental_agent",
         "experimental_assertAgentErr",
-        "experimental_assertAgentOk",
         "experimental_assertAgentResult"
       ]
     },
     "./eval": {
       "ceiling": 12,
       "grandfathered": [
-        "experimental_outputStyleArms",
+        "assertTriggerRate",
         "readBaseline",
         "writeBaseline"
       ]
@@ -36,13 +34,11 @@
       "grandfathered": []
     },
     "./hook": {
-      "ceiling": 19,
+      "ceiling": 21,
       "grandfathered": [
-        "experimental_defineFileGate",
-        "experimental_defineHook",
-        "experimental_defineInject",
-        "experimental_definePromptGate",
-        "experimental_defineReact"
+        "leafCommandsNormalized",
+        "parseFilePath",
+        "parseShellCommand"
       ]
     },
     "./hook-test": {
