@@ -115,8 +115,8 @@ always run.
 ### Why did my guard fail on a spelling it never saw?
 
 Because the shell runs it the same way. `git push "--force" origin main`,
-`sudo git push --force origin main` and `( git push --force origin main )` all
-force-push; a guard that matches the text `git push --force` lets them through.
+`sudo git push --force origin main`, `( git push --force origin main )` and
+`bash -c 'git push --force origin main'` all force-push; a guard that matches the text `git push --force` lets them through.
 The failure names the spelling (its id ends in `~N`). Decide on the parsed
 command (`vigiles/hook` `runs()`) and every generated spelling passes.
 

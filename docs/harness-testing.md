@@ -237,7 +237,8 @@ event, and throws, naming every case that went the wrong way:
 
 1. **the disaster** — it must block;
 2. **other spellings** the shell runs the same way — `git push "--force"`,
-   `sudo git push --force`, `( git push --force origin main )` — it must block;
+   `sudo git push --force`, `( git push --force origin main )`,
+   `bash -c 'git push --force origin main'` — it must block;
 3. **harmless look-alikes** — the same text as data: a commit message, a heredoc
    body, an `echo` argument, a `grep` pattern — it must allow.
 
@@ -272,7 +273,7 @@ console.log(DISASTER_CATALOG.map((e) => e.input.command));
 ```
 
 **`experimental_alternateSpellings(events)`** — the other spellings of the
-cases you pass; this is what `spellings` defaults to. Seven disasters give 143.
+cases you pass; this is what `spellings` defaults to. Seven disasters give 164.
 
 ```ts
 import { DISASTER_CATALOG, experimental_alternateSpellings } from "vigiles";
