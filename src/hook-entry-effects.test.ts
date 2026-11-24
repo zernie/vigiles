@@ -18,6 +18,11 @@
  *     `STATIC_MODULES`;
  *   - a dynamic load — `import(…)` or `require(…)` — names a string literal from
  *     `LAZY_PACKAGES` (the two lazy parsers the hot path defers);
+ *   - the package is ES modules, so a lazy `require` is made, never received:
+ *     `node:module` may be imported only as `{ createRequire }`, and that may
+ *     appear only as `const require = createRequire(import.meta.url)` — so every
+ *     load still goes through a `require("…")` the rule above checks, and a
+ *     direct `createRequire(x)("anything")` is a finding;
  *   - no module touches `process`, `globalThis`, `eval` or `Function`, the
  *     ambient doors to the loader and the OS.
  * Type-only imports are skipped: they are erased and load nothing.
@@ -29,7 +34,7 @@ import { dirname, relative, resolve } from "node:path";
 import ts from "typescript";
 
 // Vitest runs this file from src/, so __dirname is src/.
-const SRC = __dirname;
+const SRC = import.meta.dirname;
 const ENTRY = resolve(SRC, "entries", "hook.ts");
 
 /** The non-relative modules the entry's graph may import statically. */
@@ -111,6 +116,35 @@ function loadedSpecifier(node: ts.Node): string | undefined {
   return m.text;
 }
 
+/** `import { createRequire } from "node:module"`, exactly: no other binding. */
+function isCreateRequireImport(node: ts.ImportDeclaration): boolean {
+  const clause = node.importClause;
+  const bindings = clause?.namedBindings;
+  const names =
+    bindings !== undefined && ts.isNamedImports(bindings)
+      ? bindings.elements.map((e) => e.getText())
+      : [];
+  return clause?.name === undefined && names.join() === "createRequire";
+}
+
+/** `const require = createRequire(import.meta.url)`, exactly. */
+function isRequireMaker(node: ts.Identifier): boolean {
+  const call = node.parent;
+  if (!ts.isCallExpression(call) || call.expression !== node) return false;
+  const decl = call.parent;
+  return (
+    ts.isVariableDeclaration(decl) &&
+    decl.name.getText() === "require" &&
+    call.arguments.map((a) => a.getText()).join() === "import.meta.url"
+  );
+}
+
+function checkCreateRequire(node: ts.Node, file: string, out: Finding[]): void {
+  if (!ts.isIdentifier(node) || node.text !== "createRequire") return;
+  if (ts.isImportSpecifier(node.parent) || isRequireMaker(node)) return;
+  out.push({ file, what: `createRequire use: ${node.parent.getText()}` });
+}
+
 function checkSpecifier(
   spec: string,
   file: string,
@@ -125,6 +159,25 @@ function checkSpecifier(
   }
 }
 
+/** A static import or re-export: `node:module` only as `{ createRequire }`. */
+function checkLoad(
+  node: ts.Node,
+  at: {
+    readonly file: string;
+    readonly next: string[];
+    readonly out: Finding[];
+  },
+): void {
+  const { file, next, out } = at;
+  const spec = loadedSpecifier(node);
+  if (spec === undefined) return;
+  if (spec !== "node:module") {
+    checkSpecifier(spec, file, next, out);
+  } else if (!ts.isImportDeclaration(node) || !isCreateRequireImport(node)) {
+    out.push({ file, what: `import of node:module: ${node.getText()}` });
+  }
+}
+
 /** Check one module; return the relative modules it imports. */
 function checkModule(file: string, out: Finding[]): string[] {
   const sf = ts.createSourceFile(
@@ -135,8 +188,8 @@ function checkModule(file: string, out: Finding[]): string[] {
   );
   const next: string[] = [];
   const visit = (node: ts.Node): void => {
-    const spec = loadedSpecifier(node);
-    if (spec !== undefined) checkSpecifier(spec, file, next, out);
+    checkLoad(node, { file, next, out });
+    checkCreateRequire(node, file, out);
     if (ts.isCallExpression(node)) checkCall(node, file, out);
     if (
       ts.isIdentifier(node) &&

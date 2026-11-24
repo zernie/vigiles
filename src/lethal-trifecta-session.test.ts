@@ -47,7 +47,7 @@ import { defaultSeverities, type ScanInput } from "./core/rule.js";
 import { ruleResolver } from "./overrides.js";
 import { RULES, RULE_GROUPS } from "./rules/index.js";
 
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 
 const shown = <S extends ScanInput>(scan: S) =>
   applyRules(RULES, RULE_GROUPS, ruleResolver(defaultSeverities(RULES)), scan);

@@ -178,9 +178,7 @@ test("when the WASM runtime cannot load, .py/.rb/.rs say 'not checked: <error>' 
       .join("\n");
     writeFileSync(
       probe,
-      // refs.ts is CommonJS under tsx: from an ES module its exports arrive on `default`.
-      `import refs from ${JSON.stringify(resolve("src/core/refs.ts"))};\n` +
-        `const { verifySymbolRefs } = refs;\n` +
+      `import { verifySymbolRefs } from ${JSON.stringify(resolve("src/core/refs.ts"))};\n` +
         `const errors = await verifySymbolRefs(${JSON.stringify(md)}, ${JSON.stringify(dir)});\n` +
         `console.log(JSON.stringify(errors.map((e) => e.file + "#" + e.symbol + " :: " + e.reason)));\n`,
     );

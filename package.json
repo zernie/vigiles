@@ -1,6 +1,7 @@
 {
   "name": "vigiles",
   "version": "0.0.0-semantically-released",
+  "type": "module",
   "description": "Audit, test and measure the harness your AI agent runs on — grade your CLAUDE.md / AGENTS.md, skills, subagents and hooks, run them against a scripted model, and measure whether they actually fire.",
   "keywords": [
     "claude-code",
@@ -38,25 +39,70 @@
   "main": "./dist/entries/index.js",
   "types": "./dist/entries/index.d.ts",
   "exports": {
-    ".": "./dist/entries/index.js",
-    "./spec": "./dist/entries/spec.js",
-    "./eval": "./dist/entries/eval.js",
-    "./rule-proof": "./dist/entries/rule-proof.js",
-    "./hook": "./dist/entries/hook.js",
-    "./hook/testing": "./dist/entries/hook/testing.js",
-    "./fixtures": "./dist/entries/fixtures.js",
-    "./harness/claude-code": "./dist/entries/harness/claude-code.js",
-    "./harness/codex": "./dist/entries/harness/codex.js",
-    "./harness/kit": "./dist/entries/harness/kit.js",
+    ".": {
+      "types": "./dist/entries/index.d.ts",
+      "import": "./dist/entries/index.js",
+      "require": "./dist/cjs/entries/index.cjs"
+    },
+    "./spec": {
+      "types": "./dist/entries/spec.d.ts",
+      "import": "./dist/entries/spec.js",
+      "require": "./dist/cjs/entries/spec.cjs"
+    },
+    "./eval": {
+      "types": "./dist/entries/eval.d.ts",
+      "import": "./dist/entries/eval.js",
+      "require": "./dist/cjs/entries/eval.cjs"
+    },
+    "./rule-proof": {
+      "types": "./dist/entries/rule-proof.d.ts",
+      "import": "./dist/entries/rule-proof.js",
+      "require": "./dist/cjs/entries/rule-proof.cjs"
+    },
+    "./hook": {
+      "types": "./dist/entries/hook.d.ts",
+      "import": "./dist/entries/hook.js",
+      "require": "./dist/cjs/entries/hook.cjs"
+    },
+    "./hook/testing": {
+      "types": "./dist/entries/hook/testing.d.ts",
+      "import": "./dist/entries/hook/testing.js",
+      "require": "./dist/cjs/entries/hook/testing.cjs"
+    },
+    "./fixtures": {
+      "types": "./dist/entries/fixtures.d.ts",
+      "import": "./dist/entries/fixtures.js",
+      "require": "./dist/cjs/entries/fixtures.cjs"
+    },
+    "./harness/claude-code": {
+      "types": "./dist/entries/harness/claude-code.d.ts",
+      "import": "./dist/entries/harness/claude-code.js",
+      "require": "./dist/cjs/entries/harness/claude-code.cjs"
+    },
+    "./harness/codex": {
+      "types": "./dist/entries/harness/codex.d.ts",
+      "import": "./dist/entries/harness/codex.js",
+      "require": "./dist/cjs/entries/harness/codex.cjs"
+    },
+    "./harness/kit": {
+      "types": "./dist/entries/harness/kit.d.ts",
+      "import": "./dist/entries/harness/kit.js",
+      "require": "./dist/cjs/entries/harness/kit.cjs"
+    },
     "./vitest": {
       "types": "./dist/vitest.d.mts",
       "default": "./dist/vitest.mjs"
     },
-    "./jest": "./dist/jest.js"
+    "./jest": {
+      "types": "./dist/jest.d.ts",
+      "import": "./dist/jest.js",
+      "require": "./dist/cjs/jest.cjs"
+    }
   },
   "files": [
     "dist/**/*.js",
     "dist/**/*.mjs",
+    "dist/**/*.cjs",
     "dist/**/*.d.ts",
     "dist/**/*.d.mts",
     "dist/audit-report.template.html",
@@ -75,7 +121,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsc && node scripts/build-config-schema.mjs && node scripts/build-report.mjs",
+    "build": "tsc && node scripts/build-cjs.mjs && node scripts/build-config-schema.mjs && node scripts/build-report.mjs",
     "build:core": "tsc",
     "test": "npm run build && vitest run",
     "coverage": "npm run build && vitest run --coverage",
@@ -115,6 +161,7 @@
     "@typescript-eslint/parser": "^8.58.0",
     "@vitest/coverage-v8": "^4.1.8",
     "conventional-changelog-conventionalcommits": "9.3.1",
+    "esbuild": "^0.27.7",
     "eslint": "^10.1.0",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-boundaries": "^7.2.0",
@@ -157,5 +204,8 @@
     "ts-essentials": "^10.2.1",
     "typescript": "^5.9.3",
     "zod": "^4.6.5"
+  },
+  "engines": {
+    "node": "^20.19.0 || >=22.12.0"
   }
 }

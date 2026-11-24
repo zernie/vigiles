@@ -490,7 +490,7 @@ test("the rail the hook enforces is exactly the declared contract (round-trip)",
 // Requires the build (npm test / coverage build it first), like src/cli.test.ts.
 // ---------------------------------------------------------------------------
 
-const CLI = resolve(__dirname, "..", "..", "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "..", "..", "dist", "cli.js");
 
 /** Set up a temp project with a compiled agent and mark it active. */
 async function projectWithActiveAgent(tools: string[]): Promise<string> {
@@ -643,7 +643,7 @@ test("agent-hook CLI allows on a malformed/empty event (no tool name)", async ()
 // ---------------------------------------------------------------------------
 
 const REAL_AGENT = join(
-  __dirname,
+  import.meta.dirname,
   "../../../test/dogfood/wshobson-accessibility@cf6059d/agents/ui-visual-validator.md",
 );
 

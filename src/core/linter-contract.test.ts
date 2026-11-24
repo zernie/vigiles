@@ -24,7 +24,7 @@ const ALL_LINTERS = BUILTIN_LINTERS;
 /** Lowercased linter names from the `## Supported Linters` table. */
 function docLinterNames(): Set<string> {
   const md = readFileSync(
-    resolve(__dirname, "../../docs/linter-support.md"),
+    resolve(import.meta.dirname, "../../docs/linter-support.md"),
     "utf8",
   );
   const section = md.split("## Supported Linters")[1]?.split("\n## ")[0] ?? "";

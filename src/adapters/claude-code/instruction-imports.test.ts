@@ -32,7 +32,7 @@ import { scanPlugin, type ScanReport } from "../../scan.js";
 import { claudeCodeDialect } from "./dialect.js";
 import { claudeCodeLayout } from "./layout.js";
 
-const CLI = resolve(__dirname, "..", "..", "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "..", "..", "dist", "cli.js");
 /** The rule, asked of the set by its detector — never spelled. */
 const RULE_ID =
   RULES.find((r) => r.detector === unresolvedImports.name)?.id ?? "";

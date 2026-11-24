@@ -1551,9 +1551,6 @@
     }
   },
   "src/cli.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 2
-    },
     "max-statements": {
       "count": 1
     },
@@ -3330,7 +3327,7 @@
       "count": 12
     },
     "boundaries/dependencies": {
-      "count": 4
+      "count": 3
     },
     "complexity": {
       "count": 2
@@ -4457,7 +4454,7 @@
       "count": 2
     },
     "boundaries/dependencies": {
-      "count": 2
+      "count": 1
     },
     "functional/immutable-data": {
       "count": 4

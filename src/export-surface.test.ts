@@ -26,7 +26,7 @@ import * as spec from "./entries/spec.js";
 import * as adapter from "./entries/harness/kit.js";
 
 // Vitest runs this file from src/, so __dirname is src/.
-const SRC = __dirname;
+const SRC = import.meta.dirname;
 const ROOT = resolve(SRC, "..");
 
 const has = (door: object, name: string): boolean => name in door;
@@ -42,7 +42,17 @@ test("package.json exports: every entry module mirrors its export path under src
   for (const [key, value] of Object.entries(map)) {
     if (MATCHER_ENTRIES.has(key)) continue;
     const mirrored = key === "." ? "index" : key.slice(2);
-    assert.equal(value, `./dist/entries/${mirrored}.js`, key);
+    // The ES module, its types, and the CommonJS copy test runners `require`
+    // (scripts/build-cjs.mjs) all sit at the same mirrored path.
+    assert.deepEqual(
+      value,
+      {
+        types: `./dist/entries/${mirrored}.d.ts`,
+        import: `./dist/entries/${mirrored}.js`,
+        require: `./dist/cjs/entries/${mirrored}.cjs`,
+      },
+      key,
+    );
   }
   // v51 moved these; a flat spelling of any of them would be an alias.
   for (const gone of ["linting", "battery", "hook-test", "adapter"]) {

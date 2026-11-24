@@ -92,7 +92,10 @@ test("parseSubagents recovers a subagent's nested tool calls by parent_tool_use_
  * its request count are the same number by construction.
  */
 test("harness-test.ts never derives turns from requests.length (both paths, one meaning)", () => {
-  const src = readFileSync(join(__dirname, "harness-test.ts"), "utf-8");
+  const src = readFileSync(
+    join(import.meta.dirname, "harness-test.ts"),
+    "utf-8",
+  );
   const code = src
     .split("\n")
     .map((l) => l.replace(/\/\/.*$/, ""))
@@ -664,7 +667,10 @@ maybe("with no tools a scripted Skill call launches the skill", async () => {
   const r = await runHarnessTest({
     sandbox: false,
     transcript: true,
-    pluginDir: join(__dirname, "../examples/harness/fixture-skill-plugin"),
+    pluginDir: join(
+      import.meta.dirname,
+      "../examples/harness/fixture-skill-plugin",
+    ),
     settings: { permissions: { allow: ["Skill"] } },
     model: [
       { tool: "Skill", input: { skill: "demo:greet" } },
@@ -841,7 +847,7 @@ maybe(
   async () => {
     // __dirname is dist/ at runtime; the fixture lives at the repo root.
     const pluginDir = join(
-      __dirname,
+      import.meta.dirname,
       "../examples/harness/fixture-skill-plugin",
     );
     const r = await runHarnessTest({
@@ -886,7 +892,7 @@ for (const [label, dir, skill] of [
 ] as const) {
   maybe(`a real ${label} skill resolves via --plugin-dir`, async () => {
     const r = await runHarnessTest({
-      pluginDir: join(__dirname, dir),
+      pluginDir: join(import.meta.dirname, dir),
       sandbox: false, // pinned vendored plugin we audited → trusted, run direct
       allowedTools: ["Read", "Edit", "Write", "Bash", "Skill"],
       transcript: true,

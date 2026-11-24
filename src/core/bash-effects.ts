@@ -1,4 +1,6 @@
-/**
+import { createRequire } from "node:module";
+// ES module: `require` does not exist; this one keeps the lazy, synchronous loads.
+const require = createRequire(import.meta.url); /**
  * Deterministic, no-LLM Bash effect classifier.
  *
  * Classifies a Bash command string into a three-way verdict:

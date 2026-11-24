@@ -16,7 +16,7 @@ import { tmpdir } from "node:os";
 import { runHook } from "./run-hook.js";
 
 const SCRIPT = resolve(
-  __dirname,
+  import.meta.dirname,
   "..",
   ".claude/hooks/session-handoff-check.sh",
 );

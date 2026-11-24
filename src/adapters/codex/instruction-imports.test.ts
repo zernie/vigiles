@@ -17,7 +17,7 @@ import { scanPlugin } from "../../scan.js";
 import { codexDialect } from "./dialect.js";
 import { codexLayout } from "./layout.js";
 
-const CLI = resolve(__dirname, "..", "..", "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "..", "..", "dist", "cli.js");
 const FILES = { "AGENTS.md": "# Project\n\n@docs/missing.md\n" } as const;
 
 let dir = "";

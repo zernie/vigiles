@@ -37,7 +37,7 @@ import {
   humanCliEnv,
 } from "../../core/test-utils.js";
 
-const REPO = resolve(__dirname, "..", "..", "..");
+const REPO = resolve(import.meta.dirname, "..", "..", "..");
 const CLI = join(REPO, "dist", "cli.js");
 
 function write(dir: string, rel: string, content: string): void {

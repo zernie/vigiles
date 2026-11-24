@@ -177,10 +177,9 @@ async function dispatch(): Promise<void> {
     // Never through `die`, which exits 2: on this path 2 means "the hook
     // denied", and a runtime that cannot even load is a failure, not a verdict.
     // `runHookProgramCommand` catches everything below it; this catches the
-    // `require` itself.
+    // `import` itself.
     try {
-      const { runHookProgramCommand } =
-        require("./hook-runtime.js") as typeof import("./hook-runtime.js");
+      const { runHookProgramCommand } = await import("./hook-runtime.js");
       await runHookProgramCommand(rest[1]);
     } catch (e) {
       await reportRuntimeLoadFailure(rest[1], e);
@@ -193,7 +192,7 @@ async function dispatch(): Promise<void> {
     return;
   }
 
-  const { main } = require("./cli-main.js") as typeof import("./cli-main.js");
+  const { main } = await import("./cli-main.js");
   await main();
 }
 

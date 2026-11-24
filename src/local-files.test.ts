@@ -428,7 +428,7 @@ describe("the tracked-file warning", () => {
  */
 function namedVigilesPaths(): { seg: string; where: string }[] {
   const out: { seg: string; where: string }[] = [];
-  const srcRoot = __dirname;
+  const srcRoot = import.meta.dirname;
   const files: string[] = [];
   const walk = (d: string): void => {
     for (const e of readdirSync(d, { withFileTypes: true })) {

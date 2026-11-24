@@ -24,7 +24,7 @@ import { claudeCodeLayout } from "./adapters/claude-code/layout.js";
 import { claudeCodeDialect } from "./adapters/claude-code/dialect.js";
 
 // __dirname is dist/ at runtime; the vendored plugins live at the repo root.
-const VENDOR = resolve(__dirname, "..", "test/dogfood");
+const VENDOR = resolve(import.meta.dirname, "..", "test/dogfood");
 
 /** The vendored dir whose name starts with `prefix` (SHA-suffix agnostic). */
 function vendored(prefix: string): string {

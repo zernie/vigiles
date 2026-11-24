@@ -235,7 +235,7 @@ describe("skill facts contract (every implementation, shipped and prototype)", (
 
 describe("adapter registry is complete", () => {
   it("every src/adapters/<dir> is registered in ADAPTERS (or a declared prototype)", () => {
-    const dirs = readdirSync(resolve(__dirname, "adapters"), {
+    const dirs = readdirSync(resolve(import.meta.dirname, "adapters"), {
       withFileTypes: true,
     })
       .filter((e) => e.isDirectory())
@@ -273,7 +273,9 @@ describe("adapter registry is complete", () => {
     // not otherwise checked for PROTOTYPES — the registered half is covered by
     // the completeness test above.
     const dirs = new Set(
-      readdirSync(resolve(__dirname, "adapters"), { withFileTypes: true })
+      readdirSync(resolve(import.meta.dirname, "adapters"), {
+        withFileTypes: true,
+      })
         .filter((e) => e.isDirectory())
         .map((e) => e.name),
     );

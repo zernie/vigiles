@@ -52,7 +52,7 @@ import { join, resolve, dirname } from "node:path";
 // scripts/ is outside the tsc build; copying that idiom into src/ breaks the
 // build while `vitest` stays green, since vitest strips types and never
 // typechecks. That is exactly how this line shipped red the first time.
-const REPO = resolve(__dirname, "..");
+const REPO = resolve(import.meta.dirname, "..");
 const EXAMPLES = join(REPO, "examples");
 
 function walk(dir: string, out: string[] = []): string[] {

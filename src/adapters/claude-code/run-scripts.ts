@@ -399,7 +399,7 @@ export async function runScripts(
       // entire dependency tree (measured at 840 packages against vigiles' 42,
       // #184). Only rescues that specifier, and only after normal resolution
       // fails, so a locally installed copy still wins.
-      const selfRoot = resolve(__dirname, "..", "..", "..");
+      const selfRoot = resolve(import.meta.dirname, "..", "..", "..");
       const hook = pathToFileURL(
         join(selfRoot, "dist", "harness-resolve-hooks.mjs"),
       ).href;

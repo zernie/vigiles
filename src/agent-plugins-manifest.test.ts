@@ -22,7 +22,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 // __dirname is dist/ at runtime; the manifests live at the repo root.
-const ROOT = resolve(__dirname, "..");
+const ROOT = resolve(import.meta.dirname, "..");
 
 /** The canonical `$schema` identifier for the spec version we target. */
 const PLUGIN_SCHEMA =

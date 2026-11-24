@@ -58,7 +58,7 @@ describe("findUndocumentedVerbs", () => {
 
 // --- The repo dogfood -------------------------------------------------------
 
-const ROOT = resolve(__dirname, "..");
+const ROOT = resolve(import.meta.dirname, "..");
 
 /** Every `docs/**\/*.md` file, recursively. */
 function gatherDocs(): { path: string; content: string }[] {

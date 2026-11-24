@@ -1574,7 +1574,10 @@ test("effect surface: puritySummary is in the JSON shape (ScanReport)", () => {
 });
 
 // __dirname is dist/ at runtime; the fixture server lives at the repo root.
-const FIXTURE = join(__dirname, "../examples/harness/fixture-mcp-server.mjs");
+const FIXTURE = join(
+  import.meta.dirname,
+  "../examples/harness/fixture-mcp-server.mjs",
+);
 
 test("verifyLiveMcpTools: flags a tool absent from the live server (with a did-you-mean)", async () => {
   const dir = makeTmpDir("scan-verify-mcp");

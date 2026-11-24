@@ -42,7 +42,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 
-const ROOT = resolve(__dirname, "..");
+const ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(ROOT, "dist", "cli.js");
 const SPEC_JS = resolve(ROOT, "dist", "core", "spec.js");
 const SENTINEL = "ZEBRA_SENTINEL";
@@ -282,7 +282,7 @@ describe("exclude e2e — control: `exclude: []` makes every row FIRE", () => {
  * Reading the shim here would scan a 90-line file with no walks in it and pass
  * vacuously — the exact failure mode this gate exists to prevent.
  */
-const CLI_SRC = readFileSync(join(__dirname, "cli-main.ts"), "utf-8");
+const CLI_SRC = readFileSync(join(import.meta.dirname, "cli-main.ts"), "utf-8");
 
 function argsOfCalls(name: string): string[] {
   const out: string[] = [];

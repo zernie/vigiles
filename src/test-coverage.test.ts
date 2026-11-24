@@ -1613,7 +1613,7 @@ test("silent: THIS repo — a real TypeScript project that CAN run TS — still 
   // local `tsx`, so the capability gate must be invisible here. If this ever flips
   // to `.mjs`, the gate has started punishing TypeScript repos instead of
   // protecting the ones with no runner.
-  const repoRoot = join(__dirname, "..");
+  const repoRoot = join(import.meta.dirname, "..");
   assert.equal(canRunTypeScript(detectNodeCaps(repoRoot)), true);
   assert.equal(
     findUntestedSurfaces({ layout: claudeCodeLayout, basePath: repoRoot })

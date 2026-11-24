@@ -102,4 +102,14 @@ export const aliases: Record<string, string> = {
   "node:zlib": fileURLToPath(
     new URL("./src/lib/zlib-shim.ts", import.meta.url),
   ),
+  // The engine's lazy `createRequire(import.meta.url)("…")` loads (ES modules).
+  "node:module": fileURLToPath(
+    new URL("./src/lib/module-shim.ts", import.meta.url),
+  ),
+  // An ES module import must resolve at build time, used or not: `basename` and
+  // `sep` get a real browser implementation, `createHash` a stub that names itself.
+  "node:path": "pathe",
+  "node:crypto": fileURLToPath(
+    new URL("./src/lib/crypto-shim.ts", import.meta.url),
+  ),
 };

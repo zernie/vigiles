@@ -282,7 +282,7 @@ export function declarationProblem(d: {
 }
 
 /* v8 ignore start -- the process entry: exercised end-to-end through child processes in eval-entry.test.ts */
-async function main(): Promise<void> {
+export async function main(): Promise<void> {
   const file = process.argv[2];
   if (file === undefined) {
     console.error(
@@ -344,9 +344,7 @@ async function main(): Promise<void> {
   );
 }
 
-// Only when this module IS the program. Importing it must start nothing either —
-// the property this whole change is about applies to the runner as much as to the
-// files it runs. (This module is emitted as CommonJS; `require.main` is the CJS
-// spelling of "am I the program", and it is exact rather than a path comparison.)
-if (require.main === module) void main();
+// This module starts nothing when imported: `src/eval-program.ts` is the
+// program `vigiles eval` spawns, and all it does is call `main`. (An ES module
+// has no `require.main` to tell "imported" from "run", so the two are files.)
 /* v8 ignore stop */

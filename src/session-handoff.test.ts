@@ -20,7 +20,11 @@ import { tmpdir } from "node:os";
 import { runHook } from "./run-hook.js";
 
 // __dirname is src/ when vitest resolves the .ts source → ".." is the repo root.
-const SCRIPT = resolve(__dirname, "..", ".claude/hooks/session-handoff.sh");
+const SCRIPT = resolve(
+  import.meta.dirname,
+  "..",
+  ".claude/hooks/session-handoff.sh",
+);
 const CMD = `bash ${SCRIPT}`;
 
 test("present HANDOFF.md → injected as SessionStart additionalContext", () => {

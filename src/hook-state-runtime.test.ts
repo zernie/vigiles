@@ -26,7 +26,7 @@ import { spawnSync } from "node:child_process";
 
 import { makeTmpDir } from "./core/test-utils.js";
 
-const REPO_ROOT = resolve(__dirname, "..");
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
 
 /** Records a fact when an MCP calendar tool ran — the WITNESS half. */

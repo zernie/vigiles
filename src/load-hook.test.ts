@@ -24,7 +24,7 @@ import { HookCompileError } from "./core/hook-program.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 const HOOK_DIST = pathToFileURL(
-  resolve(__dirname, "..", "dist", "entries/hook.js"),
+  resolve(import.meta.dirname, "..", "dist", "entries/hook.js"),
 ).href;
 
 const GATE = `import { experimental_defineHook, tool, deny, allow } from "${HOOK_DIST}";
@@ -120,7 +120,7 @@ test("loadHook: an unimportable file reports WHY, not just that it failed", asyn
  * built loader runs in a child `node`, as `vigiles hook-runtime` does.
  */
 function loadInNode(file: string): string {
-  const loader = resolve(__dirname, "..", "dist", "load-hook.js");
+  const loader = resolve(import.meta.dirname, "..", "dist", "load-hook.js");
   const script =
     `require(${JSON.stringify(loader)}).experimental_loadHook(${JSON.stringify(file)})` +
     `.then(() => console.log("loaded"), (e) => console.log(e.message));`;

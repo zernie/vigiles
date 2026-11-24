@@ -26,7 +26,7 @@ import { describe, expect, it } from "vitest";
 // snapshot is written by a root tool and asserted here, so it lives at the root and the
 // site imports it through the `@measured/…` alias. Guarded by src/ci-path-filter.test.ts.
 const SNAPSHOT = resolve(
-  __dirname,
+  import.meta.dirname,
   "..",
   "tools/measured/validate-overlap.json",
 );

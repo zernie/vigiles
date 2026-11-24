@@ -29,7 +29,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 
-const ROOT = resolve(__dirname, "..");
+const ROOT = resolve(import.meta.dirname, "..");
 const RELEASE = resolve(ROOT, ".github", "workflows", "release.yml");
 // The verb barrel, where `init`'s workflow template lives. `src/cli.ts` is only
 // the dispatcher shim since #216 and emits no Action ref at all.

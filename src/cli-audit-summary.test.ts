@@ -28,7 +28,7 @@ import { lastAuditRecord } from "./core/last-audit.js";
 import { enumerateEslintCatalog } from "./core/rule-catalog.js";
 import { LAST_AUDIT_FILE, VIGILES_DIR } from "./local-files.js";
 
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 
 /**
  * The environment of a person's terminal. ci-info treats `CI=false` as "not CI"

@@ -27,12 +27,27 @@ import { execFileSync, spawnSync } from "node:child_process";
 import { initGitRepo, makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
 // __dirname is src/ when vitest resolves the .ts source → ".." is the repo root.
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
-const RUN_HOOK = resolve(__dirname, "..", "dist", "run-hook.js");
-const LOAD_HOOK = resolve(__dirname, "..", "dist", "load-hook.js");
-const ASSERT = resolve(__dirname, "..", "dist", "entries/hook/testing.js");
-const HOOK_ENTRY = resolve(__dirname, "..", "dist", "entries/hook.js");
-const ROOT_ENTRY = resolve(__dirname, "..", "dist", "entries/index.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
+const RUN_HOOK = resolve(import.meta.dirname, "..", "dist", "run-hook.js");
+const LOAD_HOOK = resolve(import.meta.dirname, "..", "dist", "load-hook.js");
+const ASSERT = resolve(
+  import.meta.dirname,
+  "..",
+  "dist",
+  "entries/hook/testing.js",
+);
+const HOOK_ENTRY = resolve(
+  import.meta.dirname,
+  "..",
+  "dist",
+  "entries/hook.js",
+);
+const ROOT_ENTRY = resolve(
+  import.meta.dirname,
+  "..",
+  "dist",
+  "entries/index.js",
+);
 
 let dir: string;
 
@@ -452,7 +467,7 @@ test("a colocated harness that reported checks is MEASURED BY A RUN", () => {
   write(
     ".claude/skills/arc/arc.harness.mjs",
     `import { recordCheck } from ${JSON.stringify(
-      resolve(__dirname, "..", "dist", "check-count.js"),
+      resolve(import.meta.dirname, "..", "dist", "check-count.js"),
     )};\nrecordCheck();\n`,
   );
   vigilesTest();

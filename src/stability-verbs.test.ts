@@ -21,7 +21,7 @@ import { resolve } from "node:path";
 
 import { VERBS } from "./cli-commands.js";
 
-const STABILITY = resolve(__dirname, "..", "STABILITY.md");
+const STABILITY = resolve(import.meta.dirname, "..", "STABILITY.md");
 
 /** The backticked words in the "the verbs (…)" clause. */
 function listedVerbs(md: string): string[] {

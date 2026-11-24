@@ -17,10 +17,12 @@
  * every machine. The NUMBERS live in `tools/measure-hook-startup.mjs`, which is
  * run by hand and re-measured rather than trusted.
  *
- * HOW IT OBSERVES: a `--require` preload dumps `Object.keys(require.cache)` on
- * exit of the REAL spawned CLI. The whole dist is CommonJS, so that cache IS the
- * graph — including the modules pulled in lazily DURING the decision, which is
- * exactly what a static import scan would miss.
+ * HOW IT OBSERVES: an `--import` preload on the REAL spawned CLI records both
+ * module systems. The dist is ES modules, so a loader hook (`module.register`)
+ * appends every module URL Node resolves; the libraries still loaded lazily
+ * through `createRequire` land in `require.cache`, dumped on exit. Together that
+ * IS the graph — including the modules pulled in lazily DURING the decision,
+ * which is exactly what a static import scan would miss.
  *
  * BOTH DIRECTIONS ARE ASSERTED, because an "is absent" test that can only ever
  * pass is worth nothing:
@@ -40,11 +42,11 @@ import { describe, test, expect, beforeAll, afterAll } from "vitest";
 import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync, readFileSync } from "node:fs";
 import { resolve, join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 import { encodeStub } from "./core/stub-rules.js";
 
-const REPO_ROOT = resolve(__dirname, "..");
+const REPO_ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
 /** The built `vigiles/hook` entry, as a file URL a tmpdir fixture can import. */
 const HOOK_DIST = pathToFileURL(
@@ -57,10 +59,26 @@ const BASH_GATE = resolve(
   "examples/harness/safe-bash-guard.hook.mjs",
 );
 
-const PROBE = `const fs = require("node:fs");
+// Runs in the loader thread: every module URL Node resolves, as it resolves it.
+const HOOKS = `import { appendFileSync } from "node:fs";
+export async function resolve(specifier, context, next) {
+  const resolved = await next(specifier, context);
+  appendFileSync(process.env.VIGILES_GRAPH_OUT, resolved.url + "\\n");
+  return resolved;
+}
+`;
+
+// Runs in the CLI's own thread before it starts: registers the hooks, and on
+// exit adds the CommonJS modules `createRequire` loaded.
+const PROBE = (
+  hooks: string,
+): string => `import { appendFileSync } from "node:fs";
+import { createRequire, register } from "node:module";
+register(${JSON.stringify(hooks)});
+const cache = createRequire(import.meta.url).cache;
 process.on("exit", () => {
   try {
-    fs.writeFileSync(process.env.VIGILES_GRAPH_OUT, Object.keys(require.cache).join("\\n"));
+    appendFileSync(process.env.VIGILES_GRAPH_OUT, Object.keys(cache).join("\\n") + "\\n");
   } catch {}
 });
 `;
@@ -70,23 +88,29 @@ let probe: string;
 
 beforeAll(() => {
   dir = makeTmpDir();
-  probe = join(dir, "probe.cjs");
-  writeFileSync(probe, PROBE);
+  const hooks = join(dir, "hooks.mjs");
+  writeFileSync(hooks, HOOKS);
+  probe = join(dir, "probe.mjs");
+  writeFileSync(probe, PROBE(pathToFileURL(hooks).href));
 });
 
 afterAll(() => {
   cleanupTmpDir(dir);
 });
 
-/** Run the REAL built CLI under the preload; return the CJS modules it loaded. */
+/** Run the REAL built CLI under the preload; return the modules it loaded. */
 function graphOf(args: string[], stdin = ""): string[] {
   const out = join(dir, `graph-${Math.random().toString(36).slice(2)}.txt`);
-  const res = spawnSync(process.execPath, ["-r", probe, CLI, ...args], {
-    cwd: REPO_ROOT,
-    input: stdin,
-    encoding: "utf-8",
-    env: { ...process.env, VIGILES_GRAPH_OUT: out },
-  });
+  const res = spawnSync(
+    process.execPath,
+    ["--import", pathToFileURL(probe).href, CLI, ...args],
+    {
+      cwd: REPO_ROOT,
+      input: stdin,
+      encoding: "utf-8",
+      env: { ...process.env, VIGILES_GRAPH_OUT: out },
+    },
+  );
   // A hook that failed to LOAD exits 2 in milliseconds and loads almost nothing
   // — which would make every "is absent" assertion below pass for the wrong
   // reason. Refuse to read a graph the run did not really produce.
@@ -94,7 +118,14 @@ function graphOf(args: string[], stdin = ""): string[] {
     res.status,
     `the probed run did not decide (exit ${String(res.status)}): ${res.stderr}`,
   ).toBe(0);
-  return readFileSync(out, "utf-8").split("\n").filter(Boolean);
+  // One entry per module FILE, as `require.cache` listed them: the hook reports
+  // a module once per import site, and Node built-ins (`node:fs`) were never in
+  // the cache, so neither counts.
+  const files = readFileSync(out, "utf-8")
+    .split("\n")
+    .filter((m) => m !== "" && !m.startsWith("node:"))
+    .map((m) => (m.startsWith("file:") ? fileURLToPath(m) : m));
+  return [...new Set(files)];
 }
 
 const has = (graph: string[], needle: string): boolean =>

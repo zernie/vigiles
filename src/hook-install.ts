@@ -36,6 +36,9 @@ import {
 } from "./core/hook-command.js";
 import { HOOKS_DIR } from "./core/hook-paths.js";
 import type { HookFailurePolicy } from "./core/hook-protocol.js";
+import { createRequire } from "node:module";
+// ES module: `require` does not exist; this one keeps the lazy, synchronous loads.
+const require = createRequire(import.meta.url);
 
 /**
  * Lazy for the same reason as in `core/hook-program.ts` — and this module is

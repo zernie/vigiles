@@ -28,7 +28,7 @@ import * as specApi from "../core/spec.js";
 import * as testApi from "../entries/index.js";
 import { RULES, RULE_GROUPS } from "./index.js";
 
-const REPO = join(__dirname, "..", "..");
+const REPO = join(import.meta.dirname, "..", "..");
 const RULES_DOC_DIR = join(REPO, "docs", "rules");
 const RULES_MATRIX = join(REPO, "docs", "verifying-instruction-files.md");
 const CONFIG = configFor(RULES, RULE_GROUPS);

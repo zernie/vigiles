@@ -155,7 +155,10 @@ export default experimental_defineHook({ on: "PreToolUse",  decide: () => { cp.e
 /** Every entry of package.json `exports` spelled as an import specifier. */
 function publishedEntries(): string[] {
   const pkg: unknown = JSON.parse(
-    readFileSync(join(__dirname, "..", "..", "package.json"), "utf-8"),
+    readFileSync(
+      join(import.meta.dirname, "..", "..", "package.json"),
+      "utf-8",
+    ),
   );
   const keys =
     typeof pkg === "object" &&

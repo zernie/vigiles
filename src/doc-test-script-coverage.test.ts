@@ -67,7 +67,7 @@ describe("findUndocumentedTestScripts", () => {
 
 // --- The repo dogfood -------------------------------------------------------
 
-const ROOT = resolve(__dirname, "..");
+const ROOT = resolve(import.meta.dirname, "..");
 
 describe("repo dogfood: every test tier is on the CONTRIBUTING map", () => {
   it("names every `test:*` script in CONTRIBUTING.md", () => {

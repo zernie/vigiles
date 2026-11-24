@@ -1,4 +1,6 @@
-/**
+import { createRequire } from "node:module";
+// ES module: `require` does not exist; this one keeps the lazy, synchronous loads.
+const require = createRequire(import.meta.url); /**
  * Which environment variables a shell command actually DEPENDS ON — the
  * parser-backed answer to "would this command run the same program here?".
  *

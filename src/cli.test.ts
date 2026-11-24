@@ -21,7 +21,7 @@ import { execSync } from "node:child_process";
 
 import { findKeyFilesInSpecSource } from "./core/keyfiles-source.js";
 
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 
 function run(
   args: string,
@@ -2231,11 +2231,11 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
 
   it("eval: a DESCRIPTION is run through the entry, and an unmigrated file is told what to do", () => {
     // Re-probing the product, not the unit: `vigiles eval` has to interpose
-    // `dist/eval-entry.js`. Without it the eval file becomes the program again
+    // `dist/eval-program.js`. Without it the eval file becomes the program again
     // and every migrated file refuses itself — the defect in a new place.
     const dir = mkdtempSync(join(tmpdir(), "vigiles-desc-"));
     const distTest = JSON.stringify(
-      resolve(__dirname, "..", "dist", "entries/index.js"),
+      resolve(import.meta.dirname, "..", "dist", "entries/index.js"),
     );
     try {
       writeFileSync(
@@ -2269,7 +2269,7 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
       // for one — that is the shape eval files no longer have.
       writeFileSync(
         join(dir, "a.eval.mjs"),
-        `import { defineEval } from ${JSON.stringify(resolve(__dirname, "..", "dist", "entries/index.js"))};\n` +
+        `import { defineEval } from ${JSON.stringify(resolve(import.meta.dirname, "..", "dist", "entries/index.js"))};\n` +
           `export default defineEval({ measure: { task: "t", checks: [] }, skipIf: () => "no model in this test" });\n`,
       );
       // a glob/path matching nothing → 0 ran → must fail under --min
@@ -2399,7 +2399,7 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
       // Eval files exist and none has a recorded result: that is not "nothing to
       // verify", it is a gate that has verified nothing.
       const distTest = JSON.stringify(
-        resolve(__dirname, "..", "dist", "entries/index.js"),
+        resolve(import.meta.dirname, "..", "dist", "entries/index.js"),
       );
       for (const name of ["a", "b"]) {
         writeFileSync(
@@ -2429,8 +2429,13 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
       // descriptions. `evalDriver` is the PUBLIC injection seam (the one Codex
       // users are told to use), so the fixture now drives the same lock
       // machinery through the same door a user would.
-      const distTest = resolve(__dirname, "..", "dist", "entries/index.js");
-      const evalJs = resolve(__dirname, "..", "dist", "eval.js");
+      const distTest = resolve(
+        import.meta.dirname,
+        "..",
+        "dist",
+        "entries/index.js",
+      );
+      const evalJs = resolve(import.meta.dirname, "..", "dist", "eval.js");
       mkdirSync(join(dir, "skills", "greet"), { recursive: true });
       writeFileSync(
         join(dir, "skills", "greet", "SKILL.md"),
@@ -2745,7 +2750,7 @@ describe("plugin hook: eval-lock-nudge.sh", () => {
 
 describe("E2E: fixture project adoption", () => {
   const FIXTURE = resolve(
-    __dirname,
+    import.meta.dirname,
     "..",
     "test",
     "fixtures",

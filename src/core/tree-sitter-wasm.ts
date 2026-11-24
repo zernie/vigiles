@@ -69,7 +69,7 @@ interface TsRuntime {
 
 // Anchored on THIS file, like every other resolution in the package: under pnpm the consumer's
 // root does not contain our dependencies. `__filename` because the package compiles to CommonJS.
-const require_ = createRequire(__filename);
+const require_ = createRequire(import.meta.filename);
 const PKG = "@vscode/tree-sitter-wasm";
 
 let runtime: Promise<{ rt: TsRuntime; dir: string; parser: TsParser }> | null =

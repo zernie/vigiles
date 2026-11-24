@@ -23,8 +23,8 @@ const PLACEHOLDER = "__VIGILES_DATA_PLACEHOLDER__";
  */
 export function templatePath(): string | null {
   const candidates = [
-    resolve(__dirname, "audit-report.template.html"), // dist/ (shipped)
-    resolve(__dirname, "..", "dist", "audit-report.template.html"), // src/ under vitest
+    resolve(import.meta.dirname, "audit-report.template.html"), // dist/ (shipped)
+    resolve(import.meta.dirname, "..", "dist", "audit-report.template.html"), // src/ under vitest
   ];
   return candidates.find((p) => existsSync(p)) ?? null;
 }

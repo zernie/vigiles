@@ -1713,9 +1713,10 @@ interface TrialObservations {
  * entries).
  */
 const INTERCEPT_TOOL_HOOK_CLI =
-  [join(__dirname, "cli.js"), join(__dirname, "..", "dist", "cli.js")].find(
-    (p) => existsSync(p),
-  ) ?? join(__dirname, "cli.js");
+  [
+    join(import.meta.dirname, "cli.js"),
+    join(import.meta.dirname, "..", "dist", "cli.js"),
+  ].find((p) => existsSync(p)) ?? join(import.meta.dirname, "cli.js");
 /** This node binary — what every command the eval writes for a child calls back into. */
 const NODE_BIN = process.execPath;
 const INTERCEPT_TOOL_HOOK_CMD = `"${NODE_BIN}" "${INTERCEPT_TOOL_HOOK_CLI}" hook-runtime intercept-tool`;

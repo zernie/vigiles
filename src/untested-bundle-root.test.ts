@@ -12,7 +12,7 @@ import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 
-const CLI = resolve(__dirname, "..", "dist", "cli.js");
+const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 let dir: string;
 
 function put(rel: string, body: string): void {

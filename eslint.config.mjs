@@ -679,6 +679,9 @@ export default [
       "@ast-grep/napi",
       "zlib",
       "node:zlib",
+      // `createRequire`: how an ES module loads a library lazily. It opens no
+      // hole: what the returned `require` loads is still checked by name.
+      "node:module",
     ],
   }),
   ioGlobals({

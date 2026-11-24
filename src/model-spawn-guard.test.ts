@@ -27,7 +27,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { globSync } from "glob";
 
-const ROOT = resolve(__dirname, "..");
+const ROOT = resolve(import.meta.dirname, "..");
 
 /** Declares a spawn free — a `--version` probe, or the mock-wired harness tier. */
 const FREE_TIER = "vigiles:free-tier";

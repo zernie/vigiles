@@ -87,6 +87,9 @@
  */
 
 import { stripWrappers } from "./bash-effects.js";
+import { createRequire } from "node:module";
+// ES module: `require` does not exist; this one keeps the lazy, synchronous loads.
+const require = createRequire(import.meta.url);
 
 // mvdan-sh is a CJS package (GopherJS build) with no bundled TypeScript types —
 // the same require() `core/shell-vars.ts` and `core/bash-effects.ts` use, for

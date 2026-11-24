@@ -1,4 +1,6 @@
-/**
+import { createRequire } from "node:module";
+// ES module: `require` does not exist; this one keeps the lazy, synchronous loads.
+const require = createRequire(import.meta.url); /**
  * vigiles — the ONE markdown-structure helper.
  *
  * Every place that needs to know "is this source line inside a fenced code
@@ -31,7 +33,7 @@
  * `parse()` is stateless across calls, so one instance per configuration is
  * both correct and what the eager version did.
  */
-type MarkdownItCtor = typeof import("markdown-it");
+type MarkdownItCtor = typeof import("markdown-it").default;
 type MarkdownItParser = InstanceType<MarkdownItCtor>;
 const MarkdownIt = (): MarkdownItCtor =>
   require("markdown-it") as MarkdownItCtor;

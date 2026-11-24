@@ -41,7 +41,7 @@ import { execSync, spawnSync } from "node:child_process";
 // NB: `__dirname`, not `import.meta` — this package builds to CommonJS and tsc
 // rejects import.meta here (TS1470). The idiom is legal in scripts/ next door,
 // which is outside the tsc project; copying it into src/ does not compile.
-const ROOT = resolve(__dirname, "..");
+const ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(ROOT, "dist", "cli.js");
 
 let dir: string;
