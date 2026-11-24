@@ -700,32 +700,195 @@ const FLAG_ALIASES: Readonly<Record<string, Readonly<Record<string, string>>>> =
   };
 
 /**
- * git's own options that take the NEXT word as their value — git(1), the part
- * before `<command>`. Read so that `git -C . commit -n` finds `commit`, not `.`.
+ * Each program's OWN options, before its subcommand, by value arity: those
+ * that take the next word (or an attached `=value`) and those that take none.
+ * From git(1) and `pip --help` (General Options). An option in neither list
+ * may take a value, so the word after it may or may not be the subcommand.
+ *
+ * 🔴 Every program with a per-subcommand row in {@link FLAG_ALIASES} has an
+ * entry here (a sweep test holds it): without one, `pip --isolated install
+ * -i` looked up a `pip --isolated` row and `-i` lost `--index-url`.
  */
-const GIT_VALUE_OPTS: ReadonlySet<string> = new Set([
-  "-C",
-  "-c",
-  "--git-dir",
-  "--work-tree",
-  "--namespace",
-  "--config-env",
-  "--super-prefix",
-]);
+const GLOBAL_OPTIONS: Readonly<
+  Record<
+    string,
+    { readonly value: ReadonlySet<string>; readonly flag: ReadonlySet<string> }
+  >
+> = {
+  git: {
+    value: new Set([
+      "-C",
+      "-c",
+      "--git-dir",
+      "--work-tree",
+      "--namespace",
+      "--config-env",
+      "--super-prefix",
+      "--attr-source",
+    ]),
+    flag: new Set([
+      "-p",
+      "-P",
+      "--paginate",
+      "--no-pager",
+      "--bare",
+      "--no-replace-objects",
+      "--literal-pathspecs",
+      "--glob-pathspecs",
+      "--noglob-pathspecs",
+      "--icase-pathspecs",
+      "--no-optional-locks",
+      "--no-advice",
+      "--no-lazy-fetch",
+      "--exec-path",
+      "--html-path",
+      "--man-path",
+      "--info-path",
+      "--list-cmds",
+      "-v",
+      "--version",
+      "-h",
+      "--help",
+    ]),
+  },
+  pip: {
+    value: new Set([
+      "--python",
+      "--log",
+      "--proxy",
+      "--retries",
+      "--timeout",
+      "--exists-action",
+      "--trusted-host",
+      "--cert",
+      "--client-cert",
+      "--cache-dir",
+      "--keyring-provider",
+      "--use-feature",
+      "--use-deprecated",
+    ]),
+    flag: new Set([
+      "--isolated",
+      "--require-virtualenv",
+      "-v",
+      "--verbose",
+      "-q",
+      "--quiet",
+      "-V",
+      "--version",
+      "-h",
+      "--help",
+      "--no-input",
+      "--no-color",
+      "--no-cache-dir",
+      "--disable-pip-version-check",
+      "--debug",
+    ]),
+  },
+};
+
+/** Where a program's subcommand is, or why it cannot be told. */
+type SubcommandAt =
+  | { readonly kind: "at"; readonly index: number }
+  /** No word where the subcommand would be (`git --version`, a bare `rm`). */
+  | { readonly kind: "none" }
+  /**
+   * A dynamic word stands where the subcommand would be (`git "$SUB" -n`), or
+   * an unknown git option may have taken it as its value.
+   */
+  | { readonly kind: "unknown" };
 
 /**
  * Where a program's subcommand sits in its args: past git's own options for
- * `git`, the first argument for anything else. `-1` when there is none.
+ * `git`, the first argument for anything else. `args` keep a dynamic word's
+ * slot ({@link DYNAMIC_WORD}): dropping it first shifted the words, so in
+ * `git -C "$PWD" commit -n` the word `commit` read as the value of `-C`
+ * (Codex on #508).
  */
-function subcommandIndex(head: string, args: readonly string[]): number {
-  if (head !== "git") return args.length > 0 ? 0 : -1;
-  const from = (i: number): number => {
+function subcommandAt(head: string, args: readonly string[]): SubcommandAt {
+  const globals = GLOBAL_OPTIONS[head];
+  const rows = hasSubcommandRows(head);
+  const from = (i: number): SubcommandAt => {
     const a = args[i];
-    if (a === undefined) return -1;
-    if (!a.startsWith("-")) return i;
-    return from(GIT_VALUE_OPTS.has(a) ? i + 2 : i + 1);
+    if (a === undefined) return { kind: "none" };
+    if (!isKnown(a)) return { kind: "unknown" };
+    if (!a.startsWith("-") || !rows) return { kind: "at", index: i };
+    // A program with subcommand rows but no global-option table reads none.
+    if (!globals) return { kind: "unknown" };
+    if (globals.value.has(a)) return from(i + 2);
+    const name = a.split("=")[0] ?? a;
+    const attached = a.includes("=") && globals.value.has(name);
+    return attached || globals.flag.has(name)
+      ? from(i + 1)
+      : { kind: "unknown" };
   };
   return from(0);
+}
+
+/** Does this program have per-subcommand rows, so its subcommand decides its flags? */
+const hasSubcommandRows = (head: string): boolean =>
+  Object.keys(FLAG_ALIASES).some((k) => k.startsWith(`${head} `));
+
+/**
+ * Is this leaf's subcommand unknown where it decides the flags — a program
+ * with per-subcommand rows (`git`, `pip`) and a dynamic word or unknown
+ * option where the subcommand would be? Then a question about its short
+ * flags cannot be answered "no".
+ *
+ * @internal — read by the gate (`runs()` turns its allow into an ask).
+ */
+export function subcommandUnknown(
+  head: string,
+  args: readonly string[],
+): boolean {
+  return hasSubcommandRows(head) && subcommandAt(head, args).kind === "unknown";
+}
+
+/**
+ * Every per-subcommand row, one entry per long/short pair.
+ *
+ * @internal — for the global-option sweep test.
+ */
+export function subcommandAliasRows(): readonly {
+  readonly program: string;
+  readonly sub: string;
+  readonly long: string;
+  readonly short: string;
+}[] {
+  return Object.entries(FLAG_ALIASES).flatMap(([key, row]) => {
+    const [program = "", sub] = key.split(" ");
+    return sub === undefined
+      ? []
+      : Object.entries(row).map(([long, short]) => ({
+          program,
+          sub,
+          long,
+          short,
+        }));
+  });
+}
+
+/**
+ * One option `program` takes before its subcommand with no value.
+ *
+ * @internal — for the global-option sweep test.
+ */
+export function knownGlobalOptionOf(program: string): string | undefined {
+  return [...(GLOBAL_OPTIONS[program]?.flag ?? [])][0];
+}
+
+/**
+ * Every long/short pair any row of `head` names (`git` → force/f, no-verify/n).
+ * A leaf whose subcommand is unknown may mean any of them.
+ *
+ * @internal — read by the gate.
+ */
+export function programFlagAliases(
+  head: string,
+): readonly (readonly [string, string])[] {
+  return Object.entries(FLAG_ALIASES)
+    .filter(([k]) => k === head || k.startsWith(`${head} `))
+    .flatMap(([, row]) => Object.entries(row));
 }
 
 /**
@@ -738,7 +901,10 @@ export function flagAliases(
   head: string,
   args: readonly string[],
 ): Readonly<Record<string, string>> {
-  const sub = args[subcommandIndex(head, args)];
+  const at = subcommandAt(head, args);
+  // An unknown subcommand picks no subcommand's row: the gate asks instead.
+  if (at.kind === "unknown" && hasSubcommandRows(head)) return {};
+  const sub = at.kind === "at" ? args[at.index] : undefined;
   return (
     (sub === undefined ? undefined : FLAG_ALIASES[`${head} ${sub}`]) ??
     FLAG_ALIASES[head] ??
@@ -815,10 +981,10 @@ function normalizeHead(raw: string): string {
  */
 function buildFlags(head: string, args: readonly string[]): Set<string> {
   const aliases = flagAliases(head, args);
-  // git's own options (`-C dir`, `-c k=v`, `--no-pager`) are not its
-  // subcommand's flags: `git -C . push -f` is a push with `-f`, not with `-C`.
-  const sub = head === "git" ? subcommandIndex(head, args) : -1;
-  const own = sub > 0 ? args.slice(sub) : args;
+  // A program's own options (`git -C dir`, `pip --isolated`) are not its
+  // subcommand's flags.
+  const at = subcommandAt(head, args);
+  const own = at.kind === "at" ? args.slice(at.index) : args;
   const toLong = new Map(
     Object.entries(aliases).map(([long, short]) => [short, long]),
   );
@@ -1137,6 +1303,12 @@ export type ShellEffect =
        * data, and does not count — see {@link splitsWords}.
        */
       readonly unknownWords: boolean;
+      /**
+       * The leaf's subcommand cannot be told where it decides its short flags
+       * (`git "$SUB" -n`, `git --unknown-opt x commit -n`) — see
+       * {@link subcommandUnknown}.
+       */
+      readonly unknownSubcommand: boolean;
     }
   | { readonly kind: "redirect"; readonly redirect: LeafRedirect };
 
@@ -1190,6 +1362,7 @@ function stmtEffects(stmt: Readonly<MvdanNode>): readonly ShellEffect[] {
             kind: "leaf",
             leaf,
             unknownWords: programArgs(stmt.Cmd?.Args ?? []).some(splitsWords),
+            unknownSubcommand: leafSubcommandUnknown(stmt.Cmd?.Args ?? []),
           } as const,
         ]
       : []),
@@ -1197,6 +1370,12 @@ function stmtEffects(stmt: Readonly<MvdanNode>): readonly ShellEffect[] {
       (redirect) => ({ kind: "redirect", redirect }) as const,
     ),
   ];
+}
+
+/** {@link subcommandUnknown} over a simple command's words, wrappers resolved, slots kept. */
+function leafSubcommandUnknown(words: readonly Readonly<MvdanWord>[]): boolean {
+  const { resolved } = resolveWords(words);
+  return subcommandUnknown(normalizeHead(resolved[0] ?? ""), resolved.slice(1));
 }
 
 /**
@@ -1919,7 +2098,9 @@ function normalizeCallExpr(
   const assigns = collectAssigns(node);
   for (const [k, v] of stripped.envAssigns) assigns.set(k, v);
 
-  const flags = buildFlags(head, args);
+  // Flags are read with every dynamic word still in its slot, so the
+  // subcommand is found where it really is; a slot is never itself a flag.
+  const flags = buildFlags(head, stripped.argv.slice(1));
   return {
     head,
     argv: [head, ...args],

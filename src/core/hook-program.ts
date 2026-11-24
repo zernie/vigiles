@@ -38,6 +38,7 @@ import {
   leafCommandsNormalized,
   readShell,
   classifyBashCommand,
+  programFlagAliases,
   type HiddenCommand,
   type BashEffect,
   type NormalizedLeaf,
@@ -780,6 +781,8 @@ interface ParsedCommand {
   readonly hidden: readonly HiddenCommand[];
   /** The leaves given words from an unquoted expansion (`git push $F`). */
   readonly unknownWordLeaves: ReturnType<typeof leafCommandsNormalized>;
+  /** The leaves whose subcommand cannot be told (`git "$SUB" -n`). */
+  readonly unknownSubcommandLeaves: ReturnType<typeof leafCommandsNormalized>;
 }
 
 function parseCommand(raw: string): ParsedCommand {
@@ -822,7 +825,60 @@ function parseCommand(raw: string): ParsedCommand {
     unknownWordLeaves: effects.flatMap((e) =>
       e.kind === "leaf" && e.unknownWords ? [e.leaf] : [],
     ),
+    unknownSubcommandLeaves: effects.flatMap((e) =>
+      e.kind === "leaf" && e.unknownSubcommand ? [e.leaf] : [],
+    ),
   };
+}
+
+/**
+ * The leaves a flag question cannot rule out: one given words from an
+ * unquoted expansion (`git push $F`), and one whose subcommand cannot be told
+ * (`git "$SUB" -n`) whose short flag may be the one asked about under that
+ * subcommand's row. Each is reported so the gate's allow becomes an ask.
+ */
+function unreadFlagLeaves(
+  parsed: ParsedCommand,
+  plainTokens: readonly string[],
+  flagTokens: readonly string[],
+  force: boolean | undefined,
+): readonly HiddenCommand[] {
+  return [
+    ...parsed.unknownWordLeaves.filter((leaf) =>
+      runsSeq(leaf.argv, plainTokens),
+    ),
+    ...parsed.unknownSubcommandLeaves.filter(
+      (leaf) =>
+        leaf.head === plainTokens[0] &&
+        mayMeanAskedFlag(leaf, flagTokens, force === true),
+    ),
+  ].map((leaf) => ({ runner: leaf.head, reason: "dynamic-argument" }));
+}
+
+/**
+ * Could a leaf whose subcommand is unknown carry a flag the pattern asks
+ * about — the flag itself, or a short or long form that some row of its
+ * program pairs with it?
+ */
+function mayMeanAskedFlag(
+  leaf: NormalizedLeaf,
+  flagTokens: readonly string[],
+  force: boolean,
+): boolean {
+  const asked = [
+    ...flagTokens.map((t) => t.replace(/^-+/, "")),
+    ...(force ? ["force", "f"] : []),
+  ];
+  const pairs = programFlagAliases(leaf.head);
+  return asked.some(
+    (name) =>
+      leaf.hasFlag(name) ||
+      pairs.some(
+        ([long, short]) =>
+          (name === long && leaf.hasFlag(short)) ||
+          (name === short && leaf.hasFlag(long)),
+      ),
+  );
 }
 
 /**
@@ -953,14 +1009,7 @@ function inspectShellCommand(raw: string, root?: string): InspectedCommand {
       if (!hit && asksFlags)
         unreadFlags = [
           ...unreadFlags,
-          ...parse()
-            .unknownWordLeaves.filter((leaf) => runsSeq(leaf.argv, plainTokens))
-            .map(
-              (leaf): HiddenCommand => ({
-                runner: leaf.head,
-                reason: "dynamic-argument",
-              }),
-            ),
+          ...unreadFlagLeaves(parse(), plainTokens, flagTokens, opts?.force),
         ];
       return hit;
     }),
