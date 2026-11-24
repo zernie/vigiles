@@ -142,7 +142,10 @@ describe("a directory the gate cannot know turns allow into ask", () => {
     'cd "$X" && git pull',
     "cd - && git pull",
     "source env.sh; git pull",
-    "f(){ cd /x; }; f; git pull",
+    'f(){ cd "$1"; }; f /x; git pull',
+    "trap -- 'cd /foreign' DEBUG; git pull",
+    "eval 'f(){ cd /foreign; }; f'; git pull",
+    "cd -P /w/link/.. && git pull",
   ])("%s → ask", (cmd) => {
     const d = decide(cmd);
     assert.equal(d.kind, "ask");
@@ -198,6 +201,7 @@ describe("forms found in review on #508 are not judged in the start directory", 
     "command -p cd /foreign && git pull",
     "builtin cd /foreign && git pull",
     "a(){ b; }; b(){ c; }; c(){ d; }; d(){ cd /foreign; }; a; git pull",
+    "env -C/foreign git pull",
   ])("review on #508: %s is not judged in the start directory", (cmd) => {
     assert.notEqual(decide(cmd).kind, "allow");
   });

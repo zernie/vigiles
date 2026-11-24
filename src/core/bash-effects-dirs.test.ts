@@ -16,10 +16,19 @@ import { describe, test } from "vitest";
 import assert from "node:assert/strict";
 
 import {
+  BASH_BUILTINS,
+  DIR_ALLOWLIST,
   leafCommandsNormalized,
   readShell,
   type LeafDirs,
 } from "./bash-effects.js";
+
+/** Is a builtin read by the directory model (in any section of the allowlist)? */
+const allowlisted = (b: string): boolean =>
+  b in DIR_ALLOWLIST.moving ||
+  DIR_ALLOWLIST.staying.has(b) ||
+  DIR_ALLOWLIST.assigning.has(b) ||
+  b in DIR_ALLOWLIST.special;
 
 /** The `at` of the `n`-th leaf whose head is `head`, as the gate reads the line. */
 const at = (cmd: string, head = "git", n = 0): LeafDirs => {
@@ -198,13 +207,11 @@ describe("a child shell inherits the launching leaf's GIT_DIR", () => {
   });
 });
 
-describe("dir-moving functions are found to a fixed point", () => {
+describe("a function call runs its body where it is called", () => {
   test("a chain of four", () => {
-    assert.equal(
-      reason(
-        "a(){ b; }; b(){ c; }; c(){ d; }; d(){ cd /foreign; }; a; git pull",
-      ),
-      "opaque-dir-change",
+    assert.deepEqual(
+      dirs("a(){ b; }; b(){ c; }; c(){ d; }; d(){ cd /foreign; }; a; git pull"),
+      [".", "/foreign"],
     );
   });
 
@@ -213,7 +220,26 @@ describe("dir-moving functions are found to a fixed point", () => {
     const defs = names
       .map((n, i) => `${n}(){ ${names[i + 1] ?? "cd /foreign"}; }`)
       .join("; ");
-    assert.equal(reason(`${defs}; a; git pull`), "opaque-dir-change");
+    assert.deepEqual(dirs(`${defs}; a && git pull`), ["/foreign"]);
+  });
+
+  test.each([
+    ["f(){ cd /foreign; }; f && git pull", ["/foreign"]],
+    ["( f(){ cd /x; } ); f; git pull", ["."]],
+    ["f; f(){ cd /x; }; git pull", ["."]],
+    ["f(){ cd /x; }; command f; git pull", ["."]],
+  ])("%s → %j", (cmd, want) => {
+    assert.deepEqual(dirs(cmd), want);
+  });
+
+  test.each([
+    "f(){ f; }; f; git pull",
+    "f(){ return; cd /x || exit; }; f; git pull",
+    "f(){ cd /x; }; unset f; f; git pull",
+    "f(){ cd /x; }; unset -f f; f; git pull",
+    "cd(){ :; }; cd /x && git pull",
+  ])("%s → unresolved", (cmd) => {
+    assert.equal(at(cmd).kind, "unresolved");
   });
 });
 
@@ -235,5 +261,96 @@ describe("what changes cd's own inputs is not guessed", () => {
 
   test("a trap that does not move keeps the directory", () => {
     assert.deepEqual(dirs("trap 'rm -f t' EXIT; git pull"), ["."]);
+  });
+});
+
+// Review round 2 on #508 — and the redesign it forced: the model claims a
+// directory only through the forms in `DIR_ALLOWLIST`; anything else that
+// could move the shell or retarget git is unresolved.
+describe("the four round-2 forms", () => {
+  test("a function declared inside eval", () => {
+    assert.equal(
+      at("eval 'f(){ cd /foreign; }; f'; git pull").kind,
+      "unresolved",
+    );
+  });
+
+  test("a trap set with the -- terminator", () => {
+    assert.equal(
+      at("trap -- 'cd /foreign' DEBUG; git pull").kind,
+      "unresolved",
+    );
+  });
+
+  test("cd -P resolves a symlink before ..", () => {
+    assert.equal(at("cd -P /trusted/link/.. && git pull").kind, "unresolved");
+  });
+
+  test.each([
+    ["env -C/foreign git pull", "/foreign"],
+    ["env -iC /foreign git pull", "/foreign"],
+    ["env --chdir=/foreign git pull", "/foreign"],
+    ["sudo -D/foreign git pull", "/foreign"],
+  ])("an attached chdir operand: %s", (cmd, dir) => {
+    assert.deepEqual(dirs(cmd), [dir]);
+  });
+});
+
+describe("anything outside the allowlist is unresolved", () => {
+  const notListed = BASH_BUILTINS.filter((b) => !allowlisted(b));
+
+  test("the sweep covers real builtins", () => {
+    for (const b of ["source", ".", "exec", "shopt", "enable", "fc"])
+      assert.ok(notListed.includes(b), b);
+  });
+
+  test.each(notListed)("the builtin %s → unresolved", (b) => {
+    assert.equal(at(`${b} x y; git pull`).kind, "unresolved", b);
+  });
+
+  const letters = [..."abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ@"];
+  test.each(letters)("an option -%s on cd, pushd, popd → unresolved", (l) => {
+    for (const cmd of [
+      `cd -${l} /a && git pull`,
+      `pushd -${l} /a && git pull`,
+      `popd -${l} && git pull`,
+    ])
+      assert.equal(at(cmd).kind, "unresolved", cmd);
+  });
+
+  test.each([
+    "trap 'echo hi' EXIT; git pull",
+    "trap '' INT; git pull",
+    "env --argv0=x git pull",
+    "env -a x git pull",
+    "env --block-signal git pull",
+    "nice -5 git pull",
+    "timeout --bogus 5 git pull",
+    "sudo -Z git pull",
+    "git --bare pull",
+    "GIT_CONFIG_PARAMETERS=\"'core.worktree=/x'\" git pull",
+    "git -C a/.. pull",
+    "env -C a/.. git pull",
+    "declare -n h=HOME; cd && git pull",
+    "export -f f; bash -c 'f; git pull'",
+    "set -P; cd a && git pull",
+    "set -o physical; cd a && git pull",
+    "exec 3>f; git pull",
+    "dirs -c; git pull",
+    "eval 'cd a; f(){ :; }'; git pull",
+  ])("%s → unresolved", (cmd) => {
+    assert.equal(at(cmd).kind, "unresolved");
+  });
+
+  test.each([
+    ["trap; trap -p; trap -l; trap - EXIT; git pull", ["."]],
+    ["set -e -o pipefail; cd a && git pull", ["a"]],
+    ["GIT_TERMINAL_PROMPT=0 git pull", ["."]],
+    ["/usr/bin/cd /foreign && git pull", ["."]],
+    ["echo x; true; : ; pwd; git pull", ["."]],
+    ["cd -- a && git pull", ["a"]],
+    ["pushd -- a && git pull", ["a"]],
+  ])("allowlisted: %s → %j", (cmd, want) => {
+    assert.deepEqual(dirs(cmd), want);
   });
 });

@@ -3,7 +3,9 @@
  *
  * Commands are generated from a small grammar — `cd`, `pushd`, `popd`,
  * `cd -`, a bare `cd`, `command [-p] cd`, `builtin cd`, `eval "cd …"`, a
- * function chain that `cd`s, `env -C`, `git -C`, `bash -c "cd … && …"`,
+ * function chain that `cd`s, `env -C dir` and `env -Cdir`, `git -C`,
+ * `bash -c "cd … && …"`, `cd -P` and `git -C`/`env -C` over a symlink's `..`,
+ * `trap -- 'cd …' DEBUG`, a function declared inside `eval`, a bare `pushd`,
  * `&&`, `||`, `;`, `|`, `&`, subshells, groups and `if` — over a temp tree with a directory that does not
  * exist, so every `cd` can fail as well as succeed. Every leaf records where it
  * actually ran: `pwd >> out/L<k>`, or for git `git -C D rev-parse
@@ -25,6 +27,7 @@ import {
   readFileSync,
   realpathSync,
   rmSync,
+  symlinkSync,
 } from "node:fs";
 import { join, posix } from "node:path";
 
@@ -57,8 +60,12 @@ function generator(seed: number, out: string, abs: string) {
   let leaves = 0;
   const pick = <T>(xs: readonly [T, ...T[]]): T =>
     xs[Math.floor(next() * xs.length)] ?? xs[0];
+  // `l` is a symlink to `a/b`: through it `..` means different things to a
+  // logical `cd` (lexical) and to `cd -P` / `env -C` / `git -C` (physical).
+  // A bare `l` is not generated: two names for one directory is a limit of
+  // any path-string comparison, said in the docs, not a model fault.
   const dir = (): string =>
-    pick(["a", "b", "a/b", "nope", "..", "~", abs, "a/..", "b/../a"]);
+    pick(["a", "b", "a/b", "nope", "..", "~", abs, "a/..", "b/../a", "l/.."]);
   const leaf = (): string => {
     const target = `${out}/L${String(leaves++)}`;
     return pick([
@@ -66,6 +73,8 @@ function generator(seed: number, out: string, abs: string) {
       `pwd >> ${target}`,
       `git -C ${pick([".", "a", "a/b", "nope", "b"])} rev-parse --show-prefix >> ${target}`,
       `env -C ${pick(["a", "b", "nope"])} pwd >> ${target}`,
+      `env -C${pick(["a", "b", "nope", "l/.."])} pwd >> ${target}`,
+      `git -C ${pick(["l/..", "a/.."])} rev-parse --show-prefix >> ${target}`,
       `bash -c "cd ${dir()} && pwd >> ${target}"`,
     ]);
   };
@@ -81,6 +90,10 @@ function generator(seed: number, out: string, abs: string) {
       () => `builtin cd ${dir()}`,
       () => `eval "cd ${dir()}"`,
       () => `m(){ n; }; n(){ cd ${dir()}; }; m`,
+      () => `cd -P ${pick(["l/..", "l", "a", "nope"])}`,
+      () => `trap -- 'cd ${dir()}' DEBUG`,
+      () => `eval 'g(){ cd ${dir()}; }'; g`,
+      () => "pushd >/dev/null",
       leaf,
       leaf,
       leaf,
@@ -178,6 +191,7 @@ test("every directory bash ran a leaf in is among the candidates, else unresolve
     };
     for (const d of ["a/b", "b", "c", "h"])
       mkdirSync(join(start, d), { recursive: true });
+    symlinkSync("a/b", join(start, "l"));
     spawnSync("git", ["init", "-q", start]);
     const gen = generator(20261124, tree.out, join(start, "c"));
     const verdicts = Array.from({ length: 1000 }, () => gen.line()).flatMap(
