@@ -31,20 +31,30 @@ import {
 
 const START = "/w/s";
 
+/** Every leaf, rather than the leaves of one program. */
+const EVERY = Symbol("every leaf");
+
 const dirsOf = (
   command: string,
-  program: string | undefined = "git pull",
-  start: string | undefined = START,
-): CommandDirs => parseShellCommand(command, undefined, start).dirs(program);
+  program: string | typeof EVERY = "git pull",
+): CommandDirs =>
+  parseShellCommand(command, undefined, START).dirs(
+    program === EVERY ? undefined : program,
+  );
 
-const known = (command: string, dirs: readonly string[], program?: string) =>
+const known = (
+  command: string,
+  dirs: readonly string[],
+  program?: string | typeof EVERY,
+) => {
   assert.deepEqual(
     dirsOf(command, program),
     { kind: "candidates", dirs },
     command,
   );
+};
 
-const unknown = (command: string, program?: string) => {
+const unknown = (command: string, program?: string | typeof EVERY) => {
   const d = dirsOf(command, program);
   assert.equal(d.kind, "unresolved", `${command} → ${JSON.stringify(d)}`);
 };
@@ -77,7 +87,7 @@ describe("rule 1: a chain of simple commands; the directory carries only across 
     known("cd /r && git pull | cat", ["/r"]);
   });
   test("without a program, every leaf but the cd", () => {
-    known("cd /r && git pull && npm test", ["/r"], undefined);
+    known("cd /r && git pull && npm test", ["/r"], EVERY);
   });
   test("a leaf that does not run the program is not counted", () => {
     known("cd /r && git status", []);
@@ -177,7 +187,7 @@ describe("rule 4: every cd word in the raw line is one the grammar read", () => 
 });
 
 describe("rule 5: any other construct makes the whole line unknown", () => {
-  test("the two open Codex findings", () => {
+  test("the two open review findings", () => {
     unknown("CDPATH=/x bash -c 'cd repo && git pull'");
     unknown("exit >/dev/null/x; git -C /foreign pull");
   });
@@ -212,17 +222,17 @@ describe("rule 5: any other construct makes the whole line unknown", () => {
   });
   test("a line outside the grammar that cannot run the program has no candidates", () => {
     known("for x in a; do echo; done", []);
-    unknown("for x in a; do echo; done", undefined);
+    unknown("for x in a; do echo; done", EVERY);
   });
 });
 
 describe("the start directory", () => {
   test("a relative leaf without a start is unresolved, an absolute one is not", () => {
-    assert.deepEqual(dirsOf("git pull", "git pull", undefined), {
+    assert.deepEqual(parseShellCommand("git pull").dirs("git pull"), {
       kind: "unresolved",
       reason: "no-start-dir",
     });
-    assert.deepEqual(dirsOf("cd /r && git pull", "git pull", undefined), {
+    assert.deepEqual(parseShellCommand("cd /r && git pull").dirs("git pull"), {
       kind: "candidates",
       dirs: ["/r"],
     });
