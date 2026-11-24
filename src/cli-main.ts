@@ -8666,8 +8666,8 @@ function agentHookCommand(): void {
  * whether the called tool should be intercepted, and if so denies the real
  * execution (exit 2) with a block message — the call is intercepted (prevented),
  * NOT executed. Allowing (return) lets the tool run for real. The model still
- * emits the `tool_use`, so its arguments land in the Trace for `toolWith` /
- * `notTool` to assert on. See src/tool-intercept.ts.
+ * emits the `tool_use`, so its arguments land in the Trace for
+ * `check.tool(name, { with })` to assert on. See src/tool-intercept.ts.
  */
 function interceptToolHookCommand(): void {
   let raw = "";

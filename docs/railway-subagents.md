@@ -290,12 +290,8 @@ This is the payoff: a `result()` contract replaces
 no key.
 
 ```ts
-import {
-  experimental_agent,
-  experimental_assertAgentOk,
-  experimental_assertAgentErr,
-  experimental_assertAgentResult,
-} from "vigiles/spec";
+import { experimental_agent, experimental_assertAgentOk } from "vigiles/spec";
+import { check, assertChecks } from "vigiles";
 const { result } = experimental_agent;
 
 const implementer = result(
@@ -308,13 +304,17 @@ const implementer = result(
 const ok = experimental_assertAgentOk(r.output, implementer); // throws unless it's a valid ok block
 assert.deepEqual(ok.files, ["src/parser.ts"]);
 
-// Rich predicate over either track, still model-free:
-experimental_assertAgentResult(
-  r.output,
-  (res) =>
-    res.kind === "ok" && res.value.files.some((f) => f.endsWith(".test.ts")),
-  implementer,
-);
+// The error track, or a rich predicate over either track, is a check —
+// still model-free. It reads `output`, so inside check.subagent(name, [...])
+// it reads that subagent's return:
+assertChecks(r, [
+  check.experimental_agentResult(
+    (res) =>
+      res.kind === "ok" && res.value.files.some((f) => f.endsWith(".test.ts")),
+    implementer,
+  ),
+]);
+// check.experimental_agentResult("err", implementer) — the error track
 ```
 
 A worker that emits the wrong shape, or prose instead of a block, parses as

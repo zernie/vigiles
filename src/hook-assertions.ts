@@ -83,7 +83,7 @@ function runCountedHookProgram(
  * Assert a COMPILED hook (a `vigiles/hook` program) denies an event — evaluated
  * in-process, no subprocess, no model. The cheapest way to test a gate's logic:
  * pass the hook's default export and a raw event. (For the wired-into-the-real-CLI
- * check, use `check.blocked()` over a `runHook` result.)
+ * check, use `check.hookFired(event, { blocked: true })` over a `runHook` result.)
  *
  * @experimental Tests the experimental compiled-hook vocabulary
  * (`experimental_define*`), so it moves with it.

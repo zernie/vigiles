@@ -5,6 +5,9 @@
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { vigilesMatchers } from "./harness-assert.js";
 import { check, assertChecks } from "./check.js";
@@ -14,11 +17,7 @@ import {
   experimental_assertHookNotices as assertHookNotices,
   experimental_assertHookSilent as assertHookSilent,
 } from "./hook-assertions.js";
-import {
-  experimental_assertAgentOk as assertAgentOk,
-  experimental_assertAgentErr as assertAgentErr,
-  experimental_assertAgentResult as assertAgentResult,
-} from "./entries/spec.js";
+import { experimental_assertAgentOk as assertAgentOk } from "./entries/spec.js";
 import { assertNoRegression } from "./eval-readers.js";
 import { toBaselineFile } from "./eval-baseline.js";
 import { experimental_agent } from "./core/spec.js";
@@ -51,17 +50,16 @@ const assertEgressOnly = (
 ): void => {
   assertChecks(r, [check.egressOnly(allowed)]);
 };
-const assertNoWrite = (
-  r: RunOf<typeof check.noWrite>,
-  pattern: string | RegExp,
-): void => {
-  assertChecks(r, [check.noWrite(pattern)]);
+// `assertNoWrite` / `assertWroteOnly` are `check.writes({ none })` / `({ only })` (v52).
+type RecordedWrites = { readonly filesWritten?: readonly string[] };
+const assertNoWrite = (r: RecordedWrites, pattern: string | RegExp): void => {
+  assertChecks(r, [check.writes({ none: [pattern] })]);
 };
 const assertWroteOnly = (
-  r: RunOf<typeof check.wroteOnly>,
+  r: RecordedWrites,
   allowed: ReadonlyArray<string | RegExp>,
 ): void => {
-  assertChecks(r, [check.wroteOnly(allowed)]);
+  assertChecks(r, [check.writes({ only: allowed })]);
 };
 
 /** Minimal HookRunResult stand-in for the run-hook-tier assertions/matcher. */
@@ -175,7 +173,7 @@ test("assertDelivered: passes only on delivered, and names the cause of every ot
   }, /never ran: the if did not match/);
   assert.throws(() => {
     assertDelivered(withDelivery({ kind: "blocked", stranded: [] }));
-  }, /check\.blocked\(\)/);
+  }, /check\.hookFired\(event, \{ blocked: true \}\)/);
   assert.throws(() => {
     assertDelivered(
       withDelivery({ kind: "unknown", event: "X", why: "no row" }),
@@ -233,7 +231,7 @@ test("assertNoWrite / assertWroteOnly (confined run file writes)", () => {
   });
 });
 
-test("assertAgentOk / assertAgentErr / assertAgentResult (subagent outcomes)", () => {
+test("assertAgentOk / check.experimental_agentResult (subagent outcomes)", () => {
   const ok = '```vigiles:ok\n{ "summary": "done" }\n```';
   const err = '```vigiles:err\n{ "reason": "boom" }\n```';
   const c = result({ summary: "string" }, { reason: "string" });
@@ -244,22 +242,52 @@ test("assertAgentOk / assertAgentErr / assertAgentResult (subagent outcomes)", (
   assert.throws(() => assertAgentOk(err), /returned an error result/);
   assert.throws(() => assertAgentOk("no block here"), /no vigiles/);
 
-  // assertAgentErr: returns the error on failure; throws on ok / malformed
-  assert.deepEqual(assertAgentErr(err), { reason: "boom" });
-  assert.throws(() => assertAgentErr(ok), /returned a success result/);
-  assert.throws(() => assertAgentErr("nope"), /expected an error result/);
+  // the error track, as a check (formerly experimental_assertAgentErr)
+  const isErr = check.experimental_agentResult("err");
+  assert.equal(isErr.eval({ output: err }).pass, true);
+  assert.match(
+    isErr.eval({ output: ok }).message,
+    /expected an err result.*got ok/,
+  );
+  assert.match(isErr.eval({ output: "nope" }).message, /got malformed/);
+  assert.equal(
+    check.experimental_agentResult("ok", c).eval({ output: ok }).pass,
+    true,
+  );
 
-  // assertAgentResult: general predicate
+  // a predicate, as a check (formerly experimental_assertAgentResult)
   assert.doesNotThrow(() => {
-    assertAgentResult(ok, (r) => r.kind === "ok" && r.value.summary === "done");
+    assertChecks({ output: ok }, [
+      check.experimental_agentResult(
+        (r) => r.kind === "ok" && r.value.summary === "done",
+      ),
+    ]);
   });
   assert.throws(() => {
-    assertAgentResult(ok, (r) => r.kind === "err");
-  }, /did not satisfy the predicate: ok/);
+    assertChecks({ output: ok }, [
+      check.experimental_agentResult((r) => r.kind === "err"),
+    ]);
+  }, /satisfies the predicate.*got ok/);
   // malformed path includes the reason in the message
   assert.throws(() => {
-    assertAgentResult("plain", (r) => r.kind === "ok");
+    assertChecks({ output: "plain" }, [
+      check.experimental_agentResult((r) => r.kind === "ok"),
+    ]);
   }, /malformed \(no vigiles/);
+  // a predicate that throws fails the check with what it threw
+  assert.match(
+    check
+      .experimental_agentResult(() => {
+        throw new Error("bad predicate");
+      })
+      .eval({ output: ok }).message,
+    /bad predicate/,
+  );
+  assert.deepEqual(check.experimental_agentResult("err", c).toJSON(), {
+    kind: "agentResult",
+    expect: "err",
+    contract: true,
+  });
 });
 
 test("vigilesMatchers.toHaveCreated reports pass/fail", () => {
@@ -367,12 +395,31 @@ test("assertNoRegression gates on a significant drop vs baseline", () => {
 
   // a clear drop throws (single report)
   assert.throws(() => {
-    assertNoRegression(mk(0.3), baseline);
+    assertNoRegression(mk(0.3), { baseline });
   }, /regression vs baseline/);
   // holding steady passes (array form)
   assert.doesNotThrow(() => {
-    assertNoRegression([mk(0.9)], baseline);
+    assertNoRegression([mk(0.9)], { baseline });
   });
+
+  // a PATH: missing fails loudly, `update: true` records, later runs gate on it
+  const dir = mkdtempSync(join(tmpdir(), "vigiles-baseline-"));
+  try {
+    const path = join(dir, "nested", "eval-baseline.json");
+    assert.throws(() => {
+      assertNoRegression(mk(0.9), { baseline: path });
+    }, /no baseline at .*update: true/);
+    assertNoRegression(mk(0.9), { baseline: path, update: true });
+    assert.ok(existsSync(path), "update: true wrote the baseline");
+    assert.doesNotThrow(() => {
+      assertNoRegression(mk(0.9), { baseline: path });
+    });
+    assert.throws(() => {
+      assertNoRegression(mk(0.3), { baseline: path });
+    }, /regression vs baseline/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("assertHookDenies / assertHookAllows test a compiled hook in-process (no subprocess)", () => {

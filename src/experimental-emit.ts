@@ -56,10 +56,7 @@
 
 import type { OutputContract, OutputFieldType, Shape } from "./core/spec.js";
 import type { ToolCall } from "./core/harness-driver.js";
-import {
-  shapeError,
-  type ParsedAgentResult,
-} from "./adapters/claude-code/agent-result.js";
+import { shapeError, type ParsedAgentResult } from "./core/agent-result.js";
 
 /** The default tool name, when `options.name` is not given. */
 const DEFAULT_EMIT_TOOL = "emit_result";

@@ -15,6 +15,7 @@
     "purity.ts",
     "composition.ts",
     "hook-fired.ts",
+    "check-options.ts",
     "../../examples/**/*.spec.ts"
   ]
 }

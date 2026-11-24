@@ -15,7 +15,7 @@
  */
 import { defineEval } from "../../../dist/entries/index.js";
 import { check } from "../../../dist/check.js";
-import { assertTriggerRate } from "../../../dist/entries/eval.js";
+import { assertRates } from "../../../dist/entries/eval.js";
 import { fileURLToPath } from "node:url";
 
 const pluginDir = fileURLToPath(new URL("../../../", import.meta.url));
@@ -56,7 +56,7 @@ export default defineEval({
   },
   assert: (report) => {
     // Auto (model-invocable) skill: >= 80% recall, low false-positive rate.
-    assertTriggerRate(report, { min: 0.8, maxFalsePositive: 0.3 });
+    assertRates(report, { min: 0.8, maxFalsePositive: 0.3 });
     console.log(`\n✓ ${skill}: recall + precision within bounds.`);
   },
 });

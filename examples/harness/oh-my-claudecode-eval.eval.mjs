@@ -44,7 +44,7 @@ export default defineEval({
   },
   assert: (report) => {
     // A trigger-rate eval is a measurement; gate it in CI (where auth exists) with
-    // assertTriggerRate(report, { min: 0.6 }) from vigiles.
+    // assertRates(report, { min: 0.6 }) from vigiles/eval.
     console.log(`\n✓ measured ${report.n} run(s).`);
   },
 });

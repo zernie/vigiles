@@ -1,7 +1,7 @@
 /**
  * The eval REPORT shapes — what `paid_runEval` and `paid_measureTriggerRate`
  * return and what the readers take (`compare`, `assertRates`,
- * `assertTriggerRate`, a baseline).
+ * `assertRates`, a baseline).
  *
  * They live in core, not beside the runners in `src/eval.ts`, because more than
  * one package entry speaks them: the root (`defineEval`, `vigilesMatchers`) and

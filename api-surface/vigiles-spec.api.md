@@ -116,13 +116,7 @@ export const experimental_agent: typeof agentSpec & {
 };
 
 // @beta
-export function experimental_assertAgentErr(output: string, contract?: OutputContract): Record<string, unknown>;
-
-// @beta
 export function experimental_assertAgentOk(output: string, contract?: OutputContract): Record<string, unknown>;
-
-// @beta
-export function experimental_assertAgentResult(output: string, predicate: (r: ParsedAgentResult) => boolean, contract?: OutputContract): void;
 
 // @beta
 export function experimental_effect(strings: TemplateStringsArray, ...values: InstructionFragment[]): EffectRegion;
@@ -249,18 +243,6 @@ export interface OutputContract<Ok extends Shape = Shape, Err extends Shape = Sh
 
 // @public
 export type OutputFieldType = "string" | "number" | "boolean" | "string[]" | readonly [string, ...string[]];
-
-// @public
-export type ParsedAgentResult<S = Record<string, unknown>, E = Record<string, unknown>> = {
-    readonly kind: "ok";
-    readonly value: S;
-} | {
-    readonly kind: "err";
-    readonly error: E;
-} | {
-    readonly kind: "malformed";
-    readonly reason: string;
-};
 
 // @beta
 export interface Pipeline<Ok extends Shape, Err extends Shape> {

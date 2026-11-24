@@ -3,31 +3,15 @@
   "entries": {
     ".": {
       "ceiling": 33,
-      "grandfathered": [
-        "check.allowed",
-        "check.blocked",
-        "check.didNotWrite",
-        "check.noWrite",
-        "check.notTool",
-        "check.toolWith",
-        "check.wroteOnly",
-        "experimental_replyCount"
-      ]
+      "grandfathered": []
     },
     "./spec": {
       "ceiling": 16,
-      "grandfathered": [
-        "experimental_assertAgentErr",
-        "experimental_assertAgentResult"
-      ]
+      "grandfathered": []
     },
     "./eval": {
       "ceiling": 12,
-      "grandfathered": [
-        "assertTriggerRate",
-        "readBaseline",
-        "writeBaseline"
-      ]
+      "grandfathered": []
     },
     "./rule-proof": {
       "ceiling": 1,

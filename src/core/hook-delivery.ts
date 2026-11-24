@@ -33,7 +33,7 @@
  *   delivery. Where the block reason
  *   goes differs per event (a vetoed prompt shows it to the user only), the
  *   capability table does not record that, and a block is not a nudge — its
- *   assertion is `check.blocked()`;
+ *   assertion is `check.hookFired(event, { blocked: true })`;
  * - `systemMessage` is not judged: it is addressed to the user by design.
  */
 import type { EventCapabilityTable, HookChannel } from "./event-capability.js";

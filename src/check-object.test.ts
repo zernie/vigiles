@@ -17,11 +17,8 @@ import {
   assertChecks,
   type Check,
   tool,
-  toolWith,
   skill,
   output,
-  wrote,
-  blocked,
 } from "./check.js";
 import { checksRecorded } from "./check-count.js";
 import type { Trace, ToolCall, HookFire } from "./harness-test.js";
@@ -120,15 +117,12 @@ describe("the members are the vocabulary", () => {
     });
     for (const [a, b] of [
       [check.tool("Bash"), tool("Bash")],
-      [check.toolWith("Bash", {}), toolWith("Bash", {})],
       [check.skill("p:s"), skill("p:s")],
       [check.output("done"), output("done")],
-      [check.wrote("x"), wrote("x")],
     ] as const) {
       assert.deepEqual(a.toJSON(), b.toJSON());
       assert.deepEqual(a.eval(t), b.eval(t));
     }
-    assert.deepEqual(check.blocked().toJSON(), blocked().toJSON());
   });
 });
 
@@ -172,7 +166,11 @@ describe("check.tool — a RegExp name, and { min, max }", () => {
   });
 
   test("a bound that cannot mean anything is refused when the check is built", () => {
-    assert.throws(() => check.tool("Write", {}), /give `min`, `max` or both/);
+    // `{}` is not a bound but no options: one call is enough, as with none
+    assert.deepEqual(
+      check.tool("Write", {}).toJSON(),
+      check.tool("Write").toJSON(),
+    );
     assert.throws(
       () => check.tool("Write", { min: 3, max: 1 }),
       /min 3 is above max 1/,
@@ -204,19 +202,56 @@ describe("check.toolSequence — an order, gaps allowed", () => {
   });
 });
 
-describe("check.notTool — a RegExp names the tool it caught", () => {
+describe("check.tool(name, { max: 0 }) — a RegExp names the tool it caught", () => {
   test("pass, and the offending tool on failure", () => {
     const t = makeTrace({ toolCalls: [call("Edit", { input: { a: 1 } })] });
-    assert.equal(check.notTool(/^Bash$/).eval(t).pass, true);
-    const r = check.notTool(/Bash|Edit/).eval(t);
+    assert.equal(check.tool(/^Bash$/, { max: 0 }).eval(t).pass, true);
+    const r = check.tool(/Bash|Edit/, { max: 0 }).eval(t);
     assert.equal(r.pass, false);
     assert.match(r.message, /"Edit": \{"a":1\}/);
-    assert.deepEqual(check.notTool(/x/, { a: 1 }).toJSON(), {
-      kind: "notTool",
+    assert.deepEqual(check.tool(/x/, { with: { a: 1 }, max: 0 }).toJSON(), {
+      kind: "tool",
       name: "/x/",
       regex: true,
-      args: { a: 1 },
+      with: { a: 1 },
+      max: 0,
     });
+  });
+
+  test("`with` and a bound count only the calls whose input matches", () => {
+    const t = makeTrace({
+      toolCalls: [
+        call("Bash", { input: { command: "git push" } }),
+        call("Bash", { input: { command: "ls" } }),
+        call("Bash", { input: { command: "git push -f" } }),
+      ],
+    });
+    const pushes = { command: /git push/ };
+    assert.equal(
+      check.tool("Bash", { with: pushes, max: 2 }).eval(t).pass,
+      true,
+    );
+    const r = check.tool("Bash", { with: pushes, max: 1 }).eval(t);
+    assert.equal(r.pass, false);
+    assert.match(r.message, /with command=\/git push\/ to be used at most 1/);
+    assert.equal(
+      check.tool("Bash", { with: { command: "ls" } }).eval(t).pass,
+      true,
+    );
+  });
+
+  test("a global or sticky RegExp in `with` counts every matching call, not every other one", () => {
+    const t = makeTrace({
+      toolCalls: [
+        call("Bash", { input: { command: "git push" } }),
+        call("Bash", { input: { command: "git push" } }),
+      ],
+    });
+    for (const re of [/git push/g, /git push/y]) {
+      const r = check.tool("Bash", { with: { command: re }, max: 1 }).eval(t);
+      assert.equal(r.pass, false, String(re));
+      assert.equal(re.lastIndex, 0, `${String(re)} left untouched`);
+    }
   });
 });
 
@@ -391,7 +426,7 @@ describe("check.delivered — a nudge's text reached the model", () => {
   });
 });
 
-describe("check.egressOnly / check.noWrite / check.wroteOnly — a confined run's effects", () => {
+describe("check.egressOnly / check.writes — a confined run's effects", () => {
   const reached = hookResult({
     egress: [
       { host: "registry.npmjs.org", port: 443, ts: 1 },
@@ -412,27 +447,40 @@ describe("check.egressOnly / check.noWrite / check.wroteOnly — a confined run'
     );
   });
 
-  test("noWrite and wroteOnly name the file; unrecorded writes FAIL, not pass", () => {
-    assert.equal(check.noWrite(".env").eval(reached).pass, true);
-    assert.match(check.noWrite(/\.json$/).eval(reached).message, /x\.json/);
+  test("none / only / include name the file; unrecorded writes FAIL, not pass", () => {
+    assert.equal(check.writes({ none: [".env"] }).eval(reached).pass, true);
     assert.match(
-      check.wroteOnly([/^\.omc\//]).eval(reached).message,
-      /out\.txt/,
+      check.writes({ none: [/\.json$/] }).eval(reached).message,
+      /x\.json/,
+    );
+    assert.match(
+      check.writes({ only: [/^\.omc\//] }).eval(reached).message,
+      /outside `only`: out\.txt/,
     );
     assert.equal(
-      check.wroteOnly([/^\.omc\//, "out.txt"]).eval(reached).pass,
+      check.writes({ only: [/^\.omc\//, "out.txt"] }).eval(reached).pass,
       true,
     );
+    // a string is an exact path (a leading ./ aside), not a substring
+    assert.equal(
+      check.writes({ include: ["./out.txt"] }).eval(reached).pass,
+      true,
+    );
+    assert.equal(check.writes({ none: ["out"] }).eval(reached).pass, true);
+    assert.match(
+      check.writes({ include: ["missing.txt"] }).eval(reached).message,
+      /wrote nothing matching missing\.txt/,
+    );
     const unrecorded: { readonly filesWritten?: readonly string[] } = {};
-    assert.equal(check.noWrite(".env").eval(unrecorded).pass, false);
-    assert.match(check.wroteOnly([]).eval(unrecorded).message, /record/);
+    assert.equal(check.writes({ none: [".env"] }).eval(unrecorded).pass, false);
+    assert.match(check.writes({ only: [] }).eval(unrecorded).message, /record/);
   });
 
   test("they compose with assertChecks", () => {
     assert.throws(() => {
       const effects: readonly Check<HookRunResult>[] = [
         check.egressOnly([]),
-        check.noWrite("out.txt"),
+        check.writes({ none: ["out.txt"] }),
       ];
       assertChecks(reached, effects);
     }, /evil\.example[\s\S]*out\.txt/);

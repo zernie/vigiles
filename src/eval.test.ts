@@ -80,7 +80,6 @@ const skillResolved = (t: Trace, id: string): boolean =>
   check.skill(id).eval(t).pass;
 const outputContains = (t: Trace, needle: string): boolean =>
   check.output(needle).eval(t).pass;
-import { assertTriggerRate } from "./eval-readers.js";
 import { tool, output, turns, judged } from "./check.js";
 import { parseIntercepts } from "./tool-intercept.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
@@ -2947,7 +2946,7 @@ test("formatEvalReport never shows a run that reported no cost as $0", () => {
   assert.notEqual(unknown, head({ ...base, totalCostUsd: 0 }));
 });
 
-test("assertTriggerRate gates on the minimum rate", () => {
+test("assertRates gates a trigger-rate report on the minimum rate", () => {
   const report = {
     rate: 0.5,
     n: 4,
@@ -2956,14 +2955,18 @@ test("assertTriggerRate gates on the minimum rate", () => {
     usage: zeroUsage,
   };
   assert.doesNotThrow(() => {
-    assertTriggerRate(report, { min: 0.5 });
+    assertRates(report, { min: 0.5 });
   });
   assert.throws(() => {
-    assertTriggerRate(report, { min: 0.8 });
+    assertRates(report, { min: 0.8 });
   });
+  // a gate with no threshold would pass anything, so it fails loudly
+  assert.throws(() => {
+    assertRates(report, {});
+  }, /empty gate passes anything/);
 });
 
-test("assertTriggerRate gates precision: false-positive rate and minPrecision", () => {
+test("assertRates gates a trigger-rate report on precision: false-positive rate and minPrecision", () => {
   const report = {
     rate: 1,
     n: 2,
@@ -2976,19 +2979,19 @@ test("assertTriggerRate gates precision: false-positive rate and minPrecision", 
   };
   // within both thresholds → ok
   assert.doesNotThrow(() => {
-    assertTriggerRate(report, { maxFalsePositive: 0.5, minPrecision: 0.6 });
+    assertRates(report, { maxFalsePositive: 0.5, minPrecision: 0.6 });
   });
   // too many false positives → throws
   assert.throws(() => {
-    assertTriggerRate(report, { maxFalsePositive: 0.2 });
+    assertRates(report, { maxFalsePositive: 0.2 });
   }, /false-positive/);
   // precision too low → throws
   assert.throws(() => {
-    assertTriggerRate(report, { minPrecision: 0.9 });
+    assertRates(report, { minPrecision: 0.9 });
   }, /precision/);
   // precision undefined (nothing fired) reads as n/a and fails a minPrecision gate
   assert.throws(() => {
-    assertTriggerRate(
+    assertRates(
       {
         rate: 0,
         n: 2,

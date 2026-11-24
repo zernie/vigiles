@@ -905,7 +905,7 @@ test("skillTestNudge: a harness-covered AGENT is nudged about its CONTRACT, not 
   // repo's own subagent guidance names (docs/rules/untested-subagent.md).
   assert.match(msg, /runEval/);
   assert.match(msg, /subagent\(name/);
-  assert.match(msg, /notTool/);
+  assert.match(msg, /check\.tool\(name, \{ max: 0 \}\)/);
   assert.match(msg, /assertAgentOk/);
   // ⚠️ It must not invent an argument the function does not take: `runEval` /
   // `measure` / `measureArms` hard-wire `spawnAgent`, and `runEvalWith` is not

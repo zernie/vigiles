@@ -108,7 +108,7 @@ A style is not chosen by the model, so there is no trigger rate to measure
 and check every reply of each run.
 
 ```ts
-import { experimental_replyCount, check } from "vigiles";
+import { check } from "vigiles";
 import { experimental_outputStyleArms, paid_measureArms } from "vigiles/eval";
 
 // Free: one run with the scripted model proves the style reaches the model,
@@ -122,7 +122,7 @@ const report = await paid_measureArms({
   arms,
   task: "summarise README.md",
   checks: [
-    experimental_replyCount(/\*\*Status\*\*/, { max: 1 }), // one block per user message
+    check.turns({ matching: /\*\*Status\*\*/, max: 1 }), // one block per user message
     check.output(/\*\*Status\*\*(?:\n- [^\n]*)+\s*$/), // …and the message ends with it
   ],
   trials: 10,
@@ -154,8 +154,8 @@ For a rule with no checkable shape, use `paid_judged`. Gate the rates with
 `assertRates`. This tier calls a real model and costs money; run it on purpose,
 not on every push.
 
-Pick the check by what the rule counts. `experimental_eachReply` is for a rule about every
-reply ("answer in English"); `experimental_replyCount` is for a rule about the user's message
+Pick the check by what the rule counts. `check.output(m, { eachReply: true })` is for a rule
+about every reply ("answer in English"); `check.turns({ matching: m, max })` is for a rule about the user's message
 as a whole ("one status block per message"), because a Stop hook can make one
 message two replies.
 

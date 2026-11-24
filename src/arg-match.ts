@@ -1,7 +1,7 @@
 /**
  * `ArgMatcher` — a small, serializable matcher over a tool call's `input`.
  *
- * Shared by the check vocabulary (`toolWith` / `notTool` in `src/check.ts`) and
+ * Shared by the check vocabulary (`check.tool(name, { with })` in `src/check.ts`) and
  * the tool-interception seam (`src/tool-intercept.ts`), so "did the agent call
  * this tool with these arguments?" means the same thing whether you're *asserting*
  * on a captured call or *intercepting* one before it runs. Pure + model-free.
@@ -42,11 +42,18 @@ export function getPath(obj: unknown, path: string): unknown {
   return cur;
 }
 
-/** Does `input` satisfy every entry of `matcher`? (RegExp = pattern, else exact.) */
+/**
+ * Does `input` satisfy every entry of `matcher`? (RegExp = pattern, else exact.)
+ * A RegExp is copied first: with `g` / `y`, `test` advances `lastIndex` on the
+ * object it is called on, so reusing the caller's object would skip every other
+ * matching call when a check counts them.
+ */
 export function matchesArgs(input: unknown, matcher: ArgMatcher): boolean {
   return Object.entries(matcher).every(([key, m]) => {
     const value = getPath(input, key);
-    return m instanceof RegExp ? m.test(stringifyValue(value)) : value === m;
+    return m instanceof RegExp
+      ? new RegExp(m).test(stringifyValue(value))
+      : value === m;
   });
 }
 

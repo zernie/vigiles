@@ -1,5 +1,5 @@
 /**
- * Tests for parseAgentResult (src/agent-result.ts) — the railway result parser.
+ * Tests for parseAgentResult (src/core/agent-result.ts) — the railway result parser.
  * A subagent with a result() contract ends its turn with a vigiles:ok/err block;
  * this turns that text into a discriminated outcome (ok | err | malformed). Pure,
  * model-free — the primitive both the orchestrator and the assert helpers reuse.
@@ -8,7 +8,7 @@ import { test } from "vitest";
 import assert from "node:assert/strict";
 
 import { parseAgentResult } from "./agent-result.js";
-import { experimental_agent } from "../../core/spec.js";
+import { experimental_agent } from "./spec.js";
 const { result } = experimental_agent;
 
 const okBlock = (json: string) => "Done.\n\n```vigiles:ok\n" + json + "\n```\n";

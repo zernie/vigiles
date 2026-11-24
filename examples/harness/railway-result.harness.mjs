@@ -10,12 +10,13 @@
  *   { "files": ["src/parser.ts"], "summary": "added the parser, tests green" }
  *   ```
  *
- * `experimental_assertAgentOk` / `experimental_assertAgentErr` / `experimental_assertAgentResult` parse that block and
- * validate it against the contract. The point: this is a DETERMINISTIC assert
+ * `experimental_assertAgentOk` (which returns the success value) and
+ * `check.experimental_agentResult` (the error track, or any predicate) parse
+ * that block and validate it against the contract. The point: this is a DETERMINISTIC assert
  * that REPLACES an LLM judge. Instead of paying a model to grade
  *   judged(output, "did the worker succeed and change a test file?")
  * — non-deterministic, costs tokens — you assert the structured outcome:
- *   experimental_assertAgentResult(output, r => r.kind === "ok" && r.value.files.some(isTest))
+ *   check.experimental_agentResult(r => r.kind === "ok" && r.value.files.some(isTest))
  * — model-free, free, exact. The typed outcome is the contract; the assert reads it.
  *
  * Part A runs anywhere (pure text → Result, no `claude`). Part B runs the SAME
@@ -28,9 +29,8 @@ import assert from "node:assert/strict";
 import {
   experimental_agent,
   experimental_assertAgentOk,
-  experimental_assertAgentErr,
-  experimental_assertAgentResult,
 } from "../../dist/entries/spec.js";
+import { check, assertChecks } from "../../dist/check.js";
 const { result } = experimental_agent;
 import {
   runHarnessTest,
@@ -70,27 +70,33 @@ const errOutput = [
   "```",
 ].join("\n");
 
-const error = experimental_assertAgentErr(errOutput, implementer);
-assert.equal(error.step, "implementer");
+// The error track is a check: it reads `output`, so a trace (or a subagent's
+// return, inside check.subagent) is the target.
+assertChecks({ output: errOutput }, [
+  check.experimental_agentResult(
+    (r) => r.kind === "err" && r.error.step === "implementer",
+    implementer,
+  ),
+]);
 console.log(
-  "✓ err track: experimental_assertAgentErr validated the failure shape",
+  "✓ err track: check.experimental_agentResult validated the failure shape",
 );
 
-// experimental_assertAgentResult is the general predicate form — assert RICH detail
-// ("succeeded AND touched a test file"), still deterministic, still no judge.
-experimental_assertAgentResult(
-  okOutput,
-  (r) => r.kind === "ok" && r.value.files.some((f) => f.endsWith(".test.ts")),
-  implementer,
-);
+// The predicate form asserts RICH detail ("succeeded AND touched a test
+// file"), still deterministic, still no judge.
+assertChecks({ output: okOutput }, [
+  check.experimental_agentResult(
+    (r) => r.kind === "ok" && r.value.files.some((f) => f.endsWith(".test.ts")),
+    implementer,
+  ),
+]);
 console.log("✓ predicate: succeeded AND changed a test file (no LLM judge)");
 
 // A worker that ignores its contract is `malformed` — the honest third track,
 // caught, not silently passed (prose instead of a result block).
-experimental_assertAgentResult(
-  "I think it worked!",
-  (r) => r.kind === "malformed",
-);
+assertChecks({ output: "I think it worked!" }, [
+  check.experimental_agentResult((r) => r.kind === "malformed"),
+]);
 console.log("✓ malformed: prose-only output is caught, not passed");
 
 // --- Part B: the same assert over a real (mock-driven) harness turn ---------

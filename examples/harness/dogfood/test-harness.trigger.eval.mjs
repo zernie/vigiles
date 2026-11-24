@@ -18,7 +18,7 @@
  */
 import { defineEval } from "../../../dist/entries/index.js";
 import { check } from "../../../dist/check.js";
-import { assertTriggerRate } from "../../../dist/entries/eval.js";
+import { assertRates } from "../../../dist/entries/eval.js";
 import { fileURLToPath } from "node:url";
 
 // The vigiles plugin root (the dir that holds .claude-plugin/), installed
@@ -63,7 +63,7 @@ export default defineEval({
   assert: (report) => {
     // The dogfood bar: a model-invocable ("auto") skill must fire on real harness
     // work at least 80% of the time (recall) and rarely on noise (precision).
-    assertTriggerRate(report, { min: 0.8, maxFalsePositive: 0.3 });
+    assertRates(report, { min: 0.8, maxFalsePositive: 0.3 });
     console.log(`\n✓ ${skill}: recall + precision within bounds.`);
 
     // FINDING (2026-06-17): MEASURE ON SONNET. On claude-haiku-4-5 this skill scored

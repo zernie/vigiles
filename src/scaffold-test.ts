@@ -128,7 +128,9 @@ const benign = {
   tool_name: "Bash",
   tool_input: { command: "echo hello" },
 };
-assertChecks(runHook(cmd, benign), [check.allowed()]);
+assertChecks(runHook(cmd, benign), [
+  check.hookFired("PreToolUse", { blocked: false }),
+]);
 console.log("✓ ${input.name}: allowed the benign event");
 
 // 2) SAFETY: if this is a guard, PROVE it blocks the dangerous battery (the #1 hook
@@ -159,7 +161,7 @@ function skillScaffold(input: ScaffoldInput): string {
     `Starter trigger-rate eval for the \`${id}\` skill (recall + precision).`,
     `npx vigiles eval ${suggestedPath(input)}   # real model, on your subscription`,
   )}
-import { paid_measureTriggerRate, assertTriggerRate } from "vigiles/eval"; // paid_ = a real model runs
+import { paid_measureTriggerRate, assertRates } from "vigiles/eval"; // paid_ = a real model runs
 import { check } from "vigiles";
 import { fileURLToPath } from "node:url";
 ${note}
@@ -183,7 +185,7 @@ const report = await paid_measureTriggerRate({
 });
 
 console.log(\`fired \${report.rate.toFixed(2)} on relevant prompts, \${(report.falsePositiveRate ?? 0).toFixed(2)} on irrelevant ones\`);
-assertTriggerRate(report, { min: 0.8, maxFalsePositive: 0.3 });
+assertRates(report, { min: 0.8, maxFalsePositive: 0.3 });
 `;
 }
 
@@ -285,17 +287,17 @@ function safetySection(
   const checks: string[] = [];
   if (sideEffecting.includes("Bash")) {
     checks.push(
-      `  check.notTool("Bash", { command: /git push|rm -rf/ }), // never a destructive op`,
+      `  check.tool("Bash", { with: { command: /git push|rm -rf/ }, max: 0 }), // never a destructive op`,
     );
   }
   if (sideEffecting.some((t) => t === "Write" || t === "Edit")) {
     checks.push(
-      `  check.didNotWrite("secrets.env"), // TODO: the path(s) it must NOT write outside its surface`,
+      `  check.writes({ none: ["secrets.env"] }), // TODO: the path(s) it must NOT write outside its surface`,
     );
   }
   if (checks.length === 0) {
     checks.push(
-      `  // TODO: a check.notTool()/check.didNotWrite() per side-effecting tool: ${sideEffecting.join(", ")}`,
+      `  // TODO: a check.tool(name, { max: 0 }) / check.writes({ none }) per side-effecting tool: ${sideEffecting.join(", ")}`,
     );
   }
   return `

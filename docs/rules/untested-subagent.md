@@ -16,10 +16,10 @@ The two tiers ask the same question of an agent and differ in **who plays the
 model** — so a passing deterministic test does not make the eval tier redundant,
 and this is the split the coverage nudge now reflects:
 
-| tier                             | model          | what it establishes                                                                                     |
-| -------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------- |
-| deterministic (`runHarnessTest`) | scripted mock  | the contract parses and the rail holds — `check.subagent(...)`, `notTool`, `experimental_assertAgentOk` |
-| eval (`runEval` / `measure`)     | **real**, paid | a real model, handed this agent's prompt, stays inside the contract                                     |
+| tier                             | model          | what it establishes                                                                                                       |
+| -------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| deterministic (`runHarnessTest`) | scripted mock  | the contract parses and the rail holds — `check.subagent(...)`, `check.tool(…, { max: 0 })`, `experimental_assertAgentOk` |
+| eval (`runEval` / `measure`)     | **real**, paid | a real model, handed this agent's prompt, stays inside the contract                                                       |
 
 Keep the same assertions across both; only the model changes. The typed-outcome
 helpers are model-free by design — see

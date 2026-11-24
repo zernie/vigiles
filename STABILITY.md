@@ -19,8 +19,9 @@ their exit codes. Most of the churn is in the library API underneath it.
 - **The authoring + testing library entry points:**
   - `vigiles/spec` — what a spec author imports: the core builders (`enforce`,
     `guidance`, `instructionFile`, `file`, `cmd`, `ref`, `dir`, `glob`, `prose`),
-    the verified-reference types, and `experimental_assertAgentOk` / `experimental_assertAgentErr` /
-    `experimental_assertAgentResult`. Skill authoring is **not** on this list — see
+    the verified-reference types, and `experimental_assertAgentOk` (the error
+    track and predicates are `check.experimental_agentResult` on the root since
+    v52). Skill authoring is **not** on this list — see
     `experimental_skill` below, and neither is subagent authoring (`result`,
     `delegate`, `railway` hang off `experimental_agent`). **Not the compiler** —
     compile with the CLI (`vigiles compile`). (`vigiles/linting`, a strict subset
@@ -36,8 +37,10 @@ their exit codes. Most of the churn is in the library API underneath it.
     carrying a `paid_` prefix (`paid_runEval`, `paid_measure`, `paid_measureArms`,
     `paid_measureTriggerRate`, `paid_judge`, `paid_judged`,
     `paid_claudeEvalDriver`), and the free readers of their report (`compare`,
-    `assertRates`, `assertTriggerRate`, `assertImproves`, `assertNoRegression`,
-    `readBaseline`, `writeBaseline`), which carry none.
+    `assertRates`, `assertImproves`, `assertNoRegression`), which carry none.
+    `assertTriggerRate` folded into `assertRates` and `readBaseline` /
+    `writeBaseline` into `assertNoRegression`'s `baseline` option in v52 (see the
+    [migration table](docs/testing-api.md#migrating-to-v52)).
   - `vigiles/hook/testing` — everything for testing a hook: prove a guard
     blocks (`assertGuardrail`, `verifyGuardrail`, `DISASTER_CATALOG`) and test a
     compiled hook in process (`experimental_loadHook`, `experimental_assertHook*`).

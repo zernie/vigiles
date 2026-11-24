@@ -861,7 +861,7 @@ maybe(
       assertChecks(r, [
         check.tool("Skill"),
         check.skill("demo:greet"),
-        check.notTool(/^mcp__/), // safety negative: no MCP tool was used
+        check.tool(/^mcp__/, { max: 0 }), // safety negative: no MCP tool was used
       ]);
     } finally {
       r.cleanup();
@@ -925,7 +925,7 @@ maybe("tool-call sequence + budget invariants hold on a real run", async () => {
       check.tool("Edit", { max: 1 }), // budget
       check.tool("Write", { max: 0 }),
       // tool-ARGUMENT invariant: the Edit targeted the right file (not just "an Edit ran")
-      check.toolWith("Edit", { file_path: "note.txt" }),
+      check.tool("Edit", { with: { file_path: "note.txt" } }),
       check("every Edit follows a Read", (t) => {
         let read = false;
         for (const c of t.toolCalls) {

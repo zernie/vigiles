@@ -42,16 +42,16 @@ const assertEgressOnly = (
   assertChecks(r, [check.egressOnly(allowed)]);
 };
 const assertWroteOnly = (
-  r: Parameters<ReturnType<typeof check.wroteOnly>["eval"]>[0],
+  r: { readonly filesWritten?: readonly string[] },
   allowed: ReadonlyArray<string | RegExp>,
 ): void => {
-  assertChecks(r, [check.wroteOnly(allowed)]);
+  assertChecks(r, [check.writes({ only: allowed })]);
 };
 const assertNoWrite = (
-  r: Parameters<ReturnType<typeof check.noWrite>["eval"]>[0],
+  r: { readonly filesWritten?: readonly string[] },
   pattern: string | RegExp,
 ): void => {
-  assertChecks(r, [check.noWrite(pattern)]);
+  assertChecks(r, [check.writes({ none: [pattern] })]);
 };
 
 test("propertyHook: holds for a correct guard, finds a counterexample for a buggy one", () => {

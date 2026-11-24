@@ -21,7 +21,7 @@ export type ArmRateGate = RateGate & {
 export function assertImproves(report: EvalReport, opts: ImprovesGate): void;
 
 // @public
-export function assertNoRegression(current: EvalReport | readonly EvalReport[], baseline: BaselineFile, opts?: DiffOptions): void;
+export function assertNoRegression(current: EvalReport | readonly EvalReport[], gate: RegressionGate): void;
 
 // @public (undocumented)
 export function assertRates(report: CheckReport, opts: CheckRateGate): void;
@@ -29,8 +29,8 @@ export function assertRates(report: CheckReport, opts: CheckRateGate): void;
 // @public (undocumented)
 export function assertRates(report: EvalReport, opts: ArmRateGate): void;
 
-// @public
-export function assertTriggerRate(report: TriggerRateReport, opts: TriggerRateGate): void;
+// @public (undocumented)
+export function assertRates(report: TriggerRateReport, opts: TriggerRateGate): void;
 
 // @public
 export interface BaselineFile {
@@ -125,7 +125,13 @@ export type RateGate = {
 };
 
 // @public
-export function readBaseline(path: string): BaselineFile | null;
+export type RegressionGate = DiffOptions & ({
+    readonly baseline: string;
+    readonly update?: boolean;
+} | {
+    readonly baseline: BaselineFile;
+    readonly update?: undefined;
+});
 
 // @public
 export interface TriggerDiff {
@@ -167,9 +173,6 @@ export type Verdict =
     readonly kind: "unmeasured";
     readonly why: "no-trials" | "metric-missing";
 };
-
-// @public
-export function writeBaseline(path: string, reports: readonly EvalReport[]): void;
 
 // (No @packageDocumentation comment for this package)
 
