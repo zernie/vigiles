@@ -24,6 +24,7 @@
 import { hookStampRef } from "./hook-paths.js";
 import { wireHookCommand, type DispatchKind } from "./hook-program.js";
 import type { HookFailureWiring } from "./layout.js";
+import type { HookFailurePolicy } from "./hook-protocol.js";
 
 /** Where `compile` writes the start-of-session check. Committed, next to the hook sources. */
 export const HOOK_CHECK_REF = ".vigiles/hook-check.sh";
@@ -225,6 +226,14 @@ export interface HookSourceRecord {
 /** One line `compile` would write, and the files it needs on disk. */
 export interface PlannedHookLine {
   readonly command: string;
+  /**
+   * The failure policy `compile` writes beside the command, on a harness that
+   * carries it as a handler key; absent where the harness has none (it rides on
+   * the command's `|| exit N` ending) and on vigiles's own wiring. Part of the
+   * line's identity: a gate whose `"block"` was removed or turned to
+   * `"continue"` is not the line compile writes.
+   */
+  readonly onFailure?: HookFailurePolicy;
   /** Root-anchored (`${TOKEN}/…`) or repo-relative paths. */
   readonly files: readonly string[];
   readonly runs: HookLineRuns;
@@ -347,7 +356,7 @@ function compiledLine(
   { runtime, projectRootTokens: tokens, failureWiring }: HookPlanInput,
 ): readonly PlannedHookLine[] {
   if (role === undefined) return [];
-  const { command } = wireHookCommand(
+  const wired = wireHookCommand(
     runProgramCommand(
       hookRuntimeRef(tokens, runtime),
       hookGateRef(ref, tokens),
@@ -358,7 +367,16 @@ function compiledLine(
   const files = [runtime.path, ref, hookStampRef(ref)].map((f) =>
     anchored(f, tokens),
   );
-  return [{ command, files, runs: { kind: "program", ref } }];
+  const line: PlannedHookLine = {
+    command: wired.command,
+    files,
+    runs: { kind: "program", ref },
+  };
+  return [
+    wired.kind === "handler-field"
+      ? { ...line, onFailure: wired.onFailure }
+      : line,
+  ];
 }
 
 /** `rel` anchored at the harness's project root, as the emitted line spells it. */

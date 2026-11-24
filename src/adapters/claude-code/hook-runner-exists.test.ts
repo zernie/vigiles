@@ -56,7 +56,11 @@ function settingsWith(command: string): string {
   return JSON.stringify({
     hooks: {
       PostToolUse: [
-        { matcher: "Edit|Write", hooks: [{ type: "command", command }] },
+        {
+          matcher: "Edit|Write",
+          // A react: compile wires it to continue when it fails.
+          hooks: [{ type: "command", command, onFailure: "continue" }],
+        },
       ],
     },
   });

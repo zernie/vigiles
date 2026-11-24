@@ -801,17 +801,23 @@ export type HookLine =
   | { readonly kind: "hand-written" };
 
 /**
- * A line equal to a planned line is `compiled`, and its files are the plan's.
+ * A line equal to a planned line — its command AND its failure policy — is
+ * `compiled`, and its files are the plan's.
  * A line `compile`'s merge key assigns to one of this repo's hook sources but
  * that is not the planned line was edited, or compiled by another version:
  * `stale`. Anything else is `hand-written`.
  */
 function readHookLine(
-  command: string,
+  { command, onFailure }: Pick<HookRegistration, "command" | "onFailure">,
   scan: Pick<HookScriptScan, "plan" | "root" | "layout">,
 ): HookLine {
   const { plan, root } = scan;
-  const planned = plan.lines.find((l) => l.command === command);
+  // The failure policy is part of the identity: before it was a key, editing a
+  // gate's `|| exit 2` ending changed the command and read as stale; deleting
+  // or loosening its `onFailure` must too, or a gate fails open unreported.
+  const planned = plan.lines.find(
+    (l) => l.command === command && l.onFailure === onFailure,
+  );
   if (planned !== undefined)
     return { kind: "compiled", files: planned.files, runs: planned.runs };
   const ref = plan.sources.find((r) =>
@@ -892,7 +898,7 @@ export function hookInventory(
             source: block.origin,
             event: r.event,
             command: r.command,
-            line: readHookLine(r.command, scan),
+            line: readHookLine(r, scan),
           }),
         ),
     ),
@@ -999,8 +1005,8 @@ export function handWrittenHookMessage(hook: HandWrittenHook): string {
 export function staleHookMessage(hook: StaleHook): string {
   return (
     `${hook.event} hook \`${hook.command}\` wires ${hook.ref} but is not the ` +
-    "line `vigiles compile` writes for it: edited or stale — recompile " +
-    "(`vigiles compile`)."
+    "line `vigiles compile` writes for it — its command or its failure policy " +
+    "(`onFailure`): edited or stale — recompile (`vigiles compile`)."
   );
 }
 
@@ -1372,8 +1378,9 @@ export function collectHookBlockEntries(
   regs: readonly HookRegistration[],
   scan: Pick<HookScriptScan, "root" | "layout" | "exists" | "plan">,
 ): HookScriptEntry[] {
-  return regs.flatMap(({ event, command }): HookScriptEntry[] => {
-    const line = readHookLine(command, scan);
+  return regs.flatMap((reg): HookScriptEntry[] => {
+    const { event, command } = reg;
+    const line = readHookLine(reg, scan);
     const files = (line.kind === "compiled" ? line.files : [])
       .map((f) => hookFilePath(f, scan.root, scan.layout))
       .filter(scan.exists);

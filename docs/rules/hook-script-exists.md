@@ -38,7 +38,10 @@ for how a line is read, and for what that costs.
 **A compiled line that is no longer its planned line** — `compile`'s merge key
 says it wires one of the repo's hook sources, but it is not the line `compile`
 writes for it: edited by hand, or compiled by another version (an older vigiles
-recorded no role in the stamp). It is vigiles's own wiring gone wrong, so this
+recorded no role in the stamp). On Claude Code the line includes its
+`onFailure`: a gate whose `"block"` was removed or turned to `"continue"` would
+let calls through when it fails, and a reminder turned to `"block"` could stop
+a session, so either one is reported the same way. It is vigiles's own wiring gone wrong, so this
 rule reports it, "edited or stale — recompile"; the cure is `vigiles compile`.
 
 **A file a compiled line needs is missing.**
