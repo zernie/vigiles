@@ -155,7 +155,7 @@ test("every leaf the old walk found is still found (C2)", () => {
     assert.ok(heads.includes(want), want);
 });
 
-// Codex review on #508: each of these was a silent "start directory" for a
+// Review on #508: each of these was a silent "start directory" for a
 // leaf bash runs elsewhere. The rule they pin: what the model does not
 // explicitly understand makes the leaf unresolved, never keeps the old one.
 describe("builtin-invoking forms move the shell too", () => {

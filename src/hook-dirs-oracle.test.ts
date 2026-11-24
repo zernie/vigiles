@@ -83,6 +83,9 @@ function generator(seed: number, out: string, abs: string) {
       () => `m(){ n; }; n(){ cd ${dir()}; }; m`,
       leaf,
       leaf,
+      leaf,
+      leaf,
+      leaf,
     ];
     const nested: (() => string)[] = [
       () => `( ${seq(depth + 1)} )`,

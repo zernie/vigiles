@@ -1354,10 +1354,11 @@ function withGitDir(s: DirState): DirState {
       };
 }
 
-const GIT_DIR_VARS: ReadonlySet<string> = new Set(["GIT_DIR", "GIT_WORK_TREE"]);
-
-const namesGitDir = (names: readonly (MvdanNode | undefined)[]): boolean =>
-  names.some((n) => GIT_DIR_VARS.has(n?.Value ?? ""));
+const GIT_DIR_VARS: ReadonlySet<string> = new Set([
+  "GIT_DIR",
+  "GIT_WORK_TREE",
+  "GIT_COMMON_DIR",
+]);
 
 /** The source byte range of a statement: how the model keys what it saw. */
 const stmtKey = (n: Readonly<MvdanNode>): string =>
@@ -1366,12 +1367,11 @@ const stmtKey = (n: Readonly<MvdanNode>): string =>
 /** The heads that move the shell when run as builtins. */
 const DIR_BUILTINS: ReadonlySet<string> = new Set(["cd", "pushd", "popd"]);
 
-/**
- * Names of functions declared in the line whose body may move the shell:
- * a `cd`/`pushd`/`popd`, `source`/`.`, `eval`, or another such function.
- */
-function dirMovingFunctions(file: Readonly<MvdanNode>): ReadonlySet<string> {
-  const decls = statements(file).flatMap((st) => {
+/** Every function the line declares, by name, with its body. */
+function declaredFunctions(
+  file: Readonly<MvdanNode>,
+): readonly (readonly [string, MvdanNode])[] {
+  return statements(file).flatMap((st) => {
     const fn = st.Cmd;
     return fn &&
       sh().syntax.NodeType(fn) === "FuncDecl" &&
@@ -1380,30 +1380,48 @@ function dirMovingFunctions(file: Readonly<MvdanNode>): ReadonlySet<string> {
       ? [[fn.Name.Value, fn.Body] as const]
       : [];
   });
-  const heads = (body: Readonly<MvdanNode>): readonly string[] =>
-    statements(body).flatMap((st) => {
-      const w =
-        st.Cmd && sh().syntax.NodeType(st.Cmd) === "CallExpr"
-          ? st.Cmd.Args?.[0]
-          : undefined;
-      const h = w ? normalizeParts(w.Parts, false, true) : null;
-      return h === null ? [] : [normalizeHead(h)];
+}
+
+/** A directory no real path spells: a function that leaves it has moved the shell. */
+const PROBE_DIR: DirState = {
+  kind: "known",
+  configs: [{ dir: "\u0000probe", stack: [], old: null, gitDir: false }],
+};
+
+/**
+ * Names of functions declared in the line whose body may move the shell —
+ * decided by the same interpreter, so anything it does not understand
+ * (`command -p cd`, a `trap`, a dynamic program, a call to another such
+ * function) counts as moving. Computed to a FIXED POINT: a chain of any
+ * length is followed, and one past the bound is treated as moving.
+ */
+function dirMovingFunctions(file: Readonly<MvdanNode>): ReadonlySet<string> {
+  const decls = declaredFunctions(file);
+  const all = new Set(decls.map(([name]) => name));
+  const moves = (
+    body: Readonly<MvdanNode>,
+    funcs: ReadonlySet<string>,
+  ): boolean => {
+    const o = stmtOutcome(body, PROBE_DIR, {
+      record: ignoreRecord,
+      funcs,
+      declared: all,
     });
-  const moves = (h: string, known: ReadonlySet<string>): boolean =>
-    DIR_BUILTINS.has(h) ||
-    h === "source" ||
-    h === "." ||
-    h === "eval" ||
-    known.has(h);
-  const moving = (known: ReadonlySet<string>): ReadonlySet<string> =>
-    new Set(
-      decls
-        .filter(([, body]) => heads(body).some((h) => moves(h, known)))
-        .map(([name]) => name),
+    return (
+      JSON.stringify(joinStates(o.ok, o.fail)) !== JSON.stringify(PROBE_DIR)
     );
-  // A function calling a moving one moves too; three passes reach a short
-  // chain, and a longer one only makes the answer more cautious, never less.
-  return moving(moving(moving(new Set())));
+  };
+  const step = (
+    known: ReadonlySet<string>,
+    round: number,
+  ): ReadonlySet<string> => {
+    if (round > decls.length) return all;
+    const next = new Set(
+      decls.filter(([, body]) => moves(body, known)).map(([n]) => n),
+    );
+    return next.size === known.size ? next : step(next, round + 1);
+  };
+  return step(new Set(), 0);
 }
 
 /**
@@ -1424,6 +1442,7 @@ function dirModel(
   interpret(file.Stmts ?? [], start, {
     record,
     funcs: dirMovingFunctions(file),
+    declared: new Set(declaredFunctions(file).map(([name]) => name)),
   });
   return (st) => seen.get(stmtKey(st)) ?? OPAQUE_DIR;
 }
@@ -1431,7 +1450,10 @@ function dirModel(
 /** What the interpreter carries: where to note a state, which names move. */
 interface DirCtx {
   readonly record: (st: Readonly<MvdanNode>, s: DirState) => void;
+  /** Functions whose body may move the shell. */
   readonly funcs: ReadonlySet<string>;
+  /** Every function the line declares: one may shadow a builtin the model reads. */
+  readonly declared: ReadonlySet<string>;
 }
 
 /** A statement list, in order: each statement starts where the last ended. */
@@ -1576,8 +1598,39 @@ function declOutcome(node: Readonly<MvdanNode>, s: DirState): DirOutcome {
   // `export GIT_DIR=…`, `declare -x GIT_DIR`, even `local GIT_DIR`: read as
   // exported, the cautious side — a leaf that may not be git's own directory
   // asks rather than being placed.
-  const names = (node.Args ?? []).map((a) => a.Name);
-  return same(namesGitDir(names) ? withGitDir(s) : s);
+  return same(
+    afterAssigning(
+      (node.Args ?? []).map((a) => a.Name?.Value ?? null),
+      s,
+    ),
+  );
+}
+
+/**
+ * Variables `cd` itself reads — `CDPATH` (where a relative operand is looked
+ * up), `HOME` (a bare `cd`, `~`), `OLDPWD` (`cd -`), `PWD` (a logical `cd ..`).
+ * The model does not follow a value assigned to one; it stops knowing.
+ */
+const CD_INPUT_VARS: ReadonlySet<string> = new Set([
+  "CDPATH",
+  "HOME",
+  "OLDPWD",
+  "PWD",
+]);
+
+/**
+ * The state after the line assigns `names` (`X=1`, `export X=1`, `read X`):
+ * unresolved after a variable `cd` reads or a name that is not literal,
+ * `GIT_DIR` in force after a git directory variable.
+ */
+function afterAssigning(
+  names: readonly (string | null)[],
+  s: DirState,
+): DirState {
+  if (names.some((n) => n === null || CD_INPUT_VARS.has(n))) return OPAQUE_DIR;
+  return names.some((n) => n !== null && GIT_DIR_VARS.has(n))
+    ? withGitDir(s)
+    : s;
 }
 
 /** A function body runs where it is called, which this point cannot know. */
@@ -1589,6 +1642,14 @@ function funcDeclOutcome(
   if (node.Body) stmtOutcome(node.Body, OPAQUE_DIR, ctx);
   return same(s);
 }
+
+/** Compound commands that never move the shell they run in. */
+const STAYING: ReadonlySet<string> = new Set([
+  "TestClause",
+  "ArithmCmd",
+  "LetClause",
+  "CoprocClause",
+]);
 
 function cmdOutcome(
   node: Readonly<MvdanNode>,
@@ -1622,11 +1683,72 @@ function cmdOutcome(
       scanSubshells(node, s, ctx);
       return declOutcome(node, s);
     default:
-      // `[[ … ]]`, `(( … ))`, `let`, a coprocess: none moves this shell.
+      // `[[ … ]]`, `(( … ))`, `let`, a coprocess do not move this shell; a
+      // construct the model does not read is never assumed to stay put.
       scanSubshells(node, s, ctx);
-      return same(s);
+      return same(STAYING.has(sh().syntax.NodeType(node)) ? s : OPAQUE_DIR);
   }
 }
+
+/**
+ * A word as the shell will see it, for the directory model: `null` when it
+ * depends on the run, including `$'…'` with an escape, whose bytes the
+ * normalizer does not decode.
+ */
+function dirWord(w: Readonly<MvdanWord>): string | null {
+  const ansi = (w.Parts ?? []).some(
+    (p) => p.Dollar === true && (p.Value ?? "").includes("\\"),
+  );
+  return ansi ? null : normalizeParts(w.Parts, false, true);
+}
+
+/** What a simple command runs once `command` and `builtin` are looked through. */
+type Invoked =
+  | { readonly kind: "run"; readonly name: string; readonly at: number }
+  /** `command -v x`: describes `x`, runs nothing. */
+  | { readonly kind: "describe" }
+  /** A dynamic word or an option the model does not read. */
+  | { readonly kind: "lost" };
+
+/**
+ * Look through `command [-p] [--]` and `builtin [--]`, which run a builtin
+ * in THIS shell: `command -p cd /x` and `builtin cd /x` move it like `cd /x`.
+ * `sudo cd`, `env cd` run a program named cd in a child and move nothing.
+ */
+function invoked(words: readonly (string | null)[], at = 0): Invoked {
+  const w = words[at];
+  if (w === null || w === undefined) return { kind: "lost" };
+  const name = normalizeHead(w);
+  if (name !== "command" && name !== "builtin")
+    return { kind: "run", name, at };
+  const opts = name === "command" ? /^-[pvV]+$/ : /^$/;
+  const next = (i: number): Invoked => {
+    const o = words[i];
+    if (o === undefined) return { kind: "describe" }; // a bare `command` runs nothing
+    if (o === null) return { kind: "lost" };
+    if (o === "--") return invoked(words, i + 1);
+    if (!o.startsWith("-") || o === "-") return invoked(words, i);
+    if (!opts.test(o)) return { kind: "lost" };
+    return /[vV]/.test(o) ? { kind: "describe" } : next(i + 1);
+  };
+  return next(at + 1);
+}
+
+/** Builtins the model reads: a function of the same name shadows it. */
+const MODELLED_BUILTINS: ReadonlySet<string> = new Set([
+  ...DIR_BUILTINS,
+  "command",
+  "builtin",
+  "eval",
+  "source",
+  ".",
+  "exit",
+  "exec",
+  "trap",
+  "shopt",
+  "enable",
+  "unset",
+]);
 
 /** A simple command: the three builtins move the shell; a few end or hide it. */
 function callOutcome(
@@ -1634,26 +1756,52 @@ function callOutcome(
   s: DirState,
   ctx: DirCtx,
 ): DirOutcome {
-  const words = (node.Args ?? []).map((w) =>
-    normalizeParts(w.Parts, false, true),
-  );
-  if (words.length === 0)
-    return same(
-      namesGitDir((node.Assigns ?? []).map((a) => a.Name)) ? withGitDir(s) : s,
-    );
-  const [first, ...rest] = words;
-  // A dynamic program (`$CD x`) may be a builtin that moves the shell.
-  if (first === null || first === undefined) return same(OPAQUE_DIR);
-  const head = normalizeHead(first);
-  // `command cd x` runs the builtin; `sudo cd x` / `env cd x` run a program
-  // named cd in a child, which moves nothing here.
-  const viaCommand = head === "command" && DIR_BUILTINS.has(rest[0] ?? "");
-  const name = viaCommand ? (rest[0] ?? "") : head;
-  const args = viaCommand ? rest.slice(1) : rest;
-  return name === "eval"
-    ? evalOutcome(node, s, ctx)
-    : builtinOutcome(name, args, s, ctx);
+  const words = (node.Args ?? []).map(dirWord);
+  const assigned = (node.Assigns ?? []).map((a) => a.Name?.Value ?? null);
+  if (words.length === 0) return same(afterAssigning(assigned, s));
+  const run = invoked(words);
+  if (run.kind === "describe") return same(s);
+  // A dynamic program (`$CD x`) may be a builtin that moves the shell; a
+  // function named `cd` replaces the one the model reads.
+  if (run.kind === "lost") return same(OPAQUE_DIR);
+  const direct = run.at === 0;
+  if (direct && ctx.declared.has(run.name) && MODELLED_BUILTINS.has(run.name))
+    return same(OPAQUE_DIR);
+  // `CDPATH=/x cd y`: the prefix steers this very `cd`.
+  if (
+    DIR_BUILTINS.has(run.name) &&
+    assigned.some((n) => n === null || CD_INPUT_VARS.has(n ?? ""))
+  )
+    return same(OPAQUE_DIR);
+  const argWords = (node.Args ?? []).slice(run.at + 1);
+  return run.name === "eval"
+    ? evalOutcome(argWords, s, ctx)
+    : builtinOutcome(run.name, words.slice(run.at + 1), s, ctx);
 }
+
+/** Builtins that assign variables NAMED in their arguments. */
+const ASSIGNING_BUILTINS: ReadonlySet<string> = new Set([
+  "export",
+  "declare",
+  "typeset",
+  "local",
+  "readonly",
+  "read",
+  "printf",
+  "mapfile",
+  "readarray",
+  "getopts",
+]);
+
+/** The variable names an assigning builtin's arguments may name. */
+const namedVars = (
+  args: readonly (string | null)[],
+): readonly (string | null)[] =>
+  args
+    .filter((a) => a === null || !a.startsWith("-"))
+    .map((a) =>
+      a === null ? null : (/^[A-Za-z_][A-Za-z0-9_]*/.exec(a)?.[0] ?? a),
+    );
 
 function builtinOutcome(
   name: string,
@@ -1672,12 +1820,54 @@ function builtinOutcome(
       return same(NEVER);
     case "exec":
       return args.length > 0 ? same(NEVER) : same(s);
+    // `enable -n cd` swaps the builtin for a program: not followed.
     case "source":
     case ".":
+    case "enable":
       return same(OPAQUE_DIR);
+    case "trap":
+      return trapOutcome(args, s, ctx);
+    case "shopt":
+      // `cdable_vars` turns `cd name` into `cd $name`.
+      return args.some((a) => a === null || a === "cdable_vars")
+        ? same(OPAQUE_DIR)
+        : same(s);
+    case "unset":
+      return args.some(
+        (a) => a === null || (a !== "CDPATH" && CD_INPUT_VARS.has(a)),
+      )
+        ? same(OPAQUE_DIR)
+        : same(s);
     default:
+      if (ASSIGNING_BUILTINS.has(name))
+        return same(afterAssigning(namedVars(args), s));
       return ctx.funcs.has(name) ? same(OPAQUE_DIR) : same(s);
   }
+}
+
+/**
+ * `trap ACTION SIGNAL…` runs ACTION later in this shell — a `DEBUG` trap
+ * before every command. An action that may move the shell (read by the same
+ * interpreter) or is not literal makes the rest of the line unresolved.
+ */
+function trapOutcome(
+  args: readonly (string | null)[],
+  s: DirState,
+  ctx: DirCtx,
+): DirOutcome {
+  const [action, ...signals] = args;
+  if (action === undefined || signals.length === 0) return same(s);
+  if (action === null) return same(OPAQUE_DIR);
+  if (action.startsWith("-")) return same(s); // `trap -p`, `trap -l`, `trap - SIG`
+  const file = parseOrNull(action);
+  if (file === null) return same(OPAQUE_DIR);
+  const o = interpret(file.Stmts ?? [], PROBE_DIR, {
+    ...ctx,
+    record: ignoreRecord,
+  });
+  return JSON.stringify(joinStates(o.ok, o.fail)) === JSON.stringify(PROBE_DIR)
+    ? same(s)
+    : same(OPAQUE_DIR);
 }
 
 /** A recorder that keeps nothing: for statements of another source text. */
@@ -1687,11 +1877,10 @@ function ignoreRecord(): void {
 
 /** `eval '<literal>'` runs in THIS shell: its `cd` moves the line. */
 function evalOutcome(
-  node: Readonly<MvdanNode>,
+  argWords: readonly Readonly<MvdanWord>[],
   s: DirState,
   ctx: DirCtx,
 ): DirOutcome {
-  const argWords = (node.Args ?? []).slice(1);
   const texts = argWords.map(literalText);
   if (texts.some((t) => t === null) || texts[0]?.startsWith("-"))
     return same(OPAQUE_DIR);
@@ -1700,10 +1889,7 @@ function evalOutcome(
   // interpreted for their effect on the line and not recorded here (readShell
   // re-reads them, from the same state, for their own leaves).
   return file
-    ? interpret(file.Stmts ?? [], s, {
-        record: ignoreRecord,
-        funcs: ctx.funcs,
-      })
+    ? interpret(file.Stmts ?? [], s, { ...ctx, record: ignoreRecord })
     : same(s);
 }
 
@@ -1743,11 +1929,16 @@ function leafDirsFrom(
  * fresh directory stack and no previous directory of its own, and the
  * environment (an exported `GIT_DIR`) inherited.
  */
-function childShellStart(at: LeafDirs | undefined, parent: DirState): DirState {
+function childShellStart(
+  at: LeafDirs | undefined,
+  parent: DirState,
+  launchGitDir: boolean,
+): DirState {
   if (at === undefined) return parent;
   if (at.kind === "unresolved") return lostAt(at.reason);
   const gitDir =
-    parent.kind === "known" && parent.configs.some((c) => c.gitDir);
+    launchGitDir ||
+    (parent.kind === "known" && parent.configs.some((c) => c.gitDir));
   return {
     kind: "known",
     configs: at.dirs.map((dir) => ({ dir, stack: [], old: null, gitDir })),
@@ -1780,9 +1971,17 @@ function programDirs(
   const args = argv.slice(1);
   const sub = subcommandIndex("git", args);
   const own = sub < 0 ? args : args.slice(0, sub);
+  // `-c core.worktree=…` (git config keys ignore case) moves the work tree as
+  // `--work-tree` does; a `-c` value the parser cannot read may be that key.
+  const configs = own.flatMap((a, i) =>
+    a === "-c" ? [own[i + 1] ?? DYNAMIC_WORD] : [],
+  );
   const overrides =
     [...assigns.keys()].some((k) => GIT_DIR_VARS.has(k)) ||
-    own.some((a) => /^--(git-dir|work-tree)(=|$)/.test(a));
+    own.some((a) =>
+      /^--(git-dir|work-tree)(=|$)|^--config-env=core\.worktree=/i.test(a),
+    ) ||
+    configs.some((v) => !isKnown(v) || /^core\.worktree=/i.test(v));
   if (overrides) return { kind: "lost", reason: "git-dir-override" };
   const dirs = own.flatMap((a, i) =>
     a === "-C" ? [own[i + 1] ?? DYNAMIC_WORD] : [],
@@ -2133,11 +2332,17 @@ function followCarried(
   // (`cd x && env -C y sh -c '…'`); a `cd` inside a shell stays inside it,
   // while `eval` runs in THIS shell, stack and previous directory included.
   const outer = call ? normalizeCallExpr(call, [], where(stmt)) : null;
+  // `GIT_DIR=/x bash -c 'git pull'`: the launching command's own assignment
+  // is in the inner command's environment too.
+  const launchGitDir = outer?.hasAssign(...GIT_DIR_VARS) ?? false;
   const here = where(stmt);
+  const evalStart = launchGitDir ? withGitDir(here) : here;
   const inner = readFile(
     file,
     depth + 1,
-    c.runner === "eval" ? here : childShellStart(outer?.at, here),
+    c.runner === "eval"
+      ? evalStart
+      : childShellStart(outer?.at, here, launchGitDir),
   );
   const dir = outer?.chdir ?? null;
   return {

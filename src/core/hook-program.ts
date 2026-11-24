@@ -931,27 +931,60 @@ function placeLeaf(
       };
 }
 
+const DYNAMIC_ARGUMENT: HiddenCommand["reason"] = "dynamic-argument";
+
 /**
- * {@link ShellCommand.dirs} over a parse: the answer, and the leaves whose
- * directory is not known (which the gate runtime asks about).
+ * The leaves that MAY run `program` though their literal words do not say:
+ * the pattern asks about a flag, and an unquoted expansion (`git push $F`)
+ * may be that flag — the same reading as {@link ShellCommand.runs}.
+ */
+function maybeRunning(
+  unknownWordLeaves: readonly NormalizedLeaf[],
+  program: string | undefined,
+): readonly NormalizedLeaf[] {
+  const tokens = program?.split(/\s+/).filter(Boolean) ?? [];
+  if (program === undefined || !tokens.some((t) => t.startsWith("-")))
+    return [];
+  const plain = tokens.filter((t) => !t.startsWith("-"));
+  return unknownWordLeaves.filter(
+    (l) => !runsLeaf(l, program) && runsSeq(l.argv, plain),
+  );
+}
+
+/**
+ * {@link ShellCommand.dirs} over a parse: the answer, and what the gate
+ * runtime asks about — a leaf whose directory is not known, and a leaf that
+ * may run the program through a word it cannot read. That second kind is
+ * COUNTED in (its directories join the answer) and marked, so an
+ * indeterminate match is never an ordinary empty result (Codex on #508).
  */
 function dirsOfLeaves(
-  normalized: readonly NormalizedLeaf[],
+  parsed: Pick<ParsedCommand, "normalized" | "unknownWordLeaves">,
   program: string | undefined,
   start: string | undefined,
 ): {
   readonly answer: CommandDirs;
   readonly unknown: readonly HiddenCommand[];
 } {
-  const leaves = normalized.filter(
-    (leaf) => program === undefined || runsLeaf(leaf, program),
+  const maybe = maybeRunning(parsed.unknownWordLeaves, program);
+  const leaves = parsed.normalized.filter(
+    (leaf) =>
+      program === undefined || runsLeaf(leaf, program) || maybe.includes(leaf),
   );
   const answers = leaves.map((leaf) => placeLeaf(leaf, start));
-  const unknown = leaves.flatMap((leaf, i): readonly HiddenCommand[] =>
-    answers[i]?.kind === "unresolved"
-      ? [{ runner: leaf.head, reason: "unknown-directory" }]
-      : [],
-  );
+  const unknown = [
+    ...leaves.flatMap((leaf, i): readonly HiddenCommand[] =>
+      answers[i]?.kind === "unresolved"
+        ? [{ runner: leaf.head, reason: "unknown-directory" }]
+        : [],
+    ),
+    ...maybe.map(
+      (leaf): HiddenCommand => ({
+        runner: leaf.head,
+        reason: DYNAMIC_ARGUMENT,
+      }),
+    ),
+  ];
   const firstLost = answers.find((a) => a.kind === "unresolved");
   const dirs = [
     ...new Set(answers.flatMap((a) => (a.kind === "candidates" ? a.dirs : []))),
@@ -1007,7 +1040,7 @@ function inspectShellCommand(
   const view: ShellCommand = {
     raw,
     dirs: tracked((program?: string) => {
-      const r = dirsOfLeaves(parse().normalized, program, start);
+      const r = dirsOfLeaves(parse(), program, start);
       unseen = [...unseen, ...r.unknown];
       return r.answer;
     }),
@@ -1079,7 +1112,7 @@ function inspectShellCommand(
             .map(
               (leaf): HiddenCommand => ({
                 runner: leaf.head,
-                reason: "dynamic-argument",
+                reason: DYNAMIC_ARGUMENT,
               }),
             ),
         ];
@@ -1187,11 +1220,11 @@ function askOnHidden(decision: Decision, cmd: InspectedCommand): Decision {
     [...new Set(hidden.filter(pick).map((h) => `\`${h.runner}\``))].join(", ");
   const own = new Set<HiddenCommand["reason"]>([
     "dynamic-program",
-    "dynamic-argument",
+    DYNAMIC_ARGUMENT,
     "unknown-directory",
   ]);
   const program = named((h) => h.reason === "dynamic-program");
-  const argument = named((h) => h.reason === "dynamic-argument");
+  const argument = named((h) => h.reason === DYNAMIC_ARGUMENT);
   const directory = named((h) => h.reason === "unknown-directory");
   const handed = named((h) => !own.has(h.reason));
   const why = [
