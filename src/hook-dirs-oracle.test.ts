@@ -6,6 +6,9 @@
  * function chain that `cd`s, `env -C dir` and `env -Cdir`, `git -C`,
  * `bash -c "cd … && …"`, `cd -P` and `git -C`/`env -C` over a symlink's `..`,
  * `trap -- 'cd …' DEBUG`, a function declared inside `eval`, a bare `pushd`,
+ * steering assignments (`for CDPATH in`, `read`/`printf -v`/`declare` into
+ * `CDPATH`, a `CDPATH=` prefix on a function), quoted and backslashed
+ * directory words, and `logout`/`return`/`exec 3>…`,
  * `&&`, `||`, `;`, `|`, `&`, subshells, groups and `if` — over a temp tree with a directory that does not
  * exist, so every `cd` can fail as well as succeed. Every leaf records where it
  * actually ran: `pwd >> out/L<k>`, or for git `git -C D rev-parse
@@ -55,7 +58,7 @@ function rng(seed: number): () => number {
 }
 
 /** The command generator: a seeded choice, and a fresh marker per leaf. */
-function generator(seed: number, out: string, abs: string) {
+function generator(seed: number, out: string, abs: string, absA: string) {
   const next = rng(seed);
   let leaves = 0;
   const pick = <T>(xs: readonly [T, ...T[]]): T =>
@@ -75,6 +78,7 @@ function generator(seed: number, out: string, abs: string) {
       `env -C ${pick(["a", "b", "nope"])} pwd >> ${target}`,
       `env -C${pick(["a", "b", "nope", "l/.."])} pwd >> ${target}`,
       `git -C ${pick(["l/..", "a/.."])} rev-parse --show-prefix >> ${target}`,
+      `git -C ${pick(['"a"', "a\\/b", "'b'", '""'])} rev-parse --show-prefix >> ${target}`,
       `bash -c "cd ${dir()} && pwd >> ${target}"`,
     ]);
   };
@@ -94,6 +98,16 @@ function generator(seed: number, out: string, abs: string) {
       () => `trap -- 'cd ${dir()}' DEBUG`,
       () => `eval 'g(){ cd ${dir()}; }'; g`,
       () => "pushd >/dev/null",
+      // Round 3: steering assignments (CDPATH=S/a sends `cd b` to S/a/b),
+      // quoted and escaped operands, and builtins that do not end the shell.
+      () => `for CDPATH in ${absA}; do :; done`,
+      () => `read CDPATH <<< ${absA}`,
+      () => `printf -v CDPATH %s ${absA}`,
+      () => `printf -v 'CDPATH[0]' %s ${absA}`,
+      () => `declare CDPATH=${absA}`,
+      () => `k(){ cd b; }; CDPATH=${absA} k`,
+      () => `cd ${pick(['"a"', "a\\/b", "'b'", '"$HOME"'])}`,
+      () => pick(["logout", "return", "exec 3>/dev/null"]),
       leaf,
       leaf,
       leaf,
@@ -193,7 +207,12 @@ test("every directory bash ran a leaf in is among the candidates, else unresolve
       mkdirSync(join(start, d), { recursive: true });
     symlinkSync("a/b", join(start, "l"));
     spawnSync("git", ["init", "-q", start]);
-    const gen = generator(20261124, tree.out, join(start, "c"));
+    const gen = generator(
+      20261124,
+      tree.out,
+      join(start, "c"),
+      join(start, "a"),
+    );
     const verdicts = Array.from({ length: 1400 }, () => gen.line()).flatMap(
       (cmd) =>
         runLine(cmd, tree).map((v) =>

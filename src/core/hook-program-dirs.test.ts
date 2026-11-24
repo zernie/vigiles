@@ -203,6 +203,13 @@ describe("forms found in review on #508 are not judged in the start directory", 
     "a(){ b; }; b(){ c; }; c(){ d; }; d(){ cd /foreign; }; a; git pull",
     "env -C/foreign git pull",
     "env --block-signal git pull",
+    "printf -v 'CDPATH[0]' %s /foreign; cd repo && git pull",
+    "command(){ cd /foreign; }; command echo; git pull",
+    "f(){ command return; exit; }; f; git -C /foreign pull",
+    "logout; git -C /foreign pull",
+    "f(){ cd repo; }; CDPATH=/foreign f; git pull",
+    "git -C /trusted/\\../foreign pull",
+    "for CDPATH in /foreign; do :; done; cd repo && git pull",
     "git -C ../../foreign pull",
   ])("review on #508: %s is not judged in the start directory", (cmd) => {
     assert.notEqual(decide(cmd).kind, "allow");

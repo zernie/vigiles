@@ -51,7 +51,6 @@ describe("one known directory", () => {
     ["git push -f", "."],
     ["git -C o push -f", "o"],
     ["git -C a -C b push", "a/b"],
-    ['git -C "" push', "."],
     ["git -C /abs/o push", "/abs/o"],
     ["git -C . push -f", "."],
     ["cd ../o && git push -f", "../o"],
@@ -61,7 +60,6 @@ describe("one known directory", () => {
     ["env -C o git push -f", "o"],
     ["cd && git push", "~"],
     ["cd ~/o && git push", "~/o"],
-    ['cd "$HOME/o" && git push', "~/o"],
     ["cd a/../b && git push", "b"],
     ["cd a && git -C b push", "a/b"],
     ["cd .. && git push", ".."],
@@ -120,7 +118,7 @@ describe("unresolved, with the reason", () => {
     ["cd - && git push", "oldpwd"],
     ["popd && git push", "dir-stack"],
     ["pushd && git push", "dir-stack"],
-    ['f(){ cd "$1"; }; f a; git push', "dynamic-dir"],
+    ['git -C "$D" pull', "dynamic-dir"],
     ["git -C ../o push -f", "physical-dotdot"],
     ["env -C ../o git push -f", "physical-dotdot"],
     ["source x.sh; git push", "opaque-dir-change"],
@@ -129,7 +127,7 @@ describe("unresolved, with the reason", () => {
     ["GIT_DIR=../o/.git git push -f", "git-dir-override"],
     ["git --git-dir=../o/.git push", "git-dir-override"],
     ["git --work-tree ../o push", "git-dir-override"],
-    ["export GIT_DIR=x; git push", "git-dir-override"],
+    ["export GIT_DIR=x; git push", "steering-assignment"],
     ["cd a; cd b; cd c; cd d; git push", "too-many-candidates"],
     ["cd a b && git push", "unsupported-cd-form"],
   ])("%s → %s", (cmd, why) => {
@@ -205,39 +203,27 @@ describe("a child shell inherits the launching leaf's GIT_DIR", () => {
   });
 });
 
-describe("a function call runs its body where it is called", () => {
-  test("a chain of four", () => {
-    assert.deepEqual(
-      dirs("a(){ b; }; b(){ c; }; c(){ d; }; d(){ cd /foreign; }; a; git pull"),
-      [".", "/foreign"],
-    );
-  });
-
-  test("a chain of eight", () => {
-    const names = ["a", "b", "c", "d", "e", "f", "g", "h"];
-    const defs = names
-      .map((n, i) => `${n}(){ ${names[i + 1] ?? "cd /foreign"}; }`)
-      .join("; ");
-    assert.deepEqual(dirs(`${defs}; a && git pull`), ["/foreign"]);
-  });
-
+describe("rule 4: a line that defines a function is unresolved from the definition", () => {
   test.each([
-    ["f(){ cd /foreign; }; f && git pull", ["/foreign"]],
-    ["( f(){ cd /x; } ); f; git pull", ["."]],
-    ["f; f(){ cd /x; }; git pull", ["."]],
-    ["f(){ cd /x; }; command f; git pull", ["."]],
-    ["cd(){ :; }; cd /x && git pull", ["."]],
-  ])("%s → %j", (cmd, want) => {
-    assert.deepEqual(dirs(cmd), want);
-  });
-
-  test.each([
-    "f(){ f; }; f; git pull",
-    "f(){ return; cd /x || exit; }; f; git pull",
-    "f(){ cd /x; }; unset f; f; git pull",
-    "f(){ cd /x; }; unset -f f; f; git pull",
+    "a(){ b; }; b(){ c; }; c(){ d; }; d(){ cd /foreign; }; a; git pull",
+    "f(){ cd /foreign; }; f && git pull",
+    "f; f(){ cd /x; }; git pull",
+    "f(){ cd /x; }; command f; git pull",
+    "cd(){ :; }; cd /x && git pull",
+    "function f { :; }; git pull",
+    "command(){ cd /foreign; }; command echo; git pull",
+    "f(){ command return; exit; }; f; git -C /foreign pull",
+    "eval 'f(){ :; }'; git pull",
   ])("%s → unresolved", (cmd) => {
     assert.equal(at(cmd).kind, "unresolved");
+  });
+
+  test("a definition inside a subshell ends with it", () => {
+    assert.deepEqual(dirs("( f(){ cd /x; } ); f; git pull"), ["."]);
+  });
+
+  test("the reason names it", () => {
+    assert.equal(reason("f(){ :; }; git pull"), "function-defined");
   });
 });
 
@@ -367,5 +353,133 @@ describe("other forms outside the allowlist, and some inside it", () => {
     ["pushd -- a && git pull", ["a"]],
   ])("allowlisted: %s → %j", (cmd, want) => {
     assert.deepEqual(dirs(cmd), want);
+  });
+});
+
+// Review round 3 on #508, closed as two rules and one removal:
+// (1) any construct that assigns a variable `cd` or git reads makes the shell
+// unresolved from there; (2) a directory word holding a backslash, quote, `$`,
+// glob or brace character is not decoded; (3) only `exit` ends the shell.
+describe("the four round-3 forms", () => {
+  test.each([
+    "logout; git -C /foreign pull",
+    "f(){ cd repo; }; CDPATH=/foreign f; git pull",
+    "git -C /trusted/\\../foreign pull",
+    "for CDPATH in /foreign; do :; done; cd repo && git pull",
+  ])("%s → unresolved", (cmd) => {
+    assert.equal(at(cmd).kind, "unresolved");
+  });
+});
+
+describe("rule 1: every construct that assigns a steering variable", () => {
+  const constructs = (v: string): readonly string[] => [
+    `for ${v} in x; do :; done`,
+    `select ${v} in x; do break; done`,
+    `read ${v}`,
+    `read -r -a ${v}`,
+    `printf -v ${v} x`,
+    `printf -v${v} x`,
+    `mapfile ${v} < f`,
+    `readarray -t ${v} < f`,
+    `declare ${v}=x`,
+    `typeset ${v}=x`,
+    `export ${v}=x`,
+    `readonly ${v}=x`,
+    `declare ${v}`,
+    `g(){ local ${v}=x; }; g`,
+    `let ${v}=1`,
+    `(( ${v}=1 ))`,
+    `${v}=x`,
+    `${v}=x true`,
+    `${v}=x git status`,
+    `f(){ :; }; ${v}=x f`,
+    `getopts ab ${v}`,
+    `wait -p ${v}`,
+    `: \${${v}:=x}`,
+    `echo \${${v}=x}`,
+    `coproc ${v} { :; }`,
+    `echo hi {${v}}>/dev/null`,
+    `builtin read ${v}`,
+    `command printf -v ${v} x`,
+    `printf -v '${v}[0]' %s x`,
+    `read '${v}[1]'`,
+    `declare ${v}+=x`,
+    `${v}+=x`,
+    `${v}[0]=x`,
+    `declare -a ${v}=(x)`,
+    `export ${v}+=:x`,
+  ];
+  const vars = [
+    "CDPATH",
+    "HOME",
+    "OLDPWD",
+    "PWD",
+    "GIT_DIR",
+    "GIT_CONFIG_PARAMETERS",
+  ];
+  test.each(vars.flatMap((v) => constructs(v).map((c) => [c, v] as const)))(
+    "%s; cd r && git pull → unresolved",
+    (construct) => {
+      const cmd = `${construct}; cd r && git pull`;
+      const pulls = readShell(cmd)
+        .effects.flatMap((e) => (e.kind === "leaf" ? [e.leaf] : []))
+        .filter((l) => l.argv.join(" ") === "git pull");
+      assert.equal(pulls.length, 1, cmd);
+      assert.equal(pulls[0]?.at.kind, "unresolved", cmd);
+    },
+  );
+
+  test("a listed GIT_* variable does not steer", () => {
+    assert.deepEqual(dirs("export GIT_PAGER=cat; cd r && git pull"), ["r"]);
+  });
+});
+
+describe("rule 2: a directory word that is not plain text is not decoded", () => {
+  test.each([
+    'cd "a" && git pull',
+    "cd 'a' && git pull",
+    "cd a\\/b && git pull",
+    "cd a* && git pull",
+    "cd {a,b} && git pull",
+    "cd [ab] && git pull",
+    'cd "$HOME/o" && git pull',
+    'pushd "a" && git pull',
+    'git -C "a" pull',
+    "git -C a\\b pull",
+    'git -C "" pull',
+    'env -C "a" git pull',
+    "env -C'a' git pull",
+    "env --chdir='a' git pull",
+    'sudo -D "a" git pull',
+  ])("%s → unresolved", (cmd) => {
+    assert.equal(at(cmd).kind, "unresolved");
+  });
+
+  test.each([
+    ["cd a && git pull", ["a"]],
+    ["cd ~/x && git pull", ["~/x"]],
+    ["git -C a/b pull", ["a/b"]],
+    ["env -Ca git pull", ["a"]],
+  ])("plain: %s → %j", (cmd, want) => {
+    assert.deepEqual(dirs(cmd), want);
+  });
+});
+
+describe("rule 3: only exit ends the shell", () => {
+  test("logout fails in a non-login shell and the line goes on", () => {
+    assert.equal(at("logout; git pull").kind, "unresolved");
+  });
+
+  test("return outside a function fails and the line goes on", () => {
+    assert.deepEqual(dirs("return; git pull"), ["."]);
+  });
+
+  test("exec without a program does not end the shell", () => {
+    assert.equal(at("exec 3>f; git pull").kind, "unresolved");
+  });
+
+  test("exit ends it", () => {
+    assert.deepEqual(dirs("exit; git pull"), []);
+    assert.deepEqual(dirs("exit 3; git pull"), []);
   });
 });
