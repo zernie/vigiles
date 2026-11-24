@@ -411,7 +411,11 @@ export interface ShellCommand {
   dirs(program?: string): CommandDirs;
 }
 
-/** What {@link ShellCommand.dirs} answers. */
+/**
+ * What {@link ShellCommand.dirs} answers.
+ *
+ * @public
+ */
 export type CommandDirs =
   | { readonly kind: "candidates"; readonly dirs: readonly string[] }
   | {

@@ -11,12 +11,15 @@
  *  3. REPEATS. `git -C` is cumulative; `env -C` keeps only the last, against
  *     where env started.
  *  4. EVERY OTHER PROGRAM is unknown.
+ *  5. A BUILTIN outside a short safe list, wrapped or not (`command . x`),
+ *     may change the shell, so every leaf after it is unknown.
  *
  * Unit tier: `lineDirs` is pure. Real bash and git as the oracle:
  * `src/hook-dirs-oracle.test.ts`.
  */
 import { describe, test } from "vitest";
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 
 import { lineDirs, type LeafDir } from "./bash-dirs.js";
 import {
@@ -24,6 +27,8 @@ import {
   GIT_CHDIR_REPEAT,
   GIT_SUBCOMMANDS,
   ENV,
+  BASH_BUILTINS,
+  SAFE_BUILTINS,
 } from "./bash-dirs-table.js";
 
 /** Where the one leaf of `line` runs, or `"line"` when the whole line is unknown. */
@@ -243,5 +248,64 @@ describe("class 4: every program but git is unknown", () => {
       "env sh x",
     ])
       assert.ok(isUnknown(leafAt(line)), line);
+  });
+});
+
+const bash = (script: string) =>
+  spawnSync("bash", ["-c", script], { encoding: "utf8" });
+const hasBash = bash("true").status === 0;
+if (!hasBash)
+  console.warn("SKIPPED: the bash builtin sweep for dirs() needs bash");
+
+/** Every leaf of a line after the first, or `"line"` when the line is unknown. */
+function laterLeaves(line: string): readonly LeafDir[] | "line" {
+  const r = lineDirs(line);
+  return r.kind === "unknown" ? "line" : r.leaves.slice(1).map((l) => l.at);
+}
+
+describe("class 5: a builtin that may change the shell poisons every later leaf", () => {
+  test("the table lists every bash builtin", () => {
+    if (!hasBash) return;
+    const live = bash("compgen -b").stdout.split("\n").filter(Boolean);
+    const missing = live.filter((b) => !BASH_BUILTINS.includes(b));
+    assert.deepEqual(missing, [], "bash builtins missing from BASH_BUILTINS");
+  });
+
+  test.each(BASH_BUILTINS.map((b) => [b] as const))("%s && git pull", (b) => {
+    if (b === "cd") return; // read by rule 2
+    for (const line of [
+      `${b} x && git pull`,
+      `command ${b} x && git pull`,
+      `env ${b} x && git pull`,
+    ]) {
+      const later = laterLeaves(line);
+      const plainSafe = SAFE_BUILTINS.includes(b) && /^[A-Za-z0-9_:]+$/.test(b);
+      if (plainSafe && !line.startsWith("command") && !line.startsWith("env"))
+        assert.deepEqual(later, [{ kind: "dir", dir: "." }], line);
+      else
+        assert.ok(
+          later === "line" || later.every((at) => at.kind === "unknown"),
+          `${line} → ${JSON.stringify(later)}`,
+        );
+    }
+  });
+
+  test("each safe builtin leaves the directory, options, aliases and variables as they were", () => {
+    if (!hasBash) return;
+    const runs: Record<string, readonly string[]> = {
+      true: ["true", "true x -v"],
+      ":": [":", ": x -v"],
+      echo: ["echo hi", "echo -e -n x", "echo -E x"],
+      test: ["test -d /", "test x = y", "test -v X"],
+      "[": ["[ -d / ]", "[ x = y ]"],
+    };
+    assert.deepEqual(Object.keys(runs).sort(), [...SAFE_BUILTINS].sort());
+    const snap = `snap() { pwd -P; set -o; shopt; alias; hash -l 2>/dev/null; declare -p | grep -vE '^declare -[-a-zA-Z]+ (_|BASH_[A-Z_]+|PIPESTATUS|FUNCNAME|LINENO|RANDOM|SRANDOM|SECONDS|EPOCHSECONDS|EPOCHREALTIME|BASHPID)='; }`;
+    for (const cmd of Object.values(runs).flat()) {
+      const r = bash(
+        `T=$(mktemp -d)\n${snap}\nsnap > "$T/a"\n${cmd} >/dev/null\nsnap > "$T/b"\ncmp -s "$T/a" "$T/b" && echo same\nrm -rf "$T"`,
+      );
+      assert.equal(r.stdout.trim(), "same", `${cmd}: ${r.stderr}`);
+    }
   });
 });

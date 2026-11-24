@@ -228,6 +228,36 @@ describe("rule 3: a word that is not plain", () => {
   });
 });
 
+describe("rule 3: a builtin that may change the shell poisons every later leaf", () => {
+  test("the reported case: command . /tmp/move && git pull", () => {
+    unknown("command . /tmp/move && git pull");
+  });
+  test("any builtin outside the short safe list, wrapped or not", () => {
+    for (const c of [
+      "command source x && git pull",
+      "command export X=1 && git pull",
+      "env . x && git pull",
+      "export GIT_DIR=/x && git pull",
+      "unset X && git pull",
+      "hash -p /x/git git && git pull",
+      "read X && git pull",
+      "declare X && git pull",
+      "printf -v X y && git pull",
+      "printf y && git pull",
+      "command git status && git pull",
+      "command -p ls && git pull",
+    ])
+      unknown(c);
+  });
+  test("a safe builtin and an external program leave the directory", () => {
+    known("echo hi && git pull", [START]);
+    known("true && cd /r && git pull", ["/r"]);
+    known(": && git pull", [START]);
+    known("test -d x && git pull", [START]);
+    known("cd /r && npm test && git pull", ["/r"]);
+  });
+});
+
 describe("rule 4: every cd word in the raw line is one the grammar read", () => {
   test("an uncounted cd, pushd or popd makes the whole line unknown", () => {
     for (const c of [
@@ -292,6 +322,23 @@ describe("the start directory", () => {
       kind: "candidates",
       dirs: ["/r"],
     });
+  });
+});
+
+describe("rule 6: with no start directory, an unresolved answer asks too", () => {
+  const guard = experimental_defineHook({
+    on: "PreToolUse",
+    decide: (e) => {
+      const at = e.command.dirs("git pull");
+      return at.kind === "unresolved" ? allow() : deny("checked");
+    },
+  });
+  test("the reported case: git -C ./foreign pull with no cwd on the event", () => {
+    const d = decideProgram(guard, {
+      tool_name: "Bash",
+      tool_input: { command: "git -C ./foreign pull" },
+    });
+    assert.equal(d.kind, "ask");
   });
 });
 

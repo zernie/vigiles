@@ -41,7 +41,11 @@ import {
   type Repeat,
 } from "./bash-dirs-table.js";
 
-/** Why a leaf's directory is not known. */
+/**
+ * Why a leaf's directory is not known.
+ *
+ * @public
+ */
 export type UnresolvedDir =
   /** A construct outside the grammar somewhere in the line (rule 5). */
   | "outside-grammar"

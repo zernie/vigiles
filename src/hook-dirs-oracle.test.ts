@@ -8,8 +8,8 @@
  * subcommand — and from forms it must call unknown: bare `cd b` under a
  * CDPATH, `cd -`, a bare `cd`, `cd -P`, quoted and backslashed words,
  * `pushd`/`popd`, `command cd`, `builtin cd`, `eval`, `bash -c`, functions,
- * subshells, groups, `if`, a `CDPATH=` prefix, a redirect, `&`, every wrapper
- * but `env`, an `env` assignment, an unknown git option, and `..` through a
+ * subshells, groups, `if`, a `CDPATH=` prefix, a redirect, `&`, a file
+ * sourced through `command .` that moves the shell, every wrapper but `env`, an `env` assignment, an unknown git option, and `..` through a
  * symlink, where a logical `cd` and a physical `env -C`/`git -C` disagree.
  * The tree has a directory that does not exist, so every `cd` can fail as
  * well as succeed.
@@ -117,6 +117,7 @@ function generator(seed: number, abs: string) {
       () => `bash -c "cd ${read()} && ${git()}"`,
       () => `f(){ cd ${read()}; }; f`,
       () => `CDPATH=${abs} ${git()}`,
+      () => `${pick(["command", "env"])} . ${abs}/move`,
       () => `${git()} > /dev/null`,
       () => `${git()} | cat`,
       leaf,
@@ -132,6 +133,9 @@ function generator(seed: number, abs: string) {
     const inside: [() => string, ...(() => string)[]] = [
       () => `cd ${read()}`,
       () => `cd ${unread()}`,
+      // A sourced file that moves the shell, and builtins that cannot.
+      () => `command . ${abs}/move`,
+      () => pick(["echo x", "true", ": x", "test -d a"]),
       leaf,
       leaf,
     ];
@@ -216,6 +220,8 @@ test("every leaf bash ran is where the grammar said, or the grammar said unknown
       mkdirSync(join(start, d), { recursive: true });
     symlinkSync("a/b", join(start, "l"));
     spawnSync("git", ["init", "-q", start]);
+    // `move`: sourced through `command .`, it changes the shell's directory.
+    writeFileSync(join(start, "c", "move"), `cd ${join(start, "a")}\n`);
     // `here` in every real directory: `L<k> <its real path>`, one line per marker.
     for (const d of [".", "a", "a/b", "b", "c", "h"]) {
       const real = realpathSync(join(start, d));
