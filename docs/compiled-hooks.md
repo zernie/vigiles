@@ -114,7 +114,8 @@ export default experimental_defineHook({
   which is how a react declared with `tools("Bash")` alone is known to carry
   `e.command`.
 - **`e.command`** (a Bash gate, and a react declared for Bash alone) — an AST-backed `ShellCommand`. It parses on the first predicate call, so a hook that never asks pays no parse:
-  - `runs(program, { force? })` — a leaf runs `program` (e.g. `"git reset --hard"`), optionally forced.
+  - `runs(program, { force? })` — a leaf runs `program` (e.g. `"git reset --hard"`), optionally forced (`{ force: true }` is `-f` or `--force`, on any program).
+    A flag in the pattern matches its short form only where **that command's manual** says the two are one flag: `runs("git commit --no-verify")` catches `git commit -n`, but `runs("git push --no-verify")` does not catch `git push -n`, which is git-push's `--dry-run`. The rows today are `git push`/`clean`/`checkout`/`branch` (`-f` = `--force`), `git commit` (`-n` = `--no-verify`), `rm` (`-f`, `-r`) and `pip install` (`-i` = `--index-url`); git's own options (`git -C dir`, `-c k=v`) are skipped to find the subcommand. A program with no row matches exactly the flag you wrote, so write both forms if you mean both — `runs("docker rm --force") || runs("docker rm -f")`. Until vigiles#501 one table served every program, so `-n` read as `--no-verify` and `-f` as `--force` everywhere — `kubectl delete -f pod.yaml` matched `runs("kubectl delete --force")`.
   - `touches(prefixes)` — a leaf **mentions** a path under one of `prefixes` (e.g. `["~/.ssh", ".env"]`) — secret reads.
   - `writesTo(prefixes)` — a leaf **creates or modifies** a file under one of `prefixes`: redirection targets (`cmd > f`, `>>`, `>|`, `&>`) plus the writing argv position of `sed -i`, `cp` / `mv` / `install` (destination), `tee`, `dd of=`, `truncate`, `shred`.
   - `writeTargets(prefixes)` — the same write targets as the **list of files** rather than a boolean, for a gate that has to tell _which_ file (`writeTargets(PAPER_SOURCES).some(isPaperSource)`); `writesTo` is exactly `writeTargets(prefixes).length > 0`. Spelling is as-written after normalization (quotes removed by the parser, `$HOME` canonicalized, a leaf's own `env -C` / `sudo -D` directory resolved), duplicates collapsed — so filter by basename or suffix. `prefixes` is required and there is no unfiltered form: a consumer holding the raw list has to re-implement prefix matching by hand, which is where every measured gate bypass came from.
@@ -746,7 +747,7 @@ None of these is an evasion trick. Quoting a flag is ordinary typing. The "7 of 
 **What it generates.** For each command, rewrites that contain the same operation (a wrapper in front of a compound command applies to its first part only):
 
 - the flag in quotes: `"--force"`, `'--force'`
-- the short and long form of a flag: `-f` / `--force`, `-n` / `--no-verify`
+- the short and long form of a flag, where that command's manual makes them one: `-f` / `--force` on `git push`, `-n` / `--no-verify` on `git commit`
 - the full or backslash-escaped command path: `/usr/bin/git`, `/bin/git`, `\git`
 - a pass-through wrapper in front: `sudo`, `env`, `command`, `nice -n 5`, `timeout 30`
 - a subshell around the command: `( git push --force origin main )`

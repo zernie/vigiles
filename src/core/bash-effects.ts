@@ -619,9 +619,12 @@ export interface NormalizedLeaf {
   readonly args: readonly string[];
   /**
    * Canonical flag tokens present on this leaf. Short clusters are split
-   * (`-rf`→`r`,`f`) and each flag is recorded in BOTH short and long form via the
-   * alias table, so a caller can test `--force`/`-f` or `--no-verify`/`-n`
-   * uniformly. Long values are split on `=` (`--index-url=x`→`index-url`).
+   * (`-rf`→`r`,`f`) and a flag is recorded in BOTH short and long form where
+   * this command's manual makes them one flag ({@link FLAG_ALIASES}), so a
+   * caller can test `--force`/`-f` on `git push` or `--no-verify`/`-n` on
+   * `git commit` uniformly. A command with no row keeps exactly what was typed:
+   * `git push -n` is not `--no-verify` (it is `--dry-run`). Long values are
+   * split on `=` (`--index-url=x`→`index-url`).
    */
   readonly flags: ReadonlySet<string>;
   /** True iff ANY of `names` is present in {@link flags} (short or long). */
@@ -667,24 +670,80 @@ export interface NormalizedLeaf {
 }
 
 /**
- * Known short↔long flag aliases. Deliberately small and operation-relevant:
- * a caller always gates on the head (e.g. only treats `index-url` as supply-chain
- * when the head is `pip`), so recording both forms unconditionally is safe.
+ * Flag aliases per program and subcommand, long → short, each from that
+ * command's manual: git-push(1) `-f, --force` (its `-n` is `--dry-run`),
+ * git-commit(1) `-n, --[no-]verify`, git-clean(1) / git-checkout(1) /
+ * git-branch(1) `-f, --force`, rm(1) `-f, --force` and `-r, --recursive`,
+ * pip install `-i, --index-url`.
+ *
+ * 🔴 KEYED BY COMMAND, AND A COMMAND WITH NO ROW GETS NO EXPANSION (vigiles#501).
+ * This was one table for every program, so `-n` was `--no-verify` everywhere:
+ * `runs("git push --no-verify")` matched `git push -n` — a DRY RUN — and a guard
+ * that blocks skipping hooks on push blocked every dry run. `kubectl delete -f`
+ * read as `--force` (it is `--filename`), `sed -n` as `--no-verify`. A row added
+ * here is a sentence of that command's manual, not a guess about what a letter
+ * usually means.
+ *
+ * Also the battery's alias table, through {@link flagAliases}: the spelling
+ * generator writes `-f`/`--force` variants only where this says they are one
+ * flag, so the gate and the generator cannot disagree about it.
  */
-/** @internal — read by `bash-equivalents.ts` to generate shell-equivalent variants. */
-export const SHORT_TO_LONG: Readonly<Record<string, string>> = {
-  f: "force",
-  n: "no-verify",
-  r: "recursive",
-  i: "index-url",
-};
-/** @internal — read by `bash-equivalents.ts` to generate shell-equivalent variants. */
-export const LONG_TO_SHORT: Readonly<Record<string, string>> = {
-  force: "f",
-  "no-verify": "n",
-  recursive: "r",
-  "index-url": "i",
-};
+const FLAG_ALIASES: Readonly<Record<string, Readonly<Record<string, string>>>> =
+  {
+    "git push": { force: "f" },
+    "git commit": { "no-verify": "n" },
+    "git clean": { force: "f" },
+    "git checkout": { force: "f" },
+    "git branch": { force: "f" },
+    rm: { force: "f", recursive: "r" },
+    "pip install": { "index-url": "i" },
+  };
+
+/**
+ * git's own options that take the NEXT word as their value — git(1), the part
+ * before `<command>`. Read so that `git -C . commit -n` finds `commit`, not `.`.
+ */
+const GIT_VALUE_OPTS: ReadonlySet<string> = new Set([
+  "-C",
+  "-c",
+  "--git-dir",
+  "--work-tree",
+  "--namespace",
+  "--config-env",
+  "--super-prefix",
+]);
+
+/**
+ * Where a program's subcommand sits in its args: past git's own options for
+ * `git`, the first argument for anything else. `-1` when there is none.
+ */
+function subcommandIndex(head: string, args: readonly string[]): number {
+  if (head !== "git") return args.length > 0 ? 0 : -1;
+  for (let i = 0; i < args.length; i++) {
+    const a = args[i] ?? "";
+    if (!a.startsWith("-")) return i;
+    if (GIT_VALUE_OPTS.has(a)) i++;
+  }
+  return -1;
+}
+
+/**
+ * The alias table of a command: its program and subcommand's row, else its
+ * program's, else none.
+ *
+ * @internal — read by `bash-equivalents.ts`.
+ */
+export function flagAliases(
+  head: string,
+  args: readonly string[],
+): Readonly<Record<string, string>> {
+  const sub = args[subcommandIndex(head, args)];
+  return (
+    (sub === undefined ? undefined : FLAG_ALIASES[`${head} ${sub}`]) ??
+    FLAG_ALIASES[head] ??
+    {}
+  );
+}
 
 /**
  * Reconstruct a Word's static text, unwrapping single/double quotes and
@@ -748,18 +807,28 @@ function normalizeHead(raw: string): string {
   return slash >= 0 ? unescaped.slice(slash + 1) : unescaped;
 }
 
-/** Build the canonical flag set for a leaf's args (short-cluster + alias expansion). */
-function buildFlags(args: readonly string[]): Set<string> {
+/**
+ * Build the canonical flag set for a leaf's args: short clusters split, and each
+ * flag recorded in its other form only where THIS command's row says the two are
+ * one flag ({@link FLAG_ALIASES}).
+ */
+function buildFlags(head: string, args: readonly string[]): Set<string> {
+  const aliases = flagAliases(head, args);
+  // git's own options (`-C dir`, `-c k=v`, `--no-pager`) are not its
+  // subcommand's flags: `git -C . push -f` is a push with `-f`, not with `-C`.
+  const sub = head === "git" ? subcommandIndex(head, args) : -1;
+  const own = sub > 0 ? args.slice(sub) : args;
+  const toLong = new Map(
+    Object.entries(aliases).map(([long, short]) => [short, long]),
+  );
   const flags = new Set<string>();
   const add = (name: string): void => {
     if (!name) return;
     flags.add(name);
-    if (name.length === 1 && SHORT_TO_LONG[name])
-      flags.add(SHORT_TO_LONG[name]);
-    const short = LONG_TO_SHORT[name];
-    if (short) flags.add(short);
+    const other = name.length === 1 ? toLong.get(name) : aliases[name];
+    if (other !== undefined) flags.add(other);
   };
-  for (const a of args) {
+  for (const a of own) {
     if (a.startsWith("--")) {
       add(a.slice(2).split("=")[0] ?? "");
     } else if (a.length > 1 && a[0] === "-") {
@@ -1836,7 +1905,7 @@ function normalizeCallExpr(
   const assigns = collectAssigns(node);
   for (const [k, v] of stripped.envAssigns) assigns.set(k, v);
 
-  const flags = buildFlags(args);
+  const flags = buildFlags(head, args);
   return {
     head,
     argv: [head, ...args],
