@@ -37,7 +37,6 @@
  */
 import {
   flagAliases,
-  joinDir,
   leafCommandsNormalized,
   readShell,
   WRAPPER_HEADS,
@@ -54,18 +53,16 @@ function operationKey(leaf: NormalizedLeaf): string {
 }
 
 /**
- * A git leaf's args without a `-C` that names the directory it already runs
- * in: `git -C . push` is `git push`, while `git -C ../o push` is another
- * repository and keeps its operand, so it is never the same operation.
+ * A git leaf's args without a `-C .` — git's option to run in the directory it
+ * is already in. `git -C ../o push` is another repository and keeps its
+ * operand, so it is never the same operation.
  */
 function withoutHereDir(leaf: NormalizedLeaf): readonly string[] {
   if (leaf.head !== "git") return leaf.args;
-  const here = (v: string | undefined): boolean =>
-    v !== undefined && joinDir(".", v) === ".";
   const a = leaf.args;
   return a.filter(
     (w, i) =>
-      !((w === "-C" && here(a[i + 1])) || (a[i - 1] === "-C" && here(w))),
+      !((w === "-C" && a[i + 1] === ".") || (a[i - 1] === "-C" && w === ".")),
   );
 }
 
@@ -252,9 +249,8 @@ const FAMILIES: readonly Family[] = [
   {
     // `git -C . push --force` — git's own option to run in a directory, naming
     // the one it is already in. A guard anchored on `git push` sees `-C`
-    // where it expects the subcommand. The self-check drops a `-C` naming the
-    // directory the leaf already runs in ({@link withoutHereDir}), so `-C .`
-    // proves the same operation and `-C ../o` — another repository — does not.
+    // where it expects the subcommand. The self-check drops exactly `-C .`
+    // ({@link withoutHereDir}); `-C ../o` — another repository — stays.
     name: "git -C .",
     rewrite: (c) => {
       const { head, rest } = splitHead(c);

@@ -94,3 +94,17 @@ describe("runs() asks the same per-command question", () => {
     );
   });
 });
+
+describe("a wrapper option's value is not the program", () => {
+  test.each([
+    "env -a x git push -f",
+    "env --argv0 x git push -f",
+    "sudo -T 5 git push -f",
+  ])("%s is a force push", (cmd) => {
+    assert.equal(
+      parseShellCommand(cmd).runs("git push", { force: true }),
+      true,
+    );
+    assert.equal(leaf(cmd).head, "git");
+  });
+});

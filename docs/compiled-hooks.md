@@ -27,7 +27,6 @@ vigiles lets you author a hook as a **pure typed function** `(event) => Decision
 - [The roles](#the-roles)
 - [Role and event have to fit](#role-and-event-have-to-fit)
 - [The vocabulary](#the-vocabulary)
-  - [Where a command runs: `dirs()`](#where-a-command-runs-dirs)
   - [A react that reads the command](#a-react-that-reads-the-command)
 - [Testing a hook that remembers](#testing-a-hook-that-remembers)
 - [Observe mode (shadow rollout)](#observe-mode-shadow-rollout)
@@ -122,7 +121,6 @@ export default experimental_defineHook({
   - `writeTargets(prefixes)` — the same write targets as the **list of files** rather than a boolean, for a gate that has to tell _which_ file (`writeTargets(PAPER_SOURCES).some(isPaperSource)`); `writesTo` is exactly `writeTargets(prefixes).length > 0`. Spelling is as-written after normalization (quotes removed by the parser, `$HOME` canonicalized, a leaf's own `env -C` / `sudo -D` directory resolved), duplicates collapsed — so filter by basename or suffix. `prefixes` is required and there is no unfiltered form: a consumer holding the raw list has to re-implement prefix matching by hand, which is where every measured gate bypass came from.
   - `pipesToShell()` — pipes into a bare shell (`curl … | sh`) — remote-code execution. A shell _with_ a script file (`sh deploy.sh`) is **not** flagged.
   - `isSideEffecting()` — the deterministic Bash-effect classifier's verdict.
-  - `dirs(program?)` — the directories the leaves run in (with `program`, the leaves that run it, matched like `runs`), as absolute paths resolved against the directory the tool call starts in — the event's `cwd`. See [Where a command runs](#where-a-command-runs-dirs).
 
   > **`touches` ≠ `writesTo` — conflating them is the trap.** `touches` answers _mentioned_: `grep -c x notes/S.md` matches, and so does `rm -rf notes`. `isSideEffecting()` does not rescue it, because it classifies the **whole command line** — `grep -c x notes/S.md 2>/dev/null` is side-effecting (there's a redirection), so a `touches() && isSideEffecting()` gate blocks a plain read. Use `writesTo` to gate writes and `touches` for "don't even look at this path". Deletion is reported by neither — pair with `runs("rm")` if a gate needs it.
 
@@ -141,74 +139,7 @@ export default experimental_defineHook({
 
   > **A closed world, not "every execution".** The guarantee is about the programs listed above: each is either read or asked about. A program outside them can still run anything, and the gate does not look inside it: a script file (`bash deploy.sh`, `source x.sh`), another language's interpreter (`python -c`, `node -e`), a flag in a _quoted_ variable (`git push "$F"` with `F=-f`), a subcommand held in a variable (`git $SUB -f`), a remote or container command (`ssh host '…'`, `docker exec …`), `make`, `npx`, a git alias. Reading every option grammar of every runner is unbounded, so the plain forms are read and the rest are asked about rather than guessed at. Measured against real bash on 79 forms that try to force-push ([`src/hook-nested-shell-oracle.test.ts`](../src/hook-nested-shell-oracle.test.ts)): bash pushed in 64. A force-push guard blocks 22, asks on 37 and allows 5, every one of them a form named above as out of scope (before vigiles#460 it allowed 53 of the 61 forms measured then).
 
-### Where a command runs: `dirs()`
-
-A guard that judges a repository — "no `git pull` outside the trusted checkout", "no force-push in `/srv/prod`" — needs the directory the command acts in, not the session's. `cd /foreign && git pull` pulls in `/foreign`; a guard that read only `runs("git pull")` and the session directory let it through. `e.command.dirs(program)` answers per leaf:
-
-```ts
-import { experimental_defineHook, deny, allow } from "vigiles/hook";
-
-const TRUSTED = "/home/me/work";
-
-export default experimental_defineHook({
-  on: "PreToolUse",
-  decide: (e) => {
-    if (!e.command.runs("git pull")) return allow();
-    const at = e.command.dirs("git pull");
-    if (at.kind === "unresolved") return allow(); // the runtime turns this into an ask
-    return at.dirs.every((d) => d === TRUSTED || d.startsWith(TRUSTED + "/"))
-      ? allow()
-      : deny("git pull outside the trusted checkout");
-  },
-});
-```
-
-| command (started in `/w/repo`)                                                                                                                                                                                                                                                                                                                                              | `dirs("git pull")`                                                                                |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `git pull`                                                                                                                                                                                                                                                                                                                                                                  | `/w/repo`                                                                                         |
-| `cd /foreign && git pull`, `git -C /foreign pull`, `env -C/foreign git pull`, `pushd /foreign && git pull`, `builtin cd /foreign && git pull`                                                                                                                                                                                                                               | `/foreign`                                                                                        |
-| `cd sub; git pull`                                                                                                                                                                                                                                                                                                                                                          | `/w/repo/sub` and `/w/repo` — if `cd` fails, `;` still runs the pull, in the old directory        |
-| `cd sub \|\| exit 1; git pull`                                                                                                                                                                                                                                                                                                                                              | `/w/repo/sub`                                                                                     |
-| `(cd /foreign && make); git pull`                                                                                                                                                                                                                                                                                                                                           | `/w/repo` — a subshell's `cd` stays inside it, as does one on either side of a pipe or behind `&` |
-| `bash -c "cd /foreign && git pull"`                                                                                                                                                                                                                                                                                                                                         | `/foreign` — the string is [read](#the-vocabulary) like a typed command                           |
-| `cd ~/x && git pull`                                                                                                                                                                                                                                                                                                                                                        | `~/x` — the hook does not read `$HOME`                                                            |
-| `cd "$X" && git pull`, `cd - && git pull`, `cd -P x/.. && git pull`, `git -C ../o pull`, `source env.sh; git pull`, `trap -- '…' DEBUG; git pull`, `GIT_DIR=… git pull`, `GIT_DIR=… bash -c 'git pull'`, `git -c core.worktree=… pull`, `eval 'f(){ …; }; f'; git pull`, `f(){ cd x; }; f; git pull`, `for CDPATH in …; do :; done; cd x && git pull`, `cd "a" && git pull` | **unresolved**, with the reason                                                                   |
-
-**Every candidate, never a guess.** A leaf lists each directory it may run in, so a denylist reads `dirs.some(…)` and an allowlist `dirs.every(…)`. A pattern with a flag (`dirs("git push --force")`) also counts a leaf whose flag may sit in an unquoted variable (`git push $F`).
-
-**An allowlist, not a list of exceptions.** The hook claims a directory only for forms it fully reads:
-
-- `cd DIR`, `cd -- DIR`, a bare `cd` (to `~`), and `cd -` after an earlier `cd` in the same line — with no option, not even `-L`;
-- `pushd DIR`, a bare `pushd`, and a bare `popd`, on a stack the same line built;
-- subshells, either side of a pipe, `&`, `$(…)`, and a child `bash -c '…'`;
-- `env -C DIR` / `-CDIR` / `--chdir=DIR`, `sudo -D DIR`, and `git -C DIR`;
-- an `eval` of a literal string that defines no function.
-
-Builtins that cannot move the shell (`echo`, `test`, `true`, `set -e`, `trap -p`, …) are read too, and a program run in a child process never moves it. Of the builtins that end the shell, only `exit` counts: `logout` fails in a non-login shell, and `return` outside a function fails, so the line goes on after either.
-
-Four rules hold whatever else the line contains:
-
-1. **An assignment to a variable `cd` or git reads** stops the model for the rest of that shell. That covers `CDPATH`, `HOME`, `OLDPWD`, `PWD`, and any `GIT_*` variable not on the harmless list. It applies however the assignment is written: `X=…` alone or in front of any command (a function call or a program too), `export`/`declare`/`local`/`readonly`, a `for`/`select` variable, `read`, `printf -v`, `mapfile`, `getopts`, `wait -p`, `let` and `(( … ))`, `${X:=…}`, a `coproc` name, a `{X}>` redirection. An indexed or appending target such as `CDPATH[0]` or `HOME+=` counts as the same variable.
-2. **A directory word that is not plain text** is not decoded. A `cd`/`pushd` operand, or the value of `git -C`, `env -C`/`--chdir` or `sudo -D`, with a backslash, a quote, `$`, a glob or a brace character is `unresolved`. `cd ~/x` is plain.
-3. **Shell functions are not modelled.** A line that defines one, with `f()` or `function f`, inside `eval` included, is `unresolved` from the definition onward in that shell. A gate on such a line asks.
-4. **Anything the allowlist does not name** makes the leaf, and everything after it in that shell, `unresolved`. That covers:
-
-- any option on `cd`, `pushd` or `popd` (`cd -P` resolves symlinks before `..`);
-- a `trap` that sets an action, with or without `--`;
-- `source`, `exec`, `shopt`, `enable`, `fc`, and an `eval` that defines a function;
-- a wrapper option outside its list (`env --default-signal`, `sudo -Z`);
-- a git option outside its list (`--bare`, `--git-dir`), and a `GIT_*` variable outside its list (`GIT_DIR`, `GIT_CONFIG_PARAMETERS`);
-- `set -P`;
-- a `..` that `git -C` or `env -C` resolves physically;
-- any bash builtin no rule names.
-
-The reason comes with it: `dynamic-dir`, `oldpwd`, `dir-stack`, `opaque-dir-change`, `conditional-dir-change`, `git-dir-override`, `too-many-candidates`, `unsupported-cd-form`, `unsupported-option`, `physical-dotdot`, `unplain-dir-word`, `steering-assignment`, `function-defined`, or `no-start-dir` when the event carried no `cwd`. A gate that asked `dirs()`, met one of those and then **allowed** gets an `ask` instead, the same rule as for a command handed to a program the gate cannot read. A gate that never called `dirs()` is not affected, and its own `deny` or `ask` stands. A form joins the allowlist only with a case in the bash differential test below.
-
-**Where the start comes from.** Both Claude Code and Codex put `cwd` in the hook event. In Claude Code it follows the agent: after a `cd` in an earlier call, `cwd` is the new directory. Paths join the way bash's default `cd` does: `a/../b` is `b`. The hook does not see the shell's environment or the file system, so `CDPATH` set before the call is not read, and a symlink gives one directory two names: `cd /trusted/link` is reported as `/trusted/link` even when the link points elsewhere. The model is checked against real bash on generated command lines ([`src/hook-dirs-oracle.test.ts`](../src/hook-dirs-oracle.test.ts)): every directory bash ran a leaf in is among the candidates, or the leaf is unresolved.
-
-**What it does not change.** `touches` and `writesTo` still resolve a relative path against the project root, not against a preceding `cd`; `git.branch` and the other providers still read the session's directory, not the leaf's.
-
-> **Why `F=-f; git push $F` asks instead of being read.** The value is right there, two words earlier, and propagating it would turn this one ask into a block. It is not done: a variable's value can come from the environment, an earlier command, `read`, a branch of an `if` or a loop, and following it is a data-flow analysis across statements and subshells, not a parse. Until that exists, the gate says it cannot tell.
+  > **Why `F=-f; git push $F` asks instead of being read.** The value is right there, two words earlier, and propagating it would turn this one ask into a block. It is not done: a variable's value can come from the environment, an earlier command, `read`, a branch of an `if` or a loop, and following it is a data-flow analysis across statements and subshells, not a parse. Until that exists, the gate says it cannot tell.
 
 - **`e.path`** (Edit/Write) — a `FilePath` with `under(prefixes)` for path confinement, plus `raw` (the path as the tool sent it) and `rel` (the same path repo-relative, or `undefined` — see below).
 
@@ -881,7 +812,7 @@ If a rewrite fails the second check, the generator throws instead of quietly dro
 
 **What it cannot find.** The generator decides "same command" with the same shell parser the compiled guard's `runs()` uses. That makes every spelling it emits trustworthy, and it sets the limit: it can only produce spellings that parser already understands. It tests whether your guard matches the _operation_ rather than one way of typing it; it cannot find a blind spot in the parser itself, because it would share it. `g\it` is the example: a reader tried it, the shell ran git, the parser read `g\it`, and the guard behind "7 of 7" let it through — while the 73-case battery of the day could not have produced it. The parser was fixed, the spelling joined the battery, and the shipped guard now blocks all 167. A spelling the parser does not understand still has to come from a person.
 
-**What it deliberately does not generate.** `eval "$(…)"`, `sh -c "$X"`, a command name held in a variable (`$CMD push --force`), a command decoded from base64. The parser cannot tell what those will run, so they are never emitted. That is on purpose: a guard built on `runs()` genuinely cannot see through `eval "$(echo … | base64 -d)"` either — the gate [asks on it](#the-vocabulary) rather than allowing it, and an ask is not a block. Emitting such cases would mark a correct guard as broken, and a check that flags correct guards gets switched off. A _literal_ `sh -c '…'`, `bash -c '…'` or `eval '…'` is a different case: the gate reads inside it, so does the "same command" check, and the generator emits it. Since `dirs()` it emits `git -C . …` too: the check drops a `-C` that names the directory the command already runs in, while `git -C ../other …` is another repository and stays a different command.
+**What it deliberately does not generate.** `eval "$(…)"`, `sh -c "$X"`, a command name held in a variable (`$CMD push --force`), a command decoded from base64. The parser cannot tell what those will run, so they are never emitted. That is on purpose: a guard built on `runs()` genuinely cannot see through `eval "$(echo … | base64 -d)"` either — the gate [asks on it](#the-vocabulary) rather than allowing it, and an ask is not a block. Emitting such cases would mark a correct guard as broken, and a check that flags correct guards gets switched off. A _literal_ `sh -c '…'`, `bash -c '…'` or `eval '…'` is a different case: the gate reads inside it, so does the "same command" check, and the generator emits it. It emits `git -C . …`: the check drops exactly a `-C .`, while `git -C ../other …` is another repository and stays a different command.
 
 ### The other direction — harmless look-alikes
 
