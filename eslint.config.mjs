@@ -86,6 +86,8 @@ const PARSES_SHELL = [
   "src/adapters/claude-code/hook-condition.ts",
   // Attributes a command a harness EXECUTED to the script it ran (a run, not a config).
   "src/coverage-probe.ts",
+  // A command Codex EXECUTED: the command out of its wrapper, and which SKILL.md it read.
+  "src/adapters/codex/command-facts.ts",
   // The safety battery runs a hook, so it must know what that line needs.
   "src/verify-plugin-guards.ts",
 ];

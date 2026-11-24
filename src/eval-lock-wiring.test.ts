@@ -19,6 +19,7 @@ import {
   type AgentRunArgs,
 } from "./eval.js";
 import { readLock, lockPath } from "./eval-lock.js";
+import { skill } from "./check.js";
 import { ARGV_REST } from "./core/stub-rules.js";
 
 function tmp(): string {
@@ -215,6 +216,122 @@ test("trigger-rate seam: update records, check replays the skill's report (no mo
     );
     assert.equal(chk.calls(), 0, "check must not drive the model");
     assert.deepEqual(replayed, jnorm(recorded));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+/** A fake runner whose every run streams one `Skill` activation of `id`. */
+function skillRunner(id: string): (a: AgentRunArgs) => Promise<{
+  code: number;
+  stdout: string;
+}> {
+  return () =>
+    Promise.resolve({
+      code: 0,
+      stdout: [
+        JSON.stringify({ type: "system", subtype: "init" }),
+        JSON.stringify({
+          type: "assistant",
+          message: {
+            id: "m",
+            content: [
+              {
+                type: "tool_use",
+                id: "t",
+                name: "Skill",
+                input: { skill: id },
+              },
+            ],
+          },
+        }),
+        JSON.stringify({ type: "result", result: "ok", num_turns: 1 }),
+      ].join("\n"),
+    });
+}
+
+test("trigger-rate: `fired` takes a check, and scores a trial like the predicate does", async () => {
+  const dir = tmp();
+  try {
+    const pluginDir = makeSkillPlugin(join(dir, "plugin"));
+    const base = {
+      pluginDir,
+      prompts: ["use the foo skill", "please foo this"],
+      minPrompts: 1,
+      minDistance: 0,
+      trials: 1,
+      model: MODEL,
+      spacingSec: 0,
+    };
+    const hit = await measureTriggerRateWith(
+      { ...base, fired: skill("demo:foo") },
+      skillRunner("demo:foo"),
+    );
+    assert.equal(hit.rate, 1);
+    const miss = await measureTriggerRateWith(
+      { ...base, fired: skill("demo:other") },
+      skillRunner("demo:foo"),
+    );
+    assert.equal(miss.rate, 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("trigger-rate lock: the hash does not depend on the FORM of `fired`", async () => {
+  const dir = tmp();
+  try {
+    const pluginDir = makeSkillPlugin(join(dir, "plugin"));
+    const lockDir = join(dir, "locks");
+    const base = {
+      name: "foo trigger",
+      pluginDir,
+      prompts: ["use the foo skill", "please foo this"],
+      minPrompts: 1,
+      minDistance: 0,
+      trials: 1,
+      model: MODEL,
+      spacingSec: 0,
+    };
+    // Recorded with a predicate...
+    await measureTriggerRateWith(
+      {
+        ...base,
+        fired: () => true,
+        lock: { mode: "update" as const, dir: lockDir },
+      },
+      skillRunner("demo:foo"),
+    );
+    const recorded = readLock(lockDir, "foo trigger")?.inputsHash;
+    assert.ok(recorded);
+
+    // ...replays under the same lock when the script switches to a check: a
+    // migration of the script never costs a paid re-lock.
+    const chk = countingRunner();
+    await measureTriggerRateWith(
+      {
+        ...base,
+        fired: skill("demo:foo"),
+        lock: { mode: "check" as const, dir: lockDir },
+      },
+      chk.run,
+    );
+    assert.equal(
+      chk.calls(),
+      0,
+      "a check-form `fired` must replay, not re-run",
+    );
+
+    // And re-recording with the check writes the identical hash.
+    await measureTriggerRateWith(
+      {
+        ...base,
+        fired: skill("demo:foo"),
+        lock: { mode: "update" as const, dir: lockDir },
+      },
+      skillRunner("demo:foo"),
+    );
+    assert.equal(readLock(lockDir, "foo trigger")?.inputsHash, recorded);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -14,8 +14,18 @@
 import { describe, test } from "vitest";
 import assert from "node:assert/strict";
 
-import { leafCommandsNormalized } from "./bash-effects.js";
-import { parseShellCommand } from "./hook-program.js";
+import {
+  knownGlobalOptionOf,
+  leafCommandsNormalized,
+  subcommandAliasRows,
+} from "./bash-effects.js";
+import {
+  allow,
+  decideProgram,
+  deny,
+  experimental_defineHook,
+  parseShellCommand,
+} from "./hook-program.js";
 
 const leaf = (cmd: string) => {
   const [l] = leafCommandsNormalized(cmd);
@@ -93,4 +103,108 @@ describe("runs() asks the same per-command question", () => {
       true,
     );
   });
+});
+
+describe("a wrapper option's value is not the program", () => {
+  test.each([
+    "env -a x git push -f",
+    "env --argv0 x git push -f",
+    "sudo -T 5 git push -f",
+  ])("%s is a force push", (cmd) => {
+    assert.equal(
+      parseShellCommand(cmd).runs("git push", { force: true }),
+      true,
+    );
+    assert.equal(leaf(cmd).head, "git");
+  });
+});
+
+// Codex on #508: a dynamic operand of git's own option used to be dropped
+// before the subcommand was found, so `git -C "$PWD" commit -n` read `commit`
+// as the value of `-C` and `-n` was no longer `--no-verify` — a regression
+// against the old single table. A dynamic word keeps its slot until the
+// subcommand is found, and a subcommand that cannot be found asks.
+describe("a dynamic word never moves the subcommand", () => {
+  const decide = (cmd: string) =>
+    decideProgram(noVerifyGuard, {
+      tool_name: "Bash",
+      tool_input: { command: cmd },
+    }).kind;
+
+  test.each(['git -C "$PWD" commit -n -m x', 'git -c "$K=$V" commit -n -m x'])(
+    "%s is a --no-verify commit",
+    (cmd) => {
+      assert.equal(parseShellCommand(cmd).runs("git commit --no-verify"), true);
+      assert.equal(decide(cmd), "deny");
+    },
+  );
+
+  test.each([
+    "git $OPTS commit -n -m x",
+    'git "$SUB" -n -m x',
+    "git --attr-source x commit -n -m x",
+    "git --some-new-option x commit -n -m x",
+  ])("%s may be a --no-verify commit: the gate asks", (cmd) => {
+    assert.notEqual(decide(cmd), "allow");
+  });
+
+  test("a literal subcommand after known options still decides", () => {
+    assert.equal(decide("git --no-pager -c a=b push -n origin main"), "allow");
+  });
+});
+
+const noVerifyGuard = experimental_defineHook({
+  on: "PreToolUse",
+  decide: (e) =>
+    e.command.runs("git commit --no-verify") ? deny("no-verify") : allow(),
+});
+
+// Codex on #508 (a074cf2): `pip --isolated install -i URL pkg` looked up a
+// `pip --isolated` row. Every program with per-subcommand rows skips its OWN
+// global options to find the subcommand; an option not in its table makes
+// the short-flag question "may match", never "no".
+describe("every program with subcommand rows skips its own global options", () => {
+  test("pip --isolated install -i is --index-url", () => {
+    assert.ok(
+      leaf("pip --isolated install -i https://x/simple pkg").hasFlag(
+        "index-url",
+      ),
+    );
+  });
+
+  const rows = subcommandAliasRows();
+  test("the sweep covers every program with subcommand rows", () => {
+    assert.deepEqual([...new Set(rows.map((r) => r.program))].sort(), [
+      "git",
+      "pip",
+    ]);
+  });
+
+  test.each(rows)(
+    "$program <known global> $sub -$short is --$long",
+    ({ program, sub, long, short }) => {
+      const known = knownGlobalOptionOf(program);
+      assert.ok(known !== undefined, `${program} has no global-option table`);
+      assert.ok(
+        leaf(`${program} ${known} ${sub} -${short} x`).hasFlag(long),
+        `${program} ${known} ${sub} -${short}`,
+      );
+    },
+  );
+
+  test.each(rows)(
+    "$program <unknown option> $sub -$short may be --$long: the gate asks",
+    ({ program, sub, long, short }) => {
+      const guard = experimental_defineHook({
+        on: "PreToolUse",
+        decide: (e) =>
+          e.command.runs(`${program} ${sub} --${long}`) ? deny("x") : allow(),
+      });
+      const kind = decideProgram(guard, {
+        tool_name: "Bash",
+        tool_input: { command: `${program} --zz-unknown v ${sub} -${short} x` },
+      }).kind;
+      assert.notEqual(kind, "allow");
+    },
+  );
 });

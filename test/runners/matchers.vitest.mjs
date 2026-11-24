@@ -15,6 +15,7 @@ import {
   assertNotCreated,
 } from "../../dist/harness-assert.js";
 import { tool, output, blocked } from "../../dist/check.js";
+import checksCases from "./checks-cases.cjs";
 // Matchers are registered by the `vigiles/vitest` entry via setupFiles
 // (vitest.config.ts) — this file asserts that wiring works end-to-end.
 
@@ -69,3 +70,9 @@ test("plain helpers work under vitest", () => {
   assertCreated(result, "DONE");
   assertNotCreated(result, "MISSING");
 });
+
+// The same `check.*` cases node:test and jest run (checks-cases.cjs).
+for (const c of checksCases.CASES)
+  test(`check.*: ${c.name}`, () => {
+    expect(checksCases.verdict(c)).toBeUndefined();
+  });
