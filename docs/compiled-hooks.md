@@ -27,6 +27,7 @@ vigiles lets you author a hook as a **pure typed function** `(event) => Decision
 - [The roles](#the-roles)
 - [Role and event have to fit](#role-and-event-have-to-fit)
 - [The vocabulary](#the-vocabulary)
+  - [Where a command runs: `dirs()`](#where-a-command-runs-dirs)
   - [A react that reads the command](#a-react-that-reads-the-command)
 - [Testing a hook that remembers](#testing-a-hook-that-remembers)
 - [Observe mode (shadow rollout)](#observe-mode-shadow-rollout)
@@ -121,6 +122,7 @@ export default experimental_defineHook({
   - `writeTargets(prefixes)` — the same write targets as the **list of files** rather than a boolean, for a gate that has to tell _which_ file (`writeTargets(PAPER_SOURCES).some(isPaperSource)`); `writesTo` is exactly `writeTargets(prefixes).length > 0`. Spelling is as-written after normalization (quotes removed by the parser, `$HOME` canonicalized, a leaf's own `env -C` / `sudo -D` directory resolved), duplicates collapsed — so filter by basename or suffix. `prefixes` is required and there is no unfiltered form: a consumer holding the raw list has to re-implement prefix matching by hand, which is where every measured gate bypass came from.
   - `pipesToShell()` — pipes into a bare shell (`curl … | sh`) — remote-code execution. A shell _with_ a script file (`sh deploy.sh`) is **not** flagged.
   - `isSideEffecting()` — the deterministic Bash-effect classifier's verdict.
+  - `dirs(program?)` — the directories the leaves run in (with `program`, the leaves that run it, matched like `runs`), as absolute paths placed under the directory the tool call starts in — the event's `cwd`. Read on a small closed grammar; anything else is `unresolved`. See [Where a command runs](#where-a-command-runs-dirs).
 
   > **`touches` ≠ `writesTo` — conflating them is the trap.** `touches` answers _mentioned_: `grep -c x notes/S.md` matches, and so does `rm -rf notes`. `isSideEffecting()` does not rescue it, because it classifies the **whole command line** — `grep -c x notes/S.md 2>/dev/null` is side-effecting (there's a redirection), so a `touches() && isSideEffecting()` gate blocks a plain read. Use `writesTo` to gate writes and `touches` for "don't even look at this path". Deletion is reported by neither — pair with `runs("rm")` if a gate needs it.
 
@@ -143,7 +145,7 @@ export default experimental_defineHook({
 
 - **`e.path`** (Edit/Write) — a `FilePath` with `under(prefixes)` for path confinement, plus `raw` (the path as the tool sent it) and `rel` (the same path repo-relative, or `undefined` — see below).
 
-  The two types and the functions that build them, `parseShellCommand(raw, root)` and `parseFilePath(raw, root)`, were called `CommandView`/`PathView` and `commandView`/`pathView` before #465; the old names were removed in v50.
+  The two types and the functions that build them, `parseShellCommand(raw, root, start?)` and `parseFilePath(raw, root)`, were called `CommandView`/`PathView` and `commandView`/`pathView` before #465; the old names were removed in v50.
 
   > **Write your prefixes repo-relative; the runtime handles the rest.** Claude Code's Edit/Write/MultiEdit tools send an **absolute** `file_path`, so `under(["src"])` has to reconcile the two. It does that with the project root — `$CLAUDE_PROJECT_DIR`, else the event's own `cwd`, never the hook process's working directory (under a git worktree that can be a different checkout). An absolute prefix (`under(["/etc"])`) is matched against the absolute path instead, so both spellings work.
   >
@@ -157,6 +159,55 @@ export default experimental_defineHook({
 - **`allow()` / `deny(reason)` / `ask(reason)`** — the gate decision (every gate role).
 - **`inject(text)`** — inject output. **`run(cmd)` / `notice(msg)` / `nothing()`** — react output.
 - **`state(name)` in `needs`, `record(name, value?)` in a return** — **runtime-owned named memory**, so a hook can remember a fact without reaching for the filesystem. See below.
+
+### Where a command runs: `dirs()`
+
+A guard that judges a repository — "no `git pull` outside the trusted checkout" — needs the directory the command acts in, not the session's. `cd /foreign && git pull` pulls in `/foreign`. `e.command.dirs(program)` says where each leaf that runs `program` runs:
+
+```ts
+import { experimental_defineHook, allow, deny } from "vigiles/hook";
+
+const TRUSTED = "/work/repo";
+export default experimental_defineHook({
+  on: "PreToolUse",
+  decide: (e) => {
+    const at = e.command.dirs("git pull");
+    if (at.kind === "unresolved") return allow(); // the runtime turns this into an ask
+    return at.dirs.every((d) => d === TRUSTED || d.startsWith(TRUSTED + "/"))
+      ? allow()
+      : deny("git pull outside the trusted checkout");
+  },
+});
+```
+
+**Built for an allow that needs every candidate trusted.** The answer is `{ kind: "candidates", dirs }` — absolute, normalized (no `..`, no trailing `/`), duplicates collapsed, empty when no leaf runs the program — or `{ kind: "unresolved", reason }`. A gate that called `dirs()`, met an unresolved leaf that may run the program, and then **allowed** gets an `ask` instead, as with a command handed to a program it cannot read. An unknown leaf that cannot be the program (`cd repo && npm test`, asked about `git pull`) does not make the gate ask.
+
+**The grammar, and nothing beyond it.** Earlier versions tried to interpret most of bash; review found a way around them four rounds running. `dirs()` now reads a closed set of forms and calls everything else unknown:
+
+1. **A chain of simple commands** joined by `&&`, `;` or `||`; a plain pipeline `a | b` counts as one link, every part in the same directory. The directory carries **only across `&&`**: after a `;` or `||`, every later leaf is unknown, because a `cd` that failed leaves the old directory.
+2. **`cd <word>`** is read only when the word is plain text — no quotes, `\`, `$`, glob, brace or `~` — and is absolute or starts with `./` or `../`. CDPATH never applies to those forms. A bare `cd repo` (CDPATH may send it elsewhere), `cd ..`, `cd -`, a bare `cd` and any `cd` option make the later leaves unknown.
+3. **A `git` call**, and no other program. Its argv is **closed**: every word must be one the grammar understands, or the leaf is unknown. Before the subcommand, each word is a global option from git(1) — `-C <dir>` moves git (cumulative: each relative to the one before), `-p`, `-P`, `--no-pager`, `--no-replace-objects`, `--no-optional-locks`, `--no-lazy-fetch`, `--no-advice` and the four `--*-pathspecs` flags change nothing, and every other option is unknown, including `--git-dir`, `--work-tree`, `--namespace`, `--bare`, `-c` (config can set `core.worktree`, or define an alias that runs a shell command) and anything git(1) does not list. Then the subcommand must be `add`, `commit`, `fetch`, `grep`, `pull`, `push` or `status`: none of their options makes git work in another directory, so the words after it are left unread. Any other subcommand is unknown — `worktree`, `clone`, `submodule` and `log --output` can each act elsewhere, and an alias or an external `git-<name>` can do anything. A `..` in a `-C` value (git resolves it through symlinks, the model only by text) or a word that is not plain also makes the leaf unknown.
+   - **`env` is the one wrapper read around git**, through its whole option grammar: `-i`, `-`, `-0`, `-v`, `-u <name>`, `-C`/`--chdir` (a repeat keeps only the last, relative to where env started), `--`. A `NAME=value` operand, before or after `--`, makes the git leaf unknown: any variable may steer git (`GIT_DIR`, `HOME`, `PATH`). Any other `env` option (`-S`, the signal options, a cluster such as `-iC`) and every other wrapper (`sudo`, `nice`, `timeout`, `command`, `xargs`, `nohup`, `stdbuf`, …) around git is unknown.
+   - **Every other program is unknown.** Asked about `make`, `dirs("make")` is `unresolved` for any `make` leaf, `-C` or not: reading one option of a program means understanding all of them, or a value is mistaken for an option (`make -f -C /x` reads a makefile named `-C` and runs where it started). Asked about `git`, another program does not count unless it may run git (a wrapper, `git` in its argv, or a builtin that runs code the line does not show: `source`, `.`, `eval`, `trap`), and then it is unknown. Without a `program`, every leaf that is not git is unknown.
+   - **A builtin can change the shell, so it makes every later leaf unknown.** A builtin runs inside the shell: `command . /tmp/move` can `cd`, `export GIT_DIR=…` steers git, `hash -p` or `alias` changes what `git` runs, and a sourced file can define a `cd` function. So any leaf whose program, after `env`, is a bash builtin makes every later leaf unknown, even after a later `cd /abs`. Only `true`, `:`, `echo`, `test` and `[` are exempt: none of their options changes a variable, an option, an alias, a function, the hash table or the directory (checked under bash). `printf` is not exempt (`printf -v` sets a variable), and neither is `command X` or `builtin X`, whatever `X` is. A path such as `/bin/echo` is a program, not a builtin.
+4. **Every `cd`, `pushd` and `popd` word in the raw line** — inside quotes, nested shells, here-docs and comments — must be one the grammar read. Otherwise the whole line is unknown: `echo "cd /x" && git pull` asks.
+5. **Any other construct** anywhere makes the whole line unknown: functions, loops, `if`/`case`, subshells, `{ }`, `|&`, `bash -c`/`sh -c` (any shell), `eval`, `source`/`.`, redirects, assignments (`X=1 git pull`, `CDPATH=/x …`), command substitution, `pushd`/`popd`, `trap`, `exec`, `builtin`, `set`, `shopt`, `!`, `&`.
+
+The options the grammar reads — git's flags and `-C`, env's `-C` — are checked against [Fig's completion specs](https://github.com/withfig/autocomplete): Fig must know each with the same number of arguments, or the table carries a reviewed reason why Fig does not (a newer option, such as `-P` or `env -C`). Fig is not loaded by a hook.
+
+The `reason` of an unresolved answer is `outside-grammar`, `uncounted-cd`, `unread-cd`, `after-break`, `unplain-word`, `unread-option`, `unread-program` (a program other than git, or a git subcommand outside the list), `shell-state` (after a builtin that may change the shell), or `no-start-dir` when the event carried no `cwd` and a leaf's directory is relative. Every unresolved answer, `no-start-dir` included, makes a gate that then allows ask instead.
+
+**Where the start comes from.** Both Claude Code and Codex put `cwd` in the hook event. In Claude Code it follows the agent: after a `cd` in an earlier call, `cwd` is the new directory.
+
+**The limits.** The hook reads the command text, not the shell it runs in:
+
+- **Aliases and functions from rc files.** A non-interactive shell does not expand aliases, but a function defined in a startup file the shell reads (`BASH_ENV`) can shadow `cd` or `git`. A git alias cannot shadow the listed subcommands, which are builtins.
+- **The session's environment.** A `GIT_DIR`, `GIT_WORK_TREE` or `CDPATH` exported before the call is not visible to the hook. The grammar's `cd` forms are the ones CDPATH never applies to, but an inherited `GIT_DIR` still sends `git` to another repository.
+- **A program that runs git itself.** `make deploy`, `npm run release` or `./deploy.sh` may run `git push` in a child process, and the hook sees only the program's name. `dirs("git push")` does not count such a leaf, and no hook that reads the command text can. Where it matters, enforce at the point where git actually runs: a `pre-push` hook, the sandbox, or the forge's branch protection. A builtin that runs code in the shell itself does count: `source`, `.`, `eval` and `trap` make the answer `unresolved`, so the gate asks.
+- **Where git sends data is not where it runs.** A repository operand (`git push /other main`, `git pull ../other`) names a remote, which may be a local path; `dirs()` reports where git runs, and a gate that cares about the remote checks the arguments.
+- **Symlinks give one directory two names.** Paths join the way bash's default `cd` does, by text: `cd /trusted/link` is reported as `/trusted/link` even when the link points elsewhere.
+
+The model is checked against real bash and git on generated command lines ([`src/hook-dirs-oracle.test.ts`](../src/hook-dirs-oracle.test.ts)): every leaf is a git call that prints where it ran, and each ran where the grammar said, or the grammar said unknown. One run: 1,180 leaves ran — 263 known, 917 unknown, 0 outside the model.
 
 ### A react that reads the command
 

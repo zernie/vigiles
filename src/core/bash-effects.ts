@@ -90,6 +90,10 @@ interface MvdanNode {
   Exp?: unknown;
   // Stmt fields
   Negated?: boolean;
+  Coprocess?: boolean;
+  /** Source span, in UTF-8 bytes of the parsed text. */
+  Pos?: () => { Offset: () => number };
+  End?: () => { Offset: () => number };
   /** `$'…'` on a SglQuoted (ANSI-C), `$"…"` on a DblQuoted. */
   Dollar?: boolean;
 }
@@ -1349,6 +1353,27 @@ function parseOrNull(src: string): MvdanNode | null {
   }
 }
 
+/**
+ * The parsed syntax tree of a command line, or `null`, and a node's type name —
+ * for `bash-dirs.ts`, so the directory grammar shares this module's one lazy
+ * parser instead of loading its own.
+ *
+ * @internal
+ */
+export const shellSyntax = {
+  parse: (src: string): Readonly<MvdanNode> | null => parseOrNull(src),
+  nodeType: (node: Readonly<MvdanNode>): string => sh().syntax.NodeType(node),
+  walk: (
+    node: Readonly<MvdanNode>,
+    fn: (node: Readonly<MvdanNode>) => boolean,
+  ): void => {
+    sh().syntax.Walk(node, fn);
+  },
+};
+
+/** @internal — the syntax-tree node {@link shellSyntax} hands out. */
+export type ShellSyntaxNode = Readonly<MvdanNode>;
+
 /** Every statement of a parsed command, in walk order. */
 function statements(file: Readonly<MvdanNode>): readonly MvdanNode[] {
   const out: MvdanNode[] = [];
@@ -1516,6 +1541,12 @@ export type HiddenReason =
    * question (see the leaf's `unknownWords`).
    */
   | "dynamic-argument"
+  /**
+   * The gate called `dirs()` and a leaf that may run the program it asked
+   * about runs where the text does not say (`cd "$X" && git pull`). Reported
+   * by the gate runtime, not by {@link readShell}.
+   */
+  | "unknown-directory"
   /** A shell with options or arguments beyond a bare `-c '<literal>'`. */
   | "shell-options"
   /** A shell with no `-c` and no script: it runs whatever arrives on stdin. */

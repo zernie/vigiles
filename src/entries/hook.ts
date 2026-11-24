@@ -108,6 +108,7 @@ export type {
   Decision,
   HookMode,
   ShellCommand,
+  CommandDirs,
   FilePath,
   ResponseView,
   BashToolEvent,
@@ -175,3 +176,4 @@ export type {
 // longer the "hardened" one; see zernie/vigiles#193.
 export { leafCommandsNormalized } from "../core/bash-effects.js";
 export type { NormalizedLeaf, LeafRedirect } from "../core/bash-effects.js";
+export type { UnresolvedDir } from "../core/bash-dirs.js";

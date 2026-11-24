@@ -57,7 +57,12 @@ const NO_SHELL_PARSER = {
   paths: [{ name: "mvdan-sh", message: NEVER_PARSE_HOOK_LINES }],
   patterns: [
     {
-      group: ["**/bash-effects.js", "**/command-files.js", "**/shell-vars.js"],
+      group: [
+        "**/bash-effects.js",
+        "**/bash-dirs.js",
+        "**/command-files.js",
+        "**/shell-vars.js",
+      ],
       message: NEVER_PARSE_HOOK_LINES,
     },
   ],
@@ -82,6 +87,8 @@ const PARSES_SHELL = [
   "src/core/effects.ts",
   // Compiled hooks evaluate the agent's tool-input command, never their own line.
   "src/core/hook-program.ts",
+  // Where each leaf of the agent's command runs, for `e.command.dirs()`.
+  "src/core/bash-dirs.ts",
   "src/core/hook-providers.ts",
   // The public `vigiles/hook` barrel re-exports the gate vocabulary.
   "src/entries/hook.ts",
