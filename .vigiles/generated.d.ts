@@ -197,7 +197,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 643 project files. */
+  /** 647 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -273,6 +273,8 @@ declare module "vigiles/generated" {
     | "src/adapters/claude-code/skill-runtime.test.ts"
     | "src/adapters/claude-code/skill-runtime.ts"
     | "src/adapters/claude-code/skills-dogfood.test.ts"
+    | "src/adapters/claude-code/trace-facts.test.ts"
+    | "src/adapters/claude-code/trace-facts.ts"
     | "src/adapters/claude-code/typed-spec.ts"
     | "src/adapters/claude-code/untested-output-style.test.ts"
     | "src/adapters/claude-code/vendor-coverage.test.ts"
@@ -282,6 +284,7 @@ declare module "vigiles/generated" {
     | "src/adapters/codex/always-loaded-lint.test.ts"
     | "src/adapters/codex/always-loaded.test.ts"
     | "src/adapters/codex/codex.test.ts"
+    | "src/adapters/codex/command-facts.ts"
     | "src/adapters/codex/context-check.test.ts"
     | "src/adapters/codex/dialect.ts"
     | "src/adapters/codex/driver.ts"
@@ -302,6 +305,7 @@ declare module "vigiles/generated" {
     | "src/adapters/codex/skill-listing-delivery.test.ts"
     | "src/adapters/codex/skill-listing.test.ts"
     | "src/adapters/codex/skill-listing.ts"
+    | "src/adapters/codex/trace-facts.test.ts"
     | "src/adapters/opencode/adapter.ts"
     | "src/adapters/opencode/dialect.ts"
     | "src/adapters/opencode/instruction-chain.test.ts"
@@ -1085,6 +1089,8 @@ declare module "vigiles/spec" {
       | "src/adapters/claude-code/skill-runtime.test.ts"
       | "src/adapters/claude-code/skill-runtime.ts"
       | "src/adapters/claude-code/skills-dogfood.test.ts"
+      | "src/adapters/claude-code/trace-facts.test.ts"
+      | "src/adapters/claude-code/trace-facts.ts"
       | "src/adapters/claude-code/typed-spec.ts"
       | "src/adapters/claude-code/untested-output-style.test.ts"
       | "src/adapters/claude-code/vendor-coverage.test.ts"
@@ -1094,6 +1100,7 @@ declare module "vigiles/spec" {
       | "src/adapters/codex/always-loaded-lint.test.ts"
       | "src/adapters/codex/always-loaded.test.ts"
       | "src/adapters/codex/codex.test.ts"
+      | "src/adapters/codex/command-facts.ts"
       | "src/adapters/codex/context-check.test.ts"
       | "src/adapters/codex/dialect.ts"
       | "src/adapters/codex/driver.ts"
@@ -1114,6 +1121,7 @@ declare module "vigiles/spec" {
       | "src/adapters/codex/skill-listing-delivery.test.ts"
       | "src/adapters/codex/skill-listing.test.ts"
       | "src/adapters/codex/skill-listing.ts"
+      | "src/adapters/codex/trace-facts.test.ts"
       | "src/adapters/opencode/adapter.ts"
       | "src/adapters/opencode/dialect.ts"
       | "src/adapters/opencode/instruction-chain.test.ts"

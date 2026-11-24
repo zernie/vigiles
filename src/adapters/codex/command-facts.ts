@@ -13,6 +13,7 @@
  * is listed in `PARSES_SHELL` for that reason.
  */
 import { leafCommandsNormalized, readShell } from "../../core/bash-effects.js";
+import type { SkillFire, ToolCall } from "../../core/harness-driver.js";
 
 /** The shells Codex wraps a command in. */
 const WRAPPING_SHELLS = new Set(["bash", "sh", "zsh"]);
@@ -72,7 +73,7 @@ const FILE_PRINTERS = new Set([
 const SKILL_FILE = "/SKILL.md";
 
 /** The skills one shell command READS, by directory name, from the parsed command. */
-export function skillsReadBy(command: string): readonly string[] {
+function skillsReadBy(command: string): readonly string[] {
   return readShell(command).effects.flatMap((e) => {
     if (e.kind !== "leaf" || !FILE_PRINTERS.has(e.leaf.head)) return [];
     // `sed -i` edits the file in place: authoring the skill, not reading it.
@@ -84,4 +85,27 @@ export function skillsReadBy(command: string): readonly string[] {
       return name === "" ? [] : [name];
     });
   });
+}
+
+/**
+ * Every skill activation in a Codex run. Codex has no discrete skill-selection
+ * event: when a skill triggers, the model READS its `…/<name>/SKILL.md` with a
+ * `command_execution`. So an activation is a command, parsed by the shell parser
+ * the compiled hooks use, in which a file-printing program reads a `SKILL.md` —
+ * never a substring of the command line, which counted writing, grepping and
+ * listing the file as firing the skill. Best-effort by nature: a skill already in
+ * context is not re-read (see `CODEX_TRIGGER_RATE_EXPERIMENTAL` in `eval.ts`).
+ */
+export function codexSkillFires(
+  calls: readonly ToolCall[],
+): readonly SkillFire[] {
+  // `name` IS the command for a command_execution, so a call recorded before
+  // `shell` existed still reads; a function-style name parses to nothing.
+  return calls.flatMap((c) =>
+    skillsReadBy(c.shell ?? codexShell(c.name)).map((id) => ({
+      id,
+      isError: c.isError,
+      resultText: c.resultText,
+    })),
+  );
 }

@@ -327,6 +327,11 @@ assertTriggerRate(report, { min: 0.8, maxFalsePositive: 0.1 });
 
 - **`skillsDir` vs `pluginDir`** — exactly one. `skillsDir` packages a loose
   `.claude/skills` into a throwaway plugin for you.
+- **`fired`** — a check or a predicate over the run's trace. `fired:
+skill("my-plugin:greet")` asks the harness's adapter, so it works on every
+  harness; `(t) => skillResolved(t, …)` still works. Switching between the two
+  does not make a recorded lock stale: the lock pins what the model sees, not how
+  the script reads the run.
 - **`stubSkillBodies`** — triggering is decided by frontmatter _before_ the body
   loads, so stubbing the body (descriptions kept) lets a run stop at selection
   instead of executing a multi-step procedure. Don't combine with judged/quality

@@ -14,8 +14,8 @@
 import { describe, test } from "vitest";
 import assert from "node:assert/strict";
 
-import { parseCodexEvalRun, codexSkillFired, codexSkillFires } from "./eval.js";
-import { codexShell } from "./command-facts.js";
+import { parseCodexEvalRun, codexSkillFired } from "./eval.js";
+import { codexShell, codexSkillFires } from "./command-facts.js";
 import { parseCodexRun } from "./driver.js";
 import { skill } from "../../check.js";
 import type { Trace } from "../../core/eval-driver.js";

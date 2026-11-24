@@ -1130,6 +1130,7 @@ export interface ParsedModelRun {
     // (undocumented)
     readonly output: string;
     readonly replies?: readonly string[];
+    readonly skills?: SkillFacts;
     // (undocumented)
     readonly subagents: SubagentTrace[];
     // (undocumented)
@@ -1406,6 +1407,23 @@ export interface SkillContractOptions {
 }
 
 // @public
+export type SkillFacts = {
+    readonly observable: true;
+    readonly fired: readonly SkillFire[];
+} | {
+    readonly observable: false;
+    readonly harness: string;
+    readonly why: string;
+};
+
+// @public
+export interface SkillFire {
+    readonly id: string;
+    readonly isError: boolean;
+    readonly resultText: string;
+}
+
+// @public
 export function skillResolved(trace: Trace, skill: string): boolean;
 
 // @public
@@ -1556,6 +1574,7 @@ export interface ToolCall {
     // (undocumented)
     readonly name: string;
     readonly resultText: string;
+    readonly shell?: string;
 }
 
 // @public
@@ -1582,6 +1601,7 @@ export interface Trace {
     readonly modelRequests: readonly ModelRequest[];
     readonly output: string;
     readonly replies?: readonly string[];
+    readonly skills?: SkillFacts;
     readonly stubCalls?: readonly StubCall[];
     readonly subagents?: readonly SubagentTrace[];
     readonly toolCalls: readonly ToolCall[];
@@ -1609,7 +1629,7 @@ export interface TriggerRateSpec {
     readonly allowedTools?: readonly string[];
     readonly concurrency?: number;
     readonly effort?: string | number;
-    readonly fired: (trace: Trace) => boolean;
+    readonly fired: Check<Trace> | ((trace: Trace) => boolean);
     readonly fixture?: Record<string, string>;
     readonly installSet?: readonly string[];
     readonly irrelevantPrompts?: readonly string[];

@@ -45,12 +45,8 @@ import type {
   RunOut,
   EvalDriver,
 } from "../../eval.js";
-import type {
-  SkillFacts,
-  SkillFire,
-  ToolCall,
-} from "../../core/harness-driver.js";
-import { codexShell, skillsReadBy } from "./command-facts.js";
+import type { SkillFacts, ToolCall } from "../../core/harness-driver.js";
+import { codexShell, codexSkillFires } from "./command-facts.js";
 
 /** A line of `codex exec --json` output. */
 interface CodexEvent {
@@ -169,29 +165,6 @@ export function codexRunError(out: { stdout: string }): string | null {
     if (e.type === "turn.failed") return str(e.error?.message) || "turn failed";
   }
   return null;
-}
-
-/**
- * Every skill activation in a Codex run. Codex has no discrete skill-selection
- * event: when a skill triggers, the model READS its `…/<name>/SKILL.md` with a
- * `command_execution`. So an activation is a command, parsed by the shell parser
- * the compiled hooks use, in which a file-printing program reads a `SKILL.md` —
- * never a substring of the command line, which counted writing, grepping and
- * listing the file as firing the skill. Best-effort by nature: a skill already in
- * context is not re-read (see {@link CODEX_TRIGGER_RATE_EXPERIMENTAL}).
- */
-export function codexSkillFires(
-  calls: readonly ToolCall[],
-): readonly SkillFire[] {
-  // `name` IS the command for a command_execution, so a call recorded before
-  // `shell` existed still reads; a function-style name parses to nothing.
-  return calls.flatMap((c) =>
-    skillsReadBy(c.shell ?? codexShell(str(c.name))).map((id) => ({
-      id,
-      isError: c.isError,
-      resultText: c.resultText,
-    })),
-  );
 }
 
 /** {@link codexSkillFires} as the trace fact; not observable on an empty stream. */
