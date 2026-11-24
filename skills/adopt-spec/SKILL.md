@@ -59,7 +59,7 @@ import {
   file,
   cmd,
   ref,
-  instructions,
+  prose,
 } from "vigiles/spec";
 
 export default instructionFile({

@@ -227,6 +227,9 @@ export type LinterRule = `${BuiltinLinter}/${string}` | ScopedPlugin;
 export type NeedsContract<N extends Shape> = N;
 
 // @public
+export type OkOf<T> = T extends TypedOutcome<infer Ok, Shape> ? Ok : Shape;
+
+// @public
 export interface OpenToolVocabulary extends ToolVocabulary {
     // (undocumented)
     readonly bounded: string;

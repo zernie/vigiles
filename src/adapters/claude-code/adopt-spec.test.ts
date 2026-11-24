@@ -12,7 +12,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import * as spec from "../../core/spec.js";
+import * as spec from "../../entries/spec.js";
 
 const SKILL = resolve(process.cwd(), "skills/adopt-spec/SKILL.md");
 
@@ -45,7 +45,7 @@ test("adopt-spec teaches only symbols vigiles/spec actually exports", () => {
   );
 
   // The builders the skill's own steps lean on must be among them.
-  for (const required of ["claude", "enforce", "guidance"]) {
+  for (const required of ["instructionFile", "enforce", "guidance"]) {
     assert.ok(names.includes(required), `template should import ${required}`);
   }
 });

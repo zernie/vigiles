@@ -65,6 +65,7 @@ export type {
   KnownProjectFiles,
   LinterRule,
   NeedsContract,
+  OkOf,
   OpenToolVocabulary,
   OutputContract,
   OutputFieldType,
