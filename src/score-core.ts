@@ -67,30 +67,6 @@ export const TRIFECTA_LABEL =
  * (`cause: "session"`, #392) — one cause, so one deduction however many units
  * inherit it. Shared by the overall deduction and the Safety ring.
  */
-/** How many unit names a one-line summary spells out before it says "+N more". */
-const SUMMARY_NAMES = 5;
-
-/**
- * The ONE line for every `cause: "session"` trifecta finding (#392) — shared by
- * the audit report and the Safety ring so the two cannot drift. It names the
- * cause (the session's tools) once instead of repeating it per unit, and the
- * edit that closes it per unit. A settings-level deny would close it too, but
- * the check does not read settings, so the line offers no remedy it cannot see.
- */
-// TODO(#461): interim — replace with per-unit legs from the session baseline
-export function sessionTrifectaSummary(names: readonly string[]): string {
-  const rest = names.length - SUMMARY_NAMES;
-  const listed =
-    names.slice(0, SUMMARY_NAMES).join(", ") +
-    (rest > 0 ? ` +${String(rest)} more` : "");
-  return (
-    `Lethal trifecta: ${String(names.length)} unit(s) inherit the session's tools, and the ` +
-    "session can read files, reach the web and run commands — one cause, counted once. " +
-    "One `disallowed-tools:` line per skill (a `tools:` line per subagent) that drops a " +
-    `leg closes it: ${listed}.`
-  );
-}
-
 export const SESSION_TRIFECTA_LABEL =
   'unit(s) inherit the session\'s tools, which can read files, reach the web and run commands — the "lethal trifecta", one cause, charged once';
 

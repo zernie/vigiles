@@ -535,7 +535,11 @@ describe("auditScore", () => {
             path: "agents/broad.md",
             kind: "subagent",
             name: "broad",
-            finding: { severity: "advisory", cause: "session" },
+            finding: {
+              severity: "advisory",
+              cause: "session",
+              message: "no `tools:` line, so every session tool is inherited",
+            },
           },
         ] as unknown as ScanReport["trifectaFindings"],
       }),
@@ -546,7 +550,7 @@ describe("auditScore", () => {
     expect(cat(s, "Safety")?.score).toBe(90);
     expect(
       cat(s, "Safety")?.findings.some((f) =>
-        f.includes("inherit the session's tools"),
+        f.startsWith("broad: no `tools:` line"),
       ),
     ).toBe(true);
     expect(s.overall).toBe(90);
@@ -644,14 +648,20 @@ describe("auditScore", () => {
           path: k.path,
           kind: "skill",
           name: k.name,
-          finding: { severity: "advisory", fence: "none", cause: "session" },
+          finding: {
+            severity: "advisory",
+            fence: "none",
+            cause: "session",
+            message: "no `disallowed-tools:` line",
+          },
         })) as unknown as ScanReport["trifectaFindings"],
       }),
     );
     const findings = cat(s, "Safety")?.findings ?? [];
-    // One line about the cause. Never 35 named lines.
+    // One line about the cause, naming the first few. Never 35 lines.
     expect(findings.length).toBe(1);
-    expect(findings[0]).toContain("35 unit(s) inherit the session's tools");
+    expect(findings[0]).toContain("skill-0, skill-1");
+    expect(findings[0]).toContain("+30 more: no `disallowed-tools:` line");
     expect(findings.some((f) => f.includes("skill-7"))).toBe(false);
     // One cause, charged once: W_TRIFECTA, not the −30 cap 35 units used to hit.
     expect(cat(s, "Safety")?.score).toBe(90);
@@ -835,10 +845,9 @@ describe("confident-breakage cap", () => {
 });
 
 /**
- * INEFFECTIVE-FENCE COLLAPSE — a `disallowed-tools:` that closes no leg keeps its
- * own line while there are few of them (the documented intent: it is a genuine
- * mistake and naming the skill is actionable). Past a threshold it becomes one
- * fact about the harness, not N facts about N skills.
+ * INEFFECTIVE-FENCE COLLAPSE — skills whose `disallowed-tools:` closes no leg in
+ * the same way share one line naming them (`groupFindings`): it is one fact
+ * about the harness, not N facts about N skills.
  *
  * MEASURED 2026-08-28: the shape's premise — that this state is "Rare" — does not
  * hold. A fixture where every skill carried a naive `disallowed-tools: WebFetch`
@@ -853,11 +862,11 @@ describe("ineffective-fence collapse", () => {
     finding: {
       severity: "advisory" as const,
       fence: "ineffective" as const,
-      message: "`disallowed-tools: WebFetch` closes no lethal-trifecta leg — …",
+      message: "`disallowed-tools: WebFetch` closes no leg → deny …",
     },
   });
 
-  it("names them individually while there are few", () => {
+  it("two with the same message share one line naming both", () => {
     const s = auditScore(
       makeReport({
         trifectaFindings: [
@@ -867,8 +876,7 @@ describe("ineffective-fence collapse", () => {
       }),
     );
     const found = cat(s, "Safety")?.findings ?? [];
-    expect(found.some((f) => f.startsWith("alpha:"))).toBe(true);
-    expect(found.some((f) => f.startsWith("beta:"))).toBe(true);
+    expect(found.filter((f) => f.startsWith("alpha, beta:"))).toHaveLength(1);
   });
 
   it("collapses into ONE line past the threshold, keeping every name", () => {
@@ -882,14 +890,12 @@ describe("ineffective-fence collapse", () => {
     );
     const found = cat(s, "Safety")?.findings ?? [];
     // One aggregate line, not six per-skill ones.
-    expect(
-      found.filter((f) => /closes no lethal-trifecta leg/.test(f)),
-    ).toHaveLength(1);
-    // Nothing is lost — every skill is still named in it.
-    const line =
-      found.find((f) => /closes no lethal-trifecta leg/.test(f)) ?? "";
-    for (const n of names) expect(line).toContain(n);
+    expect(found.filter((f) => /closes no leg/.test(f))).toHaveLength(1);
+    // Nothing is lost: five are named and the sixth is counted.
+    const line = found.find((f) => /closes no leg/.test(f)) ?? "";
+    for (const n of names.slice(0, 5)) expect(line).toContain(n);
+    expect(line).toContain("+1 more");
     // And the repetition is gone: the old shape was ~450 chars × 6.
-    expect(line.length).toBeLessThan(900);
+    expect(line.length).toBeLessThan(160);
   });
 });

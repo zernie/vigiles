@@ -397,7 +397,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 671 project files. */
+  /** 675 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -648,6 +648,8 @@ declare module "vigiles/generated" {
     | "src/core/evidence.test.ts"
     | "src/core/evidence.ts"
     | "src/core/evolve.ts"
+    | "src/core/finding-groups.test.ts"
+    | "src/core/finding-groups.ts"
     | "src/core/foreign-runner.test.ts"
     | "src/core/foreign-runner.ts"
     | "src/core/frame.test.ts"
@@ -815,6 +817,8 @@ declare module "vigiles/generated" {
     | "src/core/tool-contract.test.ts"
     | "src/core/tool-contract.ts"
     | "src/core/tree-sitter-wasm.ts"
+    | "src/core/trifecta-fix.test.ts"
+    | "src/core/trifecta-fix.ts"
     | "src/core/types.ts"
     | "src/core/validate.test.ts"
     | "src/core/validate.ts"
@@ -1687,6 +1691,8 @@ declare module "vigiles/spec" {
       | "src/core/evidence.test.ts"
       | "src/core/evidence.ts"
       | "src/core/evolve.ts"
+      | "src/core/finding-groups.test.ts"
+      | "src/core/finding-groups.ts"
       | "src/core/foreign-runner.test.ts"
       | "src/core/foreign-runner.ts"
       | "src/core/frame.test.ts"
@@ -1854,6 +1860,8 @@ declare module "vigiles/spec" {
       | "src/core/tool-contract.test.ts"
       | "src/core/tool-contract.ts"
       | "src/core/tree-sitter-wasm.ts"
+      | "src/core/trifecta-fix.test.ts"
+      | "src/core/trifecta-fix.ts"
       | "src/core/types.ts"
       | "src/core/validate.test.ts"
       | "src/core/validate.ts"

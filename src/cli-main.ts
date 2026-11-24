@@ -6476,13 +6476,9 @@ function checkDescriptionBudget(ctx: BundleCheck): {
  * CI. Surfaces across BOTH subagents and skills, so it is NOT gated on the
  * `subagents` capability — a skill-only harness still has the surface.
  *
- * 🔴 The unfenced-skill group is printed ONCE and gets NO per-file GitHub
- * annotation. A skill's `allowed-tools:` pre-approves rather than restricts
- * (measured 2026-08-11), so every skill without a `disallowed-tools:` fence is in
- * this state — annotating each of them would stamp the same sentence on every
- * SKILL.md in the repo on every CI run, which is how a rule gets switched off. The
- * COUNT is unchanged (units, not lines), so exit codes and the CI gate are
- * unaffected by the collapse.
+ * One line and one annotation per finding, at its file, like any linter: `lint`
+ * is the gate an author fixes file by file, so it never groups. The human
+ * reports (terminal audit, PR comment, HTML) group through `groupFindings`.
  */
 function checkLethalTrifecta(ctx: BundleCheck): {
   issues: number;
@@ -6506,29 +6502,12 @@ function checkLethalTrifecta(ctx: BundleCheck): {
   );
   if (found.length > 0 && !silent) {
     console.log("\nLethal-trifecta check:\n");
-    const unfenced = found.filter(
-      (t) => t.kind === "skill" && t.finding.fence === "none",
-    );
     for (const t of found) {
-      if (unfenced.includes(t)) continue;
       const msg = `${t.kind} ${t.name}: ${t.finding.message}`;
       console.log(
         `  ${markOf(t.sev).mark} ${ctx.bundle.scanned(t.path)}: ${msg}`,
       );
       ctx.annotate(markOf(t.sev).level, msg, ctx.bundle.scanned(t.path));
-    }
-    if (unfenced.length > 0) {
-      // One line for the group, at the worst severity any of its skills has.
-      const groupSev = unfenced.some((t) => t.sev === "error")
-        ? "error"
-        : "warn";
-      console.log(
-        `  ${markOf(groupSev).mark} ${String(unfenced.length)} skill(s) declare no \`disallowed-tools:\` fence, so each ` +
-          `inherits every tool the session grants and holds all three legs. ` +
-          `\`allowed-tools:\` pre-approves, it does not restrict. ` +
-          `Add one \`disallowed-tools:\` line per skill to drop a leg: ` +
-          unfenced.map((t) => t.name).join(", "),
-      );
     }
   }
   return tally(found);

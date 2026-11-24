@@ -38,7 +38,8 @@ import { diskHookInventory, diskHookScan } from "./hook-inventory.js";
 // to live with. The default belongs to the CALLER: the CLI already resolves an
 // adapter before every one of these calls, and passing it is what removes the
 // import rather than hiding it.
-import { isEmptyMachine, sessionTrifectaSummary } from "./score-core.js";
+import { isEmptyMachine } from "./score-core.js";
+import { groupFindings, groupLine } from "./core/finding-groups.js";
 import { brokenSkillRefs, formatSkillRefIssue } from "./skill-refs.js";
 import {
   executableSourceDirs,
@@ -1285,33 +1286,24 @@ function skillLine(s: ScanSkill): string {
 }
 
 /**
- * The lethal-trifecta section's lines.
- *
- * - HARD (a subagent whose `tools:` names all three legs) — the full message; it
- *   names the specific tools to drop.
- * - Any other finding the unit's OWN file makes (`cause: "unit"` — a pre-approved
- *   leg tool; `cause: "fence"` — a fence that closes nothing, a block that does
- *   not parse) — its own line, at its path.
- * - Every unit that only INHERITS the session (`cause: "session"`, #392) — ONE
- *   line about the cause. 🔴 Measured 2026-11-23: 406 of 409 skills on 77 real
- *   repos were in this state, so a line per unit was a wall of one fact, and a
- *   section that always fires is muted within a day, taking the hard findings
- *   above it along. The header still counts UNITS, so the line hides no exposure.
+ * The lethal-trifecta section's lines: one per distinct finding, naming its
+ * units (`groupFindings`), hard ones first. 🔴 Measured 2026-11-23: 406 of 409
+ * skills on 77 real repos inherit the session's tools, so a line per unit was a
+ * wall of one fact, and a section that always fires is muted within a day,
+ * taking the hard findings above it along. The header still counts UNITS, so
+ * grouping hides no exposure.
  */
 function trifectaLines(r: ScanReport): string[] {
-  const session = r.trifectaFindings.filter(
-    (t) => t.finding.cause === "session",
-  );
-  const lines = r.trifectaFindings
-    .filter((t) => !session.includes(t))
-    .map(
-      (t) =>
-        `  ${t.finding.severity === "hard" ? "✗" : "⚠"} ${t.kind} ${t.name} (${t.path}): ${t.finding.message}`,
-    );
-  // TODO(#461): interim — replace with per-unit legs from the session baseline
-  if (session.length > 0)
-    lines.push(`  ⚠ ${sessionTrifectaSummary(session.map((t) => t.name))}`);
-  return lines;
+  const lines = (
+    severity: "hard" | "advisory",
+    mark: string,
+  ): readonly string[] =>
+    groupFindings(
+      r.trifectaFindings
+        .filter((t) => t.finding.severity === severity)
+        .map((t) => ({ name: t.name, message: t.finding.message })),
+    ).map((g) => `  ${mark} ${groupLine(g)}`);
+  return [...lines("hard", "✗"), ...lines("advisory", "⚠")];
 }
 
 /** One agent's report block: ✗ (broken contract) / ⚠ (inherits all) / ✓ + issues + purity. */

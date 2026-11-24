@@ -160,19 +160,24 @@ for (const a of ADAPTERS.filter(fenced)) {
     cleanupTmpDir(dir);
   });
 
-  test(`audit states the session cause once and names every other finding (#392, ${a.name})`, () => {
+  test(`audit names every unit once, one line per distinct finding (#392, ${a.name})`, () => {
     const dir = put(fixtureFiles(a));
-    const text = formatScanReport(shown(scan(dir)));
-    const session = text
-      .split("\n")
-      .filter((l) => l.includes("inherit the session's tools"));
-    const inherit = Object.entries(expectedCauses(a)).filter(
-      ([, c]) => c === "session",
-    );
-    assert.equal(session.length, 1, text);
-    assert.ok(session[0]?.includes(`${String(inherit.length)} unit(s)`));
-    for (const [n, c] of Object.entries(expectedCauses(a)))
-      assert.equal(text.includes(` ${n} (`), c !== "session", `${n}: ${text}`);
+    const r = scan(dir);
+    const text = formatScanReport(shown(r));
+    const start = text.indexOf("Lethal trifecta");
+    const section =
+      text.slice(start).split("\n\n")[0]?.split("\n").slice(1) ?? [];
+    // Units in the same state share a line, so the section has exactly as many
+    // lines as there are distinct findings, never a line per unit.
+    const distinct = new Set(r.trifectaFindings.map((t) => t.finding.message));
+    assert.equal(section.length, distinct.size, text);
+    for (const n of Object.keys(expectedCauses(a))) {
+      // Only the names part (before the first ": "), not the message.
+      const named = section.filter((l) =>
+        (l.split(": ")[0] ?? "").split(/[ ,]+/).includes(n),
+      );
+      assert.equal(named.length, 1, `${n}: ${text}`);
+    }
     cleanupTmpDir(dir);
   });
 
@@ -228,7 +233,7 @@ for (const a of ADAPTERS.filter((x) => !fenced(x) && !x.subagents)) {
     const r = scanPlugin(dir, a.layout, a.dialect);
     assert.ok(r.skills.length >= 6, "precondition: the skills are read");
     assert.deepEqual(r.trifectaFindings, []);
-    assert.ok(!formatScanReport(shown(r)).includes("inherit the session"));
+    assert.ok(!formatScanReport(shown(r)).includes("Lethal trifecta"));
     cleanupTmpDir(dir);
   });
 }
