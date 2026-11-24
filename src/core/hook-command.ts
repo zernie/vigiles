@@ -22,7 +22,9 @@
  * sources come from the caller.
  */
 import { hookStampRef } from "./hook-paths.js";
-import { withRoleExit, type DispatchKind } from "./hook-program.js";
+import { wireHookCommand, type DispatchKind } from "./hook-program.js";
+import type { HookFailureWiring } from "./layout.js";
+import type { HookFailurePolicy } from "./hook-protocol.js";
 
 /** Where `compile` writes the start-of-session check. Committed, next to the hook sources. */
 export const HOOK_CHECK_REF = ".vigiles/hook-check.sh";
@@ -224,6 +226,14 @@ export interface HookSourceRecord {
 /** One line `compile` would write, and the files it needs on disk. */
 export interface PlannedHookLine {
   readonly command: string;
+  /**
+   * The failure policy `compile` writes beside the command, on a harness that
+   * carries it as a handler key; absent where the harness has none (it rides on
+   * the command's `|| exit N` ending) and on vigiles's own wiring. Part of the
+   * line's identity: a gate whose `"block"` was removed or turned to
+   * `"continue"` is not the line compile writes.
+   */
+  readonly onFailure?: HookFailurePolicy;
   /** Root-anchored (`${TOKEN}/…`) or repo-relative paths. */
   readonly files: readonly string[];
   readonly runs: HookLineRuns;
@@ -259,6 +269,7 @@ export function hookLinePlan(
   sourceRefs: readonly string[],
   readText: (ref: string) => string | undefined,
   projectRootTokens: readonly string[] | undefined,
+  failureWiring?: HookFailureWiring,
 ): HookLinePlan {
   const sources = sourceRefs.map((ref): HookSourceRecord => {
     const role = fieldOf(parseJson(readText(hookStampRef(ref))), "role");
@@ -269,6 +280,7 @@ export function hookLinePlan(
       sources,
       runtime: hookRuntimeFor(parseJson(readText("package.json"))),
       projectRootTokens,
+      failureWiring,
     }),
     sources: sourceRefs,
   };
@@ -307,6 +319,8 @@ export interface HookPlanInput {
   readonly sources: readonly HookSourceRecord[];
   readonly runtime: HookRuntime;
   readonly projectRootTokens: readonly string[] | undefined;
+  /** How the harness carries a hook's failure policy; absent ⇒ the `|| exit N` ending. */
+  readonly failureWiring?: HookFailureWiring;
 }
 
 /**
@@ -339,20 +353,30 @@ const VIGILES_WIRING: HookLineRuns = { kind: "vigiles-wiring" };
 /** The line `compile` writes for one recorded hook source; none without a role. */
 function compiledLine(
   { ref, role }: HookSourceRecord,
-  { runtime, projectRootTokens: tokens }: HookPlanInput,
+  { runtime, projectRootTokens: tokens, failureWiring }: HookPlanInput,
 ): readonly PlannedHookLine[] {
   if (role === undefined) return [];
-  const command = withRoleExit(
+  const wired = wireHookCommand(
     runProgramCommand(
       hookRuntimeRef(tokens, runtime),
       hookGateRef(ref, tokens),
     ),
     role,
+    failureWiring,
   );
   const files = [runtime.path, ref, hookStampRef(ref)].map((f) =>
     anchored(f, tokens),
   );
-  return [{ command, files, runs: { kind: "program", ref } }];
+  const line: PlannedHookLine = {
+    command: wired.command,
+    files,
+    runs: { kind: "program", ref },
+  };
+  return [
+    wired.kind === "handler-field"
+      ? { ...line, onFailure: wired.onFailure }
+      : line,
+  ];
 }
 
 /** `rel` anchored at the harness's project root, as the emitted line spells it. */

@@ -51,6 +51,14 @@ export interface HookRegistration {
    * spelling cannot drift.
    */
   readonly condition: string | null;
+  /**
+   * The handler's failure policy as written — Claude Code's `onFailure`
+   * (`"block"` / `"continue"`) — absent when the handler carries none. Read
+   * here for the same reason as `condition`: a key this boundary drops is a key
+   * every reader is blind to, and a compiled line's identity includes it (a
+   * gate whose `"block"` was deleted fails open, and must read as edited).
+   */
+  readonly onFailure?: string;
 }
 
 /**
@@ -63,6 +71,9 @@ export interface HookRegistration {
  * this constant is the single seam to lift behind the port.
  */
 const CONDITION_KEY = "if";
+
+/** The config key a handler's failure policy is written under (see {@link HookRegistration.onFailure}). */
+const ON_FAILURE_KEY = "onFailure";
 
 /** True for a non-null, non-array object. */
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -96,7 +107,12 @@ function flattenEntry(event: string, entry: unknown): HookRegistration[] {
     const raw = h[CONDITION_KEY];
     const condition =
       typeof raw === "string" && raw.trim().length > 0 ? raw : null;
-    out.push({ event, matcher, command, condition });
+    const onFailure = h[ON_FAILURE_KEY];
+    out.push(
+      typeof onFailure === "string" && onFailure !== ""
+        ? { event, matcher, command, condition, onFailure }
+        : { event, matcher, command, condition },
+    );
   }
   return out;
 }

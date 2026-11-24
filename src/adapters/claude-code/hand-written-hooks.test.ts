@@ -104,6 +104,91 @@ function compiledProject(name: string): string {
   return dir;
 }
 
+/** The same consumer project, its one hook a compiled Bash GATE (`onFailure: "block"`). */
+function compiledGateProject(name: string): string {
+  const dir = makeTmpDir(name);
+  write(dir, "CLAUDE.md", "# x\nRun `npm test`.\n");
+  optIn(dir);
+  write(dir, "package.json", JSON.stringify({ name: "consumer" }));
+  mkdirSync(join(dir, "node_modules"));
+  symlinkSync(REPO, join(dir, "node_modules", "vigiles"), "dir");
+  write(
+    dir,
+    ".vigiles/hooks/g.hook.mjs",
+    'import { experimental_defineHook, allow } from "vigiles/hook";\n' +
+      'export default experimental_defineHook({ on: "PreToolUse", decide: () => allow() });\n',
+  );
+  const compiled = cli(dir, "compile", ".vigiles/hooks/g.hook.mjs");
+  assert.equal(compiled.status, 0, compiled.stdout);
+  return dir;
+}
+
+/** Rewrite every compiled handler's `onFailure` in `.claude/settings.json` (`undefined` drops it). */
+function setOnFailure(dir: string, value: string | undefined): void {
+  const path = join(dir, ".claude", "settings.json");
+  const text = readFileSync(path, "utf-8");
+  const edited = text.replace(
+    /,\s*"onFailure": "(?:block|continue)"/g,
+    value === undefined ? "" : `, "onFailure": "${value}"`,
+  );
+  assert.notEqual(edited, text, "the fixture must have an onFailure to edit");
+  writeFileSync(path, edited);
+}
+
+/** The stale-wiring finding `lint` prints for a line that names `ref`. */
+const staleFor = (stdout: string, ref: string): string[] =>
+  stdout
+    .split("\n")
+    .filter((l) => l.includes(`wires ${ref}`) && /edited or stale/.test(l));
+
+test("a compiled gate's `onFailure` is part of its identity: untouched, it is clean", () => {
+  const dir = compiledGateProject("hwh-gate-clean");
+  try {
+    assert.match(
+      readFileSync(join(dir, ".claude", "settings.json"), "utf-8"),
+      /"onFailure": "block"/,
+    );
+    const r = cli(dir, "lint");
+    assert.deepEqual(handWritten(r.stdout), [], r.stdout);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("a compiled gate whose `onFailure` was REMOVED is reported — it would fail open", () => {
+  const dir = compiledGateProject("hwh-gate-removed");
+  try {
+    setOnFailure(dir, undefined);
+    const r = cli(dir, "lint");
+    assert.equal(staleFor(r.stdout, ".vigiles/hooks/g.hook.mjs").length, 1, r.stdout); // prettier-ignore
+    assert.doesNotMatch(r.stdout, /vigiles did not write this line/);
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("a compiled gate whose `onFailure` was changed to `continue` is reported", () => {
+  const dir = compiledGateProject("hwh-gate-continue");
+  try {
+    setOnFailure(dir, "continue");
+    const r = cli(dir, "lint");
+    assert.equal(staleFor(r.stdout, ".vigiles/hooks/g.hook.mjs").length, 1, r.stdout); // prettier-ignore
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
+test("a compiled NUDGE wired `onFailure: block` is reported too — it could block a session", () => {
+  const dir = compiledProject("hwh-nudge-block");
+  try {
+    setOnFailure(dir, "block");
+    const r = cli(dir, "lint");
+    assert.equal(staleFor(r.stdout, ".vigiles/hooks/x.hook.mjs").length, 1, r.stdout); // prettier-ignore
+  } finally {
+    cleanupTmpDir(dir);
+  }
+});
+
 test("the line `compile` writes is read back as compiled — writer and reader are one plan", () => {
   const dir = compiledProject("hwh-compiled");
   try {
@@ -163,7 +248,8 @@ test("an edited compiled line is a hook-script-exists ERROR under the preset —
     const path = join(dir, ".claude", "settings.json");
     writeFileSync(
       path,
-      readFileSync(path, "utf-8").replace("|| exit 0", "|| true"),
+      // A fail-open ending bolted on by hand: no longer the line compile writes.
+      readFileSync(path, "utf-8").replace(/(x\.hook\.mjs\\")"/, '$1 || true"'),
     );
     const r = cli(dir, "lint");
     assert.notEqual(r.status, 0, r.stdout);

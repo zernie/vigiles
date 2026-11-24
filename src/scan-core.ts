@@ -801,17 +801,23 @@ export type HookLine =
   | { readonly kind: "hand-written" };
 
 /**
- * A line equal to a planned line is `compiled`, and its files are the plan's.
+ * A line equal to a planned line — its command AND its failure policy — is
+ * `compiled`, and its files are the plan's.
  * A line `compile`'s merge key assigns to one of this repo's hook sources but
  * that is not the planned line was edited, or compiled by another version:
  * `stale`. Anything else is `hand-written`.
  */
 function readHookLine(
-  command: string,
+  { command, onFailure }: Pick<HookRegistration, "command" | "onFailure">,
   scan: Pick<HookScriptScan, "plan" | "root" | "layout">,
 ): HookLine {
   const { plan, root } = scan;
-  const planned = plan.lines.find((l) => l.command === command);
+  // The failure policy is part of the identity: before it was a key, editing a
+  // gate's `|| exit 2` ending changed the command and read as stale; deleting
+  // or loosening its `onFailure` must too, or a gate fails open unreported.
+  const planned = plan.lines.find(
+    (l) => l.command === command && l.onFailure === onFailure,
+  );
   if (planned !== undefined)
     return { kind: "compiled", files: planned.files, runs: planned.runs };
   const ref = plan.sources.find((r) =>
@@ -826,13 +832,15 @@ function readHookLine(
 }
 
 /**
- * The harness a hook line is registered for: its name, and the root variables
- * its lines are spelled with — a compiled line names its files through them, so
- * reading one harness's line with another's would call every file missing.
+ * The harness a hook line is registered for: its name, the root variables its
+ * lines are spelled with — a compiled line names its files through them, so
+ * reading one harness's line with another's would call every file missing —
+ * and where it carries a hook's failure policy, which decides whether a
+ * compiled line ends in `|| exit N`.
  */
 export type HookHarness = Pick<
   PluginLayout,
-  "name" | "pluginRootToken" | "projectRootTokens"
+  "name" | "pluginRootToken" | "projectRootTokens" | "hookFailureWiring"
 >;
 
 /** One hook registration, the harness that reads it, and what its line is. */
@@ -890,7 +898,7 @@ export function hookInventory(
             source: block.origin,
             event: r.event,
             command: r.command,
-            line: readHookLine(r.command, scan),
+            line: readHookLine(r, scan),
           }),
         ),
     ),
@@ -945,8 +953,9 @@ function repoRef(word: string, root: string): string {
 /**
  * The `hook-script-exists` finding text. It names WHY nobody noticed, because
  * that is the part the author cannot see: a hook wired fail-open turns "cannot
- * load" into the same silence as "nothing to say". `compile` ends every
- * compiled reminder `|| exit 0` on purpose; a hand-written line may end
+ * load" into the same silence as "nothing to say". `compile` wires every
+ * reminder to fail open on purpose (`|| exit 0` on a harness with no failure
+ * key, `onFailure: "continue"` on Claude Code); a hand-written line may end
  * `|| true`, which does the same. A missing file under
  * `node_modules/` is a dependency that is not installed, so the cure differs.
  */
@@ -996,8 +1005,8 @@ export function handWrittenHookMessage(hook: HandWrittenHook): string {
 export function staleHookMessage(hook: StaleHook): string {
   return (
     `${hook.event} hook \`${hook.command}\` wires ${hook.ref} but is not the ` +
-    "line `vigiles compile` writes for it: edited or stale — recompile " +
-    "(`vigiles compile`)."
+    "line `vigiles compile` writes for it — its command or its failure policy " +
+    "(`onFailure`): edited or stale — recompile (`vigiles compile`)."
   );
 }
 
@@ -1030,13 +1039,14 @@ export interface HookLineFindings {
  * The existence check and the two line lists, read off the inventory.
  *
  * 🔴 WHY THE RUNNER IS ON THE LIST. A compiled hook is
- * `node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" … || exit 0`, and
- * the `|| exit 0` is deliberate: a reminder fails open. So when the runner is
- * missing, the shell turns MODULE_NOT_FOUND into "nothing to say", and only a
- * path check can tell the two apart. Measured 2026-10-11 on the vigiles
- * repository itself: both of its nudges dead since #260, three weeks, every gate
- * green — the runner was never checked and the file it was wired in was never
- * read (the repo is a plugin, and the loader reads the manifest's hooks instead).
+ * `node "$CLAUDE_PROJECT_DIR/node_modules/vigiles/dist/cli.js" …`, and a reminder
+ * fails open by design (`|| exit 0`, or `onFailure: "continue"`). So when the
+ * runner is missing, MODULE_NOT_FOUND lets the session go on as if the reminder
+ * had nothing to say, and only a path check catches it before a session does.
+ * Measured 2026-10-11 on the vigiles repository itself: both of its nudges
+ * dead since #260, three weeks, every gate green — the runner was never checked
+ * and the file it was wired in was never read (the repo is a plugin, and the
+ * loader reads the manifest's hooks instead).
  *
  * Files and stale lines are about lines vigiles wrote, so they come from every
  * registration. The hand-written list feeds `hand-written-hook`, and it stays
@@ -1368,8 +1378,9 @@ export function collectHookBlockEntries(
   regs: readonly HookRegistration[],
   scan: Pick<HookScriptScan, "root" | "layout" | "exists" | "plan">,
 ): HookScriptEntry[] {
-  return regs.flatMap(({ event, command }): HookScriptEntry[] => {
-    const line = readHookLine(command, scan);
+  return regs.flatMap((reg): HookScriptEntry[] => {
+    const { event, command } = reg;
+    const line = readHookLine(reg, scan);
     const files = (line.kind === "compiled" ? line.files : [])
       .map((f) => hookFilePath(f, scan.root, scan.layout))
       .filter(scan.exists);

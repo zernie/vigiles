@@ -1056,22 +1056,27 @@ describe("recompiling over the previous launcher", () => {
       const after = JSON.parse(
         readFileSync(join(dir, ".claude", "settings.json"), "utf-8"),
       ) as {
-        hooks: Record<string, { hooks: { command: string }[] }[]>;
+        hooks: Record<
+          string,
+          { hooks: { command: string; onFailure?: string }[] }[]
+        >;
       };
-      const commands = Object.values(after.hooks)
+      const ours = Object.values(after.hooks)
         .flat()
         .flatMap((g) => g.hooks)
-        .map((h) => h.command)
         // The start-of-session check is an extra entry on purpose. It is not a
         // duplicate of this hook, which is what this test counts.
-        .filter((c) => !c.includes("hook-check.sh"));
+        .filter((h) => !h.command.includes("hook-check.sh"));
+      const commands = ours.map((h) => h.command);
 
       // ONE, not two. A second entry here means every existing user grows a
       // duplicate hook on their next compile.
       expect(commands).toHaveLength(1);
       expect(commands[0]).toContain("node_modules/vigiles/dist/cli.js");
       expect(commands[0]).not.toMatch(/\bnpx\b/);
-      expect(commands[0]).toMatch(/\|\| exit 2$/);
+      // A gate: Claude Code's `onFailure` carries the policy, so no ending.
+      expect(commands[0]).not.toMatch(/\|\|\s*exit/);
+      expect(ours[0].onFailure).toBe("block");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

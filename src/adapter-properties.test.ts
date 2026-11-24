@@ -661,6 +661,48 @@ const RULES_HOMES: Record<string, string> = {
   ".github/rules/a.md": "SOMEBODY ELSE'S rules tree",
 };
 
+describe.each(
+  IMPLEMENTATIONS.filter(
+    (a) => a.shellHooks && a.layout.hookFailureWiring === "handler-field",
+  ).map((a) => [a.name, a] as const),
+)(
+  "%s — a hook's failure policy, where the layout carries one",
+  (_name, adapter) => {
+    it("reaches the PASTED and the INSTALLED block alike", () => {
+      // `compile` writes `onFailure` only on a harness whose layout says the
+      // handler carries it; both routes must then agree on it, or the block a
+      // human pastes would fail open where the installed one blocks.
+      if (!adapter.shellHooks)
+        throw new Error("filtered to shell-hook adapters");
+      const { hookProtocol } = adapter;
+      const ref = ".vigiles/hooks/probe.mjs";
+      const command = `node ${ref}`;
+      for (const onFailure of ["block", "continue"] as const) {
+        const pasted = hookProtocol.registration(
+          "PreToolUse",
+          "Bash",
+          command,
+          onFailure,
+        );
+        const installed = hookProtocol.mergeRegistrations(
+          {},
+          {
+            PreToolUse: [
+              {
+                matcher: "Bash",
+                hooks: [{ type: "command", command, onFailure }],
+              },
+            ],
+          },
+          ref,
+        );
+        expect(installed).toEqual(pasted);
+        expect(JSON.stringify(pasted)).toContain(`"onFailure":"${onFailure}"`);
+      }
+    });
+  },
+);
+
 describe.each(ARBITRARY_LAYOUTS)(
   "the disk walk and the file map enumerate the same candidates — %s",
   (_what, layout) => {

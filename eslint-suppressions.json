@@ -3021,7 +3021,7 @@
   },
   "src/hook-runtime.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 19
+      "count": 17
     },
     "boundaries/dependencies": {
       "count": 4
@@ -3030,7 +3030,7 @@
       "count": 3
     },
     "functional/no-let": {
-      "count": 5
+      "count": 4
     },
     "functional/no-loop-statements": {
       "count": 4
@@ -3039,7 +3039,7 @@
       "count": 4
     },
     "no-restricted-globals": {
-      "count": 13
+      "count": 12
     }
   },
   "src/hook-state-runtime.test.ts": {
