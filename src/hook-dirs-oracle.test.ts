@@ -3,7 +3,8 @@
  *
  * Lines are generated from the forms the grammar reads — `cd` to absolute,
  * `./` and `../` words, `&&`, `;`, `||`, a plain `|`, `git -C`, `env -C`,
- * `timeout`, `command` — and from forms it must call unknown: bare `cd b`
+ * `timeout`, `command`, `make -C` (cumulative), a repeated `env -C` (only
+ * the last counts) and git's options before its subcommand — and from forms it must call unknown: bare `cd b`
  * under a CDPATH, `cd -`, a bare `cd`, `cd -P`, quoted and backslashed words,
  * `pushd`/`popd`, `command cd`, `builtin cd`, `eval`, `bash -c`, functions,
  * subshells, groups, `if`, a `CDPATH=` prefix, a redirect, `&`, and `..`
@@ -85,6 +86,12 @@ function forms(
       `git -C ${pick([".", "./a", "a/b", "nope", "l/..", "a/.."])} rec ${mark()}`,
       `git -C ./a -C b rec ${mark()}`,
       `env -C ${pick(["a", "b", "nope", "l/.."])} rec ${mark()}`,
+      // A repeated env -C: only the last counts, against where env started.
+      `env -C ${pick([abs, "a", "nope"])} -C ${pick([".", "b", "a/b"])} rec ${mark()}`,
+      // Git's options before its subcommand, read by its global table.
+      `git ${pick(["-c x.y=1", "--no-pager", "-P", "--bogus"])} -C ${pick(["a", "b"])} rec ${mark()}`,
+      // make -C is cumulative; `L<k>` is a target every tree Makefile records.
+      `make -s ${pick(["", "-C a", `-C ${abs}`, "-C a -C b", "-C nope"])} ${mark()}`,
       `timeout 5 rec ${mark()}`,
       `command rec ${mark()}`,
       `env -i PATH=$PATH rec ${mark()}`,
@@ -223,6 +230,12 @@ test("every leaf bash ran is where the grammar said, or the grammar said unknown
     spawnSync("git", ["init", "-q", start]);
     mkdirSync(tree.bin);
     // `rec L<k>`: where the process runs. `git rec L<k>`: where git runs it.
+    // `make L<k>`: where make runs the recipe, in every directory of the tree.
+    for (const d of [".", "a", "a/b", "b", "c"])
+      writeFileSync(
+        join(start, d, "Makefile"),
+        'L%:\n\t@pwd -P > "$$OUT/$@"\n',
+      );
     for (const name of ["rec", "git-rec"]) {
       const p = join(tree.bin, name);
       writeFileSync(p, '#!/bin/sh\npwd -P > "$OUT/$1"\n');
