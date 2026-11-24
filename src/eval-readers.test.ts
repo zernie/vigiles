@@ -13,6 +13,7 @@ import {
   assertRates,
   type CheckReport,
   type EvalReport,
+  type TriggerRateReport,
 } from "./eval.js";
 
 const NO_USAGE = {
@@ -256,4 +257,48 @@ test("assertRates over an eval report without an arm is refused, not read as a c
     // @ts-expect-error — an eval report needs `arm` and `metric`
     assertRates(rep, { passK: 1 });
   }, /needs `arm` and `metric`/);
+});
+
+/** A trigger-rate report: which of these prompts fired, one trial each. */
+function triggerReport(fired: Record<string, boolean>): TriggerRateReport {
+  const perPrompt = Object.entries(fired).map(([prompt, f]) => ({
+    prompt,
+    fired: f ? 1 : 0,
+    trials: 1,
+    rate: f ? 1 : 0,
+  }));
+  return {
+    rate: perPrompt.filter((p) => p.rate > 0).length / perPrompt.length,
+    n: perPrompt.length,
+    perPrompt,
+    competitors: 0,
+    usage: NO_USAGE,
+  };
+}
+
+test("compare(before, after) on two trigger-rate reports: which prompts a change gained and lost", () => {
+  const before = triggerReport({ a: true, b: true, c: false, d: false });
+  const after = triggerReport({
+    a: true,
+    b: false,
+    c: true,
+    d: false,
+    e: true,
+  });
+  const diff = compare(before, after);
+  assert.deepEqual(diff.lost, ["b"]);
+  assert.deepEqual(diff.gained, ["c"]);
+  assert.deepEqual(diff.both, ["a"]);
+  assert.deepEqual(diff.neither, ["d"]);
+  // A prompt only one run measured says nothing about the change.
+  assert.equal(diff.compared, 4);
+});
+
+test("compare(before, after): runs with no prompt in common compare nothing", () => {
+  const diff = compare(triggerReport({ a: true }), triggerReport({ b: true }));
+  assert.equal(diff.compared, 0);
+  assert.deepEqual(
+    [diff.gained, diff.lost, diff.both, diff.neither],
+    [[], [], [], []],
+  );
 });

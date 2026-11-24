@@ -68,7 +68,7 @@ test("the eval-report readers live on vigiles/eval, folded", () => {
   for (const gone of [
     "compareArms",
     "diffReports",
-    "compareContainment",
+    "compareContainment", // folded into compare(before, after)
     "improvement",
     "significantlyBeats",
     "reliable",
