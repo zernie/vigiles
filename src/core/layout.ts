@@ -14,6 +14,9 @@ import type { OutputStyleRules } from "./output-style.js";
 import type { InstructionChain } from "./instruction-chain.js";
 import type { SettingsCodec } from "./settings-codec.js";
 
+/** How a harness's settings carry a hook's failure policy; see {@link PluginLayout.hookFailureWiring}. */
+export type HookFailureWiring = "handler-field" | "shell-ending";
+
 /**
  * The three kinds of MODEL SURFACE — a thing a session can invoke by name.
  *
@@ -214,6 +217,27 @@ export interface PluginLayout {
    * consumer repo: `audit` listed sixteen hooks and the SURFACE list held zero.
    */
   readonly projectRootTokens?: readonly string[];
+  /**
+   * Where this harness's settings say what a FAILED hook does to the action it
+   * fired on — the hook could not answer (a crash, a stale stamp, a missing
+   * file), which is not the same as answering `deny`.
+   *
+   * - `"handler-field"`: each handler entry carries the policy as a key (Claude
+   *   Code's `onFailure: "block" | "continue"`), and `compile` writes it from the
+   *   hook's role. The command then carries no `|| exit N` ending, so the
+   *   runtime's own exit code (2 = the hook denied, 1 = it failed) reaches the
+   *   harness unchanged.
+   * - `"shell-ending"` (also when absent): the harness has no such key, so the
+   *   policy rides on the command's `|| exit N` ending — `|| exit 2` makes any
+   *   failure block, `|| exit 0` makes it pass.
+   *
+   * Optional (additive): a third-party layout without it keeps the ending it
+   * had. On the LAYOUT, not the hook protocol, because it decides how a
+   * compiled line is SPELLED, and `lint` reads a line by identity with that
+   * spelling from the layout alone (the browser engine is never handed a
+   * protocol).
+   */
+  readonly hookFailureWiring?: HookFailureWiring;
   /** Standalone MCP config file, e.g. `.mcp.json`. */
   readonly mcpConfigFile: string;
   /** Manifest key declaring MCP servers, e.g. `mcpServers`. */

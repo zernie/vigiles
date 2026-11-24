@@ -23,24 +23,36 @@ import {
   hookRuntimeRef,
   runProgramCommand,
 } from "./core/hook-command.js";
-import { withRoleExit } from "./core/hook-program.js";
+import { wireHookCommand } from "./core/hook-program.js";
 import type { PluginLayout } from "./core/layout.js";
 import { ADAPTERS } from "./adapter-registry.js";
 
 type Files = Readonly<Record<string, string>>;
 
-/** A `hooks` block registering `commands` under `event`, in the nested shape both harnesses read. */
-const hooksBlock = (event: string, commands: readonly string[]) => ({
+/** One wired handler: a bare command, or a command with the failure policy compile writes beside it. */
+type Handler =
+  | string
+  | { readonly command: string; readonly onFailure?: string };
+
+/** A `hooks` block registering `handlers` under `event`, in the nested shape both harnesses read. */
+const hooksBlock = (event: string, handlers: readonly Handler[]) => ({
   hooks: {
-    [event]: commands.map((command) => ({
+    [event]: handlers.map((h) => ({
       matcher: "Bash",
-      hooks: [{ type: "command", command }],
+      hooks: [
+        typeof h === "string"
+          ? { type: "command", command: h }
+          : { type: "command", ...h },
+      ],
     })),
   },
 });
 
 /** The instruction file and a settings file registering PreToolUse lines, in the layout's own encoding. */
-function settings(layout: PluginLayout, ...commands: readonly string[]): Files {
+function settings(
+  layout: PluginLayout,
+  ...commands: readonly Handler[]
+): Files {
   return {
     [layout.instructionFile]: "# x\n",
     [layout.settingsPath]: layout.settings.render(
@@ -50,7 +62,7 @@ function settings(layout: PluginLayout, ...commands: readonly string[]): Files {
 }
 
 /** The layout's hook-convention file registering one PostToolUse line. */
-function pluginHooks(layout: PluginLayout, command: string): Files {
+function pluginHooks(layout: PluginLayout, command: Handler): Files {
   if (layout.hooksConventionPath === undefined)
     throw new Error(`${layout.name} declares no hook-convention file`);
   return {
@@ -66,17 +78,25 @@ const PROGRAM = ".vigiles/hooks/guard.hook.mjs";
 function compiledHook(layout: PluginLayout): {
   readonly files: Files;
   readonly line: string;
+  /** The line as `compile` wires it — with its failure policy where the layout carries one. */
+  readonly handler: Handler;
 } {
   const tokens = layout.projectRootTokens;
+  const wired = wireHookCommand(
+    runProgramCommand(hookRuntimeRef(tokens), hookGateRef(PROGRAM, tokens)),
+    "react",
+    layout.hookFailureWiring,
+  );
   return {
     files: {
       [PROGRAM]: "export default {};\n",
       [`${PROGRAM}.json`]: JSON.stringify({ stamp: "s", role: "react" }),
     },
-    line: withRoleExit(
-      runProgramCommand(hookRuntimeRef(tokens), hookGateRef(PROGRAM, tokens)),
-      "react",
-    ),
+    line: wired.command,
+    handler:
+      wired.kind === "handler-field"
+        ? { command: wired.command, onFailure: wired.onFailure }
+        : wired.command,
   };
 }
 
@@ -131,7 +151,7 @@ describe.each(
   it("a compiled hook declared only in a plugin's hook-convention file is a coverage surface (#283)", () => {
     const compiled = compiledHook(h.layout);
     const files = {
-      ...pluginHooks(h.layout, compiled.line),
+      ...pluginHooks(h.layout, compiled.handler),
       ...compiled.files,
     };
     const hooks = (kinds: readonly { kind: string; path: string }[]) =>
@@ -156,7 +176,7 @@ describe.each(
   it("the inventory count is the number of hook LINES, one unit", () => {
     const compiled = compiledHook(h.layout);
     const files = {
-      ...settings(h.layout, "bash scripts/guard.sh", compiled.line),
+      ...settings(h.layout, "bash scripts/guard.sh", compiled.handler),
       ...compiled.files,
     };
     const disk = onDisk(files, (dir) => scanPlugin(dir, h.layout, h.dialect));
@@ -209,7 +229,7 @@ function twoHarnessRepo(a: Harness, b: Harness) {
     files: {
       ...settings(a.layout, "bash scripts/guard.sh"),
       "scripts/guard.sh": "#!/usr/bin/env bash\nexit 0\n",
-      ...settings(b.layout, hook.line),
+      ...settings(b.layout, hook.handler),
       ...hook.files,
     },
     expected: [
@@ -307,7 +327,10 @@ describe.each(ADAPTERS.map((a) => ({ name: a.name, harness: a })))(
         layout: { ...harness.layout, name: `${harness.name}-mirror` },
       };
       const hook = compiledHook(harness.layout);
-      const files = { ...settings(harness.layout, hook.line), ...hook.files };
+      const files = {
+        ...settings(harness.layout, hook.handler),
+        ...hook.files,
+      };
       for (const order of [
         [harness, mirror],
         [mirror, harness],

@@ -51,6 +51,15 @@ export default experimental_defineHook({
 });
 `;
 
+/**
+ * What the runtime exits with when it cannot get an answer out of the hook: 1,
+ * a NON-blocking error — never 2, which only a hook's own `deny` may produce.
+ * The refusal these tests are about is the WIRING's: `compile` writes
+ * `onFailure: "block"` on a tool gate, so Claude Code refuses the call (asserted
+ * from the compiled settings below). A 0 is still the only "let through".
+ */
+const FAILED = 1;
+
 const HEALTHY_PACKAGE_JSON = `{ "name": "wedge-fixture", "private": true, "type": "module" }\n`;
 
 // Exactly the shape git leaves: a `dependencies` block on one side only.
@@ -147,7 +156,7 @@ test("a conflicted package.json wedges the runtime — and the recovery commands
     // The message must name the REAL cause. Sending the author to the hook —
     // which is fine — was the expensive half of the original incident.
     const refused = runGate(dir, hook, "ls");
-    assert.equal(refused.code, 2);
+    assert.equal(refused.code, FAILED);
     assert.match(refused.stderr, /package\.json/);
     assert.match(refused.stderr, /merge-conflict markers/);
 
@@ -159,7 +168,7 @@ test("a conflicted package.json wedges the runtime — and the recovery commands
       "git rebase --abort",
       "git checkout -- package.json",
     ]) {
-      assert.equal(runGate(dir, hook, cmd).code, 2, cmd);
+      assert.equal(runGate(dir, hook, cmd).code, FAILED, cmd);
     }
 
     // 🔴 THE MEASUREMENT THAT DELETED THE COMPILE ESCAPE. `vigiles compile` was
@@ -180,7 +189,7 @@ test("a conflicted package.json wedges the runtime — and the recovery commands
     assert.equal(
       runGate(dir, hook, "npx vigiles compile .claude/hooks/guard.hook.mjs")
         .code,
-      2,
+      FAILED,
     );
   } finally {
     cleanupTmpDir(dir);
@@ -239,7 +248,7 @@ test("the wedge still fails CLOSED — a broken load path is not an open door", 
       // …and `cd` in front of a GIT recovery, which is no longer neutral either.
       "cd /tmp/evil && git merge --abort",
     ]) {
-      assert.equal(runGate(dir, hook, cmd).code, 2, cmd);
+      assert.equal(runGate(dir, hook, cmd).code, FAILED, cmd);
     }
     // And the author's way out is still open — but it is a FILE WRITE now, not a
     // command. A fix that shuts every door re-wedges the repo, which is the
@@ -262,7 +271,7 @@ test("the wedge still fails CLOSED — a broken load path is not an open door", 
         join(other, hook), // the hook's own path, same tail, wrong repo
         join(dir, "..", "another-project", "package.json"),
       ]) {
-        assert.equal(runWrite(dir, hook, outside).status, 2, outside);
+        assert.equal(runWrite(dir, hook, outside).status, FAILED, outside);
       }
       // …and the neighbour is untouched by the refusal, which is the point.
       assert.equal(
@@ -277,23 +286,23 @@ test("the wedge still fails CLOSED — a broken load path is not an open door", 
     // `package.json` walked out through the escape while the gate refused
     // everything else. Against the real runtime, wedged:
     for (const target of ["package.json", hook]) {
-      assert.equal(runWrite(dir, hook, target, "Read").status, 2, `Read ${target}`); // prettier-ignore
+      assert.equal(runWrite(dir, hook, target, "Read").status, FAILED, `Read ${target}`); // prettier-ignore
     }
     // An unrecognised tool name is refused too — the list is verified writers,
     // and ignorance is not a licence.
-    assert.equal(runWrite(dir, hook, "package.json", "ApplyPatch").status, 2);
+    assert.equal(runWrite(dir, hook, "package.json", "ApplyPatch").status, FAILED); // prettier-ignore
     // …while every MEASURED writer still gets the author out.
     for (const t of ["Write", "Edit", "MultiEdit"]) {
       assert.equal(runWrite(dir, hook, "package.json", t).status, 0, t);
     }
-    // The refusal explains itself as harness state, not as a verdict, and points
-    // at the way out — without that the author's next move is to unwire the gate.
+    // The refusal explains itself as a FAILURE, not as a verdict, and points at
+    // the way out — without that the author's next move is to unwire the gate.
     const refused = runGate(dir, hook, "ls");
-    assert.match(refused.stderr, /state of the HARNESS/);
+    assert.match(refused.stderr, /failed — it cannot be loaded/);
     // …and it names the tools that count, so an author who tried a Read is not
     // left guessing why the documented escape did nothing.
     assert.match(refused.stderr, /Write\/Edit\/MultiEdit/);
-    assert.match(refused.stderr, /a Read of the same path repairs nothing/);
+    assert.match(refused.stderr, /a Read repairs nothing/);
     assert.match(refused.stderr, /git merge --abort/);
   } finally {
     cleanupTmpDir(dir);
@@ -348,11 +357,11 @@ test("a stale stamp is cleared by a FILE WRITE, and the hook comes back ENFORCIN
 
     // The wedge: everything is refused, the gate never got to decide.
     const refused = runGate(dir, hook, "ls");
-    assert.equal(refused.code, 2, "a stale stamp refuses every command");
+    assert.equal(refused.code, FAILED, "a stale stamp refuses every command");
     assert.match(refused.stderr, /does not match its compiled stamp/);
-    // …and the refusal must tell the author what actually works. It used to
-    // print a command this door no longer accepts.
-    assert.match(refused.stderr, /FILE WRITE, not a command/);
+    // …and the refusal must tell the author what actually works: the file
+    // write that clears the stamp, which a Bash gate never sees.
+    assert.match(refused.stderr, /write `\{\}` into/);
     assert.match(
       refused.stderr,
       /\.vigiles[/\\]hooks[/\\]guard\.hook\.mjs\.json/,
@@ -370,7 +379,7 @@ test("a stale stamp is cleared by a FILE WRITE, and the hook comes back ENFORCIN
 
     // Deleting the sidecar outright is the same story.
     writeFileSync(sidecar, stale);
-    assert.equal(runGate(dir, hook, "ls").code, 2, "wedged again");
+    assert.equal(runGate(dir, hook, "ls").code, FAILED, "wedged again");
     rmSync(sidecar);
     assert.equal(runGate(dir, hook, "ls").code, 0);
     assert.equal(runGate(dir, hook, "git push --force").code, 2);
@@ -399,7 +408,7 @@ test("…and while it is wedged, no command talks its way out", () => {
       "git merge --abort",
       "ls",
     ]) {
-      assert.equal(runGate(dir, hook, cmd).code, 2, cmd);
+      assert.equal(runGate(dir, hook, cmd).code, FAILED, cmd);
     }
   } finally {
     cleanupTmpDir(dir);
@@ -489,13 +498,13 @@ test("…so NO command escapes a load wedge any more, and a FILE WRITE does", ()
       "npx vigiles compile",
       "ls",
     ]) {
-      assert.equal(runGate(dir, hook, cmd).code, 2, cmd);
+      assert.equal(runGate(dir, hook, cmd).code, FAILED, cmd);
     }
     // …and the refusal says what DOES work, naming the files.
     const refused = runGate(dir, hook, "ls");
-    assert.match(refused.stderr, /FILE WRITE, not a command/);
+    assert.match(refused.stderr, /FILE WRITE/);
     assert.match(refused.stderr, /package\.json/);
-    assert.match(refused.stderr, /\.git\/hooks/);
+    assert.match(refused.stderr, /git merge --abort/);
 
     // The write itself is allowed while everything else is refused…
     const edit = spawnSync(
@@ -560,7 +569,7 @@ test("the ONE repair path outside the repo root is the one Node actually reads",
     // cause the runtime prints is the ancestor.
     rmSync(join(dir, "package.json"));
     const refused = runGate(dir, hook, "ls");
-    assert.equal(refused.code, 2);
+    assert.equal(refused.code, FAILED);
     assert.match(refused.stderr, /\.\.[/\\]package\.json/);
     // …and the write that fixes exactly that is allowed, though it is outside
     // the repo root.
@@ -568,7 +577,7 @@ test("the ONE repair path outside the repo root is the one Node actually reads",
     // A sibling of the repo, same depth, same basename — not on any chain.
     assert.equal(
       runWrite(dir, hook, join(outer, "sibling", "package.json")).status,
-      2,
+      FAILED,
     );
 
     // …and the chain STOPS at the first `package.json` that exists, because
@@ -579,12 +588,19 @@ test("the ONE repair path outside the repo root is the one Node actually reads",
     writeFileSync(join(dir, "package.json"), HEALTHY_PACKAGE_JSON);
     assert.equal(runGate(dir, hook, "ls").code, 0, "healthy again");
     writeFileSync(join(dir, "package.json"), CONFLICTED_PACKAGE_JSON);
-    assert.equal(runGate(dir, hook, "ls").code, 2, "wedged on its OWN config");
+    assert.equal(
+      runGate(dir, hook, "ls").code,
+      FAILED,
+      "wedged on its OWN config",
+    );
     assert.equal(runWrite(dir, hook, join(dir, "package.json")).status, 0);
-    assert.equal(runWrite(dir, hook, join(outer, "package.json")).status, 2);
+    assert.equal(
+      runWrite(dir, hook, join(outer, "package.json")).status,
+      FAILED,
+    );
     // The far end of the old unbounded walk, which used to be accepted from
     // any wedged repo on the machine.
-    assert.equal(runWrite(dir, hook, "/package.json").status, 2);
+    assert.equal(runWrite(dir, hook, "/package.json").status, FAILED);
   } finally {
     cleanupTmpDir(outer);
   }
@@ -594,16 +610,18 @@ test("the ONE repair path outside the repo root is the one Node actually reads",
 // WHAT HAPPENS WHEN A HOOK CANNOT BE LOADED (#312).
 //
 // Two things used to decide whether such a hook blocks. One was the ending
-// `|| exit 2` or `|| exit 0` that `vigiles compile` writes on the command. The
+// `|| exit 2` or `|| exit 0` that `vigiles compile` wrote on the command. The
 // other was the runtime, which checked whether the hook's file name contained
 // "inject". When the name was misleading they disagreed: a reminder-only hook
 // called `paper-status.hook.mjs` blocked the session, and a blocking hook called
 // `ctx-inject.hook.mjs` let every command through.
 //
-// Now the runtime always exits 2 when a hook cannot be loaded, and only the
-// ending on the command can turn that into a 0. These tests run both parts for
-// real: the runtime directly, and the exact command `compile` wrote into the
-// settings, run with `sh -c` the way Claude Code runs it.
+// Now the runtime always exits 1 when a hook cannot be loaded — a failure, not
+// a decision — and only the WIRING decides what that does: Claude Code's
+// `onFailure`, which `compile` writes from the role, never from the name. These
+// tests run both parts for real: the runtime directly, and the exact command
+// `compile` wrote into the settings, run with `sh -c` the way Claude Code runs
+// it, beside the policy written next to it.
 // ---------------------------------------------------------------------------
 
 const GATE_SRC = `import { experimental_defineHook, deny, allow } from "vigiles/hook";
@@ -642,6 +660,7 @@ const START_EVENT = { hook_event_name: "SessionStart", source: "startup" };
 function wiredProject(hooks: Record<string, string>): {
   dir: string;
   commandOf: (name: string) => string;
+  policyOf: (name: string) => string | undefined;
 } {
   const dir = makeTmpDir("role-owner");
   mkdirSync(join(dir, "node_modules"), { recursive: true });
@@ -658,17 +677,24 @@ function wiredProject(hooks: Record<string, string>): {
   assert.equal(compiled.status, 0, compiled.stderr);
   const settings = JSON.parse(
     readFileSync(join(dir, ".claude", "settings.json"), "utf-8"),
-  ) as { hooks: Record<string, { hooks: { command: string }[] }[]> };
-  const commands = Object.values(settings.hooks)
+  ) as {
+    hooks: Record<
+      string,
+      { hooks: { command: string; onFailure?: string }[] }[]
+    >;
+  };
+  const handlers = Object.values(settings.hooks)
     .flat()
-    .flatMap((e) => e.hooks.map((h) => h.command));
+    .flatMap((e) => e.hooks);
+  const handlerOf = (name: string) => {
+    const found = handlers.filter((h) => h.command.includes(`/${name}"`));
+    assert.equal(found.length, 1, `exactly one wiring for ${name}`);
+    return found[0];
+  };
   return {
     dir,
-    commandOf: (name) => {
-      const found = commands.filter((c) => c.includes(`/${name}"`));
-      assert.equal(found.length, 1, `exactly one wiring for ${name}`);
-      return found[0];
-    },
+    commandOf: (name) => handlerOf(name).command,
+    policyOf: (name) => handlerOf(name).onFailure,
   };
 }
 
@@ -687,7 +713,7 @@ function runWired(
   return { code: res.status ?? -1, stdout: res.stdout, stderr: res.stderr };
 }
 
-test("runtime: a hook that cannot be loaded exits 2 whatever its file name says", () => {
+test("runtime: a hook that cannot be loaded exits 1 whatever its file name says", () => {
   const { dir } = wiredProject({ "anchor.hook.mjs": GATE_SRC });
   try {
     for (const name of [
@@ -702,7 +728,7 @@ test("runtime: a hook that cannot be loaded exits 2 whatever its file name says"
         [CLI, "hook-runtime", "run-program", `.vigiles/hooks/${name}`],
         { cwd: dir, encoding: "utf-8", input: JSON.stringify(BASH_EVENT) },
       );
-      assert.equal(res.status, 2, `${name}: ${res.stderr}`);
+      assert.equal(res.status, FAILED, `${name}: ${res.stderr}`);
       assert.match(res.stderr, /cannot be loaded/, name);
       // The runtime no longer claims to know what kind of hook failed to load.
       assert.doesNotMatch(res.stderr, /degrading gracefully/, name);
@@ -712,7 +738,7 @@ test("runtime: a hook that cannot be loaded exits 2 whatever its file name says"
   }
 });
 
-test("runtime: the message tells someone who wired a hook by hand how to fix it", () => {
+test("runtime: the failure is ONE line naming the cause and the fix", () => {
   const { dir } = wiredProject({ "anchor.hook.mjs": GATE_SRC });
   try {
     const res = spawnSync(
@@ -720,69 +746,84 @@ test("runtime: the message tells someone who wired a hook by hand how to fix it"
       [CLI, "hook-runtime", "run-program", ".vigiles/hooks/missing.hook.mjs"],
       { cwd: dir, encoding: "utf-8", input: JSON.stringify(BASH_EVENT) },
     );
-    assert.equal(res.status, 2);
-    // A reminder-only hook wired by hand with no ending is treated as a blocking
-    // one. The message must say how to fix that.
-    assert.match(res.stderr, /\|\| exit 0/);
-    assert.match(res.stderr, /vigiles compile/);
+    assert.equal(res.status, FAILED);
+    const lines = res.stderr.trim().split("\n");
+    assert.equal(lines.length, 1, res.stderr);
+    assert.match(lines[0], /missing\.hook\.mjs failed — it cannot be loaded/);
+    assert.match(lines[0], /\. Fix: .*FILE WRITE/);
   } finally {
     cleanupTmpDir(dir);
   }
 });
 
-test("a reminder-only hook that cannot be loaded exits 0 through its command, whatever its file name", () => {
-  const { dir, commandOf } = wiredProject({
+test("a reminder-only hook that cannot be loaded is wired to CONTINUE, whatever its file name", () => {
+  const { dir, commandOf, policyOf } = wiredProject({
     "paper-status.hook.mjs": NUDGE_SRC,
     "briefing.hook.mjs": INJECT_SRC,
   });
   try {
     const nudge = commandOf("paper-status.hook.mjs");
     const briefing = commandOf("briefing.hook.mjs");
-    assert.match(nudge, /\|\| exit 0$/);
-    assert.match(briefing, /\|\| exit 0$/);
+    assert.equal(policyOf("paper-status.hook.mjs"), "continue");
+    assert.equal(policyOf("briefing.hook.mjs"), "continue");
+    // No `|| exit N`: the runtime's own exit code reaches the harness, so the
+    // failure is SHOWN (a non-blocking error) instead of hidden behind a 0.
+    assert.doesNotMatch(nudge, /\|\|\s*exit/);
+    assert.doesNotMatch(briefing, /\|\|\s*exit/);
 
-    // First check the healthy case: the ending hides nothing.
+    // First check the healthy case.
     assert.equal(runWired(dir, nudge, WRITE_EVENT).code, 0);
 
     // The hook file is gone (a merge brought the wiring but not the package).
     rmSync(join(dir, ".vigiles", "hooks", "paper-status.hook.mjs"));
     rmSync(join(dir, ".vigiles", "hooks", "briefing.hook.mjs"));
     const a = runWired(dir, nudge, WRITE_EVENT);
-    assert.equal(a.code, 0, a.stderr);
+    assert.equal(a.code, FAILED, a.stderr);
     assert.match(a.stderr, /cannot be loaded/, "the cause is still said");
-    assert.equal(runWired(dir, briefing, START_EVENT).code, 0);
+    assert.equal(runWired(dir, briefing, START_EVENT).code, FAILED);
 
-    // Same again with the runtime missing too (a fresh container with no node_modules).
+    // Same again with the runtime missing too (a fresh container with no
+    // node_modules): Node's own MODULE_NOT_FOUND is a 1 as well, never a 2.
     rmSync(join(dir, "node_modules"), { recursive: true });
-    assert.equal(runWired(dir, nudge, WRITE_EVENT).code, 0);
-    assert.equal(runWired(dir, briefing, START_EVENT).code, 0);
+    assert.equal(runWired(dir, nudge, WRITE_EVENT).code, FAILED);
+    assert.equal(runWired(dir, briefing, START_EVENT).code, FAILED);
   } finally {
     cleanupTmpDir(dir);
   }
 });
 
-test("a blocking hook that cannot be loaded still blocks, even if its file name contains `inject`", () => {
-  const { dir, commandOf } = wiredProject({
+test("a blocking hook that cannot be loaded is wired to BLOCK, even if its file name contains `inject`", () => {
+  const { dir, commandOf, policyOf } = wiredProject({
     "ctx-inject.hook.mjs": GATE_SRC,
     "plain.hook.mjs": GATE_SRC,
   });
   try {
     const named = commandOf("ctx-inject.hook.mjs");
     const plain = commandOf("plain.hook.mjs");
-    assert.match(named, /\|\| exit 2$/);
-    assert.match(plain, /\|\| exit 2$/);
+    // The "inject" in the file name used to make this pass silently.
+    assert.equal(policyOf("ctx-inject.hook.mjs"), "block");
+    assert.equal(policyOf("plain.hook.mjs"), "block");
+    assert.doesNotMatch(named, /\|\|\s*exit/);
     assert.equal(runWired(dir, named, BASH_EVENT).code, 0, "healthy: allowed");
+    // …and still DECIDES: a deny is the one exit 2.
+    assert.equal(
+      runWired(dir, named, {
+        ...BASH_EVENT,
+        tool_input: { command: "git push --force" },
+      }).code,
+      2,
+    );
 
     rmSync(join(dir, ".vigiles", "hooks", "ctx-inject.hook.mjs"));
     rmSync(join(dir, ".vigiles", "hooks", "plain.hook.mjs"));
-    // The "inject" in the file name used to make this pass silently.
+    // A failure, which `onFailure: block` turns into a refusal on PreToolUse.
     const a = runWired(dir, named, BASH_EVENT);
-    assert.equal(a.code, 2, a.stderr);
-    assert.equal(runWired(dir, plain, BASH_EVENT).code, 2);
+    assert.equal(a.code, FAILED, a.stderr);
+    assert.equal(runWired(dir, plain, BASH_EVENT).code, FAILED);
 
     rmSync(join(dir, "node_modules"), { recursive: true });
-    assert.equal(runWired(dir, named, BASH_EVENT).code, 2);
-    assert.equal(runWired(dir, plain, BASH_EVENT).code, 2);
+    assert.equal(runWired(dir, named, BASH_EVENT).code, FAILED);
+    assert.equal(runWired(dir, plain, BASH_EVENT).code, FAILED);
   } finally {
     cleanupTmpDir(dir);
   }

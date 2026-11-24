@@ -14,6 +14,15 @@
  */
 import type { HookConditionSupport } from "./hook-condition.js";
 
+/**
+ * What a FAILED hook — one that could not answer — does to the action it fired
+ * on: `block` refuses it (as a deny would), `continue` lets it go ahead. Written
+ * by `compile` from the hook's role: a tool gate (`bash-gate`, `file-gate`)
+ * blocks, every other role continues. Spelled after Claude Code's `onFailure`
+ * values, because the compiled block is Claude-Code-shaped canonically.
+ */
+export type HookFailurePolicy = "block" | "continue";
+
 export interface HookProtocol {
   /** Stable identifier, e.g. "claude-code". */
   readonly name: string;
@@ -54,6 +63,13 @@ export interface HookProtocol {
     on: string,
     matcher: string | undefined,
     command: string,
+    /**
+     * The hook's failure policy, passed only when the harness's layout wires
+     * it as a handler key (`PluginLayout.hookFailureWiring: "handler-field"`).
+     * Optional (additive): a harness whose policy rides on the command's
+     * `|| exit N` ending never receives it.
+     */
+    onFailure?: HookFailurePolicy,
   ): { readonly hooks: Readonly<Record<string, readonly unknown[]>> };
   /**
    * Merge a compiled hook's registrations into an already-parsed settings

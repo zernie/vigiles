@@ -9090,15 +9090,17 @@ async function installHookFile(
     // cannot load must block — the repo seized, every command refused including the repair.
     //
     // 🔴 AND LAUNCHED LOCALLY, NOT THROUGH `npx` — 193 ms against 2545 ms on a warm
-    // cache, thirteen times, on every tool call. The `|| exit N` ending is what
-    // the shell does when that file cannot start at all. `compileHookProgram`
-    // adds it (see `hookRuntimeMissingExit`), so it is not written here.
+    // cache, thirteen times, on every tool call. What a failure does — that file
+    // cannot start, the hook cannot load — is the hook's failure policy, an
+    // `onFailure` key or a `|| exit N` ending as the layout says.
+    // `compileHookProgram` writes it (see `wireHookCommand`), so it is not here.
     gateCommand: runProgramCommand(
       hookRuntimeRef(adapter.layout.projectRootTokens, runtime),
       hookGateRef(ref, adapter.layout.projectRootTokens),
     ),
     dialect: adapter.dialect,
     hookProtocol: adapter.hookProtocol,
+    hookFailureWiring: adapter.layout.hookFailureWiring,
     settings: adapter.layout.settings,
     registeredProviders,
   });
@@ -9244,15 +9246,15 @@ async function installHooks(
   // WHICH runtime the wiring starts — the installed package for a consumer, the
   // package's own built bin when this IS vigiles (see `hookRuntimeFor`).
   const runtime = readHookRuntime(process.cwd());
-  // 🔴 SAY IT NOW, because nothing will later. A nudge whose runtime cannot
-  // start ends in `|| exit 0` by design, so from then on it is indistinguishable
-  // from a nudge with nothing to say. Measured 2026-10-11 on this repository:
+  // 🔴 SAY IT NOW, because nothing may later. A nudge whose runtime cannot
+  // start fails open by design — on a harness whose policy rides on `|| exit 0`
+  // that is indistinguishable from a nudge with nothing to say. Measured 2026-10-11 on this repository:
   // dead for three weeks, every gate green. Not an error — the file may arrive
   // with the next install or build — but never silent.
   if (!existsSync(resolve(process.cwd(), runtime.path))) {
     console.warn(
       `⚠ the hook runtime ${runtime.path} is not on disk — every hook compiled ` +
-        `here fails to load until it is: a reminder is skipped without a word, a ` +
+        `here fails to load until it is: a reminder is skipped, a ` +
         `gate refuses every command. Run ${runtime.cure}.`,
     );
   }

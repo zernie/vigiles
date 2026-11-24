@@ -35,6 +35,7 @@ import {
   type HookRuntime,
 } from "./core/hook-command.js";
 import { HOOKS_DIR } from "./core/hook-paths.js";
+import type { HookFailurePolicy } from "./core/hook-protocol.js";
 
 /**
  * Lazy for the same reason as in `core/hook-program.ts` — and this module is
@@ -257,8 +258,9 @@ const shq = (word: string): string => `'${word.replace(/'/g, `'\\''`)}'`;
  * whatever path `settings.json` names, and never asks what a file is called. So
  * the break is the NEXT compile, and a plain `mv` + `compile` has one bad
  * moment — the old path is gone and the wiring still names it. For a gate
- * wired `|| exit 2` that is a hook that cannot load, which blocks every Bash
- * call (the repair is a file write, not a command). Compiling the renamed copy
+ * that is a hook that cannot load, and its failure policy (`onFailure: block`,
+ * or `|| exit 2`) refuses every Bash call (the repair is a file write, not a
+ * command). Compiling the renamed copy
  * while the old file still exists, and deleting the old one only after that
  * compile succeeded, has no such moment: if anything fails the old hook is
  * still on disk and still wired. `compile` replaces the old wiring itself
@@ -339,6 +341,8 @@ export function unclaimedMessage(
 interface CommandHook {
   readonly type: "command";
   readonly command: string;
+  /** The failure policy `compile` writes on a harness that carries it as a key. */
+  readonly onFailure?: HookFailurePolicy;
 }
 interface HookEntry {
   readonly matcher?: string;

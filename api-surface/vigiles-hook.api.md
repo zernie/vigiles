@@ -53,6 +53,7 @@ export interface CompiledHookProgram {
         readonly hooks: readonly {
             readonly type: "command";
             readonly command: string;
+            readonly onFailure?: HookFailurePolicy;
         }[];
     }[]>;
     readonly settingsBlock: string;
@@ -64,6 +65,7 @@ export interface CompiledHookProgram {
 export interface CompileHookOptions {
     readonly dialect?: HarnessDialect;
     readonly gateCommand?: string;
+    readonly hookFailureWiring?: HookFailureWiring;
     readonly hookProtocol?: HookProtocol;
     readonly registeredProviders?: readonly string[];
     readonly settings?: SettingsCodec;
