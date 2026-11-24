@@ -474,3 +474,35 @@ export default experimental_defineReact({
     expect(has(graphOf(["--help"]), "node_modules/remeda")).toBe(true);
   });
 });
+
+describe("hook-runtime module graph: dirs()", () => {
+  test("a dirs() gate loads the directory grammar and never Fig's specs", () => {
+    // The directory table is checked against `@withfig/autocomplete` in a
+    // test (src/core/bash-dirs-table.test.ts); that package must never be on
+    // the path of a decision, where it would load on every Bash call.
+    const gate = join(dir, "dirs-gate.mjs");
+    writeFileSync(
+      gate,
+      `import { experimental_defineHook, allow, deny } from ${JSON.stringify(HOOK_DIST)};
+export default experimental_defineHook({
+  on: "PreToolUse",
+  decide: (e) => {
+    const at = e.command.dirs("git pull");
+    return at.kind === "candidates" && at.dirs.includes("/elsewhere") ? deny("x") : allow();
+  },
+});
+`,
+    );
+    const graph = graphOf(
+      ["hook-runtime", "run-program", gate],
+      JSON.stringify({
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "cd /r && git pull" },
+        cwd: "/w",
+      }),
+    );
+    expect(has(graph, "bash-dirs.js")).toBe(true);
+    expect(has(graph, "@withfig")).toBe(false);
+  });
+});

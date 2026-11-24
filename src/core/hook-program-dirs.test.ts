@@ -159,6 +159,15 @@ describe("rule 3: a program moved by its own row of the table", () => {
     known("bun --cwd /r test", ["/r"], "bun");
     known("just --working-directory /r build", ["/r"], "just");
     known("docker exec -w /app c ls", ["/app"], "docker exec");
+    known("go build -C /r ./...", ["/r"], "go build");
+    known("tofu -chdir=/r plan", ["/r"], "tofu");
+    known("hg --cwd /r pull", ["/r"], "hg pull");
+    known("cargo watch -C /r -x check", ["/r"], "cargo watch");
+  });
+  test("an option that points a program at another repository is unknown", () => {
+    unknown("hg -R /x pull", "hg pull");
+    unknown("hg --repository=/x pull", "hg pull");
+    unknown("npm -C /x run build", "npm");
   });
   test("a table option spelled any other way is unknown", () => {
     unknown("make -sC /r deploy", "make");

@@ -375,6 +375,10 @@ function otherSpelling(arg: string, flag: string): boolean {
   );
 }
 
+/** Does `arg` spell `flag` in any form: exact, `=value`, or another spelling? */
+const spells = (arg: string, flag: string): boolean =>
+  arg === flag || arg.startsWith(`${flag}=`) || otherSpelling(arg, flag);
+
 /** An occurrence of the row's option at `i`: its value and the next index. */
 function rowOption(
   row: DirRow,
@@ -407,6 +411,7 @@ function otherWord(
 ): "operand" | "value" | "ok" | "unread" {
   if ([...row.separate, ...row.equals].some((f) => otherSpelling(arg, f)))
     return "unread";
+  if ((row.refuse ?? []).some((f) => spells(arg, f))) return "unread";
   if (arg === "--") return "operand";
   if (operand || !row.beforeOperand) return "ok";
   return arg.startsWith("-") ? listedBefore(row, arg) : "operand";
