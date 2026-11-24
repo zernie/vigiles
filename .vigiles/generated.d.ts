@@ -198,7 +198,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 660 project files. */
+  /** 662 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -684,6 +684,8 @@ declare module "vigiles/generated" {
     | "src/fs-walk.ts"
     | "src/guardrail-check.test.ts"
     | "src/guardrail-check.ts"
+    | "src/guardrail-target-repo.test.ts"
+    | "src/guardrail-target-repo.ts"
     | "src/harness-assert.test.ts"
     | "src/harness-assert.ts"
     | "src/harness-resolve-hooks.mts"
@@ -1513,6 +1515,8 @@ declare module "vigiles/spec" {
       | "src/fs-walk.ts"
       | "src/guardrail-check.test.ts"
       | "src/guardrail-check.ts"
+      | "src/guardrail-target-repo.test.ts"
+      | "src/guardrail-target-repo.ts"
       | "src/harness-assert.test.ts"
       | "src/harness-assert.ts"
       | "src/harness-resolve-hooks.mts"
