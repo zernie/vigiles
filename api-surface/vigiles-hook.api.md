@@ -424,7 +424,9 @@ export type UnresolvedDir =
 /** A git or env word outside its table, a `..` in a `-C` value, an env assignment. */
 | "unread-option"
 /** A program other than git, or a git subcommand outside the list: its argv is not read. */
-| "unread-program";
+| "unread-program"
+/** After a builtin that may change the shell (`command . x`, `export X=…`). */
+| "shell-state";
 
 // (No @packageDocumentation comment for this package)
 

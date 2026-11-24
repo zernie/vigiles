@@ -280,7 +280,14 @@ describe("class 5: a builtin that may change the shell poisons every later leaf"
     ]) {
       const later = laterLeaves(line);
       const plainSafe = SAFE_BUILTINS.includes(b) && /^[A-Za-z0-9_:]+$/.test(b);
-      if (plainSafe && !line.startsWith("command") && !line.startsWith("env"))
+      // `command X` is itself a builtin, so it poisons; `env` runs X as a
+      // program, so a safe X behind env is still safe.
+      const viaEnv = line.startsWith("env");
+      if (
+        viaEnv
+          ? SAFE_BUILTINS.includes(b)
+          : plainSafe && !line.startsWith("command")
+      )
         assert.deepEqual(later, [{ kind: "dir", dir: "." }], line);
       else
         assert.ok(

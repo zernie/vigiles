@@ -1015,7 +1015,7 @@ function dirsOf(
   readonly unknown: readonly HiddenCommand[];
 } {
   const runner = program?.split(/\s+/).find(Boolean) ?? "the command";
-  const lost = (reason: UnresolvedDir) => ({
+  const lost = (reason: UnresolvedDir | "no-start-dir") => ({
     answer: { kind: "unresolved", reason } as const,
     unknown: [{ runner, reason: "unknown-directory" } as const],
   });
@@ -1036,11 +1036,8 @@ function dirsOf(
   const placed = matching.map((l) =>
     l.at.kind === "dir" ? placeDir(l.at.dir, start) : null,
   );
-  if (placed.some((d) => d === null))
-    return {
-      answer: { kind: "unresolved", reason: "no-start-dir" },
-      unknown: [],
-    };
+  // Unresolved like any other: a gate that allows on it must still ask.
+  if (placed.some((d) => d === null)) return lost("no-start-dir");
   const dirs = [...new Set(placed.flatMap((d) => (d === null ? [] : [d])))];
   return { answer: { kind: "candidates", dirs }, unknown: [] };
 }

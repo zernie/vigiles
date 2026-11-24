@@ -22,7 +22,10 @@
  *     unknown, since git resolves it physically and the model lexically), then
  *     a subcommand from {@link GIT_SUBCOMMANDS} — and only `env` around it
  *     (any assignment makes the git leaf unknown). Every other program and
- *     every other wrapper is unknown (`unread-program`).
+ *     every other wrapper is unknown (`unread-program`). A leaf whose program,
+ *     after `env`, is a bash builtin outside {@link SAFE_BUILTINS} may change
+ *     the shell (`command . x` can `cd`), so every later leaf is unknown for
+ *     good (`shell-state`), even after a later `cd /abs`.
  *  4. Every `cd`/`pushd`/`popd` word in the RAW line — inside quotes, nested
  *     shells, heredocs, comments — must be one the grammar consumed, or the
  *     whole line is unknown (dcg's reconcile).
@@ -38,6 +41,8 @@ import {
   GIT_GLOBALS,
   GIT_CHDIR_REPEAT,
   GIT_SUBCOMMANDS,
+  BASH_BUILTINS,
+  SAFE_BUILTINS,
   type Repeat,
 } from "./bash-dirs-table.js";
 
@@ -60,7 +65,9 @@ export type UnresolvedDir =
   /** A git or env word outside its table, a `..` in a `-C` value, an env assignment. */
   | "unread-option"
   /** A program other than git, or a git subcommand outside the list: its argv is not read. */
-  | "unread-program";
+  | "unread-program"
+  /** After a builtin that may change the shell (`command . x`, `export X=…`). */
+  | "shell-state";
 
 /** Where one leaf runs. */
 export type LeafDir =
@@ -447,28 +454,47 @@ function sourceOf(raw: string, node: Node): string {
 /** Every `cd`, `pushd` and `popd` word in the raw text, quoted or not. */
 const CD_WORD = /(?<![A-Za-z0-9_-])(?:cd|pushd|popd)(?![A-Za-z0-9_-])/g;
 
+/** Why every later leaf is unknown for good, once it is. */
+type Stop = "after-break" | "shell-state";
+
 interface Walk {
   readonly leaves: readonly DirLeaf[];
   readonly at: LeafDir;
-  readonly broken: boolean;
+  /** Set by a `;`/`||`, or by a builtin that may change the shell; never cleared. */
+  readonly stop: Stop | null;
   readonly cds: number;
 }
 
-/** A call with an unplain word: unknown, and a possible `cd` when its program is unread. */
+/**
+ * May a leaf with this head change the shell? Only a bare name can be a
+ * builtin (`/bin/echo` is a program); every builtin may, but the safe few.
+ */
+const changesShell = (head: string): boolean =>
+  !head.includes("/") &&
+  BASH_BUILTINS.includes(head) &&
+  !SAFE_BUILTINS.includes(head);
+
+/** The head bash runs after the `env` the grammar reads; `env` itself when unread. */
+function shellHead(words: readonly string[]): string {
+  const u = unwrap(words, known("."), false);
+  return (u.kind === "ok" ? u.rest[0] : words[0]) ?? "";
+}
+
+/** A call with an unplain word: unknown, and the shell may change when its program is unread. */
 function unplainCall(w: Walk, text: string, head: string | null): Walk {
   const leaf: DirLeaf = { text, argv: [], at: unknown("unplain-word") };
-  const mayCd = head === null || head === "command";
+  const mayChange = head === null || changesShell(head);
   return {
     ...w,
     leaves: [...w.leaves, leaf],
-    at: mayCd ? unknown("unplain-word") : w.at,
+    stop: w.stop ?? (mayChange ? "shell-state" : null),
   };
 }
 
 /** A `cd` call: it moves the chain unless the chain is already broken. */
 function cdCall(w: Walk, call: Node, piped: boolean): Walk | Out {
   if (piped) return OUT;
-  const at = w.broken ? w.at : cdTo((call.Args ?? []).slice(1), w.at);
+  const at = w.stop === null ? cdTo((call.Args ?? []).slice(1), w.at) : w.at;
   return { ...w, cds: w.cds + 1, at };
 }
 
@@ -495,9 +521,23 @@ function readCall(
   const text = sourceOf(raw, call);
   const plain = words.flatMap((x) => (x === null ? [] : [x]));
   if (plain.length < words.length) return unplainCall(w, text, head);
-  const r = readProgram(plain, w.broken ? unknown("after-break") : w.at);
+  return plainCall(w, plain, text);
+}
+
+/** A call whose every word is plain: a leaf, and a stop when it may change the shell. */
+function plainCall(
+  w: Walk,
+  plain: readonly string[],
+  text: string,
+): Walk | Out {
+  const r = readProgram(plain, w.stop === null ? w.at : unknown(w.stop));
   if (r === OUT) return OUT;
-  return { ...w, leaves: [...w.leaves, { text, argv: r.argv, at: r.at }] };
+  const stop = changesShell(shellHead(plain)) ? "shell-state" : null;
+  return {
+    ...w,
+    leaves: [...w.leaves, { text, argv: r.argv, at: r.at }],
+    stop: w.stop ?? stop,
+  };
 }
 
 /** Every link, in order: a `;` or `||` breaks the chain for good. */
@@ -505,16 +545,17 @@ function walkLinks(all: readonly Link[], raw: string): Walk | Out {
   const begin: Walk | Out = {
     leaves: [],
     at: known("."),
-    broken: false,
+    stop: null,
     cds: 0,
   };
   return all.reduce<Walk | Out>((w, link) => {
     if (w === OUT) return OUT;
-    const broken = w.broken || link.sep === ";" || link.sep === "||";
+    const breaks = link.sep === ";" || link.sep === "||";
+    const stop = w.stop ?? (breaks ? "after-break" : null);
     const piped = link.calls.length > 1;
     return link.calls.reduce<Walk | Out>(
       (acc, call) => (acc === OUT ? OUT : readCall(acc, call, raw, piped)),
-      { ...w, broken },
+      { ...w, stop },
     );
   }, begin);
 }

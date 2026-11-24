@@ -154,3 +154,89 @@ export const ENV: WrapperSpec = {
   figException:
     "Fig's env spec predates coreutils 8.28's -C/--chdir; carapace-bin's env completer has --chdir/-C.",
 };
+
+/**
+ * bash 5.2's builtins (`compgen -b`; `bash-dirs.test.ts` fails if bash lists
+ * one that is missing here). A builtin runs inside the shell, so most can
+ * change what a later leaf does — its directory (`.`/`source` a file that
+ * `cd`s, `pushd`), the program a name runs (`hash -p`, `alias`, `enable`),
+ * or the variables git reads (`export`, `read`, `printf -v`, `declare`).
+ */
+export const BASH_BUILTINS: readonly string[] = [
+  ".",
+  ":",
+  "[",
+  "alias",
+  "bg",
+  "bind",
+  "break",
+  "builtin",
+  "caller",
+  "cd",
+  "command",
+  "compgen",
+  "complete",
+  "compopt",
+  "continue",
+  "declare",
+  "dirs",
+  "disown",
+  "echo",
+  "enable",
+  "eval",
+  "exec",
+  "exit",
+  "export",
+  "false",
+  "fc",
+  "fg",
+  "getopts",
+  "hash",
+  "help",
+  "history",
+  "jobs",
+  "kill",
+  "let",
+  "local",
+  "logout",
+  "mapfile",
+  "popd",
+  "printf",
+  "pushd",
+  "pwd",
+  "read",
+  "readarray",
+  "readonly",
+  "return",
+  "set",
+  "shift",
+  "shopt",
+  "source",
+  "suspend",
+  "test",
+  "times",
+  "trap",
+  "true",
+  "type",
+  "typeset",
+  "ulimit",
+  "umask",
+  "unalias",
+  "unset",
+  "wait",
+];
+
+/**
+ * The builtins that cannot change the shell: no option of theirs sets a
+ * variable, an option, an alias, a function, the hash table or the directory
+ * (bash(1) SHELL BUILTIN COMMANDS; `bash-dirs.test.ts` runs each under bash
+ * and compares that state before and after). `printf` is not here: `printf
+ * -v NAME` assigns a variable.
+ */
+export const SAFE_BUILTINS: readonly string[] = [
+  "true",
+  ":",
+  "echo",
+  "test",
+  "[",
+];

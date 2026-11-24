@@ -2,7 +2,7 @@
  * The closed directory grammar behind `e.command.dirs()` against real bash
  * and git.
  *
- * Lines are generated from the forms the grammar reads — `cd` to absolute,
+ * 1800 seeded lines are generated from the forms the grammar reads — `cd` to absolute,
  * `./` and `../` words, `&&`, `;`, `||`, a plain `|`, `git -C` (cumulative),
  * `env -C` (a repeat keeps only the last) and git's options before its
  * subcommand — and from forms it must call unknown: bare `cd b` under a
@@ -93,7 +93,17 @@ function forms(
       `env ${pick(["-i", "-", "--", "-- X=1", "X=1"])} ${git()}`,
       `${pick(["timeout 5", "command", "nice"])} ${git()}`,
     ]);
-  return { read, unread, leaf, git };
+  // Half the lines stay inside the grammar: answers, not only `unknown`.
+  const inside: [() => string, ...(() => string)[]] = [
+    () => `cd ${read()}`,
+    () => `cd ${unread()}`,
+    // A sourced file that moves the shell, and builtins that cannot.
+    () => `command . ${abs}/move`,
+    () => pick(["echo x", "true", ": x", "test -d a"]),
+    leaf,
+    leaf,
+  ];
+  return { read, unread, leaf, git, inside };
 }
 
 /** The command generator: a seeded choice, and a fresh marker per leaf. */
@@ -104,7 +114,7 @@ function generator(seed: number, abs: string) {
   const pick = <T>(xs: readonly [T, ...T[]]): T =>
     xs[Math.floor(next() * xs.length)] ?? xs[0];
   const mark = (): string => `L${String(leaves++)}`;
-  const { read, unread, leaf, git } = forms(pick, mark, abs);
+  const { read, unread, leaf, git, inside } = forms(pick, mark, abs);
   const atom = (depth: number): string => {
     const simple: [() => string, ...(() => string)[]] = [
       () => `cd ${read()}`,
@@ -128,16 +138,6 @@ function generator(seed: number, abs: string) {
       () => `( ${seq(depth + 1)} )`,
       () => `{ ${seq(depth + 1)}; }`,
       () => `if cd ${read()}; then ${seq(depth + 1)}; fi`,
-    ];
-    // Half the lines stay inside the grammar: answers, not only `unknown`.
-    const inside: [() => string, ...(() => string)[]] = [
-      () => `cd ${read()}`,
-      () => `cd ${unread()}`,
-      // A sourced file that moves the shell, and builtins that cannot.
-      () => `command . ${abs}/move`,
-      () => pick(["echo x", "true", ": x", "test -d a"]),
-      leaf,
-      leaf,
     ];
     if (plainLine) return pick(inside)();
     return pick(depth < 1 ? [...simple, ...nested] : simple)();
@@ -232,7 +232,7 @@ test("every leaf bash ran is where the grammar said, or the grammar said unknown
       writeFileSync(join(start, d, "here"), `${lines.join("\n")}\n`);
     }
     const gen = generator(20261124, join(start, "c"));
-    const verdicts = Array.from({ length: 1500 }, () => gen.line()).flatMap(
+    const verdicts = Array.from({ length: 1800 }, () => gen.line()).flatMap(
       (cmd) =>
         judgeLine(cmd, tree).map((v) =>
           typeof v === "object" ? { miss: `${cmd}\n    ${v.miss}` } : v,
