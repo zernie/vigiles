@@ -2792,6 +2792,58 @@ test("runEvalWith signals an in-flight run to stop when another trial fails (#52
   assert.equal(inFlight?.signal?.aborted, true);
 });
 
+// Codex on #532: a run cancelled after it reached the model resolves with its
+// partial output; cached, a later eval would replay it as a real trial.
+test("a cancelled run never enters the replay cache (#527)", async () => {
+  const cacheDir = makeTmpDir();
+  const partial = JSON.stringify({
+    type: "assistant",
+    message: { content: [] },
+  });
+  let cancelledRun: Promise<unknown> | undefined;
+  const runner = (
+    a: AgentRunArgs,
+  ): Promise<{ code: number; stdout: string }> => {
+    if (cancelledRun === undefined) {
+      const run = new Promise<{ code: number; stdout: string }>(
+        (resolveRun) => {
+          a.signal?.addEventListener("abort", () => {
+            resolveRun({ code: -1, stdout: partial });
+          });
+        },
+      );
+      cancelledRun = run.catch(() => undefined);
+      return run;
+    }
+    return Promise.reject(new Error("the other trial failed"));
+  };
+  await assert.rejects(
+    runEvalWith(
+      {
+        env: INHERIT,
+        arms: { a: {}, b: {} },
+        task: "t",
+        trials: 1,
+        spacingSec: 0,
+        concurrency: 2,
+        cache: "readwrite",
+        cacheDir,
+        model: "claude-haiku-4-5-20251001",
+        measure: () => ({ ok: true }),
+      },
+      runner,
+    ),
+    /the other trial failed/,
+  );
+  await cancelledRun;
+  await new Promise((r) => setTimeout(r, 20));
+  assert.deepEqual(
+    readdirSync(cacheDir).filter((f) => f.endsWith(".json")),
+    [],
+  );
+  cleanupTmpDir(cacheDir);
+});
+
 // The built-in runner's half of #527: the signal kills the agent process, and
 // a kill that came from a cancel is not read as a timeout (#416 charges those).
 test("killOnAbort kills the child when the signal fires, and says it did", () => {

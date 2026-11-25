@@ -1065,6 +1065,7 @@ async function runWithCache(
     };
   }
   const out = await runner(runArgs);
+  refuseCancelled(runArgs.signal);
   const seen = collect();
   if (cfg.cache === "readwrite") {
     writeCache(cfg.cacheDir, key, {
@@ -1075,6 +1076,15 @@ async function runWithCache(
     });
   }
   return { out, ...seen };
+}
+
+/**
+ * Throw for a run whose signal fired. A cancelled run's output is partial:
+ * replayed later it would count as a real trial, so it is neither recorded nor
+ * returned to be scored (#527).
+ */
+function refuseCancelled(signal: Readonly<AbortSignal> | undefined): void {
+  if (signal?.aborted === true) throw new Error("trial cancelled");
 }
 
 /** What a trial observed besides its output: stub calls and context evidence. */
