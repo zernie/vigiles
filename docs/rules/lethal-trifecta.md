@@ -251,12 +251,28 @@ The suggested deny list is the open leg that takes the fewest further denies to
 close. Everything else (why, how it was measured, which remedy fits which grant)
 is on this page, not in the finding. Units in the **same state share one group**
 in every report a person reads: the terminal audit, and the Safety ring that
-feeds the PR comment and the HTML report. `vigiles lint` does not group: it
-prints one line and one CI annotation per finding, at its file, like any linter:
+feeds the PR comment and the HTML report.
+
+`vigiles lint` reports every finding a unit causes itself at its file, one CI
+annotation each, like any linter. Units that only **inherit the session** are
+different: the risk is the session's, not each unit's, so lint reports them as
+**one** finding for the repository, with one annotation:
 
 ```
-⚠ .claude/skills/half/SKILL.md  `disallowed-tools: Read` closes no leg → deny `WebFetch`, `WebSearch`, `Bash` to close untrusted intake
+⚠ 4 unit(s) inherit every session tool, which holds all three legs; in auto mode a classifier, not you, approves each call
+  → fence the ones that do not need them: `disallowed-tools:` per skill, `tools:` per subagent
+  broad · edits · plain · readers
+.claude/skills/half/SKILL.md
+  ⚠ `disallowed-tools: Read` closes no leg
+    → deny `WebFetch`, `WebSearch`, `Bash` to close untrusted intake
 ```
+
+Why once, and why still a warning: since Claude Code v2.1.283, **auto mode** is
+the default for interactive sessions, so an inherited `Bash` or `WebFetch` call
+is approved by a classifier rather than by you. That classifier is
+probabilistic; limiting what a unit can do is the deterministic layer under it.
+The names line shows the first five and "+N more"; `vigiles audit --json`
+carries every name.
 
 - **No fence and nothing added** (`cause: "session"`) is the **ecosystem
   default**, so it is usually the longest list of names.

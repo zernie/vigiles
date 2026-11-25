@@ -175,3 +175,43 @@ export function describeFix<K extends keyof TrifectaFixFields>(
 
 /** The finding as one line: `problem → edit`. */
 export const fixLine = (t: FixText): string => `${t.problem} → ${t.edit}`;
+
+/** What {@link sessionShare} reads of a finding. */
+export interface SessionCandidate {
+  readonly name: string;
+  readonly cause: "session" | "fence" | "unit";
+  readonly edit: string;
+}
+
+/** The units that only inherit the session, as ONE finding. */
+export interface SessionShare {
+  readonly names: readonly string[];
+  readonly problem: string;
+  readonly edit: string;
+}
+
+/**
+ * The units whose legs all come from the session (`cause: "session"`), as one
+ * finding for the whole repository instead of one per unit (#539). The risk is
+ * the session's: in auto mode, Claude Code's default for interactive sessions,
+ * a classifier rather than the person approves each call. The edit is the
+ * units' shared edit when they agree, else the general one. `undefined` when no
+ * unit only inherits. Pure.
+ */
+export function sessionShare(
+  findings: readonly SessionCandidate[],
+): SessionShare | undefined {
+  const units = findings.filter((f) => f.cause === "session");
+  const first = units.at(0);
+  if (first === undefined) return undefined;
+  const same = units.every((u) => u.edit === first.edit);
+  return {
+    names: units.map((u) => u.name),
+    problem:
+      `${String(units.length)} unit(s) inherit every session tool, which holds all three legs; ` +
+      "in auto mode a classifier, not you, approves each call",
+    edit: same
+      ? `${first.edit} where it is not needed`
+      : "fence the ones that do not need them: `disallowed-tools:` per skill, `tools:` per subagent",
+  };
+}
