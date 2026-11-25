@@ -87,3 +87,33 @@ test("the per-file cut off silences it", () => {
   expect(r.code).toBe(0);
   expect(r.out).not.toContain("pkg/CLAUDE.md is");
 });
+
+test("an override turns the rule off for one folder only", () => {
+  put("other/CLAUDE.md", `# Other\n\n${"x".repeat(200)}\n`);
+  put(
+    ".vigilesrc.json",
+    JSON.stringify({
+      rules: { [TRUNCATION]: ["error", { limit: 100 }] },
+      overrides: [{ files: ["pkg/**"], rules: { [TRUNCATION]: "off" } }],
+    }),
+  );
+  const r = run(["lint"]);
+  // Guards: severity is read per finding's path, so `overrides` reach this rule.
+  expect(r.out).not.toContain("pkg/CLAUDE.md is");
+  expect(r.out).toContain("other/CLAUDE.md is");
+  expect(r.code).not.toBe(0);
+});
+
+test("an override at warn reports the folder without failing", () => {
+  put(
+    ".vigilesrc.json",
+    JSON.stringify({
+      rules: { [TRUNCATION]: ["error", { limit: 100 }] },
+      overrides: [{ files: ["pkg/**"], rules: { [TRUNCATION]: "warn" } }],
+    }),
+  );
+  const r = run(["lint"]);
+  // Guards: a per-folder warn is a warning, not the rule-wide error.
+  expect(r.out).toMatch(/⚠ pkg\/CLAUDE\.md is/);
+  expect(r.code).toBe(0);
+});
