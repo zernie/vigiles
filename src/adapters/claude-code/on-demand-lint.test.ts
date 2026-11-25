@@ -189,6 +189,44 @@ describe("audit shows the same check", () => {
   });
 });
 
+describe("settings decide loading whatever vigiles excludes", () => {
+  it("claudeMdExcludes still applies when .vigilesrc.json excludes .claude", () => {
+    put(
+      ".vigilesrc.json",
+      JSON.stringify({
+        harnesses: { "claude-code": {} },
+        exclude: [".claude/**"],
+      }),
+    );
+    put(
+      ".claude/settings.json",
+      JSON.stringify({ claudeMdExcludes: ["**/data/**"] }),
+    );
+    put("data/vendor-x/CLAUDE.md", sized(LIMIT + 1));
+    const r = run(["lint"]);
+    // Guards: what the harness loads follows its settings, not vigiles's exclude.
+    expect(r.code).toBe(0);
+    expect(failures(r.out)).toEqual([]);
+  });
+
+  it("a path-scoped rule under an excluded .claude is not reported", () => {
+    put(
+      ".vigilesrc.json",
+      JSON.stringify({
+        harnesses: { "claude-code": {} },
+        exclude: [".claude/**"],
+      }),
+    );
+    put(
+      ".claude/rules/api.md",
+      `---\npaths:\n  - "src/api/**"\n---\n${sized(LIMIT + 1)}`,
+    );
+    const r = run(["lint"]);
+    // Guards: vigiles's exclude still decides which files it reports on.
+    expect(failures(r.out)).toEqual([]);
+  });
+});
+
 describe("the folder walk", () => {
   it("a folder's .claude/CLAUDE.md supersedes its AGENTS.md", () => {
     put("pkg/.claude/CLAUDE.md", sized(100));

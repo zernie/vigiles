@@ -754,16 +754,37 @@ export function measureOnDemand(
   harness: Pick<ScanHarness, "layout" | "dialect">,
   input: OnDemandInput,
 ): OnDemandCheck {
+  const root = resolve(dir);
+  // Read WITHOUT `exclude`: which files the harness loads follows its own
+  // settings (`claudeMdExcludes` in `.claude/settings.json`), and a repository
+  // that tells vigiles to skip `.claude` has not told the harness anything.
   const files = {
-    ...boundedInstructionFiles(resolve(dir), harness.layout, input.excludes),
+    ...boundedInstructionFiles(root, harness.layout),
     ...input.folderFiles,
   };
-  return checkOnDemandFiles({
+  const check = checkOnDemandFiles({
     chain: instructionViews(harness.layout, files).committed,
     files,
     rule: harness.dialect.onDemandFileLimit,
     limit: input.limit,
   });
+  return reportable(check, excludedBy(input.excludes), root);
+}
+
+/** The check with every file `exclude` names left out of what is reported. */
+function reportable(
+  check: OnDemandCheck,
+  excluded: (abs: string) => boolean,
+  root: string,
+): OnDemandCheck {
+  if (check.kind === "not-modelled") return check;
+  const kept = (f: { readonly path: string }): boolean =>
+    !excluded(join(root, f.path));
+  return {
+    ...check,
+    files: check.files.filter(kept),
+    over: check.over.filter(kept),
+  };
 }
 
 /** What {@link measureOnDemand} is handed: the folder files the root read, and options. */
