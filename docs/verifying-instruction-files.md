@@ -118,6 +118,8 @@ There's a small family of inline **marks** that `lint` checks, each binding a re
 
 ## From prose to enforced: the rule map (experimental)
 
+> **Off by default.** The rule map is one of the experimental, not-graded sections (see [Experimental rules](configuration.md#experimental-rules)), so a plain `audit` does not print it and `audit --json` has no `ruleRouting` field. Turn it on the same way as the other experimental rules: `--preset=experimental` for one run, `"extends": "vigiles:experimental"` for the repository, or a single experimental rule in `rules`. It never counts toward the score. Its "⚙ custom" lane means "no off-the-shelf lint rule matched", **not** "this rule is unenforced" — a hand-written hook can enforce it.
+>
 > **Experimental / preview.** The rule map is a **heuristic, precision-first** read — genuinely useful, but it **won't catch every rule**, so treat it as a preview, not a settled report. That's why it sits low in the terminal + HTML report and is badged _experimental_. The reference checks above (files / scripts / symbols) and the [validation rules](#the-validation-rules--the-full-matrix) below are the settled, deterministic gates.
 
 `vigiles audit` reads the prose rules in your instruction file and **maps** each one to how it could be enforced. This is a **read-only, deterministic** step — no model runs, nothing executes, and it's identical on every machine. It sorts your rules into these lanes (a fifth, ☰ **agent-note**, marks an agent instruction like "read X first" that isn't a code rule at all):

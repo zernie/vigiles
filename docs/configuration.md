@@ -288,6 +288,9 @@ reliable enough to grade you on.
   `ungraded` field, and the HTML report), and leave every category, the
   overall score, the grade and the verdict exactly as they would be without
   them.
+- The **rule map** (how each prose rule in your instruction file could be
+  enforced; `audit --json`'s `ruleRouting`) shows only when they are on. It is
+  absent from a default `audit` on every surface.
 
 Turn them on for one run (`--preset=experimental` on `audit` or `lint`, or the
 GitHub Action's `preset` input), for the repository (`"extends":
