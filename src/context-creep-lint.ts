@@ -437,13 +437,12 @@ const MARKS = { ok: "✓", note: "ℹ" } as const;
 function printReport(
   lines: readonly StoreLine[],
   recorded: readonly string[],
-  severity: RuleSeverity,
+  finding: string,
 ): void {
   console.log("\nContext creep (always-loaded context):\n");
   recorded.forEach((r) => {
     console.log(`  ${r}`);
   });
-  const finding = severity === "error" ? "✗" : "⚠";
   lines.forEach((l) => {
     const mark = l.status === "finding" ? finding : MARKS[l.status];
     console.log(`  ${mark} ${l.text}`);
@@ -478,7 +477,7 @@ function annotateAll(
 ): void {
   const level = opts.severity === "error" ? "error" : "warning";
   findings.forEach((l) => {
-    opts.annotate(level, l.text);
+    opts.annotate(level, `[${opts.ruleId}] ${l.text}`);
   });
   notes.forEach((note) => {
     opts.annotate("notice", note);
@@ -512,7 +511,11 @@ export function checkContextCreep(
     ? [...applyBaseline(run, onDisk), ...legacy.map(legacyLine)]
     : [];
   if (!opts.silent && (opts.update || lines.length > 0)) {
-    printReport(lines, recorded, severity);
+    printReport(
+      lines,
+      recorded,
+      `${severity === "error" ? "✗" : "⚠"} [${ruleId}]`,
+    );
   }
   const findings = lines.filter((l) => l.status === "finding");
   const notes = severity ? summaryNotes(run, onDisk, legacy) : [];

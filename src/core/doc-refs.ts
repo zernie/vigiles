@@ -370,6 +370,8 @@ export function formatDocRefReport(
    * user actually set rather than always claiming the hard tier.
    */
   severity: "error" | "warn" = "error",
+  /** The id of the rule that raised the findings, shown after the mark. */
+  rule?: string,
 ): string {
   const lines: string[] = [];
   const meta: string[] = [];
@@ -390,8 +392,9 @@ export function formatDocRefReport(
 
   if (report.errors.length === 0) return lines.join("\n");
 
+  const tag = rule === undefined ? "" : ` [${rule}]`;
   lines.push(
-    `${severity === "error" ? "✗" : "ℹ"} ${String(report.errors.length)} broken ref(s):`,
+    `${severity === "error" ? "✗" : "ℹ"}${tag} ${String(report.errors.length)} broken ref(s):`,
   );
   for (const e of report.errors.slice(0, 12)) {
     const trunc =

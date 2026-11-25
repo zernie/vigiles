@@ -81,7 +81,7 @@ describe("the doc-refs rule", () => {
     );
     assert.match(out, /broken ref\(s\)/, "warn must still name the finding");
     assert.ok(
-      /ℹ 1 broken ref\(s\)/.test(out),
+      /ℹ \[doc-refs\] 1 broken ref\(s\)/.test(out),
       `warn must not claim the hard marker, got:\n${out}`,
     );
     assert.equal(exitCode, 0, "warn must never change the exit code");
@@ -90,7 +90,7 @@ describe("the doc-refs rule", () => {
   it('gates at "error", with the hard marker and exit 2', () => {
     const { out, exitCode } = lintWith('{"rules":{"doc-refs":"error"}}');
     assert.ok(
-      /✗ 1 broken ref\(s\)/.test(out),
+      /✗ \[doc-refs\] 1 broken ref\(s\)/.test(out),
       `error must use the hard marker, got:\n${out}`,
     );
     assert.match(
