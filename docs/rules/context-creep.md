@@ -181,6 +181,55 @@ up. This is the rule PHPStan, Psalm, ESLint's unpruned suppressions and
   finding. Record the new, lower number with `vigiles lint --update-baseline`.
 ```
 
+## Files loaded on demand
+
+Some instruction files load **after** launch, not at session start:
+
+- a folder's own `CLAUDE.md` (or `AGENTS.md` when the folder has no
+  `CLAUDE.md`), the first time the agent reads a file in that folder;
+- a rule in `.claude/rules/` with a `paths:` list, when the agent reads a
+  matching file.
+
+Such a file is not cheap. Once loaded it **stays until compaction**, and since
+Claude Code 2.1.309 the harness **cuts it** past a per-file limit: the model
+gets the start and a note to read the rest, and the rules after the cut do not
+reach it.
+
+| Model window | Cut per file       |
+| ------------ | ------------------ |
+| 200K         | 40,000 characters  |
+| 1M           | 150,000 characters |
+
+The rule checks each such file against the **40,000** floor, because the
+window is a per-machine fact and the check is a property of the commit (the
+skill listing uses the same floor). Each file over it is one finding:
+
+```
+✗ pkg/CLAUDE.md is 113,402 chars, over the per-file cut of 40,000 (150,000 on a 1M-window model; since Claude Code 2.1.309): …
+```
+
+What is different from the rest of this rule:
+
+- **No baseline accepts it.** Over the cut, rules are lost, not just paid for,
+  so `--update-baseline` never records such a file and `lint` keeps failing
+  until it is fixed.
+- **Per file, not per folder.** Each file counts on its own, so splitting a
+  heavy file into several files under the cut fixes the finding. What the
+  folder chain costs in tokens is not gated.
+- **A copy is still loaded.** A `CLAUDE.md` copied under `data/` or a vendored
+  folder loads the moment a file there is read. If no session should load it,
+  say so where the harness reads it: a `**/<folder>/**` pattern in
+  `claudeMdExcludes` (`.claude/settings.json`). An `exclude` in
+  `.vigilesrc.json` also stops vigiles from reading it, but the harness still
+  loads it.
+- **Codex is not modelled.** Codex builds its chain once, from the root to the
+  folder it starts in, and cuts the sum; `vigiles audit` says this check is
+  not modelled there.
+
+The fix, in order: keep the file to rules for that folder; move lists, indexes
+and dated records to a file nothing loads by itself, linked from there; split
+what is left into files each under the cut.
+
 ## Recording the baseline
 
 You do not need to know the flag. **`vigiles init` records the baseline** on a
@@ -328,6 +377,10 @@ over a limit with no baseline sees a note.
   }
 }
 ```
+
+`on-demand-file` moves the per-file cut on files loaded after launch
+([below](#files-loaded-on-demand)), for a repository whose sessions all run on
+a larger window.
 
 Each value is a positive integer in the harness's own unit (characters for
 Claude Code, bytes for Codex). A part left out keeps the harness's number. An

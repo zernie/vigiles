@@ -105,6 +105,14 @@ export interface PluginLayout {
   /** Top-level instruction file, e.g. `CLAUDE.md`. */
   readonly instructionFile: string;
   /**
+   * The file names this harness loads from a FOLDER below the root once the
+   * agent works there (e.g. `CLAUDE.md`, `AGENTS.md`). The on-demand check
+   * looks for these names in every folder and hands them to `instructionChain`,
+   * which decides which of them load. Optional: absent ⇒ the harness's folder
+   * files are not modelled, and the check says so.
+   */
+  readonly folderInstructionFiles?: readonly string[];
+  /**
    * Where each model surface lives — see {@link SurfaceDirs}. At least one kind
    * is required (conformance); a kind this harness does not have is an absent
    * key, never `""`.

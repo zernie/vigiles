@@ -14,7 +14,7 @@
  */
 export const MOVE_OUT_OF_ALWAYS_LOADED = [
   "Move what does not apply to every request:",
-  "  - a rule for one folder → that folder's nested CLAUDE.md or AGENTS.md (loads only there)",
+  "  - a rule for one folder → that folder's own instruction file: it loads the first time a file there is read and stays until compaction, so keep it to rules for that folder; lists, indexes and dated records go in a file nothing loads by itself, linked from there",
   "  - a step tied to one action → a hook",
   "  - a procedure for one kind of task → a skill",
   "  - a fact a machine can check → a lint rule or a test, then delete the prose",
@@ -22,6 +22,23 @@ export const MOVE_OUT_OF_ALWAYS_LOADED = [
   "  - a measurement → next to the check that measures it",
   "  - text another file already says → delete it",
 ].join("\n");
+
+/**
+ * What a finding about a file loaded ON DEMAND tells the reader to do, in one
+ * line: split it below the cut, move what is not a rule out of auto-loading,
+ * or — for a copy no session should load — name it where the harness reads
+ * exclusions (`setting` comes from the adapter, never spelled here).
+ */
+export function onDemandRemedy(setting: {
+  readonly key: string;
+  readonly file: string;
+}): string {
+  return (
+    `Split it into files each under the cut (each counts on its own), move lists, indexes and dated records ` +
+    `to a file nothing loads by itself, or — a copy no session should load — list a \`**/<folder>/**\` pattern in \`${setting.key}\` (${setting.file}) ` +
+    `or in \`exclude\` (.vigilesrc.json).`
+  );
+}
 
 /**
  * The two ways to put a hand-written instruction file under a spec, each said

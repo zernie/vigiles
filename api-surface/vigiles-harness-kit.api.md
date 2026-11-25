@@ -83,6 +83,7 @@ export interface HarnessDialect {
     readonly neverAvailableTools: readonly string[];
     // @deprecated
     readonly noEffectHookEvents?: readonly string[];
+    readonly onDemandFileLimit?: OnDemandFileLimit;
     // @deprecated
     readonly permissionDecisionHookEvents?: readonly string[];
     readonly pluginRootToken: string;
@@ -332,6 +333,7 @@ export interface PatternFrom {
 
 // @public
 export interface PluginLayout {
+    readonly folderInstructionFiles?: readonly string[];
     readonly hookFailureWiring?: HookFailureWiring;
     readonly hooksConventionPath?: string;
     readonly hookScriptsDir?: string;

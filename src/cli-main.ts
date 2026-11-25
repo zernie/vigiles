@@ -168,6 +168,7 @@ import {
   hookScriptMissingMessage,
   staleHookMessage,
   measureAlwaysLoaded,
+  measureOnDemand,
 } from "./scan.js";
 import {
   checkContextCreep,
@@ -447,6 +448,7 @@ import {
 import { decideBase } from "./core/changed-base.js";
 import { parseAuditFormat, parseCompareRequest } from "./core/audit-flags.js";
 import { auditCopy, copyBaseTree, placeInRepo } from "./host/base-tree.io.js";
+import { folderInstructionFiles } from "./host/folder-instructions.io.js";
 import { cleanupTmpDir } from "./core/tmp-root.js";
 
 /**
@@ -508,6 +510,17 @@ function alwaysLoadedLimits(
     ...(opts?.limits === undefined ? {} : { limits: opts.limits }),
     ...(opts?.max === undefined ? {} : { max: opts.max }),
   };
+}
+
+/** The on-demand per-file cut override, as `.vigilesrc.json` sets it. */
+function onDemandLimit(
+  config: Readonly<VigilesConfig> | undefined,
+): number | undefined {
+  const value: unknown = config?.rules?.[ALWAYS_LOADED_RULE];
+  const parsed = contextCreepOptions.safeParse(
+    Array.isArray(value) ? value[1] : {},
+  );
+  return parsed.success ? parsed.data.limits?.["on-demand-file"] : undefined;
 }
 
 /** The resolver over this set's ids. */
@@ -3103,6 +3116,16 @@ async function runLint(
       lintRoots.map((abs) =>
         measuredBundle(frame.bundle(abs).at, abs, adapter),
       ),
+    measureOnDemand: () =>
+      measureOnDemand(frame.root, adapter, {
+        folderFiles: folderInstructionFiles(
+          frame.root,
+          adapter.layout,
+          excludes.globIgnore,
+        ),
+        excludes,
+        limit: onDemandLimit(config),
+      }),
     annotate: (level, message) => {
       ghAnnotate(level, message);
     },
@@ -9995,6 +10018,17 @@ function auditScan(
 ): FilteredScan<ScanReport> {
   const scan = scanPlugin(target, adapter.layout, adapter.dialect, {
     deprecatedKeyFiles: specsUsingKeyFiles(at.root, at.excludes.globIgnore),
+    // The files loaded on demand, by the same detector `lint` gates on —
+    // against the harness's own cut, like every other audit limit.
+    onDemand: {
+      folderFiles: folderInstructionFiles(
+        target,
+        adapter.layout,
+        at.excludes.globIgnore,
+      ),
+      excludes: at.excludes,
+      limit: undefined,
+    },
     sharedDirs: config.sharedDirs,
     sharedDirsRoot: at.frame.root,
     // `.vigilesrc.json#exclude` reaches surface DISCOVERY, not just the

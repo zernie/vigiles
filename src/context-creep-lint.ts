@@ -56,7 +56,14 @@ import {
   parseLegacyBaseline,
   type LegacyBaseline,
 } from "./core/legacy-baseline.js";
-import { MOVE_OUT_OF_ALWAYS_LOADED } from "./core/instruction-remedies.js";
+import {
+  MOVE_OUT_OF_ALWAYS_LOADED,
+  onDemandRemedy,
+} from "./core/instruction-remedies.js";
+import {
+  formatOnDemandOver,
+  type OnDemandCheck,
+} from "./core/on-demand-limits.js";
 import type { AlwaysLoadedContext } from "./core/always-loaded.js";
 import type { InstructionWeight } from "./core/instruction-weight.js";
 import type { RuleSeverity } from "./core/types.js";
@@ -384,6 +391,30 @@ function record(
   ];
 }
 
+/**
+ * One finding per file loaded on demand that is over the harness's per-file
+ * cut. No `measurement`, on purpose: the baseline store passes such a finding
+ * through as a finding, so no recorded size accepts rules the harness cuts off.
+ */
+export function onDemandFindings(check: OnDemandCheck): readonly RuleFinding[] {
+  if (check.kind === "not-modelled") return [];
+  return check.over.map((f) => ({
+    subject: f.path,
+    text: `${formatOnDemandOver(f, check)}. ${onDemandRemedy(check.rule.excludeSetting)}`,
+  }));
+}
+
+/** The run with each in-scope on-demand file over the cut added as a finding. */
+function withOnDemand(opts: ContextCreepOptions, run: RuleRun): RuleRun {
+  const check: OnDemandCheck = opts.measureOnDemand?.() ?? {
+    kind: "not-modelled",
+  };
+  const found = onDemandFindings(check).filter((f) =>
+    inScope(f.subject, opts.scope),
+  );
+  return { ...run, findings: [...run.findings, ...found] };
+}
+
 /** The options {@link checkContextCreep} takes. */
 export interface ContextCreepOptions extends ContextCreepLimits {
   readonly ruleId: string;
@@ -395,6 +426,8 @@ export interface ContextCreepOptions extends ContextCreepLimits {
   readonly silent: boolean;
   /** Called only when the rule is on or an update was asked for. */
   readonly measure: () => readonly MeasuredBundle[];
+  /** The files loaded on demand against the per-file cut; called with `measure`. */
+  readonly measureOnDemand?: () => OnDemandCheck;
   readonly annotate: (
     level: "error" | "warning" | "notice",
     message: string,
@@ -504,7 +537,7 @@ export function checkContextCreep(
   const { severity, files, ruleId } = opts;
   if (!severity && !opts.update) return { issues: 0, errors: 0, notes: [] };
   const measured = opts.measure();
-  const run = scopedRun(opts, measured);
+  const run = withOnDemand(opts, scopedRun(opts, measured));
   const { recorded, refusals } = update(opts, measured, run);
   const onDisk = readBaselineStore(files);
   const legacy = legacyFilesPresent(files, ruleId);

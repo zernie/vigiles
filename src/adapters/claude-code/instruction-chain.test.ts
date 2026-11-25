@@ -113,6 +113,40 @@ describe("what does NOT load, and why", () => {
     ]);
   });
 
+  it("`claudeMdExcludes` also removes a folder's CLAUDE.md and a path-scoped rule", () => {
+    const files = {
+      "CLAUDE.md": "root",
+      "data/x/CLAUDE.md": "a copy",
+      ".claude/rules/data-api.md": '---\npaths:\n  - "data/**"\n---\nrule',
+      ".claude/settings.json": JSON.stringify({
+        claudeMdExcludes: ["**/data/**", "**/data-api.md"],
+      }),
+    };
+    // Guards: both on-demand passes honour the exclusion, so the on-demand
+    // check never weighs a file the harness never loads.
+    expect(chain(files).unloaded.map((e) => [e.path, e.reason.kind])).toEqual([
+      [".claude/rules/data-api.md", "excluded-by-settings"],
+      ["data/x/CLAUDE.md", "excluded-by-settings"],
+    ]);
+  });
+
+  it("a folder's AGENTS.md beside its own CLAUDE.md is superseded, not on demand", () => {
+    const files = {
+      "CLAUDE.md": "root",
+      "pkg/CLAUDE.md": "folder",
+      "pkg/AGENTS.md": "never read",
+    };
+    // Guards: a sibling's PRESENCE is information, so the vendor's extra
+    // condition holds once the caller has read the folder.
+    expect(chain(files).unloaded.map((e) => [e.path, e.reason])).toEqual([
+      [
+        "pkg/AGENTS.md",
+        { kind: "superseded", by: "pkg/CLAUDE.md", byScope: "repo" },
+      ],
+      ["pkg/CLAUDE.md", { kind: "on-demand", when: "subdirectory" }],
+    ]);
+  });
+
   it("`claudeMdExcludes` from the repo's own settings removes a file", () => {
     const files = {
       "CLAUDE.md": "root",

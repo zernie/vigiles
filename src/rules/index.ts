@@ -58,7 +58,8 @@ const testCoverageConfig = z
  *
  * `limits` overrides the harness's own limit for a part, in the harness's unit
  * (characters for Claude Code, bytes for Codex): `instructions` (the selected
- * output style counts with them) and `skill-listing`. A part left out keeps
+ * output style counts with them), `skill-listing`, and `on-demand-file` (the
+ * per-file cut on a file loaded after launch). A part left out keeps
  * the harness's number. Going over a limit is a finding the baseline store can
  * accept; `max` is the opt-in ABSOLUTE ceiling on the scored instructions that
  * no baseline lifts. Each value is a positive integer: `0` would put every
@@ -72,6 +73,7 @@ export const contextCreepOptions = z
       .object({
         instructions: z.number().int().positive().optional(),
         "skill-listing": z.number().int().positive().optional(),
+        "on-demand-file": z.number().int().positive().optional(),
       })
       .strict()
       .optional(),

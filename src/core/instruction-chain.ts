@@ -322,7 +322,9 @@ export const EMPTY_CHAIN: InstructionChain = {
  *
  * ⚠️ WHAT THIS CANNOT SEE, stated rather than assumed: a nested
  * `packages/x/AGENTS.md` (neither vendor loads it at a root session — the chain
- * classifies one as on-demand if it is handed one, and never goes looking);
+ * classifies one as on-demand if it is handed one; this bound never goes
+ * looking, and the one walk that does is the on-demand check's, over the
+ * layout's `folderInstructionFiles` — see `./on-demand-limits.ts`);
  * `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md` and every other home-directory
  * file (reading `~` for a grade is wrong on its face); and a repo-configured
  * fallback instruction name that is not markdown, because the root entry below

@@ -544,6 +544,35 @@ function take(
 }
 
 /**
+ * Into `unloaded` as loading on demand — unless a `claudeMdExcludes` pattern
+ * names it, and then with that reason. The harness never loads an excluded
+ * file, so the on-demand check must not weigh it; before this, both on-demand
+ * passes skipped the exclusion and filed such a file as on-demand.
+ */
+function defer(
+  b: Building,
+  path: string,
+  entry: Omit<LoadedInstruction, "path"> & {
+    readonly when: "path-scoped" | "subdirectory";
+  },
+): void {
+  const { when, ...loaded } = entry;
+  const excluder = b.excluderOf(path);
+  b.unloaded.push({
+    path,
+    ...loaded,
+    reason: excluder
+      ? {
+          kind: "excluded-by-settings",
+          key: EXCLUDES_KEY,
+          by: excluder.path,
+          byScope: excluder.scope,
+        }
+      : { kind: "on-demand", when },
+  });
+}
+
+/**
  * Every file under the rules dir: loaded, unless it declares a `paths:` scope.
  *
  * 🔴 THE CLAUDE CODE OVER-REPORT, FIXED HERE. A `paths:`-scoped rule is included
@@ -558,12 +587,7 @@ function takeRules(b: Building, ruleRe: RegExp): void {
     const text = b.files[path];
     if (text === undefined) continue;
     if (isPathScoped(text)) {
-      b.unloaded.push({
-        path,
-        role: "rule",
-        scope: "repo",
-        reason: { kind: "on-demand", when: "path-scoped" },
-      });
+      defer(b, path, { role: "rule", scope: "repo", when: "path-scoped" });
       continue;
     }
     take(b, path, { role: "rule", scope: "repo" });
@@ -612,11 +636,12 @@ function takeRules(b: Building, ruleRe: RegExp): void {
  * condition is declared here, unmodelled, and the file keeps the honest
  * "on-demand": it says what this chain knows, not what the loader would do.
  *
- * ⏳ WHAT WOULD CLOSE IT: a caller that legitimately holds a per-directory map —
- * a future `vigiles audit <subpackage>` run, where that directory IS the
- * working directory and its files are in the bound by construction. Then the
- * question is the ROOT question, already answered by {@link supersederOf}, and
- * no widening is needed.
+ * ✅ HALF OF IT IS NOW ANSWERED, BY THE ONE CALLER THAT READS FOLDERS. The
+ * on-demand check (`core/on-demand-limits.ts`) hands over every folder's
+ * instruction files, so for it a sibling's PRESENCE is information:
+ * {@link folderSuperseder} files such an `AGENTS.md` as superseded. Absence
+ * still is not, for a bounded map — a missing sibling leaves the file on
+ * demand, which over-reports rather than hides.
  *
  * ⚠️ AND THE CONDITION IS MOOT FOR AN IMPORTED FILE, WHICH IS WHY THIS PASS NOW
  * RUNS LAST. A `<dir>/CLAUDE.md` that something `@`-imports is taken by the
@@ -641,13 +666,39 @@ function takeSubdirectories(
     if (named.has(path) || reserved.has(path) || !path.includes("/")) continue;
     if (isNeverRead(path)) continue;
     if (!leafNames.has(path.slice(path.lastIndexOf("/") + 1))) continue;
-    b.unloaded.push({
-      path,
-      role: "root",
-      scope: "repo",
-      reason: { kind: "on-demand", when: "subdirectory" },
-    });
+    const by = folderSuperseder(b, path);
+    if (!by) {
+      defer(b, path, { role: "root", scope: "repo", when: "subdirectory" });
+    } else {
+      b.unloaded.push({
+        path,
+        role: "root",
+        scope: "repo",
+        reason: { kind: "superseded", by: by.path, byScope: by.scope },
+      });
+    }
   }
+}
+
+/**
+ * The folder's own `CLAUDE.md` family member that keeps the folder's
+ * `AGENTS.md` from ever being read — the vendor's extra condition, quoted in
+ * the header above. It is answerable only for a caller that read the folder:
+ * the on-demand check hands over every folder's instruction files, so a
+ * sibling's PRESENCE is information there (its absence still is not, for a
+ * bounded map, which is why a missing sibling leaves the file on demand).
+ */
+function folderSuperseder(b: Building, path: string): Superseder | undefined {
+  if (!path.endsWith(`/${AGENTS_FILE}`)) return undefined;
+  const dir = path.slice(0, path.lastIndexOf("/"));
+  const family: readonly Superseder[] = [
+    { path: `${dir}/CLAUDE.md`, scope: "repo" },
+    { path: `${dir}/.claude/CLAUDE.md`, scope: "repo" },
+    { path: `${dir}/CLAUDE.local.md`, scope: "local" },
+  ];
+  return family.find(
+    (c) => Object.hasOwn(b.files, c.path) && !b.excluderOf(c.path),
+  );
 }
 
 /** One of the three files whose presence turns `AGENTS.md` off, and its scope. */

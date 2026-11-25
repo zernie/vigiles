@@ -120,7 +120,12 @@ Based on what the user asked for:
   1. the file's own header, the docs or the path already say it → add nothing;
   2. a fact about that one file → write it in **the file's header comment**;
   3. a rule an agent must follow while working in one folder → that folder's
-     **nested `CLAUDE.md`** (its own `<folder>/CLAUDE.md.spec.ts`, compiled);
+     **nested `CLAUDE.md`** (its own `<folder>/CLAUDE.md.spec.ts`, compiled).
+     It is not free: it loads the first time a file in that folder is read and
+     stays for the rest of the session (until compaction), and past the
+     harness's per-file cut the rest is dropped (`vigiles lint` reports it).
+     So rules only — a list, an index or a dated record goes in a file that is
+     not auto-loaded, linked from there;
   4. only if nothing else would lead an agent there → a **one-line pointer**,
      `${file("src/services/auth.ts")}` inside a `prose` section where the
      decision that needs it is written — compile verifies it exists, exactly

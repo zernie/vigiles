@@ -112,6 +112,18 @@ export const claudeCodeDialect: HarnessDialect = {
     capturedFrom:
       "claude-code 2.1.296 large-file warning, floor of max(40000, window*0.05*charsPerToken); the rules dir measured 2026-09-16 in a consumer repo",
   },
+  // The per-file cut on files loaded AFTER launch (a folder's CLAUDE.md, its
+  // imports, path-scoped rules). The floor is the 200K-window cut, the same
+  // floor the instruction budget above keeps; a 1M-window model cuts later.
+  onDemandFileLimit: {
+    unit: "chars",
+    limit: 40000,
+    since: "Claude Code 2.1.309",
+    larger: "150,000 on a 1M-window model",
+    excludeSetting: { key: "claudeMdExcludes", file: ".claude/settings.json" },
+    capturedFrom:
+      "code.claude.com/docs/en/memory, 'Claude ignores the end of my subdirectory CLAUDE.md' (40,000 on 200K, 150,000 on 1M later models, since v2.1.309); measured on 2.1.332 with claude-haiku-5-5: a 170,059-char subdirectory CLAUDE.md delivered as 150,061 chars ending in 'Only the start of this file is shown'",
+  },
   // The session-start skill listing — part of the always-loaded context; see
   // ./skill-listing.ts for each rule and its source.
   skillListing: claudeCodeSkillListing,

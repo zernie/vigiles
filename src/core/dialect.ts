@@ -21,6 +21,7 @@
 import type { HarnessVocabulary } from "./vocabulary.js";
 import type { EventCapabilityTable } from "./event-capability.js";
 import type { InstructionBudget } from "./instruction-weight.js";
+import type { OnDemandFileLimit } from "./on-demand-limits.js";
 import type { SkillListingRules } from "./skill-listing.js";
 
 /**
@@ -185,6 +186,14 @@ export interface HarnessDialect {
    * answer for a harness whose limits nobody has read.
    */
   readonly instructionBudget?: InstructionBudget;
+  /**
+   * The per-file cut this harness applies to instruction files it loads AFTER
+   * launch (a folder's own instruction file, a path-scoped rule) —
+   * {@link OnDemandFileLimit}. A format fact beside `instructionBudget`.
+   * Optional: absent ⇒ the on-demand check says it is not modelled for this
+   * harness, never that nothing is over.
+   */
+  readonly onDemandFileLimit?: OnDemandFileLimit;
   /**
    * How this harness renders a skill into the listing it loads at session
    * start — {@link SkillListingRules}. Beside `instructionBudget` for the same
