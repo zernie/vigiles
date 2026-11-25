@@ -152,6 +152,7 @@ import {
 } from "../../core/frontmatter-read.js";
 import { proseLines, proseWords, wordsOf } from "../../core/markdown.js";
 import { createRequire } from "node:module";
+import { sortBy } from "remeda";
 // ES module: `require` does not exist; this one keeps the lazy, synchronous loads.
 const require = createRequire(import.meta.url);
 
@@ -495,6 +496,8 @@ export interface ClaudeCodeChainInput {
   readonly parseSettings: (text: string) => Record<string, unknown>;
   /** {@link RULE_FILE_LEAF_RE}, compiled against the rules dir. */
   readonly ruleRe: RegExp;
+  /** A rule file in a folder's own rules dir (`folderRuleFileRe`). */
+  readonly folderRuleRe: Readonly<RegExp>;
 }
 
 /**
@@ -544,6 +547,35 @@ function take(
 }
 
 /**
+ * Into `unloaded` as loading on demand — unless a `claudeMdExcludes` pattern
+ * names it, and then with that reason. The harness never loads an excluded
+ * file, so the on-demand check must not weigh it; before this, both on-demand
+ * passes skipped the exclusion and filed such a file as on-demand.
+ */
+function defer(
+  b: Building,
+  path: string,
+  entry: Omit<LoadedInstruction, "path"> & {
+    readonly when: "path-scoped" | "subdirectory";
+  },
+): void {
+  const { when, ...loaded } = entry;
+  const excluder = b.excluderOf(path);
+  b.unloaded.push({
+    path,
+    ...loaded,
+    reason: excluder
+      ? {
+          kind: "excluded-by-settings",
+          key: EXCLUDES_KEY,
+          by: excluder.path,
+          byScope: excluder.scope,
+        }
+      : { kind: "on-demand", when },
+  });
+}
+
+/**
  * Every file under the rules dir: loaded, unless it declares a `paths:` scope.
  *
  * 🔴 THE CLAUDE CODE OVER-REPORT, FIXED HERE. A `paths:`-scoped rule is included
@@ -558,16 +590,38 @@ function takeRules(b: Building, ruleRe: RegExp): void {
     const text = b.files[path];
     if (text === undefined) continue;
     if (isPathScoped(text)) {
-      b.unloaded.push({
-        path,
-        role: "rule",
-        scope: "repo",
-        reason: { kind: "on-demand", when: "path-scoped" },
-      });
+      defer(b, path, { role: "rule", scope: "repo", when: "path-scoped" });
       continue;
     }
     take(b, path, { role: "rule", scope: "repo" });
   }
+}
+
+/**
+ * Every rule file in a FOLDER's own rules dir, IF the caller handed one over:
+ * on demand, `subdirectory` when unscoped and `path-scoped` with `paths:`. Like
+ * {@link takeSubdirectories}, the domain's bound never enumerates one; only
+ * the on-demand walk hands these over. Runs after the imports pass for the
+ * same reason that pass does: a rule file a loaded file imports is taken there.
+ */
+function takeFolderRules(
+  b: Readonly<Building>,
+  folderRuleRe: Readonly<RegExp>,
+): void {
+  const named = new Set([...b.loaded, ...b.unloaded].map((e) => e.path));
+  const rules = sortBy(
+    Object.entries(b.files).filter(
+      ([path]) => !named.has(path) && folderRuleRe.test(path),
+    ),
+    ([path]) => path,
+  );
+  rules.forEach(([path, text]) => {
+    defer(b, path, {
+      role: "rule",
+      scope: "repo",
+      when: isPathScoped(text) ? "path-scoped" : "subdirectory",
+    });
+  });
 }
 
 /**
@@ -612,11 +666,12 @@ function takeRules(b: Building, ruleRe: RegExp): void {
  * condition is declared here, unmodelled, and the file keeps the honest
  * "on-demand": it says what this chain knows, not what the loader would do.
  *
- * ⏳ WHAT WOULD CLOSE IT: a caller that legitimately holds a per-directory map —
- * a future `vigiles audit <subpackage>` run, where that directory IS the
- * working directory and its files are in the bound by construction. Then the
- * question is the ROOT question, already answered by {@link supersederOf}, and
- * no widening is needed.
+ * ✅ HALF OF IT IS NOW ANSWERED, BY THE ONE CALLER THAT READS FOLDERS. The
+ * on-demand check (`core/on-demand-limits.ts`) hands over every folder's
+ * instruction files, so for it a sibling's PRESENCE is information:
+ * {@link folderSuperseder} files such an `AGENTS.md` as superseded. Absence
+ * still is not, for a bounded map — a missing sibling leaves the file on
+ * demand, which over-reports rather than hides.
  *
  * ⚠️ AND THE CONDITION IS MOOT FOR AN IMPORTED FILE, WHICH IS WHY THIS PASS NOW
  * RUNS LAST. A `<dir>/CLAUDE.md` that something `@`-imports is taken by the
@@ -630,24 +685,62 @@ function takeRules(b: Building, ruleRe: RegExp): void {
  * and the dot-directory is not a subdirectory of the project in the vendor's
  * sense. It is empty-set-safe: every root candidate is already in `named` on
  * the paths that reach this today.
+ *
+ * `ruleRe` holds a folder's rules dir back for {@link takeFolderRules}: a file
+ * there is a rule whatever its name, so a `pkg/.claude/rules/AGENTS.md` beside
+ * a `pkg/.claude/rules/CLAUDE.md` is weighed as a rule, never superseded.
  */
-function takeSubdirectories(
-  b: Building,
-  leafNames: ReadonlySet<string>,
-  reserved: ReadonlySet<string>,
-): void {
+function takeSubdirectories(b: Building, pass: SubdirectoryPass): void {
   const named = new Set([...b.loaded, ...b.unloaded].map((e) => e.path));
   for (const path of Object.keys(b.files).sort()) {
-    if (named.has(path) || reserved.has(path) || !path.includes("/")) continue;
-    if (isNeverRead(path)) continue;
-    if (!leafNames.has(path.slice(path.lastIndexOf("/") + 1))) continue;
-    b.unloaded.push({
-      path,
-      role: "root",
-      scope: "repo",
-      reason: { kind: "on-demand", when: "subdirectory" },
-    });
+    if (named.has(path) || pass.reserved.has(path) || !path.includes("/")) {
+      continue;
+    }
+    if (pass.ruleRe.test(path) || isNeverRead(path)) continue;
+    if (!pass.leafNames.has(path.slice(path.lastIndexOf("/") + 1))) continue;
+    const by = folderSuperseder(b, path);
+    if (!by) {
+      defer(b, path, { role: "root", scope: "repo", when: "subdirectory" });
+    } else {
+      b.unloaded.push({
+        path,
+        role: "root",
+        scope: "repo",
+        reason: { kind: "superseded", by: by.path, byScope: by.scope },
+      });
+    }
   }
+}
+
+/** What {@link takeSubdirectories} claims, and what it leaves to others. */
+interface SubdirectoryPass {
+  /** The instruction-file basenames this pass recognises. */
+  readonly leafNames: ReadonlySet<string>;
+  /** Root-level paths this chain owns, never a subdirectory file. */
+  readonly reserved: ReadonlySet<string>;
+  /** A folder's rules dir, left to {@link takeFolderRules}. */
+  readonly ruleRe: Readonly<RegExp>;
+}
+
+/**
+ * The folder's own `CLAUDE.md` family member that keeps the folder's
+ * `AGENTS.md` from ever being read — the vendor's extra condition, quoted in
+ * the header above. It is answerable only for a caller that read the folder:
+ * the on-demand check hands over every folder's instruction files, so a
+ * sibling's PRESENCE is information there (its absence still is not, for a
+ * bounded map, which is why a missing sibling leaves the file on demand).
+ */
+function folderSuperseder(b: Building, path: string): Superseder | undefined {
+  if (!path.endsWith(`/${AGENTS_FILE}`)) return undefined;
+  const dir = path.slice(0, path.lastIndexOf("/"));
+  const family: readonly Superseder[] = [
+    { path: `${dir}/CLAUDE.md`, scope: "repo" },
+    { path: `${dir}/.claude/CLAUDE.md`, scope: "repo" },
+    { path: `${dir}/CLAUDE.local.md`, scope: "local" },
+  ];
+  return family.find(
+    (c) => Object.hasOwn(b.files, c.path) && !b.excluderOf(c.path),
+  );
 }
 
 /** One of the three files whose presence turns `AGENTS.md` off, and its scope. */
@@ -916,11 +1009,12 @@ export function claudeCodeInstructionChain(
   // pass go first makes the question moot BY CONSTRUCTION: an imported file is
   // taken because a token names it, and what this pass then sees is exactly the
   // set nothing imported. The bound is untouched — no new path is read.
-  takeSubdirectories(
-    b,
-    new Set([input.instructionFile, AGENTS_FILE]),
-    new Set(crossToolPaths),
-  );
+  takeSubdirectories(b, {
+    leafNames: new Set([input.instructionFile, AGENTS_FILE]),
+    reserved: new Set(crossToolPaths),
+    ruleRe: input.folderRuleRe,
+  });
+  takeFolderRules(b, input.folderRuleRe);
 
   // THE VERDICT, LAST: anything cross-tool that the passes above did not claim
   // is present, unread, and the reason is a file rather than a setting. `scope`

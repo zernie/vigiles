@@ -8,7 +8,11 @@
  * `vigiles:symbol`, so RENAMING it turns `vigiles lint` red and forces the
  * edit; changing a VALUE in place does not, and nothing today catches that.
  */
-import { ruleFileRe, type PluginLayout } from "../../core/layout.js";
+import {
+  folderRuleFileRe,
+  ruleFileRe,
+  type PluginLayout,
+} from "../../core/layout.js";
 import { settingsSources } from "../../core/instruction-chain.js";
 import type { InstructionChain } from "../../core/instruction-chain.js";
 import { jsonSettingsCodec } from "../../core/settings-codec.js";
@@ -22,6 +26,11 @@ export const claudeCodeLayout: PluginLayout = {
   settingsPath: ".claude/settings.json",
   settings: jsonSettingsCodec,
   instructionFile: "CLAUDE.md",
+  // A folder's own instruction files, loaded the first time the agent reads a
+  // file there (`takeSubdirectories` in ./instruction-chain.ts names the first
+  // two). `.claude/CLAUDE.md` is listed so the walk reads it: its presence keeps
+  // the folder's `AGENTS.md` from loading (`folderSuperseder`).
+  folderInstructionFiles: ["CLAUDE.md", "AGENTS.md", ".claude/CLAUDE.md"],
   surfaces: { skill: "skills", agent: "agents", command: "commands" },
   // A plain Claude Code USER keeps skills/agents/commands under `.claude/`, not at
   // the repo root (that's the published-plugin shape). Read both so a normal repo
@@ -64,6 +73,7 @@ export const claudeCodeLayout: PluginLayout = {
       // layout declares `rulesDir`, and a layout that did not would want no
       // rule matcher at all rather than one matching nothing.
       ruleRe: ruleFileRe(claudeCodeLayout) ?? /(?!)/,
+      folderRuleRe: folderRuleFileRe(claudeCodeLayout) ?? /(?!)/,
     });
   },
 };

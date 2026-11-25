@@ -105,6 +105,15 @@ export interface PluginLayout {
   /** Top-level instruction file, e.g. `CLAUDE.md`. */
   readonly instructionFile: string;
   /**
+   * The files, as paths relative to a folder, that decide what this harness
+   * loads from a FOLDER below the root once the agent works there (e.g.
+   * `CLAUDE.md`, `AGENTS.md`, `.claude/CLAUDE.md`). The on-demand check looks
+   * for these in every folder — a dot-directory only where a path spells it —
+   * and hands them to `instructionChain`, which decides which of them load. Optional: absent ⇒ the harness's folder
+   * files are not modelled, and the check says so.
+   */
+  readonly folderInstructionFiles?: readonly string[];
+  /**
    * Where each model surface lives — see {@link SurfaceDirs}. At least one kind
    * is required (conformance); a kind this harness does not have is an absent
    * key, never `""`.
@@ -470,6 +479,27 @@ export function ruleFileRe(
   return under === null
     ? null
     : new RegExp(`^${escapeRe(under)}/${RULE_FILE_LEAF_RE}$`);
+}
+
+/**
+ * A rule file in a FOLDER's own rules dir — `pkg/.claude/rules/api.md` — as
+ * opposed to the repository root's, which {@link ruleFileRe} matches. Claude
+ * Code loads such a file the first time a file in that folder is read (and a
+ * `paths:` one only for a matching file), never at launch; the vendor lists
+ * "Rules files in a subdirectory's `.claude/rules/`" among the files cut past
+ * the per-file limit. Measured on 2.1.332 (2026-11-25): neither of
+ * `pkg/.claude/rules/{u,s}.md` loaded when `other/b.txt` was read; both
+ * arrived as `nested_memory` once `pkg/a.txt` was. Built from the same
+ * {@link rulesHome}, so the two readers cannot disagree about the dir.
+ * Capture group 1 is the folder.
+ */
+export function folderRuleFileRe(
+  layout: Readonly<Pick<PluginLayout, "rulesDir" | "userSurfaceRoot">>,
+): Readonly<RegExp> | null {
+  const under = rulesHome(layout);
+  return under === null
+    ? null
+    : new RegExp(`^(.+?)/${escapeRe(under)}/${RULE_FILE_LEAF_RE}$`);
 }
 
 /**

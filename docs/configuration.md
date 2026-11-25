@@ -340,9 +340,9 @@ part for this repository:
 - Each value is a **positive integer in the harness's own unit**: characters
   for Claude Code, bytes for Codex. A part you leave out keeps the harness's
   number.
-- The keys are `instructions` (the selected output style counts with them) and
-  `skill-listing`. Anything else, `0`, a fraction or a string is refused by the
-  strict schema, and `lint` stops with the config error.
+- The keys are `instructions` (the selected output style counts with them)
+  and `skill-listing`. Anything else, `0`, a fraction or a string is refused
+  by the strict schema, and `lint` stops with the config error.
 - The override applies to `lint`, `compile` and `init`. `vigiles audit`
   reports against the harness's own limits.
 - A committed `skillListingBudgetFraction` (Claude Code) or `[skills]
@@ -354,6 +354,22 @@ max_context_tokens` (Codex) already moves the listing limit without an
 The size a repository accepted over a limit lives in `.vigiles/baseline.json`,
 written by `vigiles init` or `vigiles lint --update-baseline`, never by plain
 `lint`.
+
+#### `context-truncation` limit
+
+[`context-truncation`](rules/context-truncation.md) checks each file the
+harness loads after launch (a folder's own `CLAUDE.md`, a path-scoped or
+folder rule) against the per-file cut: 150,000 characters on Claude Code, the
+cut every default model applies. If your sessions run on a 200K window, set
+that window's cut:
+
+```json
+{ "rules": { "context-truncation": ["error", { "limit": 40000 }] } }
+```
+
+`limit` is a positive integer in the harness's unit; anything else is a config
+error. The [rule doc](rules/context-truncation.md#limit-if-your-team-runs-a-200k-window)
+says why it is an option and not a second rule.
 
 ### `overrides`
 

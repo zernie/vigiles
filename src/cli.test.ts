@@ -19,6 +19,7 @@ import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 
+import { summaryText } from "./cli-main.js";
 import { findKeyFilesInSpecSource } from "./core/keyfiles-source.js";
 import { starterHarnessName } from "./setup-plan.js";
 import { canRunTypeScript, detectNodeCaps } from "./ts-runner-caps.js";
@@ -601,6 +602,15 @@ Real rule:
       `Expected 'inline' in summary, got: ${stdout}`,
     );
     assert.equal(exitCode, 2);
+  });
+
+  it("--summary never says clean while lint counted a finding", () => {
+    // Guards: the session-start hook reads this line and ignores the exit
+    // code, so a finding no summary field names must still show as a count.
+    assert.notEqual(summaryText([], 1), "clean");
+    assert.match(summaryText([], 2), /^2 finding\(s\)/);
+    assert.equal(summaryText([], 0), "clean");
+    assert.equal(summaryText(["1 stale"], 1), "1 stale");
   });
 
   it("does NOT satisfy require-instructions-spec via inline rules (narrow rule)", () => {

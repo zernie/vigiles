@@ -42,7 +42,7 @@ describe("the remedy list", () => {
   it("names each carrier an always-loaded rule can move to", () => {
     expect(MOVE_OUT_OF_ALWAYS_LOADED.split("\n")).toEqual([
       "Move what does not apply to every request:",
-      "  - a rule for one folder → that folder's nested CLAUDE.md or AGENTS.md (loads only there)",
+      "  - a rule for one folder → that folder's own instruction file: it loads the first time a file there is read and stays until compaction, so keep it to rules for that folder; lists, indexes and dated records go in a file nothing loads by itself, linked from there",
       "  - a step tied to one action → a hook",
       "  - a procedure for one kind of task → a skill",
       "  - a fact a machine can check → a lint rule or a test, then delete the prose",

@@ -93,6 +93,7 @@ import {
   RULES,
   RULE_GROUPS,
   contextCreepOptions,
+  onDemandLimitOptions,
   type RuleId,
   type RulesConfig,
   type VigilesConfig,
@@ -168,6 +169,7 @@ import {
   hookScriptMissingMessage,
   staleHookMessage,
   measureAlwaysLoaded,
+  measureOnDemand,
 } from "./scan.js";
 import {
   checkContextCreep,
@@ -179,6 +181,8 @@ import {
   type MeasuredBundle,
 } from "./context-creep-lint.js";
 import { checkAlwaysLoadedLimits } from "./core/always-loaded-limits.js";
+import { checkOnDemandFiles } from "./core/on-demand-limits.js";
+import { checkOnDemandLimit } from "./on-demand-lint.js";
 import type { ScanReport, ScanHarness } from "./scan.js";
 import {
   frameAt,
@@ -447,6 +451,7 @@ import {
 import { decideBase } from "./core/changed-base.js";
 import { parseAuditFormat, parseCompareRequest } from "./core/audit-flags.js";
 import { auditCopy, copyBaseTree, placeInRepo } from "./host/base-tree.io.js";
+import { folderInstructionFiles } from "./host/folder-instructions.io.js";
 import { cleanupTmpDir } from "./core/tmp-root.js";
 
 /**
@@ -508,6 +513,27 @@ function alwaysLoadedLimits(
     ...(opts?.limits === undefined ? {} : { limits: opts.limits }),
     ...(opts?.max === undefined ? {} : { max: opts.max }),
   };
+}
+
+/**
+ * The rule that weighs files loaded after launch against the per-file cut,
+ * found by its detector so this file never spells its id (`local/no-rule-ids`).
+ */
+const ON_DEMAND_RULE: RuleId = ((): RuleId => {
+  const rule = RULES.find((r) => r.detector === checkOnDemandFiles.name);
+  if (rule === undefined) throw new Error("no rule reports checkOnDemandFiles");
+  return rule.id;
+})();
+
+/** The on-demand per-file cut override, as `.vigilesrc.json` sets it. */
+function onDemandLimit(
+  config: Readonly<VigilesConfig> | undefined,
+): number | undefined {
+  const value: unknown = config?.rules?.[ON_DEMAND_RULE];
+  const parsed = onDemandLimitOptions.safeParse(
+    Array.isArray(value) ? value[1] : {},
+  );
+  return parsed.success ? parsed.data.limit : undefined;
 }
 
 /** The resolver over this set's ids. */
@@ -1760,6 +1786,8 @@ interface LintReport {
    * that output.
    */
   contextCreepNotes: readonly string[];
+  onDemandIssues: number;
+  onDemandErrors: number;
   deprecatedKeyFilesIssues: number;
   deprecatedKeyFilesErrors: number;
   docRefErrors: number;
@@ -1945,6 +1973,7 @@ function lintExitCode(report: LintReport): 0 | 1 | 2 {
     report.hookBlockErrors > 0 ||
     report.hookMatcherErrors > 0 ||
     report.contextCreepErrors > 0 ||
+    report.onDemandErrors > 0 ||
     report.deprecatedKeyFilesErrors > 0 ||
     report.symbolRefErrors > 0 ||
     report.mcpRefErrors > 0 ||
@@ -3108,6 +3137,27 @@ async function runLint(
     },
   });
 
+  // 7v'. Context truncation — each file loaded after launch (a folder's own
+  // instruction file, a path-scoped or folder rule) against the harness's
+  // per-file cut. Once over the repository, like context-creep; no baseline.
+  const onDemand = checkOnDemandLimit({
+    ruleId: ON_DEMAND_RULE,
+    severityAt: (path) => rules.severityAt(ON_DEMAND_RULE, path),
+    mayFire: rules.mayFire(ON_DEMAND_RULE),
+    scope: frame.bundle(scanRoot).at,
+    silent,
+    harness: adapter.name,
+    measure: () =>
+      measureOnDemand(frame.root, adapter, {
+        folderFiles: folderInstructionFiles(frame.root, adapter.layout),
+        excludes,
+        limit: onDemandLimit(config),
+      }),
+    annotate: (level, message) => {
+      ghAnnotate(level, message);
+    },
+  });
+
   // 7w. Deprecated-key-files — an instruction spec still using `keyFiles`. Once
   // over the repository, like the ratchet: a nested bundle's spec would
   // otherwise be reported again by every bundle that encloses it.
@@ -3289,6 +3339,8 @@ async function runLint(
     contextCreepIssues: contextCreep.issues,
     contextCreepErrors: contextCreep.errors,
     contextCreepNotes: contextCreep.notes,
+    onDemandIssues: onDemand.issues,
+    onDemandErrors: onDemand.errors,
     deprecatedKeyFilesIssues: deprecatedKeyFiles.issues,
     deprecatedKeyFilesErrors: deprecatedKeyFiles.errors,
     // Only the "error" tier gates. At "warn" the findings are printed and
@@ -3349,6 +3401,21 @@ async function runLint(
 }
 
 /** Single-line lint summary for SessionStart hooks — minimal token cost. */
+/**
+ * The summary line's text. Never "clean" while `lint` counted a finding: a check
+ * this list does not name still shows as a count, because the session-start
+ * hook reads this line and ignores the exit code.
+ */
+export function summaryText(
+  parts: readonly string[],
+  findings: number,
+): string {
+  if (parts.length > 0) return parts.join(" / ");
+  return findings > 0
+    ? `${String(findings)} finding(s), run \`vigiles lint\` for details`
+    : "clean";
+}
+
 function printLintSummary(report: LintReport): void {
   const parts: string[] = [];
   if (report.hashErrors > 0) parts.push(`${String(report.hashErrors)} stale`);
@@ -3381,11 +3448,15 @@ function printLintSummary(report: LintReport): void {
     parts.push(
       `${String(report.integrityErrors)} tampered (edit the .spec.ts source)`,
     );
-  if (parts.length === 0) {
-    console.log("vigiles: clean");
-  } else {
-    console.log(`vigiles: ${parts.join(" / ")}`);
-  }
+  const truncated =
+    report.onDemandIssues > 0
+      ? [
+          `${String(report.onDemandIssues)} truncated instruction file(s) (split them)`,
+        ]
+      : [];
+  console.log(
+    `vigiles: ${summaryText([...parts, ...truncated], lintTotals(report).findings)}`,
+  );
   // One extra line per note, only when there is one: the command to record or
   // migrate the baseline reaches the agent through the session-start hook.
   report.contextCreepNotes.forEach((note) => {
@@ -9995,6 +10066,13 @@ function auditScan(
 ): FilteredScan<ScanReport> {
   const scan = scanPlugin(target, adapter.layout, adapter.dialect, {
     deprecatedKeyFiles: specsUsingKeyFiles(at.root, at.excludes.globIgnore),
+    // The files loaded on demand, by the same detector `lint` gates on —
+    // against the harness's own cut, like every other audit limit.
+    onDemand: {
+      folderFiles: folderInstructionFiles(target, adapter.layout),
+      excludes: at.excludes,
+      limit: undefined,
+    },
     sharedDirs: config.sharedDirs,
     sharedDirsRoot: at.frame.root,
     // `.vigilesrc.json#exclude` reaches surface DISCOVERY, not just the

@@ -82,6 +82,11 @@ import type { TrifectaFinding } from "./core/lethal-trifecta.js";
 import type { SkillResourceFinding } from "./core/skill-resources.js";
 import { instructionViews } from "./core/instruction-chain.js";
 import {
+  checkOnDemandFiles,
+  formatOnDemandOver,
+  type OnDemandCheck,
+} from "./core/on-demand-limits.js";
+import {
   unresolvedImports,
   type DirEntryKind,
   type DirListing,
@@ -501,6 +506,11 @@ export interface ScanReport {
    */
   readonly alwaysLoaded?: AlwaysLoadedContext;
   /**
+   * The files the harness loads on demand against its per-file cut — present
+   * only when the caller asked for it (`audit`), see `scanPlugin`'s `onDemand`.
+   */
+  readonly onDemand?: OnDemandCheck;
+  /**
    * Instruction specs still using the deprecated `keyFiles` — the
    * `deprecated-key-files` rule's own detector (`findDeprecatedKeyFiles`),
    * handed in through `opts` by `audit`, so `lint` and `audit` cannot
@@ -730,6 +740,62 @@ export function measureAlwaysLoaded(
   );
 }
 
+/**
+ * Each file this harness loads ON DEMAND under `dir` (a folder's own
+ * instruction file, a path-scoped rule) against the harness's per-file cut —
+ * the one route `lint`'s context-creep rule and `audit` both take, so the two
+ * cannot disagree about which file is over. The launch-time files ride along
+ * so the adapter's chain sees the same settings and siblings it sees at launch
+ * and decides which folder files load; only `on-demand` entries are weighed.
+ * `limit` replaces the harness's floor (`.vigilesrc.json`).
+ */
+export function measureOnDemand(
+  dir: string,
+  harness: Pick<ScanHarness, "layout" | "dialect">,
+  input: OnDemandInput,
+): OnDemandCheck {
+  const root = resolve(dir);
+  // Read WITHOUT `exclude`: which files the harness loads follows its own
+  // settings (`claudeMdExcludes` in `.claude/settings.json`), and a repository
+  // that tells vigiles to skip `.claude` has not told the harness anything.
+  const files = {
+    ...boundedInstructionFiles(root, harness.layout),
+    ...input.folderFiles,
+  };
+  const check = checkOnDemandFiles({
+    chain: instructionViews(harness.layout, files).committed,
+    files,
+    rule: harness.dialect.onDemandFileLimit,
+    limit: input.limit,
+  });
+  return reportable(check, excludedBy(input.excludes), root);
+}
+
+/** The check with every file `exclude` names left out of what is reported. */
+function reportable(
+  check: OnDemandCheck,
+  excluded: (abs: string) => boolean,
+  root: string,
+): OnDemandCheck {
+  if (check.kind === "not-modelled") return check;
+  const kept = (f: { readonly path: string }): boolean =>
+    !excluded(join(root, f.path));
+  return {
+    ...check,
+    files: check.files.filter(kept),
+    over: check.over.filter(kept),
+  };
+}
+
+/** What {@link measureOnDemand} is handed: the folder files the root read, and options. */
+export interface OnDemandInput {
+  /** Every folder's instruction file, path → text (`host/folder-instructions.io.ts`). */
+  readonly folderFiles: Readonly<Record<string, string>>;
+  readonly excludes: ExcludeSet | undefined;
+  /** Replaces the harness's per-file floor (`.vigilesrc.json`). */
+  readonly limit: number | undefined;
+}
+
 function alwaysLoadedOf(
   dir: string,
   harness: Pick<ScanHarness, "layout" | "dialect">,
@@ -897,6 +963,12 @@ export function scanPlugin(
      * positional `layout`/`dialect`, exactly as before.
      */
     harnesses?: readonly ScanHarness[];
+    /**
+     * Weigh the files the harness loads on demand ({@link measureOnDemand}).
+     * `audit` passes the folder files its composition root read; the
+     * per-bundle lint checkers leave it off.
+     */
+    onDemand?: OnDemandInput;
   } = {},
 ): ScanReport {
   const lay = layout;
@@ -1132,6 +1204,7 @@ export function scanPlugin(
     coverageEvidence: coverageEvidenceCounts(coverage),
     ...(caveats.length > 0 ? { coverageCaveats: caveats } : {}),
     ...deprecatedKeyFilesField(opts.deprecatedKeyFiles),
+    ...onDemandField(dir, instructionHarness, opts.onDemand),
     ownTestSignal: ownTestSignalOnDisk(dir),
     puritySummary,
   };
@@ -1567,6 +1640,15 @@ function limitLines(
   ];
 }
 
+/** The report's `onDemand` field, when the caller asked for it. */
+function onDemandField(
+  dir: string,
+  harness: Pick<ScanHarness, "layout" | "dialect">,
+  input: OnDemandInput | undefined,
+): Pick<ScanReport, "onDemand"> {
+  return input ? { onDemand: measureOnDemand(dir, harness, input) } : {};
+}
+
 /** What the instruction file costs: its always-loaded weight, then any deprecated `keyFiles` inflating it. */
 function instructionCostLines(r: ScanReport): readonly string[] {
   const weight = r.instructionWeight
@@ -1581,7 +1663,42 @@ function instructionCostLines(r: ScanReport): readonly string[] {
         "",
       ]
     : [];
-  return [...weight, ...deprecatedKeyFilesLines(r)];
+  return [
+    ...weight,
+    ...onDemandLines(r.onDemand),
+    ...deprecatedKeyFilesLines(r),
+  ];
+}
+
+/**
+ * The files loaded on demand: how many, the largest, and each one over the
+ * per-file cut — the same detector `lint` reports. A harness without the cut
+ * modelled says so, rather than reading as "nothing over".
+ */
+function onDemandLines(check: OnDemandCheck | undefined): readonly string[] {
+  if (!check) return [];
+  if (check.kind === "not-modelled") {
+    return [
+      "  on-demand files: not modelled for this harness (folder instruction files and path-scoped rules are not weighed)",
+      "",
+    ];
+  }
+  return [
+    onDemandHead(check),
+    ...check.over.map((f) => `  ⚠ ${formatOnDemandOver(f, check)}`),
+    "",
+  ];
+}
+
+/** How many files load on demand, and the largest against the cut. */
+function onDemandHead(
+  check: Extract<OnDemandCheck, { kind: "checked" }>,
+): string {
+  const g = (x: number): string => x.toLocaleString("en-US");
+  const [largest] = check.files;
+  return largest
+    ? `  on-demand files: ${g(check.files.length)}, loaded on first touch and kept until compaction; largest ${largest.path} ${g(largest.size)} of the per-file cut ${g(check.limit)} ${check.unit}`
+    : "  on-demand files: none (no folder instruction file or path-scoped rule)";
 }
 
 /** Every hand-written hook, by name: none of them can be checked statically. */

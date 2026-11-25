@@ -73,7 +73,8 @@ directory (Claude Code's `.claude/rules/*.md` without `paths:`), in the
 harness's own unit: **characters** for Claude Code, **bytes** for Codex.
 
 Not counted: files loaded on demand (`paths:`-scoped rules, nested `CLAUDE.md`
-files), files removed by the repo's committed `claudeMdExcludes`, and
+files; their per-file cut is [`context-truncation`](context-truncation.md)),
+files removed by the repo's committed `claudeMdExcludes`, and
 per-machine files (`CLAUDE.local.md`, a gitignored settings sibling). That last
 exclusion is what makes the number the same on every clone of a commit, and so
 comparable in CI.
@@ -403,6 +404,8 @@ differing `name` is counted exactly.
 
 ## See also
 
+- [context-truncation](context-truncation.md) — files loaded after launch,
+  against the harness's per-file cut.
 - [`vigiles audit`](../cli.md) — the full weight report: per-file sizes, the
   limits, and what the harness does when over them.
 - [skill-description-budget](skill-description-budget.md) — a per-description

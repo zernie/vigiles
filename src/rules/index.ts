@@ -27,6 +27,8 @@ import {
 import { defineRule, type RuleSpec } from "../core/rule.js";
 import { RULE_GROUPS, type RuleGroupName } from "./groups.js";
 import { instructionImportResolves } from "./instruction-import-resolves.js";
+import { contextTruncation } from "./context-truncation.js";
+export { onDemandLimitOptions } from "./context-truncation.js";
 import { skillResourceResolves } from "./skill-resource-resolves.js";
 
 export { RULE_GROUPS };
@@ -491,6 +493,7 @@ export const RULES = [
     detector: "checkAlwaysLoadedLimits",
     options: contextCreepOptions,
   }),
+  contextTruncation,
   defineRule({
     id: "deprecated-key-files",
     // A deprecation notice: it must never gate, or upgrading vigiles would turn

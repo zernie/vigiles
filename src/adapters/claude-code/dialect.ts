@@ -112,6 +112,19 @@ export const claudeCodeDialect: HarnessDialect = {
     capturedFrom:
       "claude-code 2.1.296 large-file warning, floor of max(40000, window*0.05*charsPerToken); the rules dir measured 2026-09-16 in a consumer repo",
   },
+  // The per-file cut on files loaded AFTER launch (a folder's CLAUDE.md, its
+  // imports, path-scoped rules). 150 000 is the cut on a 1M window, which every
+  // current default model runs (Opus 4.7+, Sonnet 5+, Haiku 5.5, Fable): a
+  // file over it is cut for everyone. A 200K window cuts at 40 000; a team on
+  // one lowers it with the checking rule's `limit` option in .vigilesrc.json,
+  // the same way an ESLint size rule takes its threshold as an option.
+  onDemandFileLimit: {
+    unit: "chars",
+    limit: 150000,
+    excludeSetting: { key: "claudeMdExcludes", file: ".claude/settings.json" },
+    capturedFrom:
+      "code.claude.com/docs/en/memory, 'Claude ignores the end of my subdirectory CLAUDE.md' (40,000 on 200K, 150,000 on 1M later models, since v2.1.309); code.claude.com/docs/en/model-config ('Fable models, Sonnet 5 and later, Haiku 5.5, and Opus 4.7 and later run with the 1M window by default'); measured on 2.1.332, 2026-11-25: a 170,001-char subdirectory CLAUDE.md delivered as 149,996 chars plus the 'Only the start of this file is shown' note on the opus/sonnet/haiku aliases, claude-fable-5-2 and claude-opus-4-8, and as 39,942 on claude-haiku-4-5 and claude-sonnet-4-5",
+  },
   // The session-start skill listing — part of the always-loaded context; see
   // ./skill-listing.ts for each rule and its source.
   skillListing: claudeCodeSkillListing,

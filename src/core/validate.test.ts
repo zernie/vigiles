@@ -628,6 +628,8 @@ const SHIPPED_RULE_DEFAULTS = {
   "doc-refs": false,
   // On, and silent until the repo commits a baseline file.
   "context-creep": "error",
+  // A file over the harness's per-file cut is truncated: no baseline accepts it.
+  "context-truncation": "error",
   // A deprecation notice: reported, never gating on upgrade.
   "deprecated-key-files": "warn",
 };
