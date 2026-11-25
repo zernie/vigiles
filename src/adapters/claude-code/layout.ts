@@ -23,8 +23,10 @@ export const claudeCodeLayout: PluginLayout = {
   settings: jsonSettingsCodec,
   instructionFile: "CLAUDE.md",
   // A folder's own instruction files, loaded the first time the agent reads a
-  // file there (`takeSubdirectories` in ./instruction-chain.ts names the same two).
-  folderInstructionFiles: ["CLAUDE.md", "AGENTS.md"],
+  // file there (`takeSubdirectories` in ./instruction-chain.ts names the first
+  // two). `.claude/CLAUDE.md` is listed so the walk reads it: its presence keeps
+  // the folder's `AGENTS.md` from loading (`folderSuperseder`).
+  folderInstructionFiles: ["CLAUDE.md", "AGENTS.md", ".claude/CLAUDE.md"],
   surfaces: { skill: "skills", agent: "agents", command: "commands" },
   // A plain Claude Code USER keeps skills/agents/commands under `.claude/`, not at
   // the repo root (that's the published-plugin shape). Read both so a normal repo

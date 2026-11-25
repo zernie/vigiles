@@ -105,10 +105,11 @@ export interface PluginLayout {
   /** Top-level instruction file, e.g. `CLAUDE.md`. */
   readonly instructionFile: string;
   /**
-   * The file names this harness loads from a FOLDER below the root once the
-   * agent works there (e.g. `CLAUDE.md`, `AGENTS.md`). The on-demand check
-   * looks for these names in every folder and hands them to `instructionChain`,
-   * which decides which of them load. Optional: absent ⇒ the harness's folder
+   * The files, as paths relative to a folder, that decide what this harness
+   * loads from a FOLDER below the root once the agent works there (e.g.
+   * `CLAUDE.md`, `AGENTS.md`, `.claude/CLAUDE.md`). The on-demand check looks
+   * for these in every folder — a dot-directory only where a path spells it —
+   * and hands them to `instructionChain`, which decides which of them load. Optional: absent ⇒ the harness's folder
    * files are not modelled, and the check says so.
    */
   readonly folderInstructionFiles?: readonly string[];

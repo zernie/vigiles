@@ -8,9 +8,11 @@
  * bound keeps registering an adapter from widening what vigiles reads; it also
  * kept a 153 KB folder file from ever being weighed. Such a file loads the
  * first time the agent reads a file in its folder and stays until compaction,
- * so its size is real. The walk is narrowed instead: only the declared names,
- * never a dot-directory (a `.claude/worktrees/*` checkout is a copy of the
- * repository, not a folder of it), never `node_modules`, never a symlink, and
+ * so its size is real. The walk is narrowed instead: only the declared paths,
+ * never through a dot-directory (a `.claude/worktrees/*` checkout is a copy of
+ * the repository, not a folder of it) — a declared path such as
+ * `.claude/CLAUDE.md` names its own dot segment, which `**` still never
+ * descends into — never `node_modules`, never a symlink, and
  * the repository's `exclude` applies. Absent `folderInstructionFiles` ⇒
  * nothing is walked.
  *

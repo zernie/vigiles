@@ -188,3 +188,21 @@ describe("audit shows the same check", () => {
     expect(r.out).toContain(LIMIT.toLocaleString("en-US"));
   });
 });
+
+describe("the folder walk", () => {
+  it("a folder's .claude/CLAUDE.md supersedes its AGENTS.md", () => {
+    put("pkg/.claude/CLAUDE.md", sized(100));
+    put("pkg/AGENTS.md", sized(LIMIT + 1));
+    const r = run(["lint"]);
+    // Guards: the walk reads the one dot-directory file that decides a supersede.
+    expect(r.code).toBe(0);
+    expect(failures(r.out)).toEqual([]);
+  });
+
+  it("a worktree copy under .claude/ is never walked", () => {
+    put(".claude/worktrees/w1/pkg/CLAUDE.md", sized(LIMIT + 1));
+    const r = run(["lint"]);
+    // Guards: a checkout inside a dot-directory is a copy, not a folder of the repo.
+    expect(failures(r.out)).toEqual([]);
+  });
+});
