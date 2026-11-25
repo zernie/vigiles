@@ -6,42 +6,9 @@
  */
 import { describe, it, expect } from "vitest";
 import { stripVTControlCharacters } from "node:util";
-import {
-  colourEnabled,
-  fileBlocks,
-  groupBlock,
-  plain,
-  terminalPaint,
-} from "./term-render.js";
+import { fileBlocks, groupBlock, plain } from "./term-render.js";
+import { terminalPaint } from "./term-colour.js";
 import { NAMES_SHOWN, type FindingGroup } from "./core/finding-groups.js";
-
-describe("colourEnabled", () => {
-  it.each([
-    // [isTTY, env, expected]
-    [true, {}, true],
-    [false, {}, false],
-    [true, { TERM: "dumb" }, false],
-    [true, { NO_COLOR: "1" }, false],
-    [true, { NO_COLOR: "" }, true],
-    [false, { FORCE_COLOR: "1" }, true],
-    [true, { FORCE_COLOR: "0" }, false],
-    [false, { NO_COLOR: "1", FORCE_COLOR: "1" }, false],
-  ] as const)("isTTY=%s env=%j → %s", (isTTY, env, expected) => {
-    expect(colourEnabled(isTTY, env)).toBe(expected);
-  });
-});
-
-describe("terminalPaint", () => {
-  it("with colour off, returns the text untouched", () => {
-    expect(terminalPaint(false, {})("bad", "x")).toBe("x");
-  });
-
-  it("with colour on, adds escapes and nothing else", () => {
-    const painted = terminalPaint(false, { FORCE_COLOR: "1" })("bad", "x");
-    expect(painted).not.toBe("x");
-    expect(stripVTControlCharacters(painted)).toBe("x");
-  });
-});
 
 describe("groupBlock", () => {
   const group = (names: readonly string[]): FindingGroup => ({

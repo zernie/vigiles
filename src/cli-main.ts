@@ -30,7 +30,8 @@ import {
   type Dirent,
 } from "node:fs";
 import { injectableEventsOf } from "./core/event-capability.js";
-import { fileBlocks, terminalPaint } from "./term-render.js";
+import { terminalPaint } from "./term-colour.js";
+import { fileBlocks } from "./term-render.js";
 import {
   resolve,
   dirname,

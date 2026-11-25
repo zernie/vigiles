@@ -89,6 +89,7 @@ export default defineConfig({
         "src/core/finding-groups.ts",
         "src/core/trifecta-fix.ts",
         "src/term-render.ts",
+        "src/term-colour.ts",
         "src/eval-baseline.ts",
         "src/eval-cache.ts",
         "src/eval-lock.ts",
