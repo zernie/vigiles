@@ -159,7 +159,9 @@ describe("exclude e2e — `vendored` (bare name) excluded", () => {
   });
 
   it("row 9: `audit --json` does not read the excluded instruction file", () => {
-    const r = run("audit --json --no-html", dir);
+    // The instruction file's text reaches the JSON only through the rule map,
+    // an experimental section, so the preset is what makes this row observable.
+    const r = run("audit --json --no-html --preset=experimental", dir);
     assert.equal(r.code, 0, r.out);
     assert.doesNotMatch(r.out, new RegExp(SENTINEL));
   });
@@ -256,7 +258,9 @@ describe("exclude e2e — control: `exclude: []` makes every row FIRE", () => {
   });
 
   it("row 9: `audit --json` reads the vendored instruction file", () => {
-    const r = run("audit --json --no-html", dir);
+    // The instruction file's text reaches the JSON only through the rule map,
+    // an experimental section, so the preset is what makes this row observable.
+    const r = run("audit --json --no-html --preset=experimental", dir);
     assert.match(r.out, new RegExp(SENTINEL));
   });
 
