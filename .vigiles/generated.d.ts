@@ -397,7 +397,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 689 project files. */
+  /** 691 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -968,6 +968,7 @@ declare module "vigiles/generated" {
     | "src/model-spawn-guard.test.ts"
     | "src/observe.test.ts"
     | "src/observe.ts"
+    | "src/on-demand-lint.ts"
     | "src/optimize.test.ts"
     | "src/optimize.ts"
     | "src/output-style-arms.ts"
@@ -993,6 +994,7 @@ declare module "vigiles/generated" {
     | "src/rules-layer.test.ts"
     | "src/rules/CLAUDE.md"
     | "src/rules/CLAUDE.md.spec.ts"
+    | "src/rules/context-truncation.ts"
     | "src/rules/groups.ts"
     | "src/rules/index.test.ts"
     | "src/rules/index.ts"
@@ -2025,6 +2027,7 @@ declare module "vigiles/spec" {
       | "src/model-spawn-guard.test.ts"
       | "src/observe.test.ts"
       | "src/observe.ts"
+      | "src/on-demand-lint.ts"
       | "src/optimize.test.ts"
       | "src/optimize.ts"
       | "src/output-style-arms.ts"
@@ -2050,6 +2053,7 @@ declare module "vigiles/spec" {
       | "src/rules-layer.test.ts"
       | "src/rules/CLAUDE.md"
       | "src/rules/CLAUDE.md.spec.ts"
+      | "src/rules/context-truncation.ts"
       | "src/rules/groups.ts"
       | "src/rules/index.test.ts"
       | "src/rules/index.ts"
