@@ -1258,6 +1258,41 @@ describe("a skill ref that resolves only from the repo root is a note (#382)", (
   }
 });
 
+// The rule map is an unscored experimental preview, so it follows the same
+// switch as the "Experimental — not graded" blocks (#441): absent from a
+// default audit on every surface, present once `--preset=experimental` is on.
+describe("the rule map follows the ungraded switch", () => {
+  let dir = "";
+  beforeAll(() => {
+    dir = mkdtempSync(join(tmpdir(), "vig-rulemap-"));
+    writeFileSync(
+      join(dir, "CLAUDE.md"),
+      "# Rules\n\n- Never use console.log in source files.\n- Do not use any in TypeScript.\n- Run npm test before every commit.\n",
+    );
+  });
+  afterAll(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const routing = z.object({ ruleRouting: z.unknown().optional() });
+
+  it("a default audit prints no rule map and its JSON has no ruleRouting", () => {
+    assert.doesNotMatch(run("audit", dir).stdout, /Rule map|⚙ \d+ custom/);
+    const json: unknown = JSON.parse(run("audit --json", dir).stdout);
+    assert.equal(routing.parse(json).ruleRouting, undefined);
+  });
+
+  it("an ungraded-enabled audit prints the rule map and carries ruleRouting", () => {
+    assert.match(
+      run("audit --preset=experimental", dir).stdout,
+      /Rule map \[experimental\]/,
+    );
+    const json: unknown = JSON.parse(
+      run("audit --json --preset=experimental", dir).stdout,
+    );
+    assert.notEqual(routing.parse(json).ruleRouting, undefined);
+  });
+});
+
 // The `experimental` rule group through the real binary, on every adapter
 // with skills: off by default (no finding, no block, score untouched),
 // `--preset=experimental` turns it on at warn for one run (lint exits 0), a

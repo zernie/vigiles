@@ -266,7 +266,9 @@ export interface AuditReport {
    * it would be enforced, with per-category counts. No model, fs-only. Grounds
    * the report's "rule map" (strengthen / hook / prose / synthesize) in real
    * numbers instead of generic copy.
-   * Present only when at least one atomic rule was segmented. Additive/optional.
+   * Present only when at least one atomic rule was segmented AND an ungraded
+   * (experimental) rule is on — it is an unscored preview, so a default audit
+   * omits it on every surface. Additive/optional.
    */
   readonly ruleRouting?: RuleRouting;
   /**

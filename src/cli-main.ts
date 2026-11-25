@@ -10571,11 +10571,19 @@ export async function main(): Promise<void> {
         );
         // Consent is settled: route the prose rules; the live catalog loads only
         // when THIS run executes. Feeds the JSON report, artifacts, the rule map.
-        const ruleRouting = computeRuleRouting(root, {
-          instructionFile: adapter.layout.instructionFile,
-          excludes,
-          execute,
-        });
+        // The rule map is an experimental, unscored preview, so it rides the
+        // same switch as the other ungraded blocks: it exists only when some
+        // ungraded rule is on (`--preset=experimental`, `extends`, or a `rules`
+        // entry). Off, it is neither computed (no catalog enumeration) nor
+        // carried by any surface — terminal, JSON, HTML, PR summary (#441).
+        const ruleRouting =
+          report.ungraded.length > 0
+            ? computeRuleRouting(root, {
+                instructionFile: adapter.layout.instructionFile,
+                excludes,
+                execute,
+              })
+            : undefined;
         const auditReport: AuditReport = ruleRouting
           ? { ...auditReportBase, ruleRouting }
           : auditReportBase;
