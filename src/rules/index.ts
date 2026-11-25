@@ -27,6 +27,8 @@ import {
 import { defineRule, type RuleSpec } from "../core/rule.js";
 import { RULE_GROUPS, type RuleGroupName } from "./groups.js";
 import { instructionImportResolves } from "./instruction-import-resolves.js";
+import { onDemandTruncation } from "./on-demand-truncation.js";
+export { onDemandLimitOptions } from "./on-demand-truncation.js";
 import { skillResourceResolves } from "./skill-resource-resolves.js";
 
 export { RULE_GROUPS };
@@ -58,8 +60,7 @@ const testCoverageConfig = z
  *
  * `limits` overrides the harness's own limit for a part, in the harness's unit
  * (characters for Claude Code, bytes for Codex): `instructions` (the selected
- * output style counts with them), `skill-listing`, and `on-demand-file` (the
- * per-file cut on a file loaded after launch). A part left out keeps
+ * output style counts with them) and `skill-listing`. A part left out keeps
  * the harness's number. Going over a limit is a finding the baseline store can
  * accept; `max` is the opt-in ABSOLUTE ceiling on the scored instructions that
  * no baseline lifts. Each value is a positive integer: `0` would put every
@@ -73,7 +74,6 @@ export const contextCreepOptions = z
       .object({
         instructions: z.number().int().positive().optional(),
         "skill-listing": z.number().int().positive().optional(),
-        "on-demand-file": z.number().int().positive().optional(),
       })
       .strict()
       .optional(),
@@ -493,6 +493,7 @@ export const RULES = [
     detector: "checkAlwaysLoadedLimits",
     options: contextCreepOptions,
   }),
+  onDemandTruncation,
   defineRule({
     id: "deprecated-key-files",
     // A deprecation notice: it must never gate, or upgrading vigiles would turn

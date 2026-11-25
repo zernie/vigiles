@@ -1,10 +1,10 @@
 /**
- * The `on-demand-file` limit of the context-creep rule, through the REAL built
- * CLI: a repository whose sessions run on a smaller window lowers the per-file
- * cut below the harness's default, and `lint` then fails on a folder file over
- * the lowered number. The default itself and the cut's other contracts are in
- * `adapters/claude-code/on-demand-lint.test.ts`; this file holds the option,
- * because only the root may name a rule (it reads the id off the rule set).
+ * The `on-demand-truncation` rule's CONFIG, through the REAL built CLI: its
+ * `limit` option (a repository on a smaller window lowers the per-file cut)
+ * and its independence from `context-creep` (each rule has its own switch).
+ * The cut's other contracts are in `adapters/claude-code/on-demand-lint.test.ts`;
+ * this file lives at the root because only the root may name a rule — it reads
+ * both ids off the rule set by their detectors, as the CLI does.
  */
 import { afterEach, beforeEach, expect, test } from "vitest";
 import { spawnSync } from "node:child_process";
@@ -12,13 +12,16 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
 import { checkAlwaysLoadedLimits } from "./core/always-loaded-limits.js";
+import { checkOnDemandFiles } from "./core/on-demand-limits.js";
 import { cleanupTmpDir, humanCliEnv, makeTmpDir } from "./core/test-utils.js";
 import { RULES } from "./rules/index.js";
 
 const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 
-/** The rule this option belongs to, found by its detector, as the CLI finds it. */
-const RULE = RULES.find((r) => r.detector === checkAlwaysLoadedLimits.name)?.id;
+const idOf = (detector: string): string =>
+  RULES.find((r) => r.detector === detector)?.id ?? "";
+const TRUNCATION = idOf(checkOnDemandFiles.name);
+const CREEP = idOf(checkAlwaysLoadedLimits.name);
 
 let dir: string;
 
@@ -36,16 +39,11 @@ function put(rel: string, body: string): void {
   writeFileSync(join(dir, rel), body);
 }
 
-function config(limit: number | undefined): string {
-  const rules =
-    RULE === undefined || limit === undefined
-      ? {}
-      : { [RULE]: ["error", { limits: { "on-demand-file": limit } }] };
-  return JSON.stringify({ rules });
-}
+const config = (rules: Readonly<Record<string, unknown>>): string =>
+  JSON.stringify({ rules });
 
 beforeEach(() => {
-  dir = makeTmpDir("on-demand-limit-option");
+  dir = makeTmpDir("on-demand-limit-config");
   put("CLAUDE.md", "# Project\n\nUse the npm scripts in package.json.\n");
   put("pkg/a.ts", "export {};\n");
   put("pkg/CLAUDE.md", `# Folder rules\n\n${"x".repeat(200)}\n`);
@@ -54,18 +52,38 @@ afterEach(() => {
   cleanupTmpDir(dir);
 });
 
-test("the rule is found in the set", () => {
-  // Guards: the cases below configure a real rule, not an undefined key.
-  expect(RULE).toBeDefined();
+test("both rules are in the set, under different ids", () => {
+  // Guards: the cases below configure two real rules, not one key twice.
+  expect(TRUNCATION).not.toBe("");
+  expect(CREEP).not.toBe("");
+  expect(TRUNCATION).not.toBe(CREEP);
 });
 
 test("a lowered limit fails a folder file the default passes", () => {
-  put(".vigilesrc.json", config(undefined));
+  put(".vigilesrc.json", config({}));
   // Guards: the control — a 200-character folder file is under the default cut.
   expect(run(["lint"]).code).toBe(0);
-  put(".vigilesrc.json", config(100));
+  put(".vigilesrc.json", config({ [TRUNCATION]: ["error", { limit: 100 }] }));
   const r = run(["lint"]);
   // Guards: the threshold is the repository's to set, below the default too.
   expect(r.code).not.toBe(0);
   expect(r.out).toContain("pkg/CLAUDE.md");
+});
+
+test("the weight rule off leaves the per-file cut on", () => {
+  put(
+    ".vigilesrc.json",
+    config({ [CREEP]: "off", [TRUNCATION]: ["error", { limit: 100 }] }),
+  );
+  // Guards: the two checks have separate switches; one off is not both off.
+  expect(run(["lint"]).code).not.toBe(0);
+});
+
+test("the per-file cut off silences it", () => {
+  put(".vigilesrc.json", config({ [TRUNCATION]: "off" }));
+  put("pkg/CLAUDE.md", `# Folder rules\n\n${"x".repeat(200_000)}\n`);
+  const r = run(["lint"]);
+  // Guards: turning the rule off is honoured even far over the cut.
+  expect(r.code).toBe(0);
+  expect(r.out).not.toContain("pkg/CLAUDE.md is");
 });

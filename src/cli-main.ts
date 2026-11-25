@@ -93,6 +93,7 @@ import {
   RULES,
   RULE_GROUPS,
   contextCreepOptions,
+  onDemandLimitOptions,
   type RuleId,
   type RulesConfig,
   type VigilesConfig,
@@ -180,6 +181,8 @@ import {
   type MeasuredBundle,
 } from "./context-creep-lint.js";
 import { checkAlwaysLoadedLimits } from "./core/always-loaded-limits.js";
+import { checkOnDemandFiles } from "./core/on-demand-limits.js";
+import { checkOnDemandLimit } from "./on-demand-lint.js";
 import type { ScanReport, ScanHarness } from "./scan.js";
 import {
   frameAt,
@@ -512,15 +515,25 @@ function alwaysLoadedLimits(
   };
 }
 
+/**
+ * The rule that weighs files loaded after launch against the per-file cut,
+ * found by its detector so this file never spells its id (`local/no-rule-ids`).
+ */
+const ON_DEMAND_RULE: RuleId = ((): RuleId => {
+  const rule = RULES.find((r) => r.detector === checkOnDemandFiles.name);
+  if (rule === undefined) throw new Error("no rule reports checkOnDemandFiles");
+  return rule.id;
+})();
+
 /** The on-demand per-file cut override, as `.vigilesrc.json` sets it. */
 function onDemandLimit(
   config: Readonly<VigilesConfig> | undefined,
 ): number | undefined {
-  const value: unknown = config?.rules?.[ALWAYS_LOADED_RULE];
-  const parsed = contextCreepOptions.safeParse(
+  const value: unknown = config?.rules?.[ON_DEMAND_RULE];
+  const parsed = onDemandLimitOptions.safeParse(
     Array.isArray(value) ? value[1] : {},
   );
-  return parsed.success ? parsed.data.limits?.["on-demand-file"] : undefined;
+  return parsed.success ? parsed.data.limit : undefined;
 }
 
 /** The resolver over this set's ids. */
@@ -1773,6 +1786,8 @@ interface LintReport {
    * that output.
    */
   contextCreepNotes: readonly string[];
+  onDemandIssues: number;
+  onDemandErrors: number;
   deprecatedKeyFilesIssues: number;
   deprecatedKeyFilesErrors: number;
   docRefErrors: number;
@@ -1958,6 +1973,7 @@ function lintExitCode(report: LintReport): 0 | 1 | 2 {
     report.hookBlockErrors > 0 ||
     report.hookMatcherErrors > 0 ||
     report.contextCreepErrors > 0 ||
+    report.onDemandErrors > 0 ||
     report.deprecatedKeyFilesErrors > 0 ||
     report.symbolRefErrors > 0 ||
     report.mcpRefErrors > 0 ||
@@ -3116,7 +3132,20 @@ async function runLint(
       lintRoots.map((abs) =>
         measuredBundle(frame.bundle(abs).at, abs, adapter),
       ),
-    measureOnDemand: () =>
+    annotate: (level, message) => {
+      ghAnnotate(level, message);
+    },
+  });
+
+  // 7v'. On-demand truncation — each file loaded after launch (a folder's own
+  // instruction file, a path-scoped or folder rule) against the harness's
+  // per-file cut. Once over the repository, like context-creep; no baseline.
+  const onDemand = checkOnDemandLimit({
+    severity: ruleSeverity<unknown>(config?.rules?.[ON_DEMAND_RULE]),
+    scope: frame.bundle(scanRoot).at,
+    silent,
+    harness: adapter.name,
+    measure: () =>
       measureOnDemand(frame.root, adapter, {
         folderFiles: folderInstructionFiles(frame.root, adapter.layout),
         excludes,
@@ -3308,6 +3337,8 @@ async function runLint(
     contextCreepIssues: contextCreep.issues,
     contextCreepErrors: contextCreep.errors,
     contextCreepNotes: contextCreep.notes,
+    onDemandIssues: onDemand.issues,
+    onDemandErrors: onDemand.errors,
     deprecatedKeyFilesIssues: deprecatedKeyFiles.issues,
     deprecatedKeyFilesErrors: deprecatedKeyFiles.errors,
     // Only the "error" tier gates. At "warn" the findings are printed and

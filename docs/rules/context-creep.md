@@ -14,11 +14,6 @@ So a repository far under the limits never pays for a gate it does not need,
 and a repository already several times over starts green and fails only when
 it gets heavier.
 
-One more check rides on this rule and works differently: a file the harness
-loads **later**, such as a folder's own `CLAUDE.md`, fails as soon as it is
-longer than the harness delivers, with no baseline. See
-[Files loaded on demand](#files-loaded-on-demand).
-
 The rule itself is stateless: it measures and compares against the limit. The
 baseline store is applied **after** the rule has produced its findings, the way
 ESLint applies bulk suppressions: the rule never reads the store, and the store
@@ -78,7 +73,8 @@ directory (Claude Code's `.claude/rules/*.md` without `paths:`), in the
 harness's own unit: **characters** for Claude Code, **bytes** for Codex.
 
 Not counted: files loaded on demand (`paths:`-scoped rules, nested `CLAUDE.md`
-files), files removed by the repo's committed `claudeMdExcludes`, and
+files; their per-file cut is [`on-demand-truncation`](on-demand-truncation.md)),
+files removed by the repo's committed `claudeMdExcludes`, and
 per-machine files (`CLAUDE.local.md`, a gitignored settings sibling). That last
 exclusion is what makes the number the same on every clone of a commit, and so
 comparable in CI.
@@ -185,88 +181,6 @@ up. This is the rule PHPStan, Psalm, ESLint's unpruned suppressions and
   which still allows the old size — headroom that can be regrown without a
   finding. Record the new, lower number with `vigiles lint --update-baseline`.
 ```
-
-## Files loaded on demand
-
-Some instruction files load **after** launch, not at session start:
-
-- a folder's own `CLAUDE.md` (or `AGENTS.md` when the folder has no
-  `CLAUDE.md`), the first time the agent reads a file in that folder;
-- a rule in `.claude/rules/` with a `paths:` list, when the agent reads a
-  matching file;
-- a rule in a folder's own `.claude/rules/` (`pkg/.claude/rules/api.md`), the
-  first time the agent reads a file in that folder (or, with `paths:`, a
-  matching file there).
-
-Such a file is not cheap. Once loaded it **stays until compaction**, and since
-Claude Code 2.1.309 the harness **cuts it** past a per-file limit: the model
-gets the start and a note to read the rest, and the rules after the cut do not
-reach it.
-
-| Model window | Cut per file       | Who runs it                                                   |
-| ------------ | ------------------ | ------------------------------------------------------------- |
-| 1M           | 150,000 characters | every current default model (Opus 4.7+, Sonnet 5+, Haiku 5.5) |
-| 200K         | 40,000 characters  | older models, or `CLAUDE_CODE_DISABLE_1M_CONTEXT=1`           |
-
-A character is counted the way Claude Code counts it: a Latin, Cyrillic or
-Chinese letter is one, an emoji two (JavaScript string length). Bytes do not
-matter, so a Cyrillic file is cut at the same number of letters as an English
-one.
-
-The rule checks each such file against **150,000**: a file over it is cut on
-every model a user gets by default. Each file over it is one finding:
-
-```
-✗ pkg/CLAUDE.md is 163,402 chars, over the per-file cut of 150,000: the model gets only the start. Split it, or move lists and records to a file nothing loads; for a copy no session loads, add `**/<folder>/**` to `claudeMdExcludes` (.claude/settings.json).
-```
-
-### If your team runs a 200K window
-
-Lower the limit to that window's cut in `.vigilesrc.json`:
-
-```json
-{
-  "rules": {
-    "context-creep": ["error", { "limits": { "on-demand-file": 40000 } }]
-  }
-}
-```
-
-Which window a session runs is a per-machine fact (the model each person
-picks, an environment variable), so vigiles cannot read it from the
-repository. The default is the cut that applies to everyone who did not choose
-otherwise; a team that knows it runs the smaller window says so once.
-
-This is a threshold, not a second rule, for the same reason ESLint's
-`max-lines` takes `max` as an option: one rule has one severity, and the
-number it checks is the repository's to set. Two rules (an error at 150,000
-and a warning at 40,000) would warn most repositories about a setup they do
-not use.
-
-What is different from the rest of this rule:
-
-- **No baseline accepts it.** Over the cut, rules are lost, not just paid for,
-  so `--update-baseline` never records such a file and `lint` keeps failing
-  until it is fixed.
-- **Per file, not per folder.** Each file counts on its own, so splitting a
-  heavy file into several files under the cut fixes the finding. What the
-  folder chain costs in tokens is not gated.
-- **A copy is still loaded.** A `CLAUDE.md` copied under `data/` or a vendored
-  folder loads the moment a file there is read. If no session should load it,
-  say so where the harness reads it: a `**/<folder>/**` pattern in
-  `claudeMdExcludes` (`.claude/settings.json`). An `exclude` in
-  `.vigilesrc.json` only stops vigiles from reporting it: the harness still
-  loads it.
-- **Imports are not weighed yet.** A file that an on-demand file imports with
-  `@` loads with it and is cut the same way, but this check does not read it
-  yet ([#560](https://github.com/zernie/vigiles/issues/560)).
-- **Codex is not modelled.** Codex builds its chain once, from the root to the
-  folder it starts in, and cuts the sum; `vigiles audit` says this check is
-  not modelled there.
-
-The fix, in order: keep the file to rules for that folder; move lists, indexes
-and dated records to a file nothing loads by itself, linked from there; split
-what is left into files each under the cut.
 
 ## Recording the baseline
 
@@ -394,11 +308,11 @@ is written. Run `--update-baseline` once more to accept the current size.
 { "rules": { "context-creep": "error" } }
 ```
 
-| Value               | Behavior                                                                                                                  |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `"error"` (default) | `vigiles lint` exits 2 when a part over its limit grew past the baseline, or when a file loaded on demand is over the cut |
-| `"warn"`            | Prints the finding, exits 0                                                                                               |
-| `false`             | Skip the check (and `init` records nothing)                                                                               |
+| Value               | Behavior                                                                 |
+| ------------------- | ------------------------------------------------------------------------ |
+| `"error"` (default) | `vigiles lint` exits 2 when a part over its limit grew past the baseline |
+| `"warn"`            | Prints the finding, exits 0                                              |
+| `false`             | Skip the check (and `init` records nothing)                              |
 
 On by default because a repository under every limit sees nothing, and one
 over a limit with no baseline sees a note.
@@ -415,11 +329,6 @@ over a limit with no baseline sees a note.
   }
 }
 ```
-
-`on-demand-file` moves the per-file cut on files loaded after launch
-([Files loaded on demand](#files-loaded-on-demand)): down to 40,000 for a
-repository whose sessions run on a 200K window
-([why](#if-your-team-runs-a-200k-window)).
 
 Each value is a positive integer in the harness's own unit (characters for
 Claude Code, bytes for Codex). A part left out keeps the harness's number. An
@@ -495,6 +404,8 @@ differing `name` is counted exactly.
 
 ## See also
 
+- [on-demand-truncation](on-demand-truncation.md) — files loaded after launch,
+  against the harness's per-file cut.
 - [`vigiles audit`](../cli.md) — the full weight report: per-file sizes, the
   limits, and what the harness does when over them.
 - [skill-description-budget](skill-description-budget.md) — a per-description

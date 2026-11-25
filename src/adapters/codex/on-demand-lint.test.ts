@@ -60,6 +60,13 @@ describe("a folder's AGENTS.md under Codex", () => {
     ).toEqual([]);
   });
 
+  it("lint says the check is n/a rather than passing it silently", () => {
+    put("pkg/AGENTS.md", "# Folder\n");
+    const r = run(["lint"]);
+    // Guards: no-silent-skips — an unmodelled cut prints n/a, not nothing.
+    expect(r.out).toMatch(/On-demand truncation[^\n]*\n\s*– n\/a/);
+  });
+
   it("audit says the check is not modelled", () => {
     put("pkg/AGENTS.md", "# Folder\n");
     const r = run(["audit"]);

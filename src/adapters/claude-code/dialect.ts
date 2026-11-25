@@ -116,8 +116,8 @@ export const claudeCodeDialect: HarnessDialect = {
   // imports, path-scoped rules). 150 000 is the cut on a 1M window, which every
   // current default model runs (Opus 4.7+, Sonnet 5+, Haiku 5.5, Fable): a
   // file over it is cut for everyone. A 200K window cuts at 40 000; a team on
-  // one lowers the limit in .vigilesrc.json (`limits["on-demand-file"]`), the
-  // same way an ESLint size rule takes its threshold as an option.
+  // one lowers it with the checking rule's `limit` option in .vigilesrc.json,
+  // the same way an ESLint size rule takes its threshold as an option.
   onDemandFileLimit: {
     unit: "chars",
     limit: 150000,
