@@ -387,9 +387,9 @@ report now says so and lists the three causes, in the order they bite:
 3. **the `fixture`** — a run starts in an **empty** cwd, so a prompt about a file
    that does not exist is one the model is right to decline.
 
-`measure` / `measureArms` print the same note when every `check.skill()` check is at
-0%, and their `CheckReport.namespace` names the installed namespace the way
-`TriggerRateReport.namespace` does.
+A `runEval` scored by `checks` prints the same note under an arm whose every
+`check.skill()` check is at 0%, and `report.arms[arm].namespace` names the
+installed namespace the way `TriggerRateReport.namespace` does.
 
 All three were hit in one afternoon building a real suite, and two were briefly
 written up as findings about the skills before being caught. A _partial_ rate is
@@ -470,9 +470,9 @@ export default defineEval({
 ```
 
 > **Testing _one_ skill with no on/off variant?** Don't force an A/B — score the
-> output directly with `measure({ checks: [judged(rubric)] })` + `assertRates`.
+> output directly with `runEval({ checks: [judged(rubric)] })` (no `arms`) + `assertRates`.
 > That's the right oracle for "is this skill any good?"; A/B is for "does it _move_
-> behaviour vs off?". Both are in the [reference](api/eval.md#runeval-measure-measurearms).
+> behaviour vs off?". Both are in the [reference](api/eval.md#runeval-one-runner-two-choices).
 
 > **Note:** `runEval` is shipped and proven for Claude Code; for Codex it's a
 > documented follow-on — use the deterministic `runHarnessTest` tier there.
@@ -561,7 +561,7 @@ Each has its full API on the [`vigiles/eval` page](api/eval.md).
 
 - **[Significance](api/eval.md#significance--regression-gating)** — `compare` reports, and `assertImproves({ significant: true })` throws unless, the gap clears the (computed) noise floor: disjoint Wilson intervals for a 0/1 metric, Welch's t-test for any other. A `no-signal` verdict means raise `trials`.
 - **[Regression gating](api/eval.md#significance--regression-gating)** — record a committed baseline, then fail CI when an arm×metric moves significantly in the bad direction (`assertNoRegression`). Jest snapshots for agent behaviour, with a real noise floor.
-- **Cost / caching / concurrency** — `concurrency`, `maxCostUsd`, and `cache: "readwrite"` (record/replay: editing your `measure` re-scores for free). See [reference](api/eval.md#runeval-measure-measurearms).
+- **Cost / caching / concurrency** — `concurrency`, `maxCostUsd`, and `cache: "readwrite"` (record/replay: editing your `measure` or `checks` re-scores for free). See [reference](api/eval.md#runeval-one-runner-two-choices).
 - **LLM-as-judge** — when the metric isn't a regex, grade it with a model inside `measure` via `judge({ output, rubric })`. Deliberately thin; for dashboards use Braintrust/DeepEval.
 
 ## Run it in CI
@@ -587,7 +587,8 @@ import { defineEval, check } from "vigiles";
 import { assertRates } from "vigiles/eval";
 
 export default defineEval({
-  measure: {
+  runEval: {
+    env: { kind: "ephemeral" },
     pluginDir: ".",
     task: "…",
     checks: [check.skill("me:greet")],
@@ -597,8 +598,8 @@ export default defineEval({
 });
 ```
 
-Exactly one measurement — `runEval` · `measure` · `measureArms` ·
-`measureTriggerRate` · `paid_measureSelectionMatrix`, keyed by the runner's own name —
+Exactly one measurement — `runEval` · `measureTriggerRate` ·
+`measureSelectionMatrix` (the runner `paid_measureSelectionMatrix`), keyed by the runner's own name —
 plus two optional hooks: `skipIf()` returns a reason to skip (a loud `⊘ SKIPPED`,
 never a silent green) and `assert(report)` says what the report has to show.
 `vigiles eval` runs the measurement, prints the report with the right formatter,
@@ -643,7 +644,7 @@ export default defineEval({
 
 — dropping the `vigiles/eval` import, the trials line, the `format…` print and
 the `report.n === 0` check, because the runner now does all four. The key is the
-runner's own name (`runEval` · `measure` · `measureArms` · `measureTriggerRate` ·
+runner's own name (`runEval` · `measureTriggerRate` · `measureSelectionMatrix`, for
 `paid_measureSelectionMatrix`); declare exactly one. A capability probe that used to
 sit at the top of the file becomes `skipIf()`. `paid_measureSelectionMatrix`'s
 directory argument becomes a `pluginDir` field, and

@@ -21,6 +21,7 @@ import {
   RULE_IDS_NOT_IN_STRINGS,
 } from "./eslint-rules/fence-names.mjs";
 import {
+  APP_LIBRARIES,
   AS_UNKNOWN_AS,
   ONE_COLLECTION_LIBRARY,
   PURE_LIBRARIES,
@@ -683,6 +684,10 @@ export default [
       // hole: what the returned `require` loads is still checked by name.
       "node:module",
     ],
+    // Zod in the app layer: a public input that JavaScript callers reach (an
+    // eval spec) is checked by ONE schema, the same way the domain checks the
+    // config — never by hand-written guards restating the type.
+    appLibraries: [...APP_LIBRARIES, "zod"],
   }),
   ioGlobals({
     files: ["src/**/*.ts"],

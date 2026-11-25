@@ -54,7 +54,6 @@ import {
   emitCostSummary,
   costFromEvalReport,
   costFromArm,
-  sumCosts,
 } from "./eval-cost.js";
 import type { HarnessLiveDriver } from "./core/live-driver.js";
 import {
@@ -179,10 +178,10 @@ import {
   unregisteredSkillFiles,
 } from "./core/eval-skill-files.js";
 import {
-  MEASURE_INHERIT_REASON,
-  type ArmsCheckReport,
-  type CheckReport,
-} from "./eval-check-report.js";
+  SINGLE_ARM_KEYS,
+  shapeEvalSpec,
+  type EvalShape,
+} from "./eval-spec-shape.js";
 
 /**
  * The harness the eval tier spawns. ONE binding on purpose: the paid tier is
@@ -288,26 +287,38 @@ export interface RunContext extends Trace {
   sh(command: string): string;
 }
 
-/** @public */
-export interface EvalSpec<M extends Metrics> {
+/**
+ * What `paid_runEval` runs: one task, N trials per configuration, each trial
+ * scored. Two choices shape it, and each is exactly-one — a type error in
+ * TypeScript and a refusal before any trial runs in plain JavaScript:
+ *
+ * - **Configurations.** `arms` — named configurations compared against each
+ *   other (a hook on vs off, two models) — or no `arms`, which is ONE arm named
+ *   `"default"`, configured by the top-level `settings` / `plugin` /
+ *   `pluginDir` / `skillsDir` / `interceptTools`. Those five fields are refused
+ *   beside `arms`: set them on each arm there.
+ * - **Scoring.** `checks` — the `check.*` vocabulary, each a 0/1 metric keyed by
+ *   its label (`tool(Bash)`), listed in `EvalReport.checks` — or `measure(ctx)`,
+ *   your own metrics (numbers or booleans) computed from each run.
+ *
+ * @public
+ */
+export type EvalSpec<M extends Metrics = Metrics> = {
   readonly name?: string;
   /** Base fixture files (path → contents), written fresh for every run. */
   readonly fixture?: Record<string, string>;
-  /** The arms to compare, by name. */
-  readonly arms: Record<string, EvalArm>;
   /**
    * Stub each arm's skill BODIES (frontmatter kept) before the run — for firing
    * comparisons (does the skill get SELECTED?), where a selected skill should
    * stop at selection instead of running its (often expensive) procedure. Every
    * arm with a `pluginDir` / `skillsDir` is repackaged with bodies stripped; arms
-   * without one are untouched. Don't combine with quality metrics: the body is
-   * gone, so there is nothing to grade. See {@link stubSkillBody}.
+   * without one are untouched, and a spec where no arm has one is refused.
+   * Don't combine with quality metrics: the body is gone, so there is nothing to
+   * grade — a `judged` check beside it is refused. See {@link stubSkillBody}.
    */
   readonly stubSkillBodies?: boolean;
   /** The task prompt given to the agent. */
   readonly task: string;
-  /** Compute this run's metrics from its outcome. */
-  readonly measure: (ctx: RunContext) => M;
   /** Trials per arm. Default 5. */
   readonly trials?: number;
   /** Model alias. Default "haiku". */
@@ -413,7 +424,48 @@ export interface EvalSpec<M extends Metrics> {
    * @experimental
    */
   readonly experimental_contextCheck?: false;
-}
+} & (
+  | {
+      /** The configurations to compare, by name. */
+      readonly arms: Record<string, EvalArm>;
+      readonly settings?: never;
+      readonly plugin?: never;
+      readonly pluginDir?: never;
+      readonly skillsDir?: never;
+      readonly interceptTools?: never;
+    }
+  | {
+      /** Omitted: one arm, named `"default"`, set up by the fields below. */
+      readonly arms?: never;
+      /** The one arm's `.claude/settings.json` — see {@link EvalArm.settings}. */
+      readonly settings?: unknown;
+      /** A real plugin/repo to load (materialized) — see {@link EvalArm.plugin}. */
+      readonly plugin?: string;
+      /** A complete plugin to install natively — see {@link EvalArm.pluginDir}. */
+      readonly pluginDir?: string;
+      /** A loose skills dir to install — see {@link EvalArm.skillsDir}. */
+      readonly skillsDir?: string;
+      /** Tools to intercept — see {@link EvalArm.interceptTools}. */
+      readonly interceptTools?: readonly ToolIntercept[];
+    }
+) &
+  (
+    | {
+        /**
+         * The checks to score each trial with — any check over the run:
+         * `Trace` checks (`tool`/`skill`/`output`/`mcp`/`judged`) and resource
+         * checks (`cost`/`latency`/`tokens`, which read the eval-only `usage`).
+         * Each becomes a 0/1 metric keyed by its label; an empty list is refused.
+         */
+        readonly checks: readonly Check<RunContext>[];
+        readonly measure?: never;
+      }
+    | {
+        /** Compute this run's metrics from its outcome. */
+        readonly measure: (ctx: RunContext) => M;
+        readonly checks?: never;
+      }
+  );
 
 function writeFiles(cwd: string, files: Record<string, string>): void {
   for (const [p, content] of Object.entries(files)) {
@@ -689,13 +741,6 @@ export function closedRun(c: {
 }
 /* v8 ignore start -- the rest of the real-model runtime, as above */
 
-/**
- * Run the eval: every arm × every trial against the real `claude` CLI, with the
- * metric computed per run and aggregated per arm. Requires `claude` on PATH and
- * working model auth (e.g. `ANTHROPIC_API_KEY`). Thin wrapper over
- * `runEvalWith` with the real agent runner.
- */
-
 /** Warn (loud, non-fatal) for every arm that drops an unregistered skill file. */
 function warnUnregisteredSkillArms(arms: Record<string, EvalArm>): void {
   for (const [name, arm] of Object.entries(arms)) {
@@ -711,299 +756,18 @@ function warnUnregisteredSkillArms(arms: Record<string, EvalArm>): void {
   }
 }
 
-/** @public */
+/**
+ * Run the eval: every arm × every trial against the real `claude` CLI, each
+ * trial scored by `checks` or `measure(ctx)` and aggregated per arm. Requires
+ * `claude` on PATH and working model auth. Thin wrapper over `runEvalWith` with
+ * the real agent runner.
+ *
+ * @public
+ */
 export async function runEval<M extends Metrics>(
   spec: EvalSpec<M>,
 ): Promise<EvalReport> {
   return runEvalReporting(spec, spawnAgent);
-}
-/* v8 ignore stop */
-
-// ---------------------------------------------------------------------------
-// measure() — the SCORED evaluator (Phase 3 of testing-api-design.md)
-// ---------------------------------------------------------------------------
-
-/**
- * A task run N times, scored against a `Trace` check vocabulary.
- *
- * @public
- */
-export interface MeasureSpec {
-  /** Base fixture files written for every run (path → contents). */
-  readonly fixture?: Record<string, string>;
-  /** `.claude/settings.json` (hooks/permissions) for the run. */
-  readonly settings?: unknown;
-  /** A real plugin/repo to load (materialized) — see `EvalArm.plugin`. */
-  readonly plugin?: string;
-  /**
-   * A complete plugin dir to install natively (`--plugin-dir`) so skills activate
-   * — see {@link EvalArm.pluginDir}. Provide this OR `skillsDir`, not both.
-   */
-  readonly pluginDir?: string;
-  /**
-   * A loose `<skillsDir>/<name>/SKILL.md` directory (e.g. a repo's `.claude/skills`)
-   * to install, auto-packaged into a throwaway plugin — see {@link EvalArm.skillsDir}.
-   * Installs under `vigiles-loose-skills`, so `skill("vigiles-loose-skills:<name>")`.
-   */
-  readonly skillsDir?: string;
-  /**
-   * Stub each skill BODY (frontmatter/trigger surface kept) before the run — for
-   * checks about whether a skill FIRES (`skill()`), not what it produces. A
-   * selected skill stops at selection instead of running its (often expensive)
-   * procedure, so a description/firing run costs a fraction of the tokens. Do NOT
-   * combine with `judged`/quality checks: the body is gone, so there's nothing to
-   * grade. Requires `pluginDir` or `skillsDir`. See {@link stubSkillBody}.
-   */
-  readonly stubSkillBodies?: boolean;
-  /** Tools to intercept (the tool-call spy) — see {@link EvalArm.interceptTools}. */
-  readonly interceptTools?: readonly ToolIntercept[];
-  /** The task prompt given to the agent. */
-  readonly task: string;
-  /**
-   * The checks to score across the trials. Any check over the run is accepted:
-   * `Trace` checks (`tool`/`skill`/`output`/`mcp`/`judged`) and resource checks
-   * (`cost`/`latency`/`tokens`, which read the eval-only `usage`) — all fit
-   * `Check<RunContext>`.
-   */
-  readonly checks: readonly Check<RunContext>[];
-  /** Trials. Default 5. */
-  readonly trials?: number;
-  /** Model alias. Default "sonnet" — measure on the model your users run. */
-  readonly model?: string;
-  /**
-   * Reasoning budget for the run (`claude --effort`, e.g. `"low"` or an integer).
-   * Lives here beside `model` because it is part of the MEASUREMENT — it moves the
-   * output distribution, not the sample size — so it is hashed into the lock and
-   * the cache, and never read from an env var. Omit for the harness default.
-   */
-  readonly effort?: string | number;
-  /** Tools pre-approved for the run (`--allowedTools`); `[]` approves none. */
-  readonly allowedTools?: readonly string[];
-  /** Per-run timeout ms. */
-  readonly timeoutMs?: number;
-  /** Seconds between runs. */
-  readonly spacingSec?: number;
-}
-
-const INHERITED_BY_MEASURE: RunEnv = {
-  kind: "inherit",
-  reason: MEASURE_INHERIT_REASON,
-};
-
-/**
- * Score a check vocabulary across trials — the scored counterpart to
- * `assertChecks` (strict). Each check yields a `rate ± se` and `pass^k` over `n`
- * runs. Reuses the tested `runEvalWith` aggregation (one arm), so the loop,
- * cache, concurrency, and stats come for free. Exported with an injectable
- * `runner` so the orchestration is unit-testable without a model.
- */
-export async function measureWith(
-  spec: MeasureSpec,
-  runner: AgentRunner,
-): Promise<CheckReport> {
-  assertKnownKeys(spec, MEASURE_SPEC_KEYS, {
-    caller: "measure",
-    type: "MeasureSpec",
-  });
-  if (spec.stubSkillBodies && !spec.pluginDir && !spec.skillsDir)
-    throw new Error(
-      "measure: `stubSkillBodies` requires `pluginDir` or `skillsDir`.",
-    );
-  // stubSkillBodies replaces each skill BODY with a no-op (the run stops at
-  // selection), so there is no output to grade — a `judged` check would score an
-  // empty body and mislead. The docs warn against this pairing; enforce it.
-  if (
-    spec.stubSkillBodies &&
-    spec.checks.some((c) => c.toJSON().kind === "judged")
-  )
-    throw new Error(
-      "measure: `stubSkillBodies` is for firing/`check.skill()` checks only — it stubs " +
-        "the skill body, so there's no output for a `judged` check to grade. Drop " +
-        "`stubSkillBodies`, or remove the `judged` check.",
-    );
-  const keyed = spec.checks.map((c, i) => [`c${String(i)}`, c] as const);
-  // The install source (plugin / pluginDir / skillsDir, stubbed or not) is
-  // resolved by runEvalWith, once per arm — measure is one arm, so it just
-  // forwards the fields and reads the arm's report back.
-  const arm: EvalArm = {
-    settings: spec.settings,
-    plugin: spec.plugin,
-    pluginDir: spec.pluginDir,
-    skillsDir: spec.skillsDir,
-    interceptTools: spec.interceptTools,
-  };
-  const report = await runEvalWith(
-    {
-      fixture: spec.fixture,
-      arms: { run: arm },
-      stubSkillBodies: spec.stubSkillBodies,
-      task: spec.task,
-      trials: spec.trials ?? 5,
-      model: spec.model ?? "sonnet",
-      effort: spec.effort,
-      allowedTools: spec.allowedTools,
-      timeoutMs: spec.timeoutMs,
-      spacingSec: spec.spacingSec,
-      // measure / measureArms have no `env` field (yet): they run with your
-      // HOME and environment, as before — said here, not defaulted silently.
-      env: INHERITED_BY_MEASURE,
-      // The per-trial context check reports through `runEval`'s lines and
-      // failure; a `CheckReport` has no place to say a trial was dropped, so
-      // here it would only shrink `n` silently. Off until it does (#416).
-      experimental_contextCheck: false,
-      measure: (ctx) =>
-        Object.fromEntries(keyed.map(([k, c]) => [k, c.eval(ctx).pass])),
-    },
-    runner,
-  );
-  return checkReportOf(report.arms.run, keyed, installNamespace(arm));
-}
-
-/** Read one arm's {@link ArmReport} back into a {@link CheckReport}. */
-function checkReportOf(
-  arm: ArmReport | undefined,
-  keyed: readonly (readonly [string, Check<RunContext>])[],
-  namespace: string | undefined,
-): CheckReport {
-  return {
-    n: arm?.runs ?? 0,
-    perCheck: keyed.map(([k, c]) => {
-      const s = arm?.stats[k];
-      return {
-        check: c.toJSON(),
-        rate: s?.mean ?? 0,
-        se: s?.se ?? 0,
-        passK: s?.passK ?? 0,
-        n: s?.n ?? 0,
-      };
-    }),
-    usage: arm?.usage ?? aggregateUsage([]),
-    namespace,
-  };
-}
-
-/* v8 ignore start -- real claude subprocess; thin wrapper over measureWith */
-/**
- * Score a check vocabulary across trials against the real `claude` CLI.
- *
- * @public
- */
-export async function measure(spec: MeasureSpec): Promise<CheckReport> {
-  const report = await measureWith(spec, spawnAgent);
-  emitCostSummary(costFromArm(report.usage));
-  return report;
-}
-/* v8 ignore stop */
-
-// ---------------------------------------------------------------------------
-// measureArms — checks × A/B arms + significance. Unifies the harness-A/B moat
-// (a hook/skill/CLAUDE.md ON vs OFF) with the check vocabulary: score the SAME
-// checks per arm, then compare a check's rate across arms with Welch significance
-// (reusing stats.ts) so a gap reads as real-or-noise, not a hand-fed delta.
-// ---------------------------------------------------------------------------
-
-/**
- * A task scored against checks across NAMED arms (the harness variable on/off).
- *
- * @public
- */
-export interface ArmsMeasureSpec {
-  readonly fixture?: Record<string, string>;
-  /** The arms to compare (settings / plugin / pluginDir per arm). */
-  readonly arms: Record<string, EvalArm>;
-  readonly task: string;
-  readonly checks: readonly Check<RunContext>[];
-  /**
-   * Stub each arm's skill BODIES (frontmatter kept) before the run — the A/B
-   * counterpart to {@link MeasureSpec.stubSkillBodies}. For firing comparisons
-   * (does description variant A fire more than B?), every arm that sets
-   * `pluginDir` / `skillsDir` is repackaged with bodies stripped so each run
-   * stops at selection — a fraction of the tokens. Arms without one are left
-   * untouched. Don't combine with `judged`/quality checks. See {@link stubSkillBody}.
-   */
-  readonly stubSkillBodies?: boolean;
-  readonly trials?: number;
-  readonly model?: string;
-  readonly allowedTools?: readonly string[];
-  readonly timeoutMs?: number;
-  /**
-   * Reasoning budget for the run (`claude --effort`, e.g. `"low"` or an integer).
-   * Lives here beside `model` because it is part of the MEASUREMENT — it moves the
-   * output distribution, not the sample size — so it is hashed into the lock and
-   * the cache, and never read from an env var. Omit for the harness default.
-   */
-  readonly effort?: string | number;
-  readonly spacingSec?: number;
-}
-
-/** Score checks across arms (injectable runner). Reuses `runEvalWith`. */
-export async function measureArmsWith(
-  spec: ArmsMeasureSpec,
-  runner: AgentRunner,
-): Promise<ArmsCheckReport> {
-  assertKnownKeys(spec, ARMS_MEASURE_SPEC_KEYS, {
-    caller: "measureArms",
-    type: "ArmsMeasureSpec",
-  });
-  for (const [name, arm] of Object.entries(spec.arms))
-    assertKnownKeys(arm, EVAL_ARM_KEYS, {
-      caller: "measureArms",
-      type: "EvalArm",
-      arm: name,
-    });
-  const keyed = spec.checks.map((c, i) => [`c${String(i)}`, c] as const);
-  // Per-arm install sources (and the stub) are resolved by runEvalWith.
-  const report = await runEvalWith(
-    {
-      fixture: spec.fixture,
-      arms: spec.arms,
-      stubSkillBodies: spec.stubSkillBodies,
-      task: spec.task,
-      trials: spec.trials ?? 5,
-      model: spec.model ?? "sonnet",
-      effort: spec.effort,
-      allowedTools: spec.allowedTools,
-      timeoutMs: spec.timeoutMs,
-      spacingSec: spec.spacingSec,
-      // measure / measureArms have no `env` field (yet): they run with your
-      // HOME and environment, as before — said here, not defaulted silently.
-      env: INHERITED_BY_MEASURE,
-      // The per-trial context check reports through `runEval`'s lines and
-      // failure; a `CheckReport` has no place to say a trial was dropped, so
-      // here it would only shrink `n` silently. Off until it does (#416).
-      experimental_contextCheck: false,
-      measure: (ctx) =>
-        Object.fromEntries(keyed.map(([k, c]) => [k, c.eval(ctx).pass])),
-    },
-    runner,
-  );
-  const arms: Record<string, CheckReport> = {};
-  for (const [armName, arm] of Object.entries(report.arms)) {
-    arms[armName] = checkReportOf(
-      arm,
-      keyed,
-      installNamespace(spec.arms[armName] ?? {}),
-    );
-  }
-  return { arms };
-}
-
-/* v8 ignore start -- real claude subprocess; thin wrapper over measureArmsWith */
-/**
- * Score checks across arms against the real `claude` CLI.
- *
- * @public
- */
-export async function measureArms(
-  spec: ArmsMeasureSpec,
-): Promise<ArmsCheckReport> {
-  warnUnregisteredSkillArms(spec.arms);
-  const report = await measureArmsWith(spec, spawnAgent);
-  // Sum every arm's spend — an A/B run pays for both arms.
-  emitCostSummary(
-    sumCosts(Object.values(report.arms).map((a) => costFromArm(a.usage))),
-  );
-  return report;
 }
 /* v8 ignore stop */
 
@@ -1625,8 +1389,8 @@ interface TrialOutcome<M extends Metrics> {
 }
 
 /** Execute one trial in a fresh sandbox; returns its metric row + usage. */
-async function executeTrial<M extends Metrics>(
-  spec: ParsedEvalSpec<M>,
+async function executeTrial(
+  spec: ParsedEvalSpec,
   arm: EvalArm,
   trial: {
     readonly index: number;
@@ -1635,7 +1399,7 @@ async function executeTrial<M extends Metrics>(
   },
   retrying: RetryingRunner,
   cfg: RunConfig,
-): Promise<TrialOutcome<M>> {
+): Promise<TrialOutcome<Metrics>> {
   const { index: trialIndex, maxBudgetUsd, signal } = trial;
   // Resolved before any temp dir exists, so a bad plugin leaves nothing behind.
   const resolved = resolveHarness({
@@ -2053,12 +1817,10 @@ function stripPluginRoot(value: unknown, absRoot: string): unknown {
  * Resolve each arm's model-affecting inputs into a canonical object for the lock
  * hash — WITHOUT running the model (it reads files + hashes plugin dirs only). The
  * trial count is excluded (a sample-size knob, not a behavior input); `measure` is
- * excluded by design (the script re-asserts against the replayed report).
+ * excluded by design (the script re-asserts against the replayed report);
+ * `checks` are folded in (see the comment at the end).
  */
-function evalArmsInputs<M extends Metrics>(
-  spec: ParsedEvalSpec<M>,
-  cfg: RunConfig,
-): unknown {
+function evalArmsInputs(spec: ParsedEvalSpec, cfg: RunConfig): unknown {
   const arms: Record<string, unknown> = {};
   for (const [name, arm] of Object.entries(spec.arms)) {
     const resolved = resolveHarness({
@@ -2105,6 +1867,11 @@ function evalArmsInputs<M extends Metrics>(
     // Each run's `--max-budget-usd` is derived from it, and a cap can end a turn
     // early, so a lock recorded under another ceiling measured another setup.
     maxCostUsd: spec.maxCostUsd,
+    // A `measure(ctx)` function cannot be hashed, so editing it replays the
+    // lock by design. Checks serialize, and the replayed report IS their
+    // scores — a changed check must make the lock stale, not replay old ones.
+    // Absent for `measure`, so the hash of a `measure` eval is unchanged.
+    ...(spec.checks === undefined ? {} : { checks: spec.checks }),
   };
 }
 
@@ -2140,6 +1907,12 @@ const EVAL_SPEC_KEYS = {
   stubSkillBodies: true,
   task: true,
   measure: true,
+  checks: true,
+  settings: true,
+  plugin: true,
+  pluginDir: true,
+  skillsDir: true,
+  interceptTools: true,
   trials: true,
   model: true,
   effort: true,
@@ -2156,39 +1929,7 @@ const EVAL_SPEC_KEYS = {
   stubs: true,
   lock: true,
   experimental_contextCheck: true,
-} satisfies Record<keyof EvalSpec<Metrics>, true>;
-
-const MEASURE_SPEC_KEYS = {
-  fixture: true,
-  settings: true,
-  plugin: true,
-  pluginDir: true,
-  skillsDir: true,
-  stubSkillBodies: true,
-  interceptTools: true,
-  task: true,
-  checks: true,
-  trials: true,
-  model: true,
-  effort: true,
-  allowedTools: true,
-  timeoutMs: true,
-  spacingSec: true,
-} satisfies Record<keyof MeasureSpec, true>;
-
-const ARMS_MEASURE_SPEC_KEYS = {
-  fixture: true,
-  arms: true,
-  task: true,
-  checks: true,
-  stubSkillBodies: true,
-  trials: true,
-  model: true,
-  allowedTools: true,
-  timeoutMs: true,
-  effort: true,
-  spacingSec: true,
-} satisfies Record<keyof ArmsMeasureSpec, true>;
+} satisfies Record<keyof EvalSpec, true>;
 
 const TRIGGER_RATE_SPEC_KEYS = {
   name: true,
@@ -2213,11 +1954,26 @@ const TRIGGER_RATE_SPEC_KEYS = {
   concurrency: true,
 } satisfies Record<keyof TriggerRateSpec, true>;
 
-/** An {@link EvalSpec} after the boundary: stubs and env parsed, arms resolved. */
-type ParsedEvalSpec<M extends Metrics> = EvalSpec<M> & {
-  readonly stubs: readonly ToolStub[];
-  readonly env: RunEnv;
-};
+/**
+ * An {@link EvalSpec} after the boundary: one shape whatever the caller wrote —
+ * the arms concrete (the one {@link DEFAULT_ARM} built when `arms` was omitted),
+ * the scoring one `measure` (`checks` turned into one), stubs and env parsed.
+ */
+type ParsedEvalSpec = Omit<
+  EvalSpec,
+  | "arms"
+  | "checks"
+  | "measure"
+  | "stubs"
+  | "env"
+  | (typeof SINGLE_ARM_KEYS)[number]
+> &
+  EvalShape & {
+    /** Each arm's install namespace, read before the install is resolved. */
+    readonly namespaces: Readonly<Record<string, string | undefined>>;
+    readonly stubs: readonly ToolStub[];
+    readonly env: RunEnv;
+  };
 
 /**
  * `runEval` with its author-facing output, over any runner — so the real one and
@@ -2232,7 +1988,7 @@ export async function runEvalReporting<M extends Metrics>(
   spec: EvalSpec<M>,
   runner: AgentRunner,
 ): Promise<EvalReport> {
-  warnUnregisteredSkillArms(spec.arms);
+  warnUnregisteredSkillArms(spec.arms ?? {});
   const report = await runEvalWith(spec, runner);
   const unanswered = unansweredInReport(
     report,
@@ -2265,7 +2021,11 @@ export async function runEvalWith<M extends Metrics>(
     caller: "runEval",
     type: "EvalSpec",
   });
-  for (const [name, arm] of Object.entries(input.arms))
+  // The two exactly-one choices — `arms` or none, `checks` or `measure` — are
+  // read HERE, before a token is spent: the type forbids "both" and "neither",
+  // and a plain-JS eval file is refused the same way (eval-spec-shape.ts).
+  const shape = shapeEvalSpec(input);
+  for (const [name, arm] of Object.entries(shape.arms))
     assertKnownKeys(arm, EVAL_ARM_KEYS, {
       caller: "runEval",
       type: "EvalArm",
@@ -2276,8 +2036,8 @@ export async function runEvalWith<M extends Metrics>(
   recordCheck();
   // Every arm's install source (`pluginDir` as-is / stubbed, or a loose
   // `skillsDir` packaged into a throwaway plugin) is resolved HERE, once — the
-  // one place that decides what `--plugin-dir` receives, so measure / measureArms
-  // / runEval cannot disagree about it. The throwaways are removed afterward.
+  // one place that decides what `--plugin-dir` receives. The throwaways are
+  // removed afterward.
   // `stubs` and `env` are parsed HERE, once: the old argv-blind stub shape, a
   // stateful RegExp, a missing `env`, a seed path outside HOME — each refused
   // with its rewrite before a token is spent. The runner trusts the result.
@@ -2288,12 +2048,16 @@ export async function runEvalWith<M extends Metrics>(
     EVAL_RUNTIME.runEnv?.keepHomeFiles ?? [],
   );
   const { arms: resolvedArms, packaged } = resolveArmInstalls(
-    input.arms,
+    shape.arms,
     input.stubSkillBodies ?? false,
   );
-  const spec: ParsedEvalSpec<M> = {
+  const spec: ParsedEvalSpec = {
     ...input,
+    measure: shape.measure,
+    // Set even when absent: the caller's `checks` LIST must not survive the spread.
+    checks: shape.checks,
     arms: resolvedArms,
+    namespaces: mapValues(shape.arms, installNamespace),
     stubs,
     env,
   };
@@ -2304,9 +2068,30 @@ export async function runEvalWith<M extends Metrics>(
   }
 }
 
+/** Each arm's report with the namespace its skills installed under, when any. */
+function withNamespaces(
+  arms: Readonly<Record<string, ArmReport>>,
+  namespaces: Readonly<Record<string, string | undefined>>,
+): Readonly<Record<string, ArmReport>> {
+  return Object.fromEntries(
+    Object.entries(arms).map(([name, arm]) => {
+      const namespace = namespaces[name];
+      return [name, namespace === undefined ? arm : { ...arm, namespace }];
+    }),
+  );
+}
+
+/** `f` over each value of a record, keys kept. */
+function mapValues<V, R>(
+  rec: Readonly<Record<string, V>>,
+  f: (v: V) => R,
+): Readonly<Record<string, R>> {
+  return Object.fromEntries(Object.entries(rec).map(([k, v]) => [k, f(v)]));
+}
+
 /** {@link runEvalWith} after its arms' install sources are concrete plugin dirs. */
-async function runResolvedEval<M extends Metrics>(
-  spec: ParsedEvalSpec<M>,
+async function runResolvedEval(
+  spec: ParsedEvalSpec,
   runner: AgentRunner,
 ): Promise<EvalReport> {
   const trials = spec.trials ?? 5;
@@ -2344,7 +2129,7 @@ async function runResolvedEval<M extends Metrics>(
   const worker = async (
     unit: Unit,
     signal: Readonly<AbortSignal>,
-  ): Promise<UnitResult<M>> => {
+  ): Promise<UnitResult<Metrics>> => {
     if (stopped !== undefined) return { armName: unit.armName, skipped: true };
     // The run's own cap: the budget not yet charged. Past it the CLI ends the
     // turn and reports its cost; a run killed first is charged the cap.
@@ -2395,14 +2180,14 @@ async function runResolvedEval<M extends Metrics>(
     },
     async (): Promise<EvalReport> => {
       const results = await runPool(units, concurrency, worker);
-      const { arms, totalCostUsd } = aggregateArms<M>(
+      const { arms, totalCostUsd } = aggregateArms<Metrics>(
         Object.keys(spec.arms),
         results,
       );
       return {
         name: spec.name ?? "eval",
         trials,
-        arms,
+        arms: withNamespaces(arms, spec.namespaces),
         totalCostUsd,
         chargedUsd: Math.max(charged, totalCostUsd),
         unknownCostRuns: results.filter(
@@ -2410,6 +2195,7 @@ async function runResolvedEval<M extends Metrics>(
         ).length,
         aborted: stopped === "budget",
         env: runEnvReportView(spec.env),
+        ...(spec.checks === undefined ? {} : { checks: spec.checks }),
       };
     },
   );
@@ -2549,7 +2335,7 @@ export interface TriggerRateSpec {
    * for opening-move skills ("describe a feature", "debug this") but biased-low for
    * skills whose trigger is a repo STATE ("in a git repo", "dirty tree"); seed that
    * state here so recall is honest instead of an artifact of the cold start. Mirrors
-   * `MeasureSpec.fixture`. See `research/plugin-behavioral-findings.md`.
+   * `EvalSpec.fixture`. See `research/plugin-behavioral-findings.md`.
    */
   readonly fixture?: Record<string, string>;
   /**
@@ -2843,8 +2629,8 @@ export function packageInstallSet(opts: {
 // ---------------------------------------------------------------------------
 // The install source — the ONE place that decides what `--plugin-dir` receives.
 //
-// Every runner that installs skills (runEval / measure / measureArms via an
-// EvalArm, measureTriggerRate via its spec) accepts the same two fields —
+// Every runner that installs skills (runEval via an EvalArm — the one arm of a
+// spec with no `arms` included — and measureTriggerRate via its spec) accepts the same two fields —
 // `pluginDir` (a complete plugin, used as-is or re-packaged with stubbed bodies)
 // and `skillsDir` (a loose `<name>/SKILL.md` dir, packaged into a throwaway
 // plugin) — and they all resolve through `resolveSkillInstall`. Before this

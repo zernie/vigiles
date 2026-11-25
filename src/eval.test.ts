@@ -34,8 +34,6 @@ import {
   isRateLimited,
   measureTriggerRateWith,
   measureTriggerRate,
-  measureWith,
-  measureArmsWith,
   packageSkillsDir,
   packageInstallSet,
   stubbedPluginDir,
@@ -64,11 +62,12 @@ import {
 } from "./core/eval-aggregate.js";
 import { formatEvalReport, formatTriggerRateReport } from "./eval-format.js";
 import {
-  compareCheck,
-  formatCheckReport,
-  formatArmsCheckReport,
-  type CheckReport,
+  checkLabel,
+  checkMetricKeys,
+  skillZeroNote,
 } from "./eval-check-report.js";
+import { compare } from "./eval-readers.js";
+import type { EvalReport } from "./core/eval-report.js";
 import { assertRates } from "./eval-rate-gate.js";
 import {
   stubSkillBody,
@@ -640,7 +639,7 @@ test("measureTriggerRateWith rejects a too-small prompt set by default (no model
   assert.equal(calls, 0, "must reject before any model run");
 });
 
-test("measureWith scores a check vocabulary across trials (rate ± se, pass^k)", async () => {
+test("runEvalWith scores a check vocabulary across trials: one 0/1 metric per check, keyed by label", async () => {
   const stream =
     JSON.stringify({
       type: "assistant",
@@ -654,8 +653,9 @@ test("measureWith scores a check vocabulary across trials (rate ± se, pass^k)",
   const runner = (): Promise<{ code: number; stdout: string }> =>
     Promise.resolve({ code: 0, stdout: stream });
 
-  const report = await measureWith(
+  const report = await runEvalWith(
     {
+      env: INHERIT,
       task: "do the thing",
       checks: [tool("Bash"), output("done"), tool("Read")],
       trials: 3,
@@ -663,20 +663,26 @@ test("measureWith scores a check vocabulary across trials (rate ± se, pass^k)",
     },
     runner,
   );
-  assert.equal(report.n, 3);
-  const [bash, out, read] = report.perCheck;
-  assert.equal(bash.check.kind, "tool");
-  assert.equal(bash.rate, 1); // Bash used every trial
-  assert.equal(bash.passK, 1);
-  assert.equal(out.rate, 1); // "done" in output every trial
-  assert.equal(read.rate, 0); // Read never used
-  assert.equal(read.passK, 0);
-  assert.ok(formatCheckReport(report).includes("measured 3 run(s)"));
+  // No `arms`: one arm, named "default".
+  const arm = report.arms.default;
+  assert.equal(arm?.runs, 3);
+  assert.deepEqual(report.checks, {
+    "tool(Bash)": { kind: "tool", name: "Bash" },
+    "output(done)": { kind: "output", matcher: "done", regex: false },
+    "tool(Read)": { kind: "tool", name: "Read" },
+  });
+  assert.equal(arm.metrics["tool(Bash)"], 1); // Bash used every trial
+  assert.equal(arm.stats["tool(Bash)"]?.passK, 1);
+  assert.equal(arm.stats["tool(Bash)"]?.successes, 3); // a 0/1 metric
+  assert.equal(arm.metrics["output(done)"], 1); // "done" in output every trial
+  assert.equal(arm.metrics["tool(Read)"], 0); // Read never used
+  assert.equal(arm.stats["tool(Read)"]?.passK, 0);
+  assert.ok(formatEvalReport(report).includes("tool(Bash)=1.00"));
 });
 
-test("measureWith threads usage into the CheckReport (the cost source)", async () => {
-  // Each trial's `result` event carries cost/tokens; the report must aggregate
-  // them the same way runEval does, so `measure` can print the spend.
+test("a checks-scored run aggregates usage like any other (the cost source)", async () => {
+  // Each trial's `result` event carries cost/tokens; the report aggregates them
+  // whichever way the trials are scored.
   const stream = JSON.stringify({
     type: "result",
     result: "ok",
@@ -688,19 +694,26 @@ test("measureWith threads usage into the CheckReport (the cost source)", async (
   const runner = (): Promise<{ code: number; stdout: string }> =>
     Promise.resolve({ code: 0, stdout: stream });
 
-  const report = await measureWith(
-    { task: "t", checks: [output("ok")], trials: 2, spacingSec: 0 },
+  const report = await runEvalWith(
+    {
+      env: INHERIT,
+      task: "t",
+      checks: [output("ok")],
+      trials: 2,
+      spacingSec: 0,
+    },
     runner,
   );
   // 2 trials × $0.02 = $0.04 total, tokens summed across trials.
-  assert.ok(Math.abs(report.usage.totalCostUsd - 0.04) < 1e-9);
-  assert.equal(report.usage.totalInputTokens, 200);
-  assert.equal(report.usage.totalOutputTokens, 100);
-  assert.equal(report.usage.totalCacheReadTokens, 20);
-  assert.equal(report.usage.meanDurationMs, 1000);
+  const usage = report.arms.default?.usage;
+  assert.ok(Math.abs((usage?.totalCostUsd ?? 0) - 0.04) < 1e-9);
+  assert.equal(usage?.totalInputTokens, 200);
+  assert.equal(usage?.totalOutputTokens, 100);
+  assert.equal(usage?.totalCacheReadTokens, 20);
+  assert.equal(usage?.meanDurationMs, 1000);
 });
 
-test("measureArmsWith carries each arm's usage", async () => {
+test("a checks-scored A/B carries each arm's usage", async () => {
   const stream = JSON.stringify({
     type: "result",
     result: "ok",
@@ -709,8 +722,9 @@ test("measureArmsWith carries each arm's usage", async () => {
   const runner = (): Promise<{ code: number; stdout: string }> =>
     Promise.resolve({ code: 0, stdout: stream });
 
-  const report = await measureArmsWith(
+  const report = await runEvalWith(
     {
+      env: INHERIT,
       arms: { a: {}, b: {} },
       task: "t",
       checks: [output("ok")],
@@ -725,7 +739,7 @@ test("measureArmsWith carries each arm's usage", async () => {
   assert.equal(report.arms.a?.usage.totalOutputTokens, 10);
 });
 
-test("measureWith stubSkillBodies packages a stubbed plugin and cleans it up", async () => {
+test("a one-arm eval with stubSkillBodies packages a stubbed plugin and cleans it up", async () => {
   const dir = makeTmpDir("measure-stub");
   const skills = join(dir, "skills");
   mkdirSync(join(skills, "foo"), { recursive: true });
@@ -756,8 +770,9 @@ test("measureWith stubSkillBodies packages a stubbed plugin and cleans it up", a
     });
   };
 
-  const report = await measureWith(
+  const report = await runEvalWith(
     {
+      env: INHERIT,
       task: "do foo",
       pluginDir: dir,
       stubSkillBodies: true,
@@ -767,7 +782,7 @@ test("measureWith stubSkillBodies packages a stubbed plugin and cleans it up", a
     },
     runner,
   );
-  assert.equal(report.n, 1);
+  assert.equal(report.arms.default?.runs, 1);
   // The run saw a STUBBED throwaway plugin (body gone, name preserved), removed after.
   assert.ok(seenBody.includes("description: does foo"), "frontmatter kept");
   assert.ok(!seenBody.includes("run the expensive thing"), "body stubbed");
@@ -778,7 +793,7 @@ test("measureWith stubSkillBodies packages a stubbed plugin and cleans it up", a
 });
 
 // --- skillsDir on the ARM (issue #307): the loose-`.claude/skills` install source
-// is resolved ONCE, in runEvalWith, so measure / measureArms / runEval all get it.
+// is resolved ONCE, in runEvalWith, for the one arm of a spec with no `arms` and for each arm alike.
 
 /** A loose `<dir>/.claude/skills/foo/SKILL.md` (no plugin manifest) + a runner
  *  that records what pluginDir it was handed and the SKILL.md body found there. */
@@ -813,10 +828,11 @@ function looseSkillsFixture(prefix: string): {
   return { dir, skills, seen, bodies, runner };
 }
 
-test("measureWith skillsDir packages a loose .claude/skills dir (bodies intact) and cleans up", async () => {
+test("a one-arm eval with skillsDir packages a loose .claude/skills dir (bodies intact) and cleans up", async () => {
   const f = looseSkillsFixture("measure-skillsdir");
-  const report = await measureWith(
+  const report = await runEvalWith(
     {
+      env: INHERIT,
       task: "do foo",
       skillsDir: f.skills,
       checks: [turns({ min: 1 })],
@@ -825,7 +841,7 @@ test("measureWith skillsDir packages a loose .claude/skills dir (bodies intact) 
     },
     f.runner,
   );
-  assert.equal(report.n, 2);
+  assert.equal(report.arms.default?.runs, 2);
   // The run was handed a REAL plugin dir (manifest + skills/<name>/), not the
   // loose dir, and the whole skill dir came along — a judged check needs the body.
   const used = f.seen[0]?.pluginDir;
@@ -834,14 +850,15 @@ test("measureWith skillsDir packages a loose .claude/skills dir (bodies intact) 
   assert.ok(!existsSync(used), "the throwaway plugin dir is removed afterward");
   // The namespace the skills installed under is REPORTED — it is the `<plugin>`
   // half of the id `skill()` must match, and with skillsDir the caller never chose it.
-  assert.equal(report.namespace, "vigiles-loose-skills");
+  assert.equal(report.arms.default?.namespace, "vigiles-loose-skills");
   cleanupTmpDir(f.dir);
 });
 
-test("measureWith skillsDir + stubSkillBodies stubs the packaged bodies", async () => {
+test("skillsDir + stubSkillBodies stubs the packaged bodies", async () => {
   const f = looseSkillsFixture("measure-skillsdir-stub");
-  await measureWith(
+  await runEvalWith(
     {
+      env: INHERIT,
       task: "do foo",
       skillsDir: f.skills,
       stubSkillBodies: true,
@@ -856,13 +873,14 @@ test("measureWith skillsDir + stubSkillBodies stubs the packaged bodies", async 
   cleanupTmpDir(f.dir);
 });
 
-test("measureWith rejects pluginDir together with skillsDir (before any run)", async () => {
+test("a one-arm eval rejects pluginDir together with skillsDir (before any run)", async () => {
   const runner: AgentRunner = () => {
     throw new Error("runner should not run");
   };
   await assert.rejects(
-    measureWith(
+    runEvalWith(
       {
+        env: INHERIT,
         task: "x",
         pluginDir: "/p",
         skillsDir: "/s",
@@ -874,7 +892,7 @@ test("measureWith rejects pluginDir together with skillsDir (before any run)", a
   );
 });
 
-test("runEvalWith / measureArmsWith: an ARM may name skillsDir (the resolver lives at the arm)", async () => {
+test("runEvalWith: an ARM may name skillsDir (the resolver lives at the arm)", async () => {
   const f = looseSkillsFixture("arm-skillsdir");
   await runEvalWith(
     {
@@ -892,10 +910,11 @@ test("runEvalWith / measureArmsWith: an ARM may name skillsDir (the resolver liv
   assert.ok(f.bodies[0]?.includes("run the expensive thing"), "body kept");
   assert.ok(!existsSync(installed[0]?.pluginDir ?? ""), "throwaway removed");
 
-  // And through measureArms, with per-arm namespace on each CheckReport.
+  // And scored by checks, with the per-arm namespace on each arm's report.
   const before = f.seen.length;
-  const report = await measureArmsWith(
+  const report = await runEvalWith(
     {
+      env: INHERIT,
       arms: { on: { skillsDir: f.skills }, off: {} },
       task: "do foo",
       checks: [turns({ min: 1 })],
@@ -948,7 +967,7 @@ test("resolveArmInstalls cleans up an EARLIER arm's packaged dir when a LATER ar
   cleanupTmpDir(f.dir);
 });
 
-test("CheckReport.namespace is the plugin's declared name for a pluginDir arm", async () => {
+test("ArmReport.namespace is the plugin's declared name for a pluginDir arm", async () => {
   const dir = makeTmpDir("measure-ns");
   mkdirSync(join(dir, ".claude-plugin"), { recursive: true });
   mkdirSync(join(dir, "skills", "foo"), { recursive: true });
@@ -965,8 +984,9 @@ test("CheckReport.namespace is the plugin's declared name for a pluginDir arm", 
       code: 0,
       stdout: JSON.stringify({ type: "result", num_turns: 1 }),
     });
-  const report = await measureWith(
+  const report = await runEvalWith(
     {
+      env: INHERIT,
       task: "t",
       pluginDir: dir,
       checks: [turns({ min: 1 })],
@@ -975,7 +995,7 @@ test("CheckReport.namespace is the plugin's declared name for a pluginDir arm", 
     },
     runner,
   );
-  assert.equal(report.namespace, "myplug");
+  assert.equal(report.arms.default?.namespace, "myplug");
   cleanupTmpDir(dir);
 });
 
@@ -983,30 +1003,32 @@ test("CheckReport.namespace is the plugin's declared name for a pluginDir arm", 
 // `.eval.mjs` file is plain JS: nothing type-checks the object it hands over, so a
 // stray key used to vanish and the run reported a confident number about nothing.
 
-test("measureWith refuses an unknown MeasureSpec field, with a did-you-mean", async () => {
+test("runEvalWith refuses an unknown top-level field of a one-arm spec, with a did-you-mean", async () => {
   const runner: AgentRunner = () => {
     throw new Error("runner should not run");
   };
   const bad = {
+    env: INHERIT,
     task: "x",
     checks: [turns({ min: 1 })],
     skillDir: "/s", // typo of skillsDir
-  } as unknown as Parameters<typeof measureWith>[0];
-  await assert.rejects(measureWith(bad, runner), (e: unknown) => {
+  } as unknown as Parameters<typeof runEvalWith>[0];
+  await assert.rejects(runEvalWith(bad, runner), (e: unknown) => {
     const msg = (e as Error).message;
-    assert.match(msg, /measure: unknown MeasureSpec field "skillDir"/);
+    assert.match(msg, /runEval: unknown EvalSpec field "skillDir"/);
     assert.match(msg, /did you mean `skillsDir`/);
     return true;
   });
-  // A trigger-rate-only field on measure is the case that bit: refused by name.
+  // A trigger-rate-only field is the case that bit: refused by name.
   const foreign = {
+    env: INHERIT,
     task: "x",
     checks: [turns({ min: 1 })],
     prompts: ["a"],
-  } as unknown as Parameters<typeof measureWith>[0];
+  } as unknown as Parameters<typeof runEvalWith>[0];
   await assert.rejects(
-    measureWith(foreign, runner),
-    /unknown MeasureSpec field "prompts"/,
+    runEvalWith(foreign, runner),
+    /unknown EvalSpec field "prompts"/,
   );
 });
 
@@ -1026,12 +1048,11 @@ test("runEvalWith refuses an unknown field on the spec AND on an arm", async () 
   const badSpec = {
     arms: {},
     task: "x",
-    measure: () => ({}),
-    checks: [],
+    mesure: () => ({}),
   } as unknown as Parameters<typeof runEvalWith>[0];
   await assert.rejects(
     runEvalWith(badSpec, runner),
-    /runEval: unknown EvalSpec field "checks"/,
+    /runEval: unknown EvalSpec field "mesure".*did you mean `measure`/s,
   );
 });
 
@@ -1052,61 +1073,89 @@ test("measureTriggerRateWith refuses an unknown TriggerRateSpec field", async ()
   );
 });
 
-test("formatCheckReport: every skill() check at 0% prints the namespace diagnostic", () => {
-  const zero = (id: string): CheckReport["perCheck"][number] => ({
-    check: { kind: "skill", id },
-    rate: 0,
-    se: 0,
-    passK: 0,
-    n: 3,
-  });
-  const out = formatCheckReport({
-    n: 3,
-    perCheck: [
-      zero("foo"),
-      { ...zero("x"), check: { kind: "turns" }, rate: 1 },
-    ],
+/** One arm's report over 0/1 check metrics: each key passed `k` of `n`. */
+function checkArmReport(
+  passed: Readonly<Record<string, number>>,
+  n: number,
+  namespace?: string,
+) {
+  const rows = Array.from({ length: n }, (_, i) =>
+    Object.fromEntries(Object.entries(passed).map(([key, k]) => [key, i < k])),
+  );
+  return {
+    runs: n,
+    metrics: aggregate(rows),
+    stats: aggregateStats(rows),
     usage: zeroUsage,
-    namespace: "vigiles-loose-skills",
-  });
-  assert.match(out, /nothing resolved for ANY skill\(\) check/);
-  assert.match(out, /installed under `vigiles-loose-skills`/);
-  assert.match(out, /`vigiles-loose-skills:<skill>`/);
+    unansweredStubCalls: [],
+    ...(namespace === undefined ? {} : { namespace }),
+  };
+}
+
+test("skillZeroNote: every skill() check at 0% names the namespace; a partial rate does not", () => {
+  const checks = {
+    "skill(foo)": { kind: "skill", id: "foo" },
+    turns: { kind: "turns" },
+  };
+  const out = skillZeroNote(
+    checkArmReport({ "skill(foo)": 0, turns: 3 }, 3, "vigiles-loose-skills"),
+    checks,
+  );
+  assert.match(out ?? "", /nothing resolved for ANY skill\(\) check/);
+  assert.match(out ?? "", /installed under `vigiles-loose-skills`/);
+  assert.match(out ?? "", /`vigiles-loose-skills:<skill>`/);
   // Without a namespace the advice still names the namespaced form.
-  const noNs = formatCheckReport({
-    n: 3,
-    perCheck: [zero("foo")],
-    usage: zeroUsage,
-  });
-  assert.match(noNs, /NAMESPACED id/);
-  // A PARTIAL rate is a real measurement and is left alone; so is a report with
-  // no skill() check at all.
-  const partial = formatCheckReport({
-    n: 3,
-    perCheck: [{ ...zero("foo"), rate: 0.33 }],
-    usage: zeroUsage,
-  });
-  assert.doesNotMatch(partial, /nothing resolved/);
-  const noSkill = formatCheckReport({
-    n: 3,
-    perCheck: [{ ...zero("x"), check: { kind: "tool", name: "Bash" } }],
-    usage: zeroUsage,
-  });
-  assert.doesNotMatch(noSkill, /nothing resolved/);
+  assert.match(
+    skillZeroNote(checkArmReport({ "skill(foo)": 0 }, 3), checks) ?? "",
+    /NAMESPACED id/,
+  );
+  // A PARTIAL rate is a real measurement and is left alone; so is an arm with
+  // no skill() check at all, and one that ran nothing.
+  assert.equal(
+    skillZeroNote(checkArmReport({ "skill(foo)": 1 }, 3), checks),
+    undefined,
+  );
+  assert.equal(
+    skillZeroNote(checkArmReport({ "tool(Bash)": 0 }, 3), {
+      "tool(Bash)": { kind: "tool", name: "Bash" },
+    }),
+    undefined,
+  );
+  assert.equal(skillZeroNote(checkArmReport({}, 0), checks), undefined);
 });
 
-test("measure and measureArms reports say they ran with your HOME and environment — once", () => {
-  const checkReport: CheckReport = { n: 1, perCheck: [], usage: zeroUsage };
-  const one = formatCheckReport(checkReport);
-  assert.match(
-    one,
-    /env: inherited your HOME and environment — measure and measureArms have no `env` field/,
-  );
-  const arms = formatArmsCheckReport({
-    arms: { a: checkReport, b: checkReport },
-  });
-  assert.match(arms, /\[arm: a\][\s\S]*\[arm: b\]/);
-  assert.equal(arms.split("env: inherited your HOME").length - 1, 1);
+test("formatEvalReport prints the skill() note under the arm it is about, only for a checks run", () => {
+  const report: EvalReport = {
+    name: "fires",
+    trials: 3,
+    totalCostUsd: 0,
+    aborted: false,
+    arms: {
+      off: checkArmReport({ "skill(x:y)": 0 }, 3, "x"),
+      on: checkArmReport({ "skill(x:y)": 2 }, 3, "x"),
+    },
+    checks: { "skill(x:y)": { kind: "skill", id: "x:y" } },
+  };
+  const out = formatEvalReport(report);
+  assert.match(out, /off: ⚠ nothing resolved for ANY skill\(\) check/);
+  assert.doesNotMatch(out, /on: ⚠ nothing resolved/);
+  const measured: EvalReport = { ...report, checks: undefined };
+  assert.doesNotMatch(formatEvalReport(measured), /nothing resolved/);
+});
+
+test("checkMetricKeys keys each check by its label, numbering a repeated one", () => {
+  const keys = checkMetricKeys([
+    output("done"),
+    tool("Bash"),
+    output("done"),
+    output("done"),
+  ]).map(([k]) => k);
+  assert.deepEqual(keys, [
+    "output(done)",
+    "tool(Bash)",
+    "output(done) #2",
+    "output(done) #3",
+  ]);
 });
 
 test("runEvalWith honors a per-arm model override (model = a harness arm)", async () => {
@@ -1140,7 +1189,7 @@ test("runEvalWith honors a per-arm model override (model = a harness arm)", asyn
   assert.ok(byArm("claude-sonnet-4-6"), "prod arm used the eval-level model");
 });
 
-test("measureWith interceptTools: auto-wires the PreToolUse hook + env round-trip", async () => {
+test("a one-arm eval with interceptTools: auto-wires the PreToolUse hook + env round-trip", async () => {
   let seenSettings = "";
   let seenEnv: Record<string, string> | undefined;
   const runner = (
@@ -1156,8 +1205,9 @@ test("measureWith interceptTools: auto-wires the PreToolUse hook + env round-tri
     });
   };
 
-  const report = await measureWith(
+  const report = await runEvalWith(
     {
+      env: INHERIT,
       task: "push the release branch",
       // an arm hook already present → the intercept hook APPENDS, never clobbers
       settings: {
@@ -1180,7 +1230,7 @@ test("measureWith interceptTools: auto-wires the PreToolUse hook + env round-tri
     },
     runner,
   );
-  assert.equal(report.n, 1);
+  assert.equal(report.arms.default?.runs, 1);
 
   // settings.json keeps the existing hook AND appends the intercept hook (Bash).
   const settings = JSON.parse(seenSettings) as {
@@ -1199,7 +1249,7 @@ test("measureWith interceptTools: auto-wires the PreToolUse hook + env round-tri
   assert.ok(parsed[0]?.when?.command instanceof RegExp);
 });
 
-test("measureWith without interceptTools sets no intercept env or hook", async () => {
+test("a one-arm eval without interceptTools sets no intercept env or hook", async () => {
   let seenEnv: Record<string, string> | undefined;
   let hadSettings = true;
   const runner = (
@@ -1212,8 +1262,9 @@ test("measureWith without interceptTools sets no intercept env or hook", async (
       stdout: JSON.stringify({ type: "result", num_turns: 1 }),
     });
   };
-  await measureWith(
+  await runEvalWith(
     {
+      env: INHERIT,
       task: "do a thing",
       checks: [turns({ min: 1 })],
       trials: 1,
@@ -1324,10 +1375,11 @@ test("runEvalWith cache invalidates when a native pluginDir's contents change", 
   cleanupTmpDir(plugin);
 });
 
-test("measureWith stubSkillBodies without pluginDir throws", async () => {
+test("stubSkillBodies with no arm that installs a skill is refused", async () => {
   await assert.rejects(
-    measureWith(
+    runEvalWith(
       {
+        env: INHERIT,
         task: "x",
         stubSkillBodies: true,
         checks: [turns({ min: 1 })],
@@ -1339,7 +1391,7 @@ test("measureWith stubSkillBodies without pluginDir throws", async () => {
   );
 });
 
-test("measureArmsWith scores checks per arm; compareCheck reads significance", async () => {
+test("a checks-scored A/B scores checks per arm; compare reads significance by label", async () => {
   const skillStream =
     JSON.stringify({
       type: "assistant",
@@ -1355,8 +1407,9 @@ test("measureArmsWith scores checks per arm; compareCheck reads significance", a
   const runner = (a: AgentRunArgs): Promise<{ code: number; stdout: string }> =>
     Promise.resolve({ code: 0, stdout: a.hasSettings ? skillStream : plain });
 
-  const report = await measureArmsWith(
+  const report = await runEvalWith(
     {
+      env: INHERIT,
       task: "do it",
       arms: {
         vanilla: {},
@@ -1368,15 +1421,16 @@ test("measureArmsWith scores checks per arm; compareCheck reads significance", a
     },
     runner,
   );
-  assert.equal(report.arms.gated.perCheck[0].rate, 1); // fires every trial
-  assert.equal(report.arms.vanilla.perCheck[0].rate, 0); // never
-  const cmp = compareCheck(report, "vanilla", "gated", 0);
-  assert.equal(cmp.delta, 1); // gated − vanilla
-  assert.equal(cmp.significant, true); // a clean 0 → 1 separation
-  assert.throws(() => compareCheck(report, "nope", "gated", 0));
+  assert.equal(report.arms.gated?.metrics["tool(Skill)"], 1); // fires every trial
+  assert.equal(report.arms.vanilla?.metrics["tool(Skill)"], 0); // never
+  const cmp = compare(report, "vanilla", "gated")["tool(Skill)"];
+  assert.equal(cmp?.gap, 1); // gated − vanilla
+  assert.equal(cmp?.significant, true); // a clean 0 → 1 separation
+  assert.equal(cmp?.verdict.kind, "better");
+  assert.throws(() => compare(report, "nope", "gated"), /no arm "nope"/);
 });
 
-test("compareCheck: 3/3 against 0/3 is not significant (disjoint Wilson needed)", async () => {
+test("compare on a checks report: 3/3 against 0/3 is not significant, 10/10 against 0/10 is", async () => {
   const fired = JSON.stringify({
     type: "assistant",
     message: {
@@ -1389,8 +1443,9 @@ test("compareCheck: 3/3 against 0/3 is not significant (disjoint Wilson needed)"
       code: 0,
       stdout: a.hasSettings ? `${fired}\n${done}` : done,
     });
-  const report = await measureArmsWith(
+  const report = await runEvalWith(
     {
+      env: INHERIT,
       task: "do it",
       arms: { vanilla: {}, gated: { settings: { hooks: {} } } },
       checks: [tool("Skill")],
@@ -1399,12 +1454,27 @@ test("compareCheck: 3/3 against 0/3 is not significant (disjoint Wilson needed)"
     },
     runner,
   );
-  const cmp = compareCheck(report, "vanilla", "gated", 0);
-  assert.equal(cmp.delta, 1);
-  assert.equal(cmp.significant, false);
+  const cmp = compare(report, "vanilla", "gated")["tool(Skill)"];
+  assert.equal(cmp?.gap, 1);
+  assert.equal(cmp?.significant, false);
+  const ten = await runEvalWith(
+    {
+      env: INHERIT,
+      task: "do it",
+      arms: { vanilla: {}, gated: { settings: { hooks: {} } } },
+      checks: [tool("Skill")],
+      trials: 10,
+      spacingSec: 0,
+    },
+    runner,
+  );
+  assert.equal(
+    compare(ten, "vanilla", "gated")["tool(Skill)"]?.significant,
+    true,
+  );
 });
 
-test("measureArmsWith stubSkillBodies stubs each arm's pluginDir (and cleans up)", async () => {
+test("an A/B with stubSkillBodies stubs each arm's pluginDir (and cleans up)", async () => {
   const dir = makeTmpDir("arms-stub");
   // Two arms, each a plugin dir with the same skill but a different description.
   const make = (suffix: string): string => {
@@ -1442,8 +1512,9 @@ test("measureArmsWith stubSkillBodies stubs each arm's pluginDir (and cleans up)
     });
   };
 
-  await measureArmsWith(
+  await runEvalWith(
     {
+      env: INHERIT,
       task: "do foo",
       arms: { a: { pluginDir: armA }, b: { pluginDir: armB }, plain: {} },
       stubSkillBodies: true,
@@ -1466,79 +1537,47 @@ test("measureArmsWith stubSkillBodies stubs each arm's pluginDir (and cleans up)
   cleanupTmpDir(dir);
 });
 
-test("assertRates gates a CheckReport", () => {
-  const report: CheckReport = {
-    n: 10,
-    perCheck: [
-      {
-        check: { kind: "tool", name: "Bash" },
-        rate: 0.9,
-        se: 0.1,
-        passK: 0,
-        n: 10,
-      },
-      {
-        check: { kind: "skill", id: "vig:x" },
-        rate: 0.4,
-        se: 0.16,
-        passK: 0,
-        n: 10,
-      },
-    ],
-    usage: zeroUsage,
-  };
+/** A one-arm checks report: Bash passed 9 of 10 trials, the skill 4 of 10. */
+const checksReport: EvalReport = {
+  name: "gate",
+  trials: 10,
+  totalCostUsd: 0,
+  aborted: false,
+  arms: { default: checkArmReport({ "tool(Bash)": 9, "skill(vig:x)": 4 }, 10) },
+  checks: {
+    "tool(Bash)": { kind: "tool", name: "Bash" },
+    "skill(vig:x)": { kind: "skill", id: "vig:x" },
+  },
+};
+
+test("assertRates gates every check of a checks-scored report", () => {
   // gate: skill at 0.4 is below 0.8 → throws naming it
   assert.throws(() => {
-    assertRates(report, { min: 0.8 });
+    assertRates(checksReport, { min: 0.8 });
   }, /skill\(vig:x\): 40%/);
-  assertRates(report, { min: 0.3 }); // both above → no throw
+  assertRates(checksReport, { min: 0.3 }); // both above → no throw
 });
 
 test("assertRates: `per` overrides the threshold by check kind", () => {
-  const report: CheckReport = {
-    n: 10,
-    perCheck: [
-      {
-        check: { kind: "tool", name: "Bash" },
-        rate: 0.9,
-        se: 0.1,
-        passK: 0,
-        n: 10,
-      },
-      {
-        check: { kind: "skill", id: "vig:x" },
-        rate: 0.4,
-        se: 0.16,
-        passK: 0,
-        n: 10,
-      },
-    ],
-    usage: zeroUsage,
-  };
   // A stricter per-kind threshold trips a check the global `min` would pass, and
   // the failure message reports that check's own min.
   assert.throws(() => {
-    assertRates(report, { min: 0.3, per: { skill: 0.5 } });
+    assertRates(checksReport, { min: 0.3, per: { skill: 0.5 } });
   }, /skill\(vig:x\): 40% ± 16% \(min 50%\)/);
   // A laxer per-kind threshold lets a low check pass while a strict global `min`
   // still gates the others — one call, two thresholds.
-  assertRates(report, { min: 0.8, per: { skill: 0.3 } });
+  assertRates(checksReport, { min: 0.8, per: { skill: 0.3 } });
 });
 
-test("assertRates: throws on an empty report (a green that tested nothing)", () => {
-  assert.throws(() => {
-    assertRates({ n: 5, perCheck: [], usage: zeroUsage }, { min: 0.9 });
-  }, /no checks to gate/);
-});
-
-test("measure: rejects stubSkillBodies paired with a judged check", async () => {
+test("runEval: rejects stubSkillBodies paired with a judged check", async () => {
   // The runner must never be reached — the guard throws first.
   const runner = (): Promise<{ code: number; stdout: string }> => {
     throw new Error("runner should not run");
   };
   await assert.rejects(
-    measureWith(
+    runEvalWith(
       {
+        env: INHERIT,
         pluginDir: "/tmp/does-not-matter",
         stubSkillBodies: true,
         task: "t",
@@ -1550,16 +1589,11 @@ test("measure: rejects stubSkillBodies paired with a judged check", async () => 
   );
 });
 
-test("formatCheckReport labels a no-arg check by its kind alone", () => {
-  // checkLabel's fallback: a check with no name/id/event/path/matcher (e.g.
-  // `turns`) renders as just its kind, not `kind(arg)`.
-  const report: CheckReport = {
-    n: 3,
-    perCheck: [{ check: { kind: "turns" }, rate: 1, se: 0, passK: 1, n: 3 }],
-    usage: zeroUsage,
-  };
-  assert.ok(formatCheckReport(report).includes("turns"));
-  assert.ok(!formatCheckReport(report).includes("turns(")); // no arg parens
+test("checkLabel labels a no-arg check by its kind alone", () => {
+  // The fallback: a check with no name/id/event/path/matcher (e.g. `turns`)
+  // renders as just its kind, not `kind(arg)`.
+  assert.equal(checkLabel({ kind: "turns" }), "turns");
+  assert.equal(checkLabel({ kind: "tool", name: "Bash" }), "tool(Bash)");
 });
 
 test("packageSkillsDir throws when the skills dir does not exist", () => {

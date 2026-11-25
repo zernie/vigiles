@@ -1,7 +1,7 @@
 /**
  * ⚠️ EXPERIMENTAL — A/B a skill against a REAL disposable service (R3), end to end.
  *
- * Wraps a `measureArms` A/B (baseline vs the migrator skill) in a throwaway
+ * Wraps a `runEval` A/B (baseline vs the migrator skill) in a throwaway
  * Postgres: run the skill for real, then verify the REAL resulting DB state — the
  * question promptfoo can't answer cheaply. See docs/measuring-skills.md § Experimental.
  *

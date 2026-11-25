@@ -8,11 +8,24 @@
  * `vigiles/eval` (the paid runners and the readers). Each entry imports them
  * from here, and none imports another entry's barrel. Pure data, no behaviour.
  *
- * `CheckReport` and its row `CheckRate` join them once the serialized check
- * shape (`CheckJSON`, today in `src/check.ts`) is declared in core.
+ * A run scored with `checks` returns the same `EvalReport` as one scored with
+ * `measure(ctx)`: each check is one 0/1 metric, and `EvalReport.checks` names
+ * the check behind each such metric. So the serialized check shape (`CheckJSON`)
+ * is declared here too, and `src/check.ts` re-exports it.
  */
 import type { StubCall } from "./stub-rules.js";
 import type { ContextEvidence } from "./context-evidence.js";
+
+/**
+ * A check serialized to plain data — what `Check.toJSON()` returns and what a
+ * report records about the check behind a metric.
+ *
+ * @public
+ */
+export interface CheckJSON {
+  readonly kind: string;
+  readonly [field: string]: unknown;
+}
 
 /**
  * Per-metric summary statistics across an arm's runs.
@@ -81,6 +94,14 @@ export interface ArmReport {
    * `usage`). Absent on a report recorded before the check existed.
    */
   readonly context?: readonly ContextEvidence[];
+  /**
+   * The plugin namespace this arm's skills installed under — the `<plugin>`
+   * half of the `<plugin>:<skill>` id a `skill()` check matches. Absent when
+   * the arm installed nothing (no `pluginDir` / `skillsDir`). Reported because
+   * with `skillsDir` the name is chosen by the packager, not the caller, so the
+   * most common cause of a 0% `skill()` rate was a value the caller never saw.
+   */
+  readonly namespace?: string;
 }
 
 /** @public */
@@ -109,6 +130,14 @@ export interface EvalReport {
   readonly env?:
     | { readonly kind: "ephemeral" }
     | { readonly kind: "inherit"; readonly reason: string };
+  /**
+   * Present when the run was scored with `checks`: each metric key (the
+   * check's label, e.g. `tool(Bash)`, with ` #2` appended to a repeated one)
+   * mapped to the check it scores. Every such metric is 0/1. `assertRates`
+   * without a `metric` gates exactly these. Absent on a run scored with
+   * `measure(ctx)`.
+   */
+  readonly checks?: Readonly<Record<string, CheckJSON>>;
 }
 
 /**

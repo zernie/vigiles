@@ -1032,7 +1032,7 @@ export function skillTestNudge(
       `still does what it claims — no test or eval covers it.\n` +
       `Don't hand-roll a runner: the \`test-harness\` skill carries the ` +
       `tier→API table (runHook · runHarnessTest+scriptModel · ` +
-      `measureTriggerRate · measure+judged · runEval) and picks the cheapest ` +
+      `measureTriggerRate · runEval with checks or judged) and picks the cheapest ` +
       `tier that can answer your question. Start there, then add e.g. ` +
       `${suggestedTestPath(untested, report.testExt)}.\n` +
       `This is a reminder, not a block.`
@@ -1119,7 +1119,7 @@ export function evalTierQuestion(kind: SurfaceKind): string | null {
       // covers it drove a scripted model, which cannot answer that.
       //
       // ⚠️ It does NOT offer `{ evalDriver }` here, and that is checked rather
-      // than assumed: `runEval`/`measure`/`measureArms` all hard-wire
+      // than assumed: `runEval` hard-wires
       // `spawnAgent`, and `runEvalWith` is not exported from `vigiles/eval` —
       // `measureTriggerRate` is the only public call with that seam. Suggesting
       // an argument the function does not take is this finding's own defect.
@@ -1131,11 +1131,11 @@ export function evalTierQuestion(kind: SurfaceKind): string | null {
         `decides "fired" by skill SELECTION, so it cannot address an agent — ` +
         `pointed at an agents-only plugin it reports rate 0.0 over 0 ` +
         `competitors instead of failing (measured).\n` +
-        `See the \`test-harness\` skill: run the real-model tier (\`runEval\` / ` +
-        `\`measure\`) and keep the assertions your deterministic test already ` +
+        `See the \`test-harness\` skill: run the real-model tier (\`runEval\` ` +
+        `scored by \`checks\`) and keep the assertions your deterministic test already ` +
         `makes — \`check.subagent(name, [...])\` for the nested trace, \`check.tool(name, { max: 0 })\` for ` +
-        `the tool contract, \`experimental_assertAgentOk\` for the typed result. Those two ` +
-        `calls drive Claude Code and take no \`evalDriver\`, so on another ` +
+        `the tool contract, \`experimental_assertAgentOk\` for the typed result. That ` +
+        `call drives Claude Code and take no \`evalDriver\`, so on another ` +
         `harness this tier has no public dispatch yet.`
       );
     case "output-style":
@@ -1148,7 +1148,7 @@ export function evalTierQuestion(kind: SurfaceKind): string | null {
         `it can show the style reached the model, never that a real model ` +
         `follows it.\n` +
         `See the \`test-harness\` skill: compare runs with and without the style ` +
-        `(\`measureArms\`), check the output with deterministic checks where the ` +
+        `(\`runEval\` with two \`arms\`), check the output with deterministic checks where the ` +
         `rule has a checkable shape and \`judged\` where it does not, and gate ` +
         `with \`assertRates\`. NOT \`measureTriggerRate\`: a style is not ` +
         `selected by the model, so there is no trigger to measure.`

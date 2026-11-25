@@ -22,7 +22,7 @@
  *
  * `defineEval` builds a plain value. There is nothing in it to run, so importing
  * it starts nothing — not "is discouraged from starting"; there is no call. The
- * five paid runners are reached only by `eval-entry.ts`, the module `vigiles
+ * paid runners are reached only by `eval-entry.ts`, the module `vigiles
  * eval` spawns. After the migration, ZERO of this repo's 19 eval files import a
  * runner at all: the paid subpath is no longer part of an eval file's vocabulary.
  * (18 were already named `*.eval.*`; `from-promptfoo.mjs` was renamed in, because
@@ -55,15 +55,11 @@ import { isEvalScript } from "./source-kinds.js";
 
 import type {
   EvalDriver,
-  ArmsMeasureSpec,
   EvalReport,
   EvalSpec,
-  MeasureSpec,
   TriggerRateReport,
   TriggerRateSpec,
 } from "./eval.js";
-import type { ArmsCheckReport, CheckReport } from "./eval-check-report.js";
-import type { Metrics } from "./core/eval-aggregate.js";
 import type {
   SelectionMatrixOptions,
   SelectionReport,
@@ -87,7 +83,7 @@ export interface SelectionMatrixSpec extends SelectionMatrixOptions {
 }
 
 /**
- * The five measurements an eval file may declare — the runners that already
+ * The three measurements an eval file may declare — the runners that already
  * exist, keyed by their own names, so migrating is renaming a call to a key.
  * EXACTLY ONE must be present: zero is a file that declares nothing, and two is
  * a file whose author expected both to run.
@@ -95,12 +91,12 @@ export interface SelectionMatrixSpec extends SelectionMatrixOptions {
  * @public
  */
 export interface EvalMeasurements {
-  /** A/B across arms with derived metrics — `paid_runEval`. */
-  readonly runEval?: EvalSpec<Metrics>;
-  /** Checks scored over N trials of one task — `paid_measure`. */
-  readonly measure?: MeasureSpec;
-  /** The same checks per arm — `paid_measureArms`. */
-  readonly measureArms?: ArmsMeasureSpec;
+  /**
+   * A task over N trials, one configuration or several arms, scored by
+   * `checks` or `measure(ctx)` — `paid_runEval`. Since v55 also what the
+   * removed `measure` and `measureArms` keys declared.
+   */
+  readonly runEval?: EvalSpec;
   /** Does a skill's description actually fire — `paid_measureTriggerRate`. */
   readonly measureTriggerRate?: TriggerRateSpec;
   /**
@@ -118,8 +114,6 @@ export interface EvalMeasurements {
  */
 export interface EvalReports {
   readonly runEval: EvalReport;
-  readonly measure: CheckReport;
-  readonly measureArms: ArmsCheckReport;
   readonly measureTriggerRate: TriggerRateReport;
   readonly measureSelectionMatrix: SelectionReport;
 }
@@ -197,16 +191,28 @@ export type DeclaredEval =
       readonly ok: false;
       readonly why: "declares-several";
       readonly kinds: readonly EvalKind[];
+    }
+  | {
+      readonly ok: false;
+      readonly why: "removed-kind";
+      readonly kind: RemovedEvalKind;
     };
 
 /** The measurement keys, in a fixed order — the one list, read by everything. */
 export const EVAL_KINDS: readonly EvalKind[] = [
   "runEval",
-  "measure",
-  "measureArms",
   "measureTriggerRate",
   "measureSelectionMatrix",
 ];
+
+/**
+ * Keys an eval file declared before v55, both folded into `runEval`. Named so
+ * a file still carrying one is told the rewrite instead of "declares nothing".
+ */
+export const REMOVED_EVAL_KINDS = ["measure", "measureArms"] as const;
+
+/** A key of {@link REMOVED_EVAL_KINDS}. */
+export type RemovedEvalKind = (typeof REMOVED_EVAL_KINDS)[number];
 
 /** Whether a value came from {@link defineEval}. */
 export function isEvalDefinition(v: unknown): v is EvalDefinition {
@@ -225,6 +231,9 @@ export function isEvalDefinition(v: unknown): v is EvalDefinition {
 export function declaredEval(def: unknown): DeclaredEval {
   if (!isEvalDefinition(def)) return { ok: false, why: "not-a-definition" };
   const rec = def as unknown as Record<string, unknown>;
+  const removed = REMOVED_EVAL_KINDS.find((k) => rec[k] !== undefined);
+  if (removed !== undefined)
+    return { ok: false, why: "removed-kind", kind: removed };
   const present = EVAL_KINDS.filter((k) => rec[k] !== undefined);
   if (present.length === 0) return { ok: false, why: "declares-nothing" };
   if (present.length > 1)
@@ -294,16 +303,21 @@ export function ranAsEntryRefusal(argv1: string): string {
   );
 }
 
+/* eslint-disable no-redeclare -- TypeScript function overloads (the base
+   no-redeclare rule, unlike @typescript-eslint/no-redeclare, flags them) */
 /**
  * Declare the eval a file describes. Returns a plain, branded value; it starts
  * nothing, spends nothing, and touches no filesystem.
  *
  * ```js
- * import { defineEval, skill } from "vigiles";
+ * import { defineEval, check } from "vigiles";
  * import { assertRates } from "vigiles/eval";
  *
  * export default defineEval({
- *   measure: { pluginDir, task: "…", checks: [skill("my:skill")], trials: 3 },
+ *   runEval: {
+ *     env: { kind: "ephemeral" },
+ *     pluginDir, task: "…", checks: [check.skill("my:skill")], trials: 3,
+ *   },
  *   assert: (report) => assertRates(report, { min: 0.6 }),
  * });
  * ```
@@ -314,6 +328,28 @@ export function ranAsEntryRefusal(argv1: string): string {
  *
  * @public
  */
+export function defineEval(
+  def: EvalDefinitionInput<"runEval">,
+): EvalDefinition<"runEval">;
+/**
+ * Declare a `measureTriggerRate` eval: `assert` gets its report type.
+ *
+ * @public
+ */
+export function defineEval(
+  def: EvalDefinitionInput<"measureTriggerRate">,
+): EvalDefinition<"measureTriggerRate">;
+/**
+ * Declare a `measureSelectionMatrix` eval: `assert` gets its report type.
+ *
+ * @public
+ */
+export function defineEval(
+  def: EvalDefinitionInput<"measureSelectionMatrix">,
+): EvalDefinition<"measureSelectionMatrix">;
+// One signature per measurement, not one generic in `K`: inferred from the
+// literal, `K` took every key of it (`assert` included), broke its constraint
+// and fell back to EVERY kind, so `assert` got the union of all three reports.
 export function defineEval<K extends EvalKind>(
   def: EvalDefinitionInput<K>,
 ): EvalDefinition<K> {
@@ -323,3 +359,4 @@ export function defineEval<K extends EvalKind>(
     throw new Error(ranAsEntryRefusal(argv1));
   return { ...def, [EVAL_DEFINITION]: true };
 }
+/* eslint-enable no-redeclare */

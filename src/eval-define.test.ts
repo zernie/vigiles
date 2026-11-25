@@ -13,6 +13,8 @@ import { mkdtempSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
+import { check } from "./check.js";
+
 import {
   declaredEval,
   defineEval,
@@ -21,6 +23,7 @@ import {
   ranAsEntry,
   ranAsEntryRefusal,
   EVAL_KINDS,
+  EVAL_DEFINITION,
 } from "./eval-define.js";
 
 const DIST = resolve("dist");
@@ -31,15 +34,30 @@ function tmp(): string {
 
 // --- the value ---------------------------------------------------------------
 
+/** A `runEval` spec scored by one check — data; nothing here runs it. */
+const SPEC = {
+  env: { kind: "inherit", reason: "unit test: never run" },
+  task: "t",
+  checks: [check.tool("Bash")],
+} as const;
+
 test("a definition is a plain branded value — building one starts nothing", () => {
-  const def = defineEval({ measure: { task: "t", checks: [] } });
+  const def = defineEval({ runEval: SPEC });
   assert.ok(isEvalDefinition(def));
   const d = declaredEval(def);
-  assert.deepEqual(d, {
-    ok: true,
-    kind: "measure",
-    spec: { task: "t", checks: [] },
-  });
+  assert.deepEqual(d, { ok: true, kind: "runEval", spec: SPEC });
+});
+
+test("a definition with a key folded into runEval in v55 is named as removed, not as empty", () => {
+  for (const kind of ["measure", "measureArms"] as const) {
+    // Built by hand: the key no longer type-checks, as a `.mjs` file still writes it.
+    const def = { [EVAL_DEFINITION]: true, [kind]: { task: "t", checks: [] } };
+    assert.deepEqual(declaredEval(def), {
+      ok: false,
+      why: "removed-kind",
+      kind,
+    });
+  }
 });
 
 test("a runner can answer WHAT a file declares without running it — the reason this is data and not a callback", () => {
@@ -54,26 +72,26 @@ test("a runner can answer WHAT a file declares without running it — the reason
     ok: false,
     why: "not-a-definition",
   });
-  assert.deepEqual(declaredEval({ measure: { task: "t", checks: [] } }), {
+  assert.deepEqual(declaredEval({ runEval: SPEC }), {
     ok: false,
     why: "not-a-definition", // a bare object is not a declaration
   });
   const several = declaredEval(
     defineEval({
-      measure: { task: "t", checks: [] },
-      measureArms: { arms: {}, task: "t", checks: [] },
+      runEval: SPEC,
+      measureTriggerRate: { pluginDir: "/p", prompts: [], fired: () => true },
     } as never),
   );
   assert.equal(
     !several.ok && several.why === "declares-several"
       ? several.kinds.join(",")
       : "(not the declares-several case)",
-    "measure,measureArms",
+    "runEval,measureTriggerRate",
   );
 });
 
 test("moduleDefault reaches through CJS interop — the three shapes an eval file can compile to", () => {
-  const def = defineEval({ measure: { task: "t", checks: [] } });
+  const def = defineEval({ runEval: SPEC });
   // real ESM: `mod.default` is the definition
   assert.equal(moduleDefault({ default: def }), def);
   // `module.exports = defineEval(…)` in a .cjs: import() puts it at `.default`
@@ -89,7 +107,7 @@ test("moduleDefault reaches through CJS interop — the three shapes an eval fil
   assert.equal(moduleDefault({}), undefined);
   assert.equal(moduleDefault(undefined), undefined);
   const withOwnDefault = defineEval({
-    measure: { task: "t", checks: [] },
+    runEval: SPEC,
     // a field named `default` on the definition itself
   }) as unknown as { default?: unknown };
   withOwnDefault.default = "not a definition";
@@ -101,13 +119,7 @@ test("every declarable measurement is in EVAL_KINDS", () => {
   // runner would silently ignore — declared, never run, exit 0.
   assert.deepEqual(
     [...EVAL_KINDS].sort(),
-    [
-      "measure",
-      "measureArms",
-      "measureSelectionMatrix",
-      "measureTriggerRate",
-      "runEval",
-    ].sort(),
+    ["measureSelectionMatrix", "measureTriggerRate", "runEval"].sort(),
   );
 });
 
@@ -198,7 +210,7 @@ test("THE CENTRAL CLAIM: importing the new shape spends nothing; importing the o
     "new.standin.mjs",
     `import { pay } from "./fake-pay.mjs";\n` +
       `import { defineEval } from "${DIST}/entries/index.js";\n` +
-      `export default defineEval({ measure: { task: String(typeof pay), checks: [] } });\n`,
+      `export default defineEval({ runEval: { task: String(typeof pay), checks: [] } });\n`,
   );
   const out = execFileSync("node", [
     "-e",
@@ -212,7 +224,7 @@ test("THE CENTRAL CLAIM: importing the new shape spends nothing; importing the o
     "importing a description must spend nothing",
   );
   const declared = JSON.parse(out.toString()) as { kind?: string };
-  assert.equal(declared.kind, "measure");
+  assert.equal(declared.kind, "runEval");
 });
 
 test("`node x.eval.mjs` fails LOUDLY instead of doing nothing", () => {
@@ -224,7 +236,7 @@ test("`node x.eval.mjs` fails LOUDLY instead of doing nothing", () => {
     dir,
     "silent.eval.mjs",
     `import { defineEval } from "${DIST}/entries/index.js";\n` +
-      `export default defineEval({ measure: { task: "t", checks: [] } });\n`,
+      `export default defineEval({ runEval: { task: "t", checks: [] } });\n`,
   );
   const r = spawnSync("node", [f], { encoding: "utf8" });
   assert.notEqual(r.status, 0, "a no-op exit 0 is the defect this prevents");

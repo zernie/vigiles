@@ -4,6 +4,7 @@
  * through these.
  */
 import type {
+  ArmReport,
   ArmUsage,
   EvalReport,
   MetricStat,
@@ -12,7 +13,7 @@ import type {
 import { describeVerdict } from "./core/evidence.js";
 import { experimental_verdict } from "./stats.js";
 import { contextSummaryLines } from "./core/context-evidence.js";
-import { inheritLine } from "./eval-check-report.js";
+import { inheritLine, skillZeroNote } from "./eval-check-report.js";
 
 /** Render one metric: `name=mean±se pass^k=…` (se/pass^k shown when measured). */
 function formatMetric(
@@ -83,6 +84,17 @@ function costLabel(report: EvalReport): string {
     : `${reported}${runs}`;
 }
 
+/** The every-`skill()`-check-at-0% note under an arm of a `checks` run, if due. */
+function skillZeroLines(
+  report: EvalReport,
+  name: string,
+  arm: ArmReport,
+): readonly string[] {
+  const note =
+    report.checks === undefined ? undefined : skillZeroNote(arm, report.checks);
+  return note === undefined ? [] : [`  ${name}: ${note}`];
+}
+
 export function formatEvalReport(
   report: EvalReport,
   opts: { readonly baseline?: string } = {},
@@ -99,6 +111,7 @@ export function formatEvalReport(
       ...contextSummaryLines(r.context ?? []).map(
         (line) => `  ${arm.padEnd(10)} ${line}`,
       ),
+      ...skillZeroLines(report, arm, r),
     );
     // One line: the calls themselves are printed once, by `runEval`
     // (`unansweredInReport`), not again under every arm of the table.

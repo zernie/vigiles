@@ -109,7 +109,7 @@ and check every reply of each run.
 
 ```ts
 import { check } from "vigiles";
-import { experimental_outputStyleArms, paid_measureArms } from "vigiles/eval";
+import { experimental_outputStyleArms, paid_runEval } from "vigiles/eval";
 
 // Free: one run with the scripted model proves the style reaches the model,
 // then the arms are built from the FILE — no name typed by hand.
@@ -118,7 +118,8 @@ const arms = await experimental_outputStyleArms(
 );
 
 // Paid: a real model, both arms.
-const report = await paid_measureArms({
+const report = await paid_runEval({
+  env: { kind: "ephemeral" },
   arms,
   task: "summarise README.md",
   checks: [

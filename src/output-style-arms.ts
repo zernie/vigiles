@@ -19,7 +19,7 @@ import type { EvalArm } from "./eval.js";
 import { outputStyleFixture, runHarnessTestIn } from "./harness-test.js";
 
 /**
- * The style on and the style off, ready for `paid_measureArms({ arms })`.
+ * The style on and the style off, ready for `paid_runEval({ arms, checks })`.
  *
  * @public
  */

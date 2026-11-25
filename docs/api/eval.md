@@ -82,14 +82,15 @@ assertNoRegression(report, { baseline, lowerIsBetter: ["cost"] }); // gate
 
 ### Grade free text with a model
 
-`paid_judged` is a check for `measure` and `measureArms`; `paid_judge` is the
-synchronous call for inside a `measure` callback.
+`paid_judged` is a check, for a `paid_runEval` scored by `checks`; `paid_judge`
+is the synchronous call for inside a `measure(ctx)` callback.
 
 ```ts
 import { check } from "vigiles";
-import { paid_judged, paid_measure } from "vigiles/eval";
+import { paid_judged, paid_runEval, assertRates } from "vigiles/eval";
 
-const report = await paid_measure({
+const report = await paid_runEval({
+  env: { kind: "ephemeral" },
   task: "Summarize in.txt in one sentence.",
   fixture: { "in.txt": "..." },
   model: "sonnet",
@@ -99,6 +100,22 @@ const report = await paid_measure({
   ],
   trials: 5,
 });
+assertRates(report, { min: 0.8 }); // each check, in the one arm `default`
+```
+
+### Gate a cost, a turn count, a latency
+
+A metric where a decrease is the improvement needs `lowerIsBetter`, or the gate
+reads a cheaper arm as a loss:
+
+```ts
+assertImproves(report, {
+  baseline: "off",
+  arm: "on",
+  metric: "cost",
+  lowerIsBetter: true, // `on` must cost LESS; `by` is then `baseline − arm`
+});
+compare(report, "off", "on", { lowerIsBetter: ["cost", "turns"] }); // verdicts flip
 ```
 
 ### Test an output style
@@ -173,23 +190,38 @@ assertRates(report, { min: 0.8, maxFalsePositive: 0.1 }); // recall, precision s
   plugin you point at (honest — selection is competitive); `installSet` co-installs
   the rest of the user's harness for a release-gate measurement. `report.competitors`
   is the pool size (`0` = isolated, an upper bound on recall).
-- **Comparing models** is a harness A/B — set a per-arm `model` in `measureArms` /
-  `runEval`, no separate matrix runner.
+- **Comparing models** is a harness A/B — set a per-arm `model` in `runEval`, no
+  separate matrix runner.
 
-### `runEval`, `measure`, `measureArms`
+### `runEval`: one runner, two choices
 
 `runEval` drives the real model N trials × arm and aggregates: **mean** for
 numbers, **fraction-true** for booleans, with **std / se** and **pass^k** (did the
 metric succeed on _every_ trial? — the reliability question "worked every time" ≠
-"worked on average"). An arm is a fixture + settings, or a whole `plugin` /
-`pluginDir` / `skillsDir` (a loose `.claude/skills` dir, auto-packaged into a
-throwaway plugin under the namespace `vigiles-loose-skills` — the same field
-`measureTriggerRate` takes; `measure` and `measureArms` take it too, and
-`stubSkillBodies` applies to it). Every runner refuses a field its spec does not
-declare — a typo, or a sibling runner's option — before it spends a token, rather
-than dropping it and measuring a setup you did not ask for.
+"worked on average"). A spec makes two choices, each exactly one of two — a type
+error in TypeScript, and refused before the first trial in a `.mjs` file:
 
-`runEval` also takes two fields no sibling has. **`env`** is required: `{ kind:
+| choice             | one                                                                                                                                     | or the other                                                                                                                         |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| **configurations** | `arms: { off: {…}, on: {…} }` — compared against each other                                                                             | no `arms` — one arm, named `"default"`, set up by the top-level `settings` / `plugin` / `pluginDir` / `skillsDir` / `interceptTools` |
+| **scoring**        | `checks: [check.tool("Bash"), …]` — each a 0/1 metric keyed by its label (`tool(Bash)`, a repeat gets ` #2`), listed in `report.checks` | `measure: (ctx) => ({ … })` — your own numbers or booleans                                                                           |
+
+The five top-level arm fields beside `arms` are refused: set them on each arm.
+Either way the report is one `EvalReport`, so every reader below takes it. An
+arm's skills install under the namespace in `report.arms[a].namespace` — the
+`<plugin>` of the `<plugin>:<skill>` id a `check.skill()` matches; when every
+`skill()` check of an arm scores 0%, the printed report says to check that id
+first.
+
+An arm is a fixture + settings, or a whole `plugin` / `pluginDir` / `skillsDir`
+(a loose `.claude/skills` dir, auto-packaged into a throwaway plugin under the
+namespace `vigiles-loose-skills` — the same field `measureTriggerRate` takes, and
+`stubSkillBodies` applies to it). `runEval` refuses a field its spec does not
+declare — a typo, or another runner's option — before it spends a token, rather
+than dropping it and measuring a setup you did not ask for. Its default `model`
+is `"haiku"`; set the model your users run.
+
+`runEval` also takes two fields `measureTriggerRate` does not. **`env`** is required: `{ kind:
 "ephemeral", home? }` (a throwaway HOME, optionally seeded with files) or `{
 kind: "inherit", reason }` (your real HOME; the reason is printed with the
 report) — [what each passes into the run](../measuring-skills.md#where-a-trial-runs--env).
@@ -221,15 +253,15 @@ names reach the report and the cache. Codex trials say "not checked" — no
 request channel is read there yet. `experimental_contextCheck: false` turns the
 check off.
 
-The `measure` ctx is a full `Trace`, so a metric reads the agent's **actions**
+The `measure` ctx — and every check — reads a full `Trace`, so a metric reads the agent's **actions**
 (`ctx.toolCalls`), its **final answer** (`ctx.output`), and the **filesystem**
 (`ctx.file`, `ctx.sh`) — reuse the bare predicates to compute them.
 
 **Two questions, two oracles** — don't default to A/B for both:
 
 - **Absolute — "is this exact skill / output any good?"** Testing _one_ skill with
-  no on/off variant: score it directly with `measure({ checks: [judged(rubric)] })`
-  - `assertRates({ min })`. The oracle promptfoo/DeepEval lead with.
+  no on/off variant: score it directly with `runEval({ checks: [judged(rubric)] })`
+  and `assertRates({ min })`. The oracle promptfoo/DeepEval lead with.
 - **Relative — "does this change _move_ behaviour vs off?"** The lift a change buys
   (regression gating, proving a gap isn't noise): `runEval` with `off`/`on` arms +
   `assertImproves({ significant: true })`.
@@ -249,8 +281,10 @@ The `measure` ctx is a full `Trace`, so a metric reads the agent's **actions**
   read from the stream: input and cache tokens are exact, output tokens are not.
 - `cache: "readwrite"` — **record/replay**. Each trial's output _and_ post-run
   filesystem are recorded; a matching re-run replays without calling the model. The
-  key excludes `measure`, so **editing your metric and re-running re-scores for
-  free** — the model is re-called only when a model-affecting input changes.
+  key excludes `measure` and `checks`, so **editing your metric or your checks and
+  re-running re-scores for free** — the model is re-called only when a
+  model-affecting input changes. (The eval LOCK is the other way round for
+  `checks`: they are hashed into it, because a replayed lock IS their scores.)
 
 `report.arms[a].usage` aggregates per arm; `report.totalCostUsd` sums the reported
 cost of the run. `report.chargedUsd` is what counted against `maxCostUsd` (the reported
@@ -316,6 +350,13 @@ assertImproves(report, {
 A significant LOSS is `significant` with a negative `gap`. An arm name the report
 does not have throws (a typo is not an arm that scored nothing).
 
+**Direction.** Both tests decide on `arm − baseline > 0`, so for a cost, a turn
+count or a latency a cheaper arm reads as `worse`. Say which way the metric
+points: `compare(report, base, arm, { lowerIsBetter: ["cost"] })` flips the
+verdict of the listed metrics (`gap` stays `arm − baseline`), and
+`assertImproves({ …, metric: "cost", lowerIsBetter: true })` flips the verdict and
+the `by` margin. `assertNoRegression` takes the same list.
+
 Hand `compare` two **trigger-rate** reports instead and it diffs them prompt by
 prompt — which prompts a description edit (or a different model) gained and lost:
 
@@ -340,7 +381,9 @@ verdict costs a re-run, an eager one costs a shipped regression.
 `vigiles eval` prints the same verdict, one line per other arm and metric.
 `assertImproves` throws when an arm never reported the metric, instead of reading
 it as 0. `assertRates(report, { arm, metric, passK: 1 })` is the stricter bar: the
-metric succeeded on **every** trial (pass^k = 1).
+metric succeeded on **every** trial (pass^k = 1). Leave out `metric` on a report
+scored by `checks` and it gates every check of the arm (`per: { skill: 1 }`
+overrides `min` by check kind); leave out `arm` when the report has one arm.
 
 **Regression gating** compares one run against a **committed baseline** — "jest
 snapshots for agent behaviour, with a real noise floor":
@@ -366,9 +409,7 @@ them. A new arm/metric absent from the baseline is skipped (not a regression).
 
 ### Runners (can spend money)
 
-- `paid_runEval`: run arms x trials of one task and score each trial with a `measure(ctx)` callback.
-- `paid_measure`: run one task and score a declarative `checks` array.
-- `paid_measureArms`: score the same `checks` per arm (a thing on versus off).
+- `paid_runEval`: run one task N times per configuration (one, or `arms` compared) and score each trial by `checks` or a `measure(ctx)` callback.
 - `paid_measureTriggerRate`: measure whether a skill's description fires on the right prompts and stays quiet on the wrong ones.
 - `paid_judge`: grade one output against a rubric with a model, synchronously.
 - `paid_judged`: a check that grades the output against a rubric; takes an injectable judge that costs nothing.
@@ -378,9 +419,9 @@ them. A new arm/metric absent from the baseline is skipped (not a regression).
 ### Readers (free, never call a model)
 
 - `compare`: per metric, how far apart two arms are and whether the gap clears the noise floor; given two trigger-rate reports, which prompts were gained and lost.
-- `assertImproves`: throw unless an arm beats the baseline on a metric, optionally by a margin and with significance.
+- `assertImproves`: throw unless an arm beats the baseline on a metric, optionally by a margin and with significance; `lowerIsBetter` for a cost.
 - `assertNoRegression`: throw when an arm or metric moves significantly the wrong way against a committed baseline.
-- `assertRates`: throw when a check report, an arm and metric, or a trigger-rate report is below a rate; `passK: 1` demands every trial.
+- `assertRates`: throw when an arm's checks, an arm and metric, or a trigger-rate report is below a rate; `passK: 1` demands every trial.
 
 ### Types
 
@@ -393,7 +434,6 @@ them. A new arm/metric absent from the baseline is skipped (not a regression).
 - `RegressionGate`: options of `assertNoRegression`; the baseline is a path or a parsed file.
 - `BaselineFile`: the committed baseline format (`version`, `recordedAt`, `reports`).
 - `RateGate`: the `min` or `passK: 1` threshold shared by the rate gates.
-- `CheckRateGate`: `RateGate` plus per-check minimums, for a check report.
-- `ArmRateGate`: `RateGate` for one arm and metric of an eval report.
+- `ArmRateGate`: `RateGate` for one arm of an eval report — one `metric`, or every check with per-kind minimums (`per`).
 - `TriggerRateGate`: thresholds for a trigger-rate report (`min`, `minPrecision`, `maxFalsePositive`).
 - `OutputStyleArms`: the `with` and `without` arms that `experimental_outputStyleArms` returns.

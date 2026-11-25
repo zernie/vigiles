@@ -307,6 +307,25 @@ A capability is ONE organism with MANY surfaces — and 'done' means coherent ac
 
 Harness/eval test SCRIPTS must run whether authored in JavaScript (`.mjs` / `.cjs` / `.js`) or TypeScript (`.ts` / `.mts` / `.cts`) — neither language is second-class. `vigiles test` / `vigiles eval` discover both (the `*.harness.*` / `*.eval.*` glob in `src/adapters/claude-code/run-scripts.ts`) and run a TypeScript script through `tsx` when installed, else Node's native type stripping (Node >= 22.6), failing with an actionable message when neither is available. The typed `vigiles`/`vigiles/eval` API and the zero-setup CLI scripts are two on-ramps to the same tiers. vigiles's OWN unit test suite, by contrast, is uniformly TypeScript (every `src/**/*.test.ts`, run by vitest), so the project dogfoods the typed path; the `.mjs` files under `examples/harness/` stay JavaScript on purpose as the copy-paste CLI-fallback demos (see `docs/testing-matrix.md`).
 
+## one-schema-not-two-guards
+
+Supporting JavaScript callers does not mean re-writing the TypeScript types as hand-written runtime guards. A public input that must be checked at run time is described ONCE, as a schema (Zod), and the type is derived from it or bound to it by a compile-time test.
+
+**Why a runtime check exists at all.** Most callers of the eval API write `.mjs` (33 of 34 eval files on 2026-11-24), and tsc checks nothing there. A malformed spec would be found only after a paid run, or worse, read as a different spec than the one the author wrote. So the entry point has to refuse a bad input itself, before it spends anything.
+
+**The anti-pattern, measured.** The first draft of `src/eval-spec-shape.ts` (PR #541) was 185 lines of hand-written guards (`isArmRecord`, `isCheckList`, `checkScoring`, …) that restated `EvalSpec` field by field. That is two copies of one rule, and two copies drift. The drift shows up as a JavaScript caller refused for a spec TypeScript accepts, or a spec TypeScript refuses that JavaScript gets through. Neither copy notices, because each is consistent with itself.
+
+**The rule.**
+
+- One Zod schema is the source of truth for what the input may be, and its custom messages are the refusals (prefixed with the entry point's name, and saying what to write instead).
+- Prefer deriving the public type from it (`z.infer` / `z.input`).
+- When the type must stay hand-written, because it is generic or has function-valued fields Zod cannot type precisely, a type-level equality test in `test/types/` binds the two. Use exact identity, not mutual assignability, which a dropped `?: never` passes. `test/types/eval-spec-schema.ts` binds `EvalSpec` to `EVAL_SHAPE` this way.
+- The precedent is the config: `configFor` in `src/core/config-schema.ts` builds the shape, the defaults and the messages of `.vigilesrc.json` from one schema, and the config type is derived from it.
+
+**Prior art.** Schema-first validation with the type derived from the schema is how Astro config, tRPC inputs, ESLint flat config and webpack (`schema-utils`) check JavaScript callers.
+
+**Scope.** An internal function called only from TypeScript gets no runtime check at all: the compiler already checked it. This rule is for public entry points that JavaScript calls, where a bad input costs money or silently changes a result.
+
 ## analogical-transfer
 
 The way to find a non-obvious check in the (young, ad-hoc) agent-harness space is ANALOGICAL TRANSFER: take a mature CS principle and map it onto the harness — even when it looks crazy at first, because the looks-crazy transfers are where the useful checks turn out to be. The organizing thesis they roll up into: MINIMIZE THE HARNESS STATE-SPACE / make invalid states UNREACHABLE — via four instruments (construct=spec/types so invalid states can't be expressed; verify=lint so they're detected+rejected; gate=hooks so they can't be entered in-loop; test=evals so the remaining valid space is proven). The agent-world adaptation: when the author is a model, 'make invalid states UNREPRESENTABLE' (type-system, edit-time, human audience) becomes 'make invalid states UNREACHABLE IN THE LOOP' (gating hook, loop-time, format-agnostic) — which is why the leverage is in the HARNESS, not in the authoring format. FILTER every transfer by don't-cry-wolf: keep only ones that yield a DETERMINISTIC, high-signal check or gate that shrinks the state space; if it needs a model or emits a fuzzy score, it's a cute analogy, not a check. Worked examples: object-capabilities + taint → the lethal-trifecta forbidden-state check; effect systems → declared-vs-observed effects; totality → every hook decides every event; MDL → derivable-content-is-redundant.

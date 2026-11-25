@@ -3,7 +3,7 @@
  *
  * Measured 2026-10-06 on Claude Code 2.1.291: `allowedTools: []` built a bare
  * `--allowedTools` flag, the CLI exited 1 with "argument missing" before any
- * model turn, and `paid_measureArms` scored six such runs as trials — a 0% rate
+ * model turn, and a checks-scored A/B scored six such runs as trials — a 0% rate
  * on one check and a 100% on another, over runs that asked the model nothing.
  */
 import { describe, expect, it } from "vitest";

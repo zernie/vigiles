@@ -56,12 +56,12 @@
  * `compare(report, baseline, arm)` answers "how far apart, and is it beyond the
  * noise" per metric, and `compare(before, after)` on two trigger-rate reports
  * which prompts a change gained and lost; `assertImproves` gates on it (`significant: true` for the
- * computed noise floor); `assertRates` gates a check report or an arm × metric
- * on a rate (`min`) or on every trial (`passK: 1`), and a trigger-rate report on
- * a skill's firing; `assertNoRegression(current, { baseline })` gates against a
- * committed baseline file, which `update: true` records. They replaced eleven
- * narrower helpers (v50), and `assertTriggerRate` / `readBaseline` /
- * `writeBaseline` folded into them (v52).
+ * computed noise floor, `lowerIsBetter` for a cost or a turn count); `assertRates` gates an
+ * arm's checks or one arm × metric on a rate (`min`) or on every trial (`passK: 1`), and a
+ * trigger-rate report on a skill's firing; `assertNoRegression(current, { baseline })` gates
+ * against a committed baseline file, which `update: true` records. Every one of them takes the
+ * report of `paid_runEval` whichever way it was scored. They replaced eleven narrower helpers
+ * (v50), and `assertTriggerRate` / `readBaseline` / `writeBaseline` folded into them (v52).
  *
  * The report TYPES are not here: they are declared in core and exported from
  * the root, because `defineEval` and `vigilesMatchers` speak them too, and one
@@ -75,29 +75,16 @@
 // --- the runners: each one drives a real model ---
 
 /**
- * Run an A/B eval across arms with a real model. Spends money.
+ * Run a task N times per configuration with a real model and score each trial —
+ * by `checks` (the `check.*` vocabulary, 0/1 each) or by `measure(ctx)` (your
+ * own metrics). One configuration (no `arms`, an arm named `"default"`) or
+ * several compared as an A/B. Spends money. The one task runner of
+ * `vigiles/eval` since v55, when the two checks-scored runners folded into it
+ * (docs/testing-api.md, "Migrating to v55").
  *
- * ⚠️ The `paid_` prefix overstates slightly: pass your own `evalDriver` and no
- * model of ours is called. The DEFAULT path bills.
+ * Here the `paid_` prefix is exact: it always drives the real `claude` CLI.
  */
 export { runEval as paid_runEval } from "../eval.js";
-
-/**
- * Score checks over N trials of one task with a real model. Spends money.
- *
- * ⚠️ `paid_` overstates slightly: with an injected `evalDriver` this drives
- * whatever you supply. The DEFAULT path bills.
- */
-export { measure as paid_measure } from "../eval.js";
-
-/**
- * Score the same checks per arm (a hook/skill/rule on vs off) with a real model.
- * Spends money.
- *
- * ⚠️ `paid_` overstates slightly: an injected `evalDriver` replaces the billed
- * path. The DEFAULT path bills.
- */
-export { measureArms as paid_measureArms } from "../eval.js";
 
 /**
  * Measure whether a skill's description actually FIRES (recall + precision) by
@@ -136,30 +123,23 @@ export { judged as paid_judged } from "../check.js";
 export { claudeEvalDriver as paid_claudeEvalDriver } from "../eval.js";
 
 // --- reading the report: free, so unprefixed ---
-export {
-  compare,
-  assertImproves,
-  assertNoRegression,
-} from "../eval-readers.js";
+export { compare, assertNoRegression } from "../eval-readers.js";
 export type {
   ArmComparison,
   TriggerDiff,
-  ImprovesGate,
   RegressionGate,
   TriggerRateGate,
 } from "../eval-readers.js";
+export { assertImproves } from "../eval-improves.js";
+export type { ImprovesGate } from "../eval-improves.js";
 export { assertRates } from "../eval-rate-gate.js";
-export type {
-  RateGate,
-  CheckRateGate,
-  ArmRateGate,
-} from "../eval-rate-gate.js";
+export type { RateGate, ArmRateGate } from "../eval-rate-gate.js";
 export type { BaselineFile, DiffOptions } from "../eval-baseline.js";
 // `compare`'s verdict and the interval a 0/1 metric is judged by.
 export type { Verdict, Interval } from "../core/evidence.js";
 
 // --- building the arms: free, so unprefixed ---
-// The with/without arms of an output-style eval, for `paid_measureArms`. Free:
+// The with/without arms of an output-style eval, for `paid_runEval`. Free:
 // the one run it makes to prove the style reaches the model uses the scripted
 // model. Its only reader is someone about to run that eval, so it shares this
 // door with the runner it feeds.

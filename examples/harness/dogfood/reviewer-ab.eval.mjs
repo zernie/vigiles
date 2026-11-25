@@ -50,19 +50,20 @@
  * So the spec HELPED: it makes the subagent's outcome DETERMINISTICALLY PARSEABLE
  * (experimental_assertAgentOk, no LLM judge) at ZERO quality cost. Categorical (0 vs 100, no
  * variance → no p-value needed). The "typed contracts make measurement affordable"
- * thesis, validated on vigiles's OWN contract. (NOTE: all three rows label as
- * "check.subagent(code-reviewer)" — they're nested checks; order is (1)/(2)/(3) above.)
+ * thesis, validated on vigiles's OWN contract. (NOTE: all three checks label as
+ * `subagent(code-reviewer)` — they're nested checks — so the report keys them
+ * `subagent(code-reviewer)`, `… #2`, `… #3`, in the order (1)/(2)/(3) above.)
  */
 import { defineEval } from "../../../dist/entries/index.js";
-// Internal (not a public export): the per-check significance read.
-import { compareCheck } from "../../../dist/eval.js";
+import { compare } from "../../../dist/entries/eval.js";
 import { check } from "../../../dist/check.js";
 import { fileURLToPath } from "node:url";
 
 const dir = (p) => fileURLToPath(new URL(p, import.meta.url));
 
 export default defineEval({
-  measureArms: {
+  runEval: {
+    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
     // A planted, unambiguous defect: `add` subtracts.
     fixture: {
       "app.js":
@@ -98,22 +99,27 @@ export default defineEval({
   },
   assert: (report) => {
     for (const [name, r] of Object.entries(report.arms))
-      if (r.n === 0) throw new Error(`arm "${name}": no runs executed`);
+      if (r.runs === 0) throw new Error(`arm "${name}": no runs executed`);
 
-    // The significance read (Welch's t over the per-arm rates), prose = baseline:
-    //   check 1 = foundBug (QUALITY) — want NOT significantly worse on `spec`.
-    //   check 2 = typedOutcome (PAYOFF) — want significantly higher on `spec`.
-    const pOf = (cmp) =>
-      cmp && typeof cmp.p === "number" && Number.isFinite(cmp.p)
-        ? `p=${cmp.p.toFixed(3)}`
-        : "p=n/a (needs variance across ≥2 trials)";
-    const quality = compareCheck(report, "prose", "spec", 1);
-    const payoff = compareCheck(report, "prose", "spec", 2);
-    console.log(`\nquality  (foundBug, spec vs prose):    ${pOf(quality)}`);
-    console.log(`payoff   (typedOutcome, spec vs prose): ${pOf(payoff)}`);
+    // The significance read, prose = baseline. Each check is one 0/1 metric,
+    // keyed by its label in the order declared (`report.checks`):
+    //   check 2 = foundBug (QUALITY) — want NOT significantly worse on `spec`.
+    //   check 3 = typedOutcome (PAYOFF) — want significantly higher on `spec`.
+    const [, foundBug, typedOutcome] = Object.keys(report.checks ?? {});
+    const byCheck = compare(report, "prose", "spec");
+    const read = (key) => {
+      const c = byCheck[key];
+      return c === undefined
+        ? "n/a (an arm scored no trial)"
+        : `${c.verdict.kind}, gap ${c.gap.toFixed(2)}`;
+    };
+    console.log(`\nquality  (foundBug, spec vs prose):    ${read(foundBug)}`);
     console.log(
-      "\nVerdict: the spec HELPED iff quality did NOT regress (p high / spec≈prose) " +
-        "AND payoff is a real win (p low, spec≫prose).",
+      `payoff   (typedOutcome, spec vs prose): ${read(typedOutcome)}`,
+    );
+    console.log(
+      "\nVerdict: the spec HELPED iff quality is not `worse` (`no-signal` or `better`) " +
+        "AND payoff is `better` (raise --trials while it reads `no-signal`).",
     );
   },
 });

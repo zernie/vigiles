@@ -142,6 +142,22 @@ export function proportionVerdict(
   return { kind: "no-signal", ...intervals };
 }
 
+const FLIPPED = {
+  better: "worse",
+  worse: "better",
+  "no-signal": "no-signal",
+} as const;
+
+/**
+ * The verdict for a metric where LOWER is better (cost, turns, latency): the
+ * same test and numbers, with `better` and `worse` swapped. Both tests decide
+ * on `arm − baseline > 0`, which reads a cheaper arm as a loss unless the
+ * caller says which way the metric points.
+ */
+export function flipVerdict(v: Verdict): Verdict {
+  return v.kind === "unmeasured" ? v : { ...v, kind: FLIPPED[v.kind] };
+}
+
 const pct = (x: number): string => x.toFixed(2);
 const tally = (i: Interval): string =>
   `${String(i.k)}/${String(i.n)} [${pct(i.lo)}, ${pct(i.hi)}]`;
