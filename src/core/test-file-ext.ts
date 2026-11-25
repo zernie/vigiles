@@ -80,7 +80,7 @@ export interface TestExtSignals {
  *  on purpose: a broken package.json is another rule's finding). */
 function packageRecord(
   raw: string | undefined,
-): Record<string, unknown> | undefined {
+): Readonly<Record<string, unknown>> | undefined {
   if (!raw) return undefined;
   let doc: unknown;
   try {
@@ -89,7 +89,7 @@ function packageRecord(
     return undefined;
   }
   return typeof doc === "object" && doc !== null
-    ? (doc as Record<string, unknown>)
+    ? (doc as Readonly<Record<string, unknown>>)
     : undefined;
 }
 
