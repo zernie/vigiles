@@ -691,13 +691,13 @@ function takeFolderRules(
  * a `pkg/.claude/rules/CLAUDE.md` is weighed as a rule, never superseded.
  */
 function takeSubdirectories(b: Building, pass: SubdirectoryPass): void {
-  const { leafNames, reserved, ruleRe } = pass;
   const named = new Set([...b.loaded, ...b.unloaded].map((e) => e.path));
   for (const path of Object.keys(b.files).sort()) {
-    if (named.has(path) || reserved.has(path) || !path.includes("/")) continue;
-    if (ruleRe.test(path)) continue;
-    if (isNeverRead(path)) continue;
-    if (!leafNames.has(path.slice(path.lastIndexOf("/") + 1))) continue;
+    if (named.has(path) || pass.reserved.has(path) || !path.includes("/")) {
+      continue;
+    }
+    if (pass.ruleRe.test(path) || isNeverRead(path)) continue;
+    if (!pass.leafNames.has(path.slice(path.lastIndexOf("/") + 1))) continue;
     const by = folderSuperseder(b, path);
     if (!by) {
       defer(b, path, { role: "root", scope: "repo", when: "subdirectory" });
