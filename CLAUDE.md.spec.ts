@@ -462,6 +462,14 @@ BUILD + TOOLING + GENERATED:
       },
     ),
 
+    "tidy-output": guidance(
+      "Output is tidy: one line per finding, the why in the rule doc, no repeats.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "tidy-output",
+      },
+    ),
+
     "public-vs-internal-docs": guidance(
       "Match the detail to the AUDIENCE — don't overload public readers.",
       {

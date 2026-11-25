@@ -38,7 +38,9 @@ import { diskHookInventory, diskHookScan } from "./hook-inventory.js";
 // to live with. The default belongs to the CALLER: the CLI already resolves an
 // adapter before every one of these calls, and passing it is what removes the
 // import rather than hiding it.
-import { isEmptyMachine, sessionTrifectaSummary } from "./score-core.js";
+import { isEmptyMachine } from "./score-core.js";
+import { groupFindings } from "./core/finding-groups.js";
+import { groupBlock, plain, type Paint } from "./term-render.js";
 import { brokenSkillRefs, formatSkillRefIssue } from "./skill-refs.js";
 import {
   executableSourceDirs,
@@ -1285,33 +1287,36 @@ function skillLine(s: ScanSkill): string {
 }
 
 /**
- * The lethal-trifecta section's lines.
- *
- * - HARD (a subagent whose `tools:` names all three legs) — the full message; it
- *   names the specific tools to drop.
- * - Any other finding the unit's OWN file makes (`cause: "unit"` — a pre-approved
- *   leg tool; `cause: "fence"` — a fence that closes nothing, a block that does
- *   not parse) — its own line, at its path.
- * - Every unit that only INHERITS the session (`cause: "session"`, #392) — ONE
- *   line about the cause. 🔴 Measured 2026-11-23: 406 of 409 skills on 77 real
- *   repos were in this state, so a line per unit was a wall of one fact, and a
- *   section that always fires is muted within a day, taking the hard findings
- *   above it along. The header still counts UNITS, so the line hides no exposure.
+ * The lethal-trifecta section's lines: one per distinct finding, naming its
+ * units (`groupFindings`), hard ones first. 🔴 Measured 2026-11-23: 406 of 409
+ * skills on 77 real repos inherit the session's tools, so a line per unit was a
+ * wall of one fact, and a section that always fires is muted within a day,
+ * taking the hard findings above it along. The header still counts UNITS, so
+ * grouping hides no exposure.
  */
-function trifectaLines(r: ScanReport): string[] {
-  const session = r.trifectaFindings.filter(
-    (t) => t.finding.cause === "session",
-  );
-  const lines = r.trifectaFindings
-    .filter((t) => !session.includes(t))
-    .map(
-      (t) =>
-        `  ${t.finding.severity === "hard" ? "✗" : "⚠"} ${t.kind} ${t.name} (${t.path}): ${t.finding.message}`,
-    );
-  // TODO(#461): interim — replace with per-unit legs from the session baseline
-  if (session.length > 0)
-    lines.push(`  ⚠ ${sessionTrifectaSummary(session.map((t) => t.name))}`);
-  return lines;
+function trifectaLines(r: ScanReport, paint: Paint): string[] {
+  const blocks = (
+    severity: "hard" | "advisory",
+    mark: string,
+    tone: "bad" | "warn",
+  ): readonly string[] =>
+    groupFindings(
+      r.trifectaFindings
+        .filter((t) => t.finding.severity === severity)
+        .map((t) => ({
+          name: t.name,
+          problem: t.finding.problem,
+          edit: t.finding.edit,
+        })),
+    ).flatMap((g) => [
+      ...groupBlock(g, { indent: "  ", mark, tone, paint }),
+      "",
+    ]);
+  const lines = [
+    ...blocks("hard", "✗", "bad"),
+    ...blocks("advisory", "⚠", "warn"),
+  ];
+  return lines.at(-1) === "" ? lines.slice(0, -1) : lines;
 }
 
 /** One agent's report block: ✗ (broken contract) / ⚠ (inherits all) / ✓ + issues + purity. */
@@ -1656,12 +1661,19 @@ export function formatScanReport(
    * never counted in it, from the same data the JSON and the HTML render.
    */
   r: FilteredScan<ScanReport>,
+  /** Colour for a terminal (`terminalPaint`); none by default. */
+  paint: Paint = plain,
 ): string {
-  return [...gradedReportLines(r), ...ungradedLines(r.ungraded)].join("\n");
+  return [...gradedReportLines(r, paint), ...ungradedLines(r.ungraded)].join(
+    "\n",
+  );
 }
 
 /** The report's lines up to and including the verdict — everything graded. */
-function gradedReportLines(r: FilteredScan<ScanReport>): readonly string[] {
+function gradedReportLines(
+  r: FilteredScan<ScanReport>,
+  paint: Paint,
+): readonly string[] {
   const out: string[] = [`Scan: ${r.dir}`, ""];
 
   if (r.instructions) {
@@ -1737,7 +1749,7 @@ function gradedReportLines(r: FilteredScan<ScanReport>): readonly string[] {
   out.push(
     ...section(
       "Lethal trifecta (prompt-injection exfil risk)",
-      trifectaLines(r),
+      trifectaLines(r, paint),
       // Count UNITS, not lines: the session line collapses many units into one,
       // and a header that counted lines would understate exposure.
       r.trifectaFindings.length,

@@ -12,6 +12,7 @@
 import { extendedPresets } from "./core/presets.js";
 import type { InitPolicy } from "./core/rule.js";
 import { INIT_NUDGE_COMMANDS } from "./core/hook-command.js";
+import { esmTypeScriptExt } from "./core/test-file-ext.js";
 
 /** What `vigiles init` will set up. */
 export interface SetupPlan {
@@ -709,14 +710,50 @@ export function missingVigilesDevDep(
   return declared ? null : { ...pkg.devDependencies, vigiles: spec };
 }
 
+/** The names `init`'s starter harness test can have. */
+export type StarterHarnessName =
+  | "vigiles.harness.ts"
+  | "vigiles.harness.mts"
+  | "vigiles.harness.mjs";
+
+/**
+ * Every name, so a repo holding any one counts as already having a starter
+ * (a re-run never adds a `.ts` beside an existing `.mjs`, or the reverse).
+ */
+export const STARTER_HARNESS_NAMES: readonly StarterHarnessName[] = [
+  "vigiles.harness.ts",
+  "vigiles.harness.mts",
+  "vigiles.harness.mjs",
+];
+
+/**
+ * The starter harness test `init` writes: TypeScript, so the author gets edit-time
+ * type errors, whenever anything here can RUN a `.ts` script (`tsx`, or Node's type
+ * stripping) — the same question `vigiles test` asks before it runs one
+ * (`canRunTypeScript`). Only where nothing can (Node 20 with no `tsx`) is it
+ * JavaScript: a starter the runner then refused would be worse than a `.mjs`.
+ * The starter uses `import`, so a package that says `"type": "commonjs"` gets
+ * `.mts`, which Node runs as ESM whatever the package says (`esmTypeScriptExt`).
+ */
+export function starterHarnessName(
+  canRunTypeScript: boolean,
+  packageJson: string | undefined,
+): StarterHarnessName {
+  if (!canRunTypeScript) return "vigiles.harness.mjs";
+  return esmTypeScriptExt(packageJson) === "mts"
+    ? "vigiles.harness.mts"
+    : "vigiles.harness.ts";
+}
+
 /** What a full setup would add on an adopted repo — the facts that decide it. */
 export interface FullSetupGap {
   /** `.github/workflows/vigiles.yml` is absent (and CI wiring is not opted out). */
   readonly workflow: boolean;
   /** `.vigilesrc.json`: absent, present without the preset, or already extending it. */
   readonly config: "missing" | "no-preset" | "has-preset";
-  /** `vigiles.harness.mjs` is absent (and the test layer is not opted out). */
-  readonly harnessTest: boolean;
+  /** The starter harness test a full setup would scaffold — `null` when the repo
+   *  already has one (either name) or the test layer is opted out. */
+  readonly harnessTest: StarterHarnessName | null;
   /** Instruction files and surfaces a full setup would adopt into a spec. */
   readonly unspecced: readonly string[];
   /** `.vigiles/generated.d.ts` / `.vigiles/schema.json` would be created. */
@@ -747,9 +784,9 @@ export function fullSetupFollowUps(
       ? "create .github/workflows/vigiles.yml (a CI workflow — new CI minutes)"
       : null,
     configLine[gap.config],
-    gap.harnessTest
-      ? "scaffold vigiles.harness.mjs (a starter harness test)"
-      : null,
+    gap.harnessTest === null
+      ? null
+      : `scaffold ${gap.harnessTest} (a starter harness test)`,
     gap.unspecced.length > 0
       ? `write specs for ${String(gap.unspecced.length)} hand-written file(s): ${gap.unspecced.join(", ")}`
       : null,

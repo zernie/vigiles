@@ -6,8 +6,8 @@
  * HTML report and `--json` also render from — and never from terminal text, so
  * a change to the terminal layout cannot break the comment.
  *
- * The section carries the grade, the four graded rings (the two advisory ones
- * marked as advisory), the fixes worth the most points (from the verdict
+ * The section carries the grade, the four graded rings as coloured badges (the
+ * two advisory ones grey, on their own line), the fixes worth the most points (from the verdict
  * engine's real re-score) or, when the report has no fix list, the graded
  * rings' own findings, everything in a collapsed list, and — on a pull request
  * — each ring's change against an `audit --json` report of the PR base. It ends
@@ -23,9 +23,15 @@ import { sortBy } from "remeda";
 import { AUDIT_SCHEMA_VERSION, type AuditReport } from "./audit-report.js";
 import type { CategoryScore } from "./audit-score.js";
 import {
+  groupLine,
+  namesLine,
+  type FindingGroup,
+} from "./core/finding-groups.js";
+import {
   parseAuditSnapshot,
   type AuditSnapshot,
 } from "./core/audit-snapshot.js";
+import { arrow, ringBadges } from "./audit-pr-badges.js";
 
 /** The first line of every rendered section. */
 export const AUDIT_SUMMARY_MARKER = "<!-- vigiles-audit-summary -->";
@@ -89,45 +95,6 @@ export function parseBaseAudit(text: string | undefined): BaseAudit {
   return { kind: "report", score: { overall, grade, categories } };
 }
 
-/** ` ▲`, ` ▼`, or nothing when the two are equal or one is missing. */
-function arrow(before: number | null, after: number | null): string {
-  if (before === null || after === null || before === after) return "";
-  return after > before ? " ▲" : " ▼";
-}
-
-/** `90 → 82 ▼`, `60 → 70 ▲`, or the plain value when nothing moved. */
-function change(
-  before: number | null,
-  after: number | null,
-  shown: string,
-): string {
-  if (before === after) return shown;
-  const from = before === null ? "n/a" : String(before);
-  return `${from} → ${shown}${arrow(before, after)}`;
-}
-
-function scoreText(c: Readonly<CategoryScore>): string {
-  if (c.score !== null) return String(c.score);
-  return c.notMeasured === true ? "not measured" : "n/a";
-}
-
-function ringRow(
-  c: Readonly<CategoryScore>,
-  base: Readonly<BaseAudit>,
-): string {
-  const name = c.advisory === true ? `${c.key} _(advisory)_` : c.key;
-  const now = scoreText(c);
-  const cell =
-    base.kind === "report"
-      ? change(
-          base.score.categories.find((b) => b.key === c.key)?.score ?? null,
-          c.score,
-          now,
-        )
-      : now;
-  return `| ${name} | ${cell} |`;
-}
-
 function headline(report: AuditReport, base: Readonly<BaseAudit>): string {
   const { grade, overall } = report.score;
   const now = `**${grade}** · ${String(overall)}/100`;
@@ -168,8 +135,94 @@ function rankedFixes(report: AuditReport): readonly string[] {
   });
 }
 
+/** A ring's sign in the comment: a glance tells which ring a finding is about. */
+const RING_EMOJI: Readonly<Record<CategoryScore["key"], string>> = {
+  Truthfulness: "🔎",
+  Triggering: "🎯",
+  Structure: "🧱",
+  Safety: "🛡️",
+  Tested: "🧪",
+  Evaluated: "📏",
+};
+
+/** How many group rows a ring's table shows before the rest fold away. */
+const SHOWN_ROWS = 6;
+
+/** How many unit names a table cell spells out before "+N more". */
+const NAMES_IN_CELL = 3;
+
+/** A markdown table cell: one line, `|` escaped. */
+const cell = (s: string): string => flat(s).replaceAll("|", "\\|");
+
+/** The comment's character budget for findings, after the frame around them. */
+const FINDINGS_BUDGET = AUDIT_SUMMARY_MAX_CHARS - FRAME_CHARS;
+
+/** How many of the items fit in `budget`, given each one's length, in order. */
+function keptCount(lengths: readonly number[], budget: number): number {
+  const ends = lengths.reduce<readonly number[]>(
+    (acc, n) => [...acc, (acc.at(-1) ?? 0) + n],
+    [],
+  );
+  return ends.filter((end) => end <= budget).length;
+}
+
+/** The line that names what a budget cut left out. */
+const cutLine = (n: number): string =>
+  `… and ${String(n)} more — run \`npx vigiles audit\` locally for the full list`;
+
+/** One group as a table row: problem, fix and units in their own cells. */
+const groupRow = (g: FindingGroup): string =>
+  `| ${cell(g.problem)} | ${cell(g.edit)} | ${cell(namesLine(g.names, " · ", NAMES_IN_CELL))} |`;
+
+const table = (rows: readonly string[]): string =>
+  ["| Problem | Fix | Units |", "|---|---|---|", ...rows].join("\n");
+
 /**
- * The graded rings' own findings, worst ring first — what the section lists
+ * A ring's groups: the first rows as a table, the rest in a collapsed table
+ * right below it, so a long list never runs the comment long (`tidy-output`).
+ * The collapsed table takes at most half the findings budget, then names what
+ * it left out.
+ */
+function groupTables(groups: readonly FindingGroup[]): readonly string[] {
+  if (groups.length === 0) return [];
+  const rest = groups.slice(SHOWN_ROWS).map(groupRow);
+  const kept = keptCount(
+    rest.map((r) => r.length + 1),
+    FINDINGS_BUDGET / 2,
+  );
+  const cut = rest.length - kept;
+  const folded = [
+    `<details><summary>${String(rest.length)} more</summary>`,
+    "",
+    table(rest.slice(0, kept)),
+    ...(cut > 0 ? ["", cutLine(cut)] : []),
+    "",
+    "</details>",
+  ].join("\n");
+  return [
+    table(groups.slice(0, SHOWN_ROWS).map(groupRow)),
+    ...(rest.length === 0 ? [] : [folded]),
+  ];
+}
+
+/**
+ * One ring's findings as markdown chunks: a header carrying the ring's first
+ * ungrouped finding, its other ungrouped findings as bullets, then each group.
+ */
+function ringChunks(c: Readonly<CategoryScore>): readonly string[] {
+  const groups = c.groups ?? [];
+  const grouped = new Set(groups.map(groupLine));
+  const ungrouped = c.findings.filter((f) => !grouped.has(f)).map(flat);
+  const title = `${RING_EMOJI[c.key]} **${c.key}**`;
+  return [
+    [title, ...ungrouped.slice(0, 1)].join(" · "),
+    ...ungrouped.slice(1).map((f) => `- ${f}`),
+    ...groupTables(groups),
+  ];
+}
+
+/**
+ * The graded rings' own findings, worst ring first — what the section shows
  * when the report has no deterministic fix list (a deduction such as the
  * lethal trifecta carries its fix in its own text, not as a recommendation).
  * Advisory rings never count: they are hardening advice, not what is broken.
@@ -177,10 +230,39 @@ function rankedFixes(report: AuditReport): readonly string[] {
 function gradedFindings(report: AuditReport): readonly string[] {
   return sortBy(
     report.score.categories.filter(
-      (c) => c.advisory !== true && c.score !== null,
+      (c) => c.advisory !== true && c.score !== null && c.findings.length > 0,
     ),
     (c) => c.score ?? 0,
-  ).flatMap((c) => c.findings.map((f) => `**${c.key}:** ${flat(f)}`));
+  ).flatMap(ringChunks);
+}
+
+/** How many finding chunks show before the rest fold away. */
+const SHOWN_CHUNKS = 6;
+
+/**
+ * The chunks, the first few shown and the rest folded, all of them within the
+ * findings budget, with a last line naming how many did not fit.
+ */
+function chunked(chunks: readonly string[]): readonly string[] {
+  const lengths = chunks.map((c) => c.length + 2);
+  const fit = chunks.slice(0, keptCount(lengths, FINDINGS_BUDGET));
+  const cut = chunks.length - fit.length;
+  const folded = fit.slice(SHOWN_CHUNKS);
+  return [
+    "**Findings**",
+    "",
+    ...fit.slice(0, SHOWN_CHUNKS).flatMap((c) => [c, ""]),
+    ...(folded.length === 0
+      ? []
+      : [
+          `<details><summary>${String(folded.length)} more</summary>`,
+          "",
+          ...folded.flatMap((c) => [c, ""]),
+          "</details>",
+          "",
+        ]),
+    ...(cut > 0 ? [cutLine(cut), ""] : []),
+  ];
 }
 
 /**
@@ -189,32 +271,36 @@ function gradedFindings(report: AuditReport): readonly string[] {
  */
 function fitted(items: readonly string[], budget: number): readonly string[] {
   const lines = items.map((f) => `- ${f}`);
-  const ends = lines.reduce<readonly number[]>(
-    (acc, l) => [...acc, (acc.at(-1) ?? 0) + l.length + 1],
-    [],
+  const kept = keptCount(
+    lines.map((l) => l.length + 1),
+    budget,
   );
-  const kept = ends.filter((end) => end <= budget).length;
   return kept === lines.length
     ? lines
-    : [
-        ...lines.slice(0, kept),
-        `- … and ${String(lines.length - kept)} more — run \`npx vigiles audit\` locally for the full list`,
-      ];
+    : [...lines.slice(0, kept), `- ${cutLine(lines.length - kept)}`];
 }
 
-/** The top items numbered, then as many as fit collapsed. */
-function listed(
-  noun: "fixes" | "findings",
-  items: readonly string[],
-): readonly string[] {
+/**
+ * The top items numbered, then as many as fit collapsed. When the top already
+ * shows every item, it shows them whole and folds nothing: the same lines twice
+ * is noise (`tidy-output`).
+ */
+function listed(items: readonly string[]): readonly string[] {
+  if (items.length <= TOP)
+    return [
+      "**Fixes**",
+      "",
+      ...items.map((f, i) => `${String(i + 1)}. ${f}`),
+      "",
+    ];
   return [
-    `**Top ${noun}**`,
+    "**Top fixes**",
     "",
     ...items.slice(0, TOP).map((f, i) => `${String(i + 1)}. ${short(f)}`),
     "",
-    `<details><summary>All ${String(items.length)} ${noun}</summary>`,
+    `<details><summary>All ${String(items.length)} fixes</summary>`,
     "",
-    ...fitted(items, AUDIT_SUMMARY_MAX_CHARS - FRAME_CHARS),
+    ...fitted(items, FINDINGS_BUDGET),
     "",
     "</details>",
     "",
@@ -223,16 +309,16 @@ function listed(
 
 function whatToFix(report: AuditReport): readonly string[] {
   const fixes = rankedFixes(report);
-  if (fixes.length > 0) return listed("fixes", fixes);
+  if (fixes.length > 0) return listed(fixes);
   const findings = gradedFindings(report);
-  if (findings.length > 0) return listed("findings", findings);
+  if (findings.length > 0) return chunked(findings);
   return ["Nothing to fix in the graded rings.", ""];
 }
 
 const HEADLESS =
-  "_This is the headless audit: the checks that need your consent — starting " +
-  "live MCP servers, measuring skill trigger rate, loading your ESLint config — " +
-  "did not run here. `npx vigiles audit` locally can show more._";
+  "<sub>Headless read: live MCP servers, skill trigger rate and your ESLint " +
+  "config need your consent and did not run. `npx vigiles audit` locally " +
+  "shows more.</sub>";
 
 /** The markdown section; first line {@link AUDIT_SUMMARY_MARKER}. */
 export function renderAuditPrSummary(
@@ -246,9 +332,10 @@ export function renderAuditPrSummary(
     ...(base.kind === "unavailable"
       ? [`_No comparison with the PR base: ${base.why}._`, ""]
       : []),
-    base.kind === "report" ? "| Ring | Base → now |" : "| Ring | Score |",
-    "| :-- | --: |",
-    ...report.score.categories.map((c) => ringRow(c, base)),
+    ...ringBadges(
+      report.score.categories,
+      base.kind === "report" ? base.score.categories : undefined,
+    ),
     "",
     ...whatToFix(report),
     HEADLESS,

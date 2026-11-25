@@ -14,13 +14,15 @@
  * unless somebody actively disagrees, and an empty config means "I agree with all
  * of it".
  *
- * ## Why `.ts` and not `.mts`
+ * ## Why `.ts`, and `.mts` only in an explicit CommonJS package
  *
- * Measured on Node 22.22, both package kinds: a `.ts` file using `import` runs in
- * a package with `type: module` AND in one without it — type stripping detects
- * module syntax rather than trusting the package type. So the `.mts` special case
- * a careful reader expects here is not needed, and `.mts` stays what it is: a
- * file kind we ACCEPT (it is real, TS 4.7+) but never generate.
+ * Measured on Node 22.22: a `.ts` file using `import` runs in a package with
+ * `type: module` AND in one with no `type` at all — Node detects module syntax
+ * when the package does not say. It does NOT run where the package says
+ * `"type": "commonjs"` (measured on Node 22.23: `SyntaxError: Cannot use import
+ * statement outside a module`), because an explicit type switches detection off.
+ * `.mts` is ESM whatever the package says, so that one case gets `.mts`
+ * (`esmTypeScriptExt`); everywhere else the plain `.ts` a reader expects.
  *
  * ## Why `.mjs` and not `.js` for the non-TypeScript default
  *
@@ -74,17 +76,38 @@ export interface TestExtSignals {
   readonly canRunTypeScript?: boolean | undefined;
 }
 
-/** Does the project declare a `typescript` dependency in any of the dep maps. */
-function dependsOnTypescript(raw: string | undefined): boolean {
-  if (!raw) return false;
+/** The package.json as a record, or undefined when absent or malformed (lenient
+ *  on purpose: a broken package.json is another rule's finding). */
+function packageRecord(
+  raw: string | undefined,
+): Readonly<Record<string, unknown>> | undefined {
+  if (!raw) return undefined;
   let doc: unknown;
   try {
     doc = JSON.parse(raw);
   } catch {
-    return false;
+    return undefined;
   }
-  if (typeof doc !== "object" || doc === null) return false;
-  const rec = doc as Record<string, unknown>;
+  return typeof doc === "object" && doc !== null
+    ? (doc as Readonly<Record<string, unknown>>)
+    : undefined;
+}
+
+/**
+ * The TypeScript extension that runs as ESM in this package: `.mts` where the
+ * package.json says `"type": "commonjs"` (Node then reads a `.ts` file as
+ * CommonJS and every `import` throws), else `.ts`. See the module header.
+ */
+export function esmTypeScriptExt(
+  packageJson: string | undefined,
+): "ts" | "mts" {
+  return packageRecord(packageJson)?.["type"] === "commonjs" ? "mts" : "ts";
+}
+
+/** Does the project declare a `typescript` dependency in any of the dep maps. */
+function dependsOnTypescript(raw: string | undefined): boolean {
+  const rec = packageRecord(raw);
+  if (rec === undefined) return false;
   for (const key of ["dependencies", "devDependencies", "peerDependencies"]) {
     const deps = rec[key];
     if (
@@ -113,5 +136,7 @@ export function testFileExt(signals: TestExtSignals): string {
   if (configured && EMITTABLE.has(configured)) return configured;
   const looksTypeScript =
     signals.hasTsconfig || dependsOnTypescript(signals.packageJson);
-  return looksTypeScript && signals.canRunTypeScript !== false ? "ts" : "mjs";
+  return looksTypeScript && signals.canRunTypeScript !== false
+    ? esmTypeScriptExt(signals.packageJson)
+    : "mjs";
 }

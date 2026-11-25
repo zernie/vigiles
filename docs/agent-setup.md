@@ -35,7 +35,7 @@ and sets both layers up. No `--target` flag needed unless you want to override.
 **What it sets up by default:**
 
 - **Lint layer** — a typed `.spec.ts` + generated types
-- **Test layer** — a starter `vigiles.harness.mjs`
+- **Test layer** — a starter `vigiles.harness.ts` (`vigiles.harness.mjs` on a Node that can't run TypeScript: Node 20 with no `tsx`)
 - **CI** — a `zernie/vigiles@v1` workflow at `.github/workflows/vigiles.yml`
 - **Dependency** — `vigiles` added to `devDependencies`
 - **Skills** — linked into the repo: one relative symlink per shipped skill, `.claude/skills/<name>` → `node_modules/vigiles/skills/<name>` (`.agents/skills/` for Codex), to commit

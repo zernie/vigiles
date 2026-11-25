@@ -1065,7 +1065,7 @@
       "count": 1
     },
     "local/no-rule-ids": {
-      "count": 2
+      "count": 1
     },
     "max-lines": {
       "count": 1
@@ -1082,21 +1082,18 @@
   },
   "src/audit-score.ts": {
     "functional/immutable-data": {
-      "count": 9
+      "count": 8
     },
     "functional/no-let": {
       "count": 1
     },
     "functional/no-loop-statements": {
-      "count": 3
+      "count": 2
     },
     "functional/prefer-immutable-types": {
       "count": 6
     },
     "local/no-harness-names": {
-      "count": 1
-    },
-    "local/no-rule-ids": {
       "count": 1
     },
     "max-lines": {
@@ -1106,12 +1103,6 @@
       "count": 5
     },
     "max-statements": {
-      "count": 2
-    },
-    "sonarjs/cognitive-complexity": {
-      "count": 2
-    },
-    "sonarjs/todo-tag": {
       "count": 1
     }
   },
@@ -1439,7 +1430,7 @@
       "count": 96
     },
     "functional/no-loop-statements": {
-      "count": 112
+      "count": 111
     },
     "functional/prefer-immutable-types": {
       "count": 189
@@ -1469,7 +1460,7 @@
       "count": 1
     },
     "sonarjs/cognitive-complexity": {
-      "count": 86
+      "count": 85
     },
     "sonarjs/deprecation": {
       "count": 1
@@ -3283,9 +3274,6 @@
     }
   },
   "src/core/lethal-trifecta.test.ts": {
-    "complexity": {
-      "count": 2
-    },
     "local/no-harness-names": {
       "count": 60
     },
@@ -3306,23 +3294,17 @@
     "functional/prefer-immutable-types": {
       "count": 4
     },
-    "local/no-rule-ids": {
-      "count": 6
-    },
     "max-lines": {
       "count": 1
     },
     "max-lines-per-function": {
-      "count": 5
+      "count": 4
     },
     "max-statements": {
-      "count": 2
+      "count": 1
     },
     "sonarjs/cognitive-complexity": {
-      "count": 3
-    },
-    "sonarjs/no-nested-conditional": {
-      "count": 1
+      "count": 2
     },
     "sonarjs/todo-tag": {
       "count": 2
@@ -4414,12 +4396,6 @@
       "count": 1
     },
     "functional/no-loop-statements": {
-      "count": 1
-    },
-    "max-statements": {
-      "count": 1
-    },
-    "sonarjs/cognitive-complexity": {
       "count": 1
     },
     "sonarjs/no-redundant-optional": {
@@ -7077,7 +7053,7 @@
       "count": 1
     },
     "functional/immutable-data": {
-      "count": 41
+      "count": 40
     },
     "functional/no-let": {
       "count": 3
@@ -7120,9 +7096,6 @@
     },
     "sonarjs/slow-regex": {
       "count": 1
-    },
-    "sonarjs/todo-tag": {
-      "count": 1
     }
   },
   "src/score-core.ts": {
@@ -7154,7 +7127,7 @@
       "count": 1
     },
     "sonarjs/todo-tag": {
-      "count": 2
+      "count": 1
     }
   },
   "src/score-explainer.test.ts": {

@@ -33,7 +33,7 @@ import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync } from "node:child_process";
 
-import { SHIPPED_SKILLS } from "./setup-plan.js";
+import { SHIPPED_SKILLS, STARTER_HARNESS_NAMES } from "./setup-plan.js";
 import { getAdapter } from "./adapter-registry.js";
 import { skillsHome } from "./core/layout.js";
 
@@ -154,7 +154,10 @@ test("adopted repo: a bare re-run links the skills and writes nothing else", () 
       `no CI workflow\n${out}`,
     );
     assert.equal(read(s.root, ".vigilesrc.json"), ADOPTED_CONFIG, "config");
-    assert.equal(existsSync(join(s.root, "vigiles.harness.mjs")), false);
+    assert.equal(
+      STARTER_HARNESS_NAMES.some((n) => existsSync(join(s.root, n))),
+      false,
+    );
     assert.equal(existsSync(join(s.root, ".vigiles")), false, "no schema");
     assert.equal(existsSync(join(s.root, "CLAUDE.md.spec.ts")), false);
     assert.equal(

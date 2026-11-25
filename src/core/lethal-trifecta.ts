@@ -47,19 +47,15 @@
  * fields today; see the "Recommended dialect additions" note at the bottom.
  */
 import type { HarnessDialect } from "./dialect.js";
+import {
+  describeFix,
+  fixLine,
+  type TrifectaFix,
+  type TrifectaLeg,
+  type TrifectaLegs,
+} from "./trifecta-fix.js";
 
-/** The three capability legs of the lethal trifecta. */
-export type TrifectaLeg = "private" | "untrusted" | "exfil";
-
-/** The tools classified into each leg (base names, de-duplicated). */
-export interface TrifectaLegs {
-  /** LEG A — tools that can read private data (secrets, files, repo). */
-  readonly private: readonly string[];
-  /** LEG B — tools that ingest untrusted / attacker-controllable content. */
-  readonly untrusted: readonly string[];
-  /** LEG C — tools that can exfiltrate data out of the trust boundary. */
-  readonly exfil: readonly string[];
-}
+export type { TrifectaLeg, TrifectaLegs } from "./trifecta-fix.js";
 
 /**
  * The severity of a trifecta finding:
@@ -119,7 +115,13 @@ export interface TrifectaFinding {
   readonly severity: TrifectaSeverity;
   /** The tools that supplied each leg (advisory inherits-all carries the wildcard). */
   readonly legs: TrifectaLegs;
-  /** A ready-to-show, actionable message. */
+  /** The edit that closes it, decided by the detector ({@link TrifectaFix}). */
+  readonly fix: TrifectaFix;
+  /** What is wrong, as a person reads it (`describeFix`). */
+  readonly problem: string;
+  /** The one edit that fixes it (`describeFix`). */
+  readonly edit: string;
+  /** `problem → edit` on one line, for a surface that prints one line. */
   readonly message: string;
   /**
    * SKILLS ONLY — the fence state behind the finding ({@link SkillFenceState}).
@@ -520,23 +522,15 @@ function opaqueShellGrants(tools: readonly string[]): string[] {
 function hardTrifectaRemedy(
   tools: readonly string[],
   dialect: HarnessDialect,
-): string {
-  const shell = dialect.builtinAgentTools.find((t) => LEG_BASH_DUAL.has(t));
+): TrifectaFix {
+  const shell =
+    dialect.builtinAgentTools.find((t) => LEG_BASH_DUAL.has(t)) ?? "the shell";
   const opaque = opaqueShellGrants(tools);
 
   // (b) A RESTRICTED shell grant that still counts. The author narrowed and the
   // finding did not move; say why, and do not re-recommend narrowing.
-  if (opaque.length > 0) {
-    return (
-      `\`${opaque.join("`, `")}\` is narrowed but still counts: a restricted shell grant ` +
-      "drops the read+exfiltrate legs ONLY when it pins a program whose effects are " +
-      `enumerable (${[...EFFECT_FREE].slice(0, 4).join(", ")}, … — ${String(EFFECT_FREE.size)} in all). ` +
-      "Nothing here has read the script or binary you pinned, and an interpreter runs " +
-      "whatever it is handed, so narrowing further will not move this finding. What does: " +
-      `remove ${shell ?? "the shell"} from the contract, or drop the read or the ` +
-      "untrusted-intake leg instead (Meta's Rule of Two: allow at most two)."
-    );
-  }
+  if (opaque.length > 0)
+    return { kind: "narrowed-still-counts", grants: opaque, shell };
 
   // (a) An UNRESTRICTED shell grant — the shell supplies two of the three legs on
   // its own, so it is the single highest-value tool to remove.
@@ -549,27 +543,27 @@ function hardTrifectaRemedy(
   const unboundedShell = tools.some(
     (t) => LEG_BASH_DUAL.has(baseTool(t)) && bashGrantIsUnbounded(t),
   );
-  if (shell !== undefined && unboundedShell) {
-    return (
-      `${shell} alone supplies two of the three legs (it reads private files AND ships them out), ` +
-      `so removing ${shell} from the contract closes the path in one edit. ` +
-      "Restricting it instead — `" +
-      `${shell}(<program>:*)` +
-      "` — only helps for a program whose effects are enumerable " +
-      `(${[...EFFECT_FREE].slice(0, 4).join(", ")}, … — ${String(EFFECT_FREE.size)} in all); ` +
-      "your own script or an interpreter does not qualify. Otherwise drop the read or the " +
-      "untrusted-intake leg (Meta's Rule of Two: allow at most two)."
-    );
-  }
+  if (shell !== "the shell" && unboundedShell)
+    return { kind: "remove-shell", shell };
 
   // (c) NO shell involved: the three legs are carried by named tools, so the only
   // remedy is removing one of them — there is no grant to narrow here at all.
-  return (
-    "No shell grant supplies a leg here, so there is nothing to narrow — the three legs " +
-    "are carried by the named tools above (and any shell grant in this contract is " +
-    "already bounded). Remove one of those tools; the untrusted-intake leg is usually " +
-    "the cheapest to give up (Meta's Rule of Two: allow at most two)."
-  );
+  return { kind: "remove-a-tool" };
+}
+
+/** A finding, its text rendered from its fix. */
+function finding(
+  f: Omit<TrifectaFinding, "message" | "problem" | "edit">,
+  note = "",
+): TrifectaFinding {
+  const t = describeFix(f.fix, f.legs);
+  const problem = t.problem + note;
+  return {
+    ...f,
+    problem,
+    edit: t.edit,
+    message: fixLine({ problem, edit: t.edit }),
+  };
 }
 
 /**
@@ -604,25 +598,17 @@ export function lethalTrifectaIssues(
       untrusted: ["*"],
       exfil: ["*"],
     };
-    return {
+    return finding({
       severity: "advisory",
       legs,
       // No `tools:` line: the unit adds nothing, it inherits the session. A block
       // that does not parse is the author's defect, at the author's file — but it
       // still holds only what the session hands it.
       cause: ctx.contractUnreadable ? "fence" : "session",
-      message: ctx.contractUnreadable
-        ? "Frontmatter is not valid YAML, so the declared tool list could not be read — a " +
-          "strict loader rejects the block, and a regex salvage of it is a guess, not a " +
-          "contract. Scored as INHERITS-ALL (every capability), which is what a strict " +
-          "loader yields: it therefore holds all three lethal-trifecta legs (read private " +
-          "data, ingest untrusted content, exfiltrate). Fix the YAML and the declared list " +
-          "counts again — a declaration that does not parse is not an enforcement."
-        : "Inherits-all contract (no explicit tools / wildcard) grants every capability — " +
-          "it holds all three lethal-trifecta legs (read private data, ingest untrusted content, " +
-          "exfiltrate) and is a maximal prompt-injection blast radius. Declare an explicit tools " +
-          "list dropping at least one leg (Meta's Rule of Two).",
-    };
+      fix: ctx.contractUnreadable
+        ? { kind: "fix-yaml", field: "tools" }
+        : { kind: "declare-tools" },
+    });
   }
 
   const legs = classifyTrifectaLegs(tools, dialect);
@@ -631,22 +617,15 @@ export function lethalTrifectaIssues(
     legs.untrusted.length > 0 &&
     legs.exfil.length > 0
   ) {
-    return {
-      severity: "hard",
-      legs,
-      cause: "unit",
-      message:
-        "Lethal trifecta: this unit can read private data " +
-        `(${legs.private.join(", ")}), ingest untrusted content ` +
-        `(${legs.untrusted.join(", ")}), AND exfiltrate ` +
-        `(${legs.exfil.join(", ")}) — a prompt-injection exfil path with no exploit code. ` +
-        hardTrifectaRemedy(tools, dialect) +
-        (ctx.contractUnreadable
-          ? " (Those tool names were SALVAGED: the frontmatter is not valid YAML, so a strict" +
-            " loader reads no contract here at all and the real grant may be wider still." +
-            " Fix the YAML — this finding stands either way.)"
-          : ""),
-    };
+    return finding(
+      {
+        severity: "hard",
+        legs,
+        cause: "unit",
+        fix: hardTrifectaRemedy(tools, dialect),
+      },
+      ctx.contractUnreadable ? " (invalid YAML)" : "",
+    );
   }
   // Fewer than three legs — but the names were salvaged from a block a strict
   // loader rejects, so "fewer" is a guess. What that loader actually yields is
@@ -783,23 +762,23 @@ export function skillFenceLegs(
   };
 }
 
-/** The one-line remedy, quoted in every skill finding so it is never just a diagnosis. */
-function fenceFix(dialect: HarnessDialect): string {
-  const list = (leg: TrifectaLeg): string =>
-    fenceSuppliers(leg, dialect).join(", ");
-  return (
-    "Fix in one line: add a `disallowed-tools:` line naming every built-in that " +
-    `supplies a leg the skill does not need — private-data read = ${list("private")}; ` +
-    `untrusted intake = ${list("untrusted")}; exfiltration = ${list("exfil")}. ` +
-    "Measured: `disallowed-tools` removes the tool from the pool while the skill " +
-    "is active, in subagents too."
+/**
+ * The open leg that takes the fewest further denies to close, with those
+ * denies: the one concrete edit a finding names. Ties go to the first leg in
+ * reading order after `private`, since untrusted intake is usually the cheapest
+ * leg to give up. Why a leg closes only when every supplier is denied lives in
+ * docs/rules/lethal-trifecta.md, not in the finding.
+ */
+function cheapestLeg(legs: TrifectaLegs): {
+  readonly leg: TrifectaLeg;
+  readonly deny: readonly string[];
+} {
+  const order: readonly TrifectaLeg[] = ["untrusted", "exfil", "private"];
+  const leg = order.reduce((best, l) =>
+    legs[l].length < legs[best].length ? l : best,
   );
+  return { leg, deny: legs[leg] };
 }
-
-const PREAPPROVAL_NOTE =
-  "`allowed-tools:` does NOT fence a skill — it PRE-APPROVES the tools it lists " +
-  '("It does not restrict which tools are available: every tool remains callable" ' +
-  "— Claude Code docs), so however narrow it is, the skill still holds every leg.";
 
 /**
  * Whether THIS harness understands a skill-level `disallowed-tools:` at all.
@@ -834,39 +813,23 @@ function unfencedFinding(
     ? []
     : preApprovedLegTools(ctx.preApproved ?? [], dialect);
   if (added.length > 0) {
-    return {
+    return finding({
       severity: "advisory",
       legs,
       fence: "none",
       cause: "unit",
-      message:
-        `\`allowed-tools:\` pre-approves \`${added.join("`, `")}\` — tools that supply a ` +
-        "lethal trifecta leg — so they run without a permission prompt while this skill " +
-        "is active, and with no `disallowed-tools:` line the skill holds all three legs " +
-        "(read private data, ingest untrusted content, exfiltrate). Drop the " +
-        "pre-approval if the skill does not need it. " +
-        fenceFix(dialect),
-    };
+      fix: { kind: "drop-pre-approval", tools: added },
+    });
   }
-  return {
+  return finding({
     severity: "advisory",
     legs,
     fence: "none",
     cause: ctx.contractUnreadable ? "fence" : "session",
-    message: ctx.contractUnreadable
-      ? "Frontmatter is not valid YAML, so this skill declares no readable fence — a " +
-        "strict loader rejects the block, and `disallowed-tools:` inside a block that " +
-        "does not parse denies nothing. The skill inherits every tool the session " +
-        "grants and holds all three lethal-trifecta legs (read private data, ingest " +
-        "untrusted content, exfiltrate). Fix the YAML first, then fence. " +
-        PREAPPROVAL_NOTE
-      : "No `disallowed-tools:` line, so this skill inherits every tool the session " +
-        "grants and holds all three lethal-trifecta legs (read private data, ingest " +
-        "untrusted content, exfiltrate). " +
-        PREAPPROVAL_NOTE +
-        " " +
-        fenceFix(dialect),
-  };
+    fix: ctx.contractUnreadable
+      ? { kind: "fix-yaml", field: "disallowed-tools" }
+      : { kind: "add-fence", ...cheapestLeg(legs) },
+  });
 }
 
 /**
@@ -949,22 +912,7 @@ export function skillTrifectaIssue(
   // Grading: both states are `"advisory"` and both are charged with the session
   // (`cause: "fence"` beside `"session"`). An empty fence has capability equal to
   // no fence, so moving it must not make it score worse — see the note above.
-  if (declared.length === 0) {
-    return {
-      severity: "advisory",
-      legs,
-      fence: "ineffective",
-      cause: ineffectiveFenceCause(declared, dialect, ctx),
-      message:
-        "`disallowed-tools:` is declared but EMPTY, so it denies nothing and this " +
-        "skill still holds all three lethal-trifecta legs — private-data read is " +
-        `supplied by ${legs.private.join(", ")}, untrusted intake by ` +
-        `${legs.untrusted.join(", ")}, exfiltration by ${legs.exfil.join(", ")}. ` +
-        "The line exists, so this is a fence that was attempted and closes nothing, " +
-        "not a missing one. " +
-        fenceFix(dialect),
-    };
-  }
+  //
   // The same split as the subagent side, for the same reason: "closes no leg" is
   // one sentence covering two causes that need two different edits.
   //
@@ -974,26 +922,16 @@ export function skillTrifectaIssue(
   // closed only when EVERY built-in that supplies it is denied" would reasonably
   // add more restricted denies and watch nothing happen. Naming the discard is the
   // difference between a diagnosis and a wild goose chase.
-  const ignored = declared.filter((raw) => restriction(raw) !== null);
-  const preamble =
-    ignored.length > 0
-      ? `\`${ignored.join("`, `")}\` denies nothing: a RESTRICTED deny is discarded, not ` +
-        "weighed — denying one invocation of a tool leaves the tool. Only an " +
-        "unrestricted name (`Bash`, not `Bash(curl:*)`) removes it from the pool. " +
-        (ignored.length === declared.length
-          ? "Every entry in this fence is restricted, so it closes nothing at all. "
-          : "The unrestricted entries that remain still close no whole leg. ")
-      : `\`disallowed-tools: ${declared.join(", ")}\` closes no lethal-trifecta leg — ` +
-        "a leg is closed only when EVERY built-in that supplies it is denied. ";
-  return {
+  return finding({
     severity: "advisory",
     legs,
     fence: "ineffective",
     cause: ineffectiveFenceCause(declared, dialect, ctx),
-    message:
-      preamble +
-      `Private-data read is still supplied by ${legs.private.join(", ")}, untrusted ` +
-      `intake by ${legs.untrusted.join(", ")}, exfiltration by ${legs.exfil.join(", ")}. ` +
-      fenceFix(dialect),
-  };
+    fix: {
+      kind: "extend-fence",
+      declared,
+      ignored: declared.filter((raw) => restriction(raw) !== null),
+      ...cheapestLeg(legs),
+    },
+  });
 }

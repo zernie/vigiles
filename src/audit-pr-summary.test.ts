@@ -21,6 +21,7 @@ import {
   type AuditReport,
 } from "./audit-report.js";
 import type { CategoryScore } from "./audit-score.js";
+import { groupLine } from "./core/finding-groups.js";
 import type { Recommendation } from "./optimize.js";
 import { scanPlugin } from "./scan.js";
 import { defaultAdapter } from "./adapter-registry.js";
@@ -120,9 +121,23 @@ const BASE: BaseAudit = {
   },
 };
 
-/** The table row (or line) that names a ring. */
+/** A ring's badge alt text: its plain value, as a reader without images sees it. */
 const lineFor = (md: string, key: string): string =>
-  md.split("\n").find((l) => l.includes(key)) ?? "";
+  new RegExp(`!\\[${key}[^\\]]*\\]`).exec(md)?.[0] ?? "";
+
+describe("ring badges", () => {
+  it("colours a graded ring by its band, an advisory one grey", () => {
+    const md = renderAuditPrSummary(headReport(), { kind: "none" });
+    const url = (key: string): string =>
+      new RegExp(`!\\[${key}[^\\]]*\\]\\(([^)]+)\\)`).exec(md)?.[1] ?? "";
+    // Structure 70 is a C, Truthfulness 100 an A: different bands, different colours.
+    expect(url("Structure").endsWith("-yellow")).toBe(true);
+    expect(url("Truthfulness").endsWith("-brightgreen")).toBe(true);
+    expect(url("Tested").endsWith("-lightgrey")).toBe(true);
+    // A dash in the value would end the badge's label segment early.
+    expect(url("Tested")).not.toMatch(/\(advisory\)/);
+  });
+});
 
 describe("renderAuditPrSummary", () => {
   it("starts with the marker the Action looks for", () => {
@@ -193,6 +208,21 @@ describe("renderAuditPrSummary — the PR base", () => {
     expect(md).toContain("B → C");
   });
 
+  it("with a base at the same grade and score, says it is unchanged, with no arrow", () => {
+    const head = headReport();
+    const md = renderAuditPrSummary(head, {
+      kind: "report",
+      score: {
+        ...(BASE.kind === "report" ? BASE.score : { categories: [] }),
+        overall: head.score.overall,
+        grade: head.score.grade,
+      },
+    });
+    const title = md.split("\n").find((l) => l.startsWith("###")) ?? "";
+    expect(title).toMatch(/unchanged/);
+    expect(title).not.toMatch(/[▲▼]/);
+  });
+
   it("with a base that could not be audited, shows the current grade and why", () => {
     const md = renderAuditPrSummary(headReport(), {
       kind: "unavailable",
@@ -239,6 +269,137 @@ describe("renderAuditPrSummary — what to fix", () => {
     const md = renderAuditPrSummary(clean, { kind: "none" });
     expect(md.startsWith(AUDIT_SUMMARY_MARKER)).toBe(true);
     expect(md).not.toContain("<details>");
+  });
+});
+
+/** The head report with no fix list, so the section lists the rings' findings. */
+function findingsOnly(categories: readonly CategoryScore[]): AuditReport {
+  const head = headReport();
+  return {
+    ...head,
+    recommendations: [],
+    verdict: { ...head.verdict, perRecommendation: [] },
+    score: { ...head.score, categories: [...categories] },
+  };
+}
+
+describe("renderAuditPrSummary — finding groups", () => {
+  it("shows each finding group once, its units with it, never also as a bullet", () => {
+    const groups = ["one", "two"].map((k) => ({
+      problem: `problem ${k}`,
+      edit: `edit ${k}`,
+      names: [`${k}-a`, `${k}-b`],
+    }));
+    const md = renderAuditPrSummary(
+      findingsOnly([
+        ring("Safety", 60, {
+          // A ring carries each group both ways: the parts, and the
+          // one-line form for surfaces that print strings.
+          findings: groups.map(groupLine),
+          groups,
+        }),
+      ]),
+      { kind: "none" },
+    );
+    for (const g of groups) {
+      expect(md.split(g.problem)).toHaveLength(2);
+      expect(md.split(g.edit)).toHaveLength(2);
+      for (const n of g.names) expect(md.split(n)).toHaveLength(2);
+      // Problem, fix and units sit in their own cells of one table row.
+      const row = md.split("\n").find((l) => l.includes(g.problem)) ?? "";
+      const cells = row
+        .split("|")
+        .map((c) => c.trim())
+        .filter((c) => c !== "");
+      expect(cells.indexOf(g.problem)).toBeGreaterThan(-1);
+      expect(cells.indexOf(g.edit)).toBeGreaterThan(cells.indexOf(g.problem));
+    }
+  });
+
+  it("folds findings past the first few, dropping none", () => {
+    const groups = Array.from({ length: 12 }, (_, i) => ({
+      problem: `problem ${String(i)}`,
+      edit: `edit ${String(i)}`,
+      names: [`unit${String(i)}`],
+    }));
+    const md = renderAuditPrSummary(
+      findingsOnly([
+        ring("Safety", 60, { findings: groups.map(groupLine), groups }),
+      ]),
+      { kind: "none" },
+    );
+    const open = md.indexOf("<details>");
+    expect(open).toBeGreaterThan(-1);
+    for (const g of groups) expect(md).toContain(g.problem);
+    expect(md.slice(0, open)).toContain(groups[0]?.problem ?? "∅");
+    expect(md.slice(0, open)).not.toContain(groups[11]?.problem ?? "∅");
+  });
+});
+
+describe("renderAuditPrSummary — group budget", () => {
+  it("stays within its budget however many groups, and says how many it left out", () => {
+    const groups = Array.from({ length: 1000 }, (_, i) => ({
+      problem: `\`allowed-tools:\` pre-approves \`mcp__server_${String(i)}__tool\`, a trifecta leg`,
+      edit: "drop the pre-approval",
+      names: [`skill-${String(i)}`],
+    }));
+    const md = renderAuditPrSummary(
+      findingsOnly([
+        ring("Safety", 40, { findings: groups.map(groupLine), groups }),
+      ]),
+      { kind: "none" },
+    );
+    expect(md.length).toBeLessThanOrEqual(AUDIT_SUMMARY_MAX_CHARS);
+    expect(md).toMatch(/and \d+ more/);
+    expect(md.trimEnd().split("\n").at(-1)).toContain("npx vigiles audit");
+  });
+});
+
+describe("renderAuditPrSummary — ring findings and short fix lists", () => {
+  it("keeps a table row one row when a finding holds a pipe or a newline", () => {
+    const groups = [{ problem: "a | b\nc", edit: "e", names: ["u"] }];
+    const md = renderAuditPrSummary(
+      findingsOnly([
+        ring("Safety", 60, { findings: groups.map(groupLine), groups }),
+      ]),
+      { kind: "none" },
+    );
+    const row = md.split("\n").find((l) => l.includes("a \\| b")) ?? "";
+    expect(row).toContain("c");
+    expect(row.endsWith("|")).toBe(true);
+  });
+
+  it("shows every finding of a ring, the first beside its name", () => {
+    const md = renderAuditPrSummary(
+      findingsOnly([ring("Structure", 70, { findings: ["first", "second"] })]),
+      { kind: "none" },
+    );
+    const lines = md.split("\n");
+    const title = lines.find((l) => l.includes("**Structure**")) ?? "";
+    expect(title).toContain("first");
+    expect(lines.filter((l) => l.includes("second"))).toHaveLength(1);
+    expect(title).not.toContain("second");
+  });
+
+  it("with no more fixes than the top shows, lists them once and folds nothing", () => {
+    const head = headReport();
+    const kept = head.recommendations.slice(0, 2);
+    const md = renderAuditPrSummary(
+      {
+        ...head,
+        recommendations: kept,
+        verdict: {
+          ...head.verdict,
+          // Points are keyed by index into `recommendations`.
+          perRecommendation: head.verdict.perRecommendation.filter(
+            (p) => p.index < kept.length,
+          ),
+        },
+      },
+      { kind: "none" },
+    );
+    expect(md).not.toContain("<details>");
+    for (const r of kept) expect(md.split(r.fix)).toHaveLength(2);
   });
 });
 
@@ -300,7 +461,8 @@ describe("renderAuditPrSummary — size", () => {
     );
     expect(md.length).toBeLessThanOrEqual(AUDIT_SUMMARY_MAX_CHARS);
     expect(md).toContain("**C**");
-    expect(md).toContain("headless audit");
+    // The closing line (how to see the rest locally) survives the cut.
+    expect(md.trimEnd().split("\n").at(-1)).toContain("npx vigiles audit");
     expect(md).toMatch(/and \d+ more/);
   });
 });

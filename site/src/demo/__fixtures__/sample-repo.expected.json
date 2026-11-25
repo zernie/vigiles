@@ -34,7 +34,14 @@
         "score": 90,
         "weight": 1,
         "findings": [
-          "Lethal trifecta: 2 unit(s) inherit the session's tools, and the session can read files, reach the web and run commands — one cause, counted once. One `disallowed-tools:` line per skill (a `tools:` line per subagent) that drops a leg closes it: deploy, release."
+          "deploy, release: no `disallowed-tools:` line, so every session tool is inherited → add `disallowed-tools: WebFetch, WebSearch, Bash` to close untrusted intake"
+        ],
+        "groups": [
+          {
+            "problem": "no `disallowed-tools:` line, so every session tool is inherited",
+            "edit": "add `disallowed-tools: WebFetch, WebSearch, Bash` to close untrusted intake",
+            "names": ["deploy", "release"]
+          }
         ]
       },
       {

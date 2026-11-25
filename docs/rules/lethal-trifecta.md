@@ -46,10 +46,7 @@ For a **subagent** this is a **capability SET-intersection over the declared
 leg(s) it supplies and fires only when all three legs are non-empty.
 
 ```
-✗ subagent issue-triager (agents/issue-triager.md): Lethal trifecta: this unit can
-  read private data (Read), ingest untrusted content (mcp__github__issue_read), AND
-  exfiltrate (mcp__github__create_pull_request) — a prompt-injection exfil path with
-  no exploit code. Drop at least one leg (Meta's Rule of Two: allow at most two).
+✗ issue-triager: reads (Read), takes untrusted (mcp__github__issue_read), sends out (mcp__github__create_pull_request) → remove one of those tools, usually the untrusted input
 ```
 
 ### Hard vs advisory
@@ -107,9 +104,7 @@ If a unit's frontmatter **exists but isn't valid YAML**
 advisory case, and the finding says so:
 
 ```
-⚠ skill broken: Frontmatter is not valid YAML, so the declared tool list could not
-  be read — a strict loader rejects the block, and a regex salvage of it is a guess,
-  not a contract. Scored as INHERITS-ALL (every capability) …
+⚠ broken: frontmatter is not valid YAML, so `tools:` is unread and every tool is inherited → fix the YAML
 ```
 
 vigiles's shared frontmatter reader is deliberately lenient: on a block js-yaml
@@ -234,27 +229,43 @@ severities and the same score.
 
 ### How skill findings read
 
+`vigiles audit` prints each group as three lines: the problem after its mark,
+the edit after an arrow, then the units it applies to.
+
 ```
-⚠ Lethal trifecta: 34 unit(s) inherit the session's tools, and the session can
-  read files, reach the web and run commands — one cause, counted once. One
-  `disallowed-tools:` line per skill (a `tools:` line per subagent) that drops a
-  leg closes it: food-log-entry, handoff, render-paper, review, ship +29 more.
+⚠ no `disallowed-tools:` line, so every session tool is inherited
+  → add `disallowed-tools: WebFetch, WebSearch, Bash` to close untrusted intake
+  food-log-entry · handoff · render-paper · review · ship +29 more
 
-⚠ skill half (skills/half/SKILL.md): `disallowed-tools: Read` closes no
-  lethal-trifecta leg — private-data read is still supplied by Grep, Glob, Bash …
+⚠ `disallowed-tools: Read` closes no leg
+  → deny `WebFetch`, `WebSearch`, `Bash` to close untrusted intake
+  half
 
-⚠ skill deploy (skills/deploy/SKILL.md): `allowed-tools:` pre-approves `Bash` —
-  tools that supply a lethal trifecta leg — so they run without a permission prompt …
+⚠ `allowed-tools:` pre-approves `Bash`, a trifecta leg
+  → drop the pre-approval
+  deploy · release
+```
+
+**A finding is the problem and one edit**, computed from that unit's own legs.
+The suggested deny list is the open leg that takes the fewest further denies to
+close. Everything else (why, how it was measured, which remedy fits which grant)
+is on this page, not in the finding. Units in the **same state share one group**
+in every report a person reads: the terminal audit, and the Safety ring that
+feeds the PR comment and the HTML report. `vigiles lint` does not group: it
+prints one line and one CI annotation per finding, at its file, like any linter:
+
+```
+⚠ .claude/skills/half/SKILL.md  `disallowed-tools: Read` closes no leg → deny `WebFetch`, `WebSearch`, `Bash` to close untrusted intake
 ```
 
 - **No fence and nothing added** (`cause: "session"`) is the **ecosystem
-  default**. `audit` prints it as **one line** with the count and the first names.
-- **A fence that closes no leg** (`fence: "ineffective"`, `cause: "fence"`) keeps
-  its **own line**. The author believed they had fenced
-  and had not — same shape as
+  default**, so it is usually the longest list of names.
+- **A fence that closes no leg** (`fence: "ineffective"`, `cause: "fence"`). The
+  author believed they had fenced and had not — same shape as
   [disallowed-tools-contract](disallowed-tools-contract.md)'s "this entry blocks
-  nothing".
-- **A pre-approved leg tool or MCP tool** (`cause: "unit"`) keeps its own line.
+  nothing". Two skills with the same ineffective fence share a group; different
+  fences get different groups.
+- **A pre-approved leg tool or MCP tool** (`cause: "unit"`).
 
 Every skill finding is `"advisory"`. An ineffective fence has capability ≤ no
 fence, so it never reads louder than one.
