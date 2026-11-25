@@ -11,7 +11,7 @@
  * from a plugin / `.claude/skills` layout, so a bare cwd `SKILL.md` sits unread:
  * the arm silently measures NOTHING (baseline and "skill" become the same run). This
  * is the exact footgun the ecosystem benchmark hit — a skill file delivered where it
- * can never activate, with no error. Detect it so {@link runEval} / {@link measureArms}
+ * can never activate, with no error. Detect it so {@link runEval}
  * can WARN and point at `pluginDir` (a real `--plugin-dir` install) or `skillsDir`.
  *
  * HIGH-PRECISION (don't cry wolf): only a file whose basename is `SKILL.md` AND that

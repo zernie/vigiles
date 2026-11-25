@@ -255,16 +255,9 @@ export type {
   EvalArm,
   EvalSpec,
   EvalUsage,
-  MeasureSpec,
-  ArmsMeasureSpec,
   RunContext,
   TriggerRateSpec,
 } from "../eval.js";
-export type {
-  ArmsCheckReport,
-  CheckRate,
-  CheckReport,
-} from "../eval-check-report.js";
 export type { Metrics } from "../core/eval-aggregate.js";
 
 // --- R3: the disposable-service tier ---

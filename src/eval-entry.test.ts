@@ -56,13 +56,16 @@ test("trialsOverride: a real number wins, junk is IGNORED rather than read as ze
   assert.equal(trialsOverride("-3"), undefined);
 });
 
-test("runsIn reads the run count out of all five report shapes", () => {
+test("runsIn reads the run count out of all three report shapes", () => {
   // Each measurement spells it differently and at a different depth — which is
   // exactly why every eval file used to hand-write `report.n === 0`, and why
   // several of them forgot to.
-  assert.equal(runsIn({ n: 3 } as never), 3); // measure / triggerRate / selection
-  assert.equal(runsIn({ arms: { a: { n: 2 }, b: { n: 1 } } } as never), 3); // measureArms
-  assert.equal(runsIn({ arms: { a: { runs: 4 } } } as never), 4); // runEval
+  assert.equal(runsIn({ n: 3 } as never), 3); // triggerRate / selection
+  assert.equal(
+    runsIn({ arms: { a: { runs: 2 }, b: { runs: 1 } } } as never),
+    3,
+  ); // runEval, arms
+  assert.equal(runsIn({ arms: { a: { runs: 4 } } } as never), 4); // runEval, one arm
   assert.equal(runsIn({ arms: {} } as never), 0);
   assert.equal(runsIn({ nothing: true } as never), undefined);
 });
@@ -82,9 +85,25 @@ test("the not-a-description message teaches the shape, not just the failure", ()
   assert.match(
     declarationProblem({
       why: "declares-several",
-      kinds: ["measure", "runEval"],
+      kinds: ["runEval", "measureTriggerRate"],
     }),
-    /declares 2 measurements \(measure, runEval\) — declare exactly one/,
+    /declares 2 measurements \(runEval, measureTriggerRate\) — declare exactly one/,
+  );
+  // A key folded into `runEval` gets its rewrite, with what changed on the way.
+  const removed = declarationProblem({
+    why: "removed-kind",
+    kind: "measureArms",
+  });
+  assert.match(
+    removed,
+    /`defineEval\(\{ measureArms: … \}\)` was folded into `runEval` in v55/,
+  );
+  assert.match(removed, /keep `arms`/);
+  assert.match(removed, /needs `env`/);
+  assert.match(removed, /`haiku` where measureArms's was `sonnet`/);
+  assert.match(
+    declarationProblem({ why: "removed-kind", kind: "measure" }),
+    /drop `arms` \(one arm, `default`\)/,
   );
 });
 
@@ -96,15 +115,13 @@ test("an evalDriver declared where no seam exists is REFUSED, not ignored", () =
     driverMisplaced("runEval", true) ?? "",
     /cannot use it[\s\S]*measureTriggerRate/,
   );
-  assert.match(driverMisplaced("measure", true) ?? "", /cannot use it/);
+  assert.match(
+    driverMisplaced("measureSelectionMatrix", true) ?? "",
+    /cannot use it/,
+  );
   // The quiet half — the one place it IS wired, and every place with no driver.
   assert.equal(driverMisplaced("measureTriggerRate", true), undefined);
-  for (const k of [
-    "runEval",
-    "measure",
-    "measureArms",
-    "measureSelectionMatrix",
-  ] as const)
+  for (const k of ["runEval", "measureSelectionMatrix"] as const)
     assert.equal(driverMisplaced(k, false), undefined);
 });
 
@@ -117,7 +134,7 @@ test("the no-spend window is CLOSED while the file is imported, and open after",
       `import { defineEval } from "${DIST}/entries/index.js";\n` +
       `const during = inEvalLoad();\n` +
       `export default defineEval({\n` +
-      `  measure: { task: "never runs", checks: [] },\n` +
+      `  runEval: { task: "never runs", checks: [] },\n` +
       `  skipIf: () => \`window-during-load=\${during} window-in-hook=\${inEvalLoad()}\`,\n` +
       `});\n`,
   );
@@ -140,13 +157,13 @@ test("a HALF-migrated file — a description plus a leftover top-level runner ca
       `writeFileSync(new URL("./SPENT", import.meta.url), "spent");\n` +
       // 🔴 `skipIf` is a SAFETY BELT for this test, not decoration. When this
       // test is run under a MUTATION that neuters the guard, the entry proceeds
-      // past the import — and without a skip it would call the real `measure`,
+      // past the import — and without a skip it would call the real `runEval`,
       // which spawns the real `claude` on this machine. Measured: the first
       // mutation run of this file did exactly that (44s, a real spawn) before
       // the belt was added. A test that verifies a money guard must not be able
       // to spend money when the guard is broken, because that is precisely the
       // condition it is run under.
-      `export default defineEval({ measure: { task: "t", checks: [] }, skipIf: () => "belt: never reach a runner" });\n`,
+      `export default defineEval({ runEval: { task: "t", checks: [] }, skipIf: () => "belt: never reach a runner" });\n`,
   );
   const r = runEntry(f);
   assert.notEqual(r.status, 0);
@@ -168,7 +185,7 @@ test("a TypeScript eval file is loaded through the same entry", () => {
     "typed.eval.ts",
     `import { defineEval } from "${DIST}/entries/index.js";\n` +
       `const why: string = "typed stand-in: no model";\n` +
-      `export default defineEval({ measure: { task: "t", checks: [] }, skipIf: (): string => why });\n`,
+      `export default defineEval({ runEval: { task: "t", checks: [] }, skipIf: (): string => why });\n`,
   );
   const r = spawnSync("node", ["--import", "tsx", ENTRY, f], {
     encoding: "utf8",
@@ -190,8 +207,14 @@ test("a file that declares nothing is REPORTED, not passed green", () => {
     [
       "two.eval.mjs",
       `import { defineEval } from "${DIST}/entries/index.js";\n` +
-        `export default defineEval({ measure: { task: "t", checks: [] }, runEval: { arms: {}, task: "t" } });\n`,
+        `export default defineEval({ runEval: { task: "t", checks: [] }, measureTriggerRate: { prompts: [] } });\n`,
       /declares 2 measurements/,
+    ],
+    [
+      "folded.eval.mjs",
+      `import { defineEval } from "${DIST}/entries/index.js";\n` +
+        `export default defineEval({ measure: { task: "t", checks: [] } });\n`,
+      /was folded into `runEval` in v55/,
     ],
   ] as const) {
     const r = runEntry(standin(name, body));
@@ -208,7 +231,7 @@ test("a malformed declaration is reported even when the file would SKIP", () => 
     "misplaced.eval.mjs",
     `import { defineEval } from "${DIST}/entries/index.js";\n` +
       `export default defineEval({\n` +
-      `  measure: { task: "t", checks: [] },\n` +
+      `  runEval: { task: "t", checks: [] },\n` +
       `  evalDriver: { runner: () => Promise.resolve({ code: 0, stdout: "" }), parse: () => ({}) },\n` +
       `  skipIf: () => "would have skipped",\n` +
       `});\n`,
@@ -265,7 +288,7 @@ test("unansweredFailure: only a runEval report with an unanswered call is a fail
   );
   assert.equal(unansweredFailure("runEval", report([]), { stubs }), undefined);
   assert.equal(
-    unansweredFailure("measure", report([miss]), { stubs }),
+    unansweredFailure("measureTriggerRate", report([miss]), { stubs }),
     undefined,
   );
   // zero runs is checked first, and keeps its own exit code

@@ -7,11 +7,11 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import { compare, assertImproves } from "./eval-readers.js";
+import { compare } from "./eval-readers.js";
+import { assertImproves } from "./eval-improves.js";
 import type { EvalReport, TriggerRateReport } from "./eval.js";
 import { aggregateStats } from "./core/eval-aggregate.js";
 import { assertRates } from "./eval-rate-gate.js";
-import type { CheckReport } from "./eval-check-report.js";
 
 const NO_USAGE = {
   totalCostUsd: 0,
@@ -176,25 +176,99 @@ test("assertImproves({ significant: true }) is the computed noise floor", () => 
   }, /no data to compare/);
 });
 
-const checkReport = (passK: number, rate: number): CheckReport => ({
-  n: 4,
-  usage: NO_USAGE,
-  perCheck: [
-    { check: { kind: "tool", name: "Bash" }, rate, se: 0, passK, n: 4 },
-  ],
+/** One arm's stats for checks that passed `k` of `n` trials each. */
+function checkArm(passed: Readonly<Record<string, number>>, n: number) {
+  const rows = Array.from({ length: n }, (_, i) =>
+    Object.fromEntries(Object.entries(passed).map(([key, k]) => [key, i < k])),
+  );
+  return {
+    runs: n,
+    metrics: Object.fromEntries(
+      Object.entries(passed).map(([key, k]) => [key, k / n]),
+    ),
+    stats: aggregateStats(rows),
+    ...NO_MISSES,
+  };
+}
+
+/** What `paid_runEval` returns for a spec with no `arms`, scored by `checks`. */
+const checkReport = (k: number): EvalReport => ({
+  name: "checks",
+  trials: 4,
+  totalCostUsd: 0,
+  aborted: false,
+  arms: { default: checkArm({ "tool(Bash)": k }, 4) },
+  checks: { "tool(Bash)": { kind: "tool", name: "Bash" } },
 });
 
 test("assertRates({ passK: 1 }) demands every trial passed, not the average", () => {
   assert.doesNotThrow(() => {
-    assertRates(checkReport(1, 1), { passK: 1 });
+    assertRates(checkReport(4), { passK: 1 });
   });
   assert.throws(() => {
-    assertRates(checkReport(0, 0.75), { passK: 1 });
-  }, /pass\^k/);
+    assertRates(checkReport(3), { passK: 1 });
+  }, /tool\(Bash\): passed 75% of 4 trials[\s\S]*|pass\^k/);
   // `min` alone still gates the average, as before.
   assert.doesNotThrow(() => {
-    assertRates(checkReport(0, 0.75), { min: 0.7 });
+    assertRates(checkReport(3), { min: 0.7 });
   });
+  assert.throws(() => {
+    assertRates(checkReport(3), { min: 0.8 });
+  }, /1 check\(s\) below their min rate:\n {2}✗ tool\(Bash\): 75% ± 25% \(min 80%\)/);
+});
+
+/** What `paid_runEval` returns for an A/B scored by two checks. */
+const abChecks: EvalReport = {
+  name: "ab",
+  trials: 4,
+  totalCostUsd: 0,
+  aborted: false,
+  arms: {
+    vanilla: checkArm({ "skill(x:y)": 0, "tool(Bash)": 4 }, 4),
+    gated: checkArm({ "skill(x:y)": 4, "tool(Bash)": 3 }, 4),
+  },
+  checks: {
+    "skill(x:y)": { kind: "skill", id: "x:y" },
+    "tool(Bash)": { kind: "tool", name: "Bash" },
+  },
+};
+
+test("assertRates without a metric gates every check of the named arm, `per` by check kind", () => {
+  assertRates(abChecks, { arm: "gated", min: 0.7 });
+  assert.throws(() => {
+    assertRates(abChecks, { arm: "vanilla", min: 0.7 });
+  }, /✗ skill\(x:y\): 0%/);
+  // "every check ≥ 70%, but the skill must fire every time": gated passes…
+  assertRates(abChecks, { arm: "gated", min: 0.7, per: { skill: 1 } });
+  // …and a stricter tool floor fails it.
+  assert.throws(() => {
+    assertRates(abChecks, { arm: "gated", min: 0.7, per: { tool: 1 } });
+  }, /tool\(Bash\): 75% ± 25% \(min 100%\)/);
+  // An A/B has no single arm to assume.
+  assert.throws(() => {
+    assertRates(abChecks, { min: 0.5 });
+  }, /has 2 arms \(vanilla, gated\) — name the `arm`/);
+  // One check by its label is the metric form, as on any report.
+  assertRates(abChecks, {
+    arm: "gated",
+    metric: "skill(x:y)",
+    passK: 1,
+  });
+});
+
+test("assertRates over checks: an arm with no scored trial fails, it does not pass empty", () => {
+  const empty: EvalReport = {
+    ...checkReport(0),
+    arms: {
+      default: { runs: 0, metrics: {}, stats: {}, ...NO_MISSES },
+    },
+  };
+  assert.throws(() => {
+    assertRates(empty, { min: 0.5 });
+  }, /tool\(Bash\): 0% ± 0% \(min 50%\)/);
+  assert.throws(() => {
+    assertRates(empty, { passK: 1 });
+  }, /passed 0% of 0 trials/);
 });
 
 test("assertRates reads an EvalReport arm × metric: min gates the mean, passK every trial", () => {
@@ -232,7 +306,10 @@ test("assertRates reads an EvalReport arm × metric: min gates the mean, passK e
   }, /0\.75/);
   assert.throws(() => {
     assertRates(rep, { arm: "nobody", metric: "safe", passK: 1 });
-  }, /no data/);
+  }, /no data for nobody on safe in report "rel" \(arms: flaky, solid\)/);
+  assert.throws(() => {
+    assertRates(rep, { arm: "solid", metric: "nope", min: 0.5 });
+  }, /no data for solid on nope \(it has: safe\)/);
 });
 
 test("assertImproves without `significant` gates the plain gap against `by`", () => {
@@ -246,14 +323,31 @@ test("assertImproves without `significant` gates the plain gap against `by`", ()
   assert.throws(() => {
     assertImproves(welchReport, { ...gap, metric: "missing" });
   }, /no data to compare/);
+  assert.throws(() => {
+    assertImproves(welchReport, { ...gap, arm: "nobody" });
+  }, /no data to compare nobody vs base on caught$/);
 });
 
-test("assertRates over an eval report without an arm is refused, not read as a check report", () => {
-  const rep = passReport(1, 1, 1);
+test("assertRates over a measure(ctx) report needs the metric — it has no checks to gate", () => {
+  const one: EvalReport = {
+    ...passReport(1, 1, 1),
+    arms: { only: passReport(1, 1, 1).arms.base ?? BASE },
+  };
   assert.throws(() => {
-    // @ts-expect-error — an eval report needs `arm` and `metric`
-    assertRates(rep, { passK: 1 });
-  }, /needs `arm` and `metric`/);
+    assertRates(one, { passK: 1 });
+  }, /scored by `measure\(ctx\)`, so it has no checks to gate — name the `metric` \(pass\)/);
+  // With one arm the arm may be left out; the metric names what to gate.
+  assertRates(one, { metric: "pass", passK: 1 });
+  const none: EvalReport = {
+    ...one,
+    arms: { only: { runs: 0, metrics: {}, stats: {}, ...NO_MISSES } },
+  };
+  assert.throws(() => {
+    assertRates(none, { min: 1 });
+  }, /name the `metric` \(none\)/);
+  assert.throws(() => {
+    assertRates(none, { metric: "pass", min: 1 });
+  }, /it has: no metrics/);
 });
 
 /** A trigger-rate report: which of these prompts fired, one trial each. */
@@ -310,5 +404,88 @@ test("compare refuses a mixed call instead of guessing which reader was meant", 
     // @ts-expect-error — an eval report needs a baseline and an arm
     () => compare(welchReport, "base"),
     /needs a baseline and an arm/,
+  );
+});
+
+// --- metric direction: a lower-is-better metric (cost, turns) must not read
+// backwards. Both verdict tests decide on `arm − baseline > 0`, so without
+// `lowerIsBetter` a cheaper arm was a LOSS to `assertImproves` and `compare`.
+
+/** Two arms on `cost`: the `lean` arm costs clearly less than `base`. */
+const costReport: EvalReport = {
+  name: "cost",
+  trials: 20,
+  totalCostUsd: 0,
+  aborted: false,
+  arms: {
+    base: {
+      runs: 20,
+      metrics: { cost: 0.5 },
+      stats: { cost: stat(0.5, 0.02, 20) },
+      ...NO_MISSES,
+    },
+    lean: {
+      runs: 20,
+      metrics: { cost: 0.2 },
+      stats: { cost: stat(0.2, 0.02, 20) },
+      ...NO_MISSES,
+    },
+  },
+};
+
+test("assertImproves({ lowerIsBetter }) passes a cheaper arm and fails a dearer one", () => {
+  const gate = {
+    baseline: "base",
+    arm: "lean",
+    metric: "cost",
+    lowerIsBetter: true,
+  } as const;
+  assertImproves(costReport, gate);
+  assertImproves(costReport, { ...gate, by: 0.25 });
+  assert.throws(() => {
+    assertImproves(costReport, { ...gate, by: 0.4 });
+  }, /lean to beat base on cost \(lower is better\) by > 0\.4, got 0\.300/);
+  assertImproves(costReport, { ...gate, significant: true });
+  // The dearer direction fails both ways.
+  const back = { ...gate, baseline: "lean", arm: "base" } as const;
+  assert.throws(() => {
+    assertImproves(costReport, back);
+  }, /got -0\.300/);
+  assert.throws(() => {
+    assertImproves(costReport, { ...back, significant: true });
+  }, /significantly beat lean on cost \(lower is better\).*WORSE/);
+  // Without the flag the old reading stands: a higher cost "beats".
+  assertImproves(costReport, { baseline: "lean", arm: "base", metric: "cost" });
+});
+
+test("assertImproves refuses a lowerIsBetter that is not a boolean (the DiffOptions list shape)", () => {
+  // As a `.mjs` caller writes it: no type stands between the list and the gate.
+  const listShape = {
+    baseline: "base",
+    arm: "lean",
+    metric: "cost",
+    lowerIsBetter: ["cost"],
+  };
+  assert.throws(() => {
+    Reflect.apply(assertImproves, undefined, [costReport, listShape]);
+  }, /`lowerIsBetter` is true or false here/);
+});
+
+test("compare(…, { lowerIsBetter }) flips the verdict of the listed metrics only", () => {
+  const plain = compare(costReport, "base", "lean").cost;
+  assert.equal(plain?.verdict.kind, "worse");
+  const flipped = compare(costReport, "base", "lean", {
+    lowerIsBetter: ["cost"],
+  }).cost;
+  assert.ok(flipped);
+  assert.equal(flipped.verdict.kind, "better");
+  assert.equal(flipped.significant, true);
+  // The gap stays `arm − baseline`: the number does not change meaning.
+  assert.equal(flipped.gap.toFixed(2), "-0.30");
+  // A metric not listed keeps the higher-is-better reading.
+  assert.equal(
+    compare(costReport, "base", "lean", { lowerIsBetter: ["turns"] }).cost
+      ?.verdict.kind,
+    "worse",
   );
 });

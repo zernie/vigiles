@@ -13,9 +13,9 @@
  *     `compare(before, after)` on two trigger-rate reports — which prompts a
  *     change gained and lost. Replaces `compareContainment`.
  *   - `assertImproves(report, { …, significant: true })` — the gate on that,
- *     replacing `assertSignificant`.
- *   - `assertRates` (in `src/eval-rate-gate.ts`, over the check report of
- *     `src/eval-check-report.ts`) with
+ *     replacing `assertSignificant` (in `src/eval-improves.ts`, beside the
+ *     metric direction both read).
+ *   - `assertRates` (in `src/eval-rate-gate.ts`, over any eval report) with
  *     `passK: 1` replacing `reliable` / `assertReliable`. Since v52 it also
  *     gates a trigger-rate report, replacing `assertTriggerRate` (the gate
  *     itself is {@link assertTriggerRateReport} here).
@@ -25,8 +25,7 @@
  */
 import type { EvalReport, TriggerRateReport } from "./core/eval-report.js";
 import type { Verdict } from "./core/evidence.js";
-import { describeVerdict } from "./core/evidence.js";
-import { experimental_verdict } from "./stats.js";
+import { directedVerdict, type ArmPair } from "./eval-improves.js";
 import {
   diffReports,
   readBaseline,
@@ -45,7 +44,11 @@ function fail(message: string): never {
  * @public
  */
 export interface ArmComparison {
-  /** `arm − baseline` on the metric's mean (fraction-true for a 0/1 metric). */
+  /**
+   * `arm − baseline` on the metric's mean (fraction-true for a 0/1 metric). Raw:
+   * a cheaper arm has a negative gap even when `lowerIsBetter` names the
+   * metric — read `verdict` for which way it went.
+   */
   readonly gap: number;
   /**
    * The gap is beyond the noise floor, in either direction: disjoint Wilson
@@ -56,7 +59,8 @@ export interface ArmComparison {
   /**
    * The verdict behind `significant` — `better`, `worse`, `no-signal` (more
    * trials needed), or `unmeasured` when an arm kept no per-trial stats for the
-   * metric — with the test that produced it.
+   * metric — with the test that produced it. `better` means higher, unless
+   * `compare`'s `lowerIsBetter` names the metric.
    */
   readonly verdict: Verdict;
 }
@@ -113,7 +117,16 @@ export function compare(
   report: EvalReport,
   baseline: string,
   arm: string,
-  opts?: { readonly alpha?: number },
+  opts?: {
+    /** The significance level (default 0.05). */
+    readonly alpha?: number;
+    /**
+     * Metrics where a DECREASE is the improvement (`cost`, `turns`, latency) —
+     * the list `assertNoRegression` takes. Their verdict is read the other way
+     * round; `gap` stays `arm − baseline`.
+     */
+    readonly lowerIsBetter?: readonly string[];
+  },
 ): Readonly<Record<string, ArmComparison>>;
 /** @public */
 export function compare(
@@ -124,7 +137,7 @@ export function compare(
   a: EvalReport | TriggerRateReport,
   b: string | TriggerRateReport,
   arm?: string,
-  opts: { readonly alpha?: number } = {},
+  opts: CompareOptions = {},
 ): Readonly<Record<string, ArmComparison>> | TriggerDiff {
   if ("perPrompt" in a) {
     if (typeof b === "string")
@@ -134,28 +147,32 @@ export function compare(
   if (typeof b !== "string" || arm === undefined) {
     fail("compare: an eval report needs a baseline and an arm name");
   }
-  return compareArms(a, b, arm, opts.alpha);
+  return compareArms(a, { baseline: b, arm }, opts);
 }
 /* eslint-enable no-redeclare */
 
+/** The options of `compare` over an eval report (spelled inline on the overload). */
+interface CompareOptions {
+  readonly alpha?: number;
+  readonly lowerIsBetter?: readonly string[];
+}
+
 function compareArms(
   report: EvalReport,
-  baseline: string,
-  arm: string,
-  alpha: number | undefined,
+  pair: ArmPair,
+  opts: CompareOptions,
 ): Readonly<Record<string, ArmComparison>> {
-  const armMetrics = metricsOf(report, arm);
-  const baseMetrics = metricsOf(report, baseline);
+  const armMetrics = metricsOf(report, pair.arm);
+  const baseMetrics = metricsOf(report, pair.baseline);
+  const lower = new Set(opts.lowerIsBetter ?? []);
   return Object.fromEntries(
     Object.entries(armMetrics).flatMap(([metric, value]) => {
       const base = baseMetrics[metric];
       if (base === undefined) return [];
-      const verdict = experimental_verdict(
+      const verdict = directedVerdict(
         report,
-        baseline,
-        arm,
-        metric,
-        alpha,
+        { ...pair, metric },
+        { alpha: opts.alpha, lowerIsBetter: lower.has(metric) },
       );
       const significant = verdict.kind === "better" || verdict.kind === "worse";
       return [[metric, { gap: value - base, significant, verdict }]];
@@ -198,68 +215,6 @@ function metricsOf(
     );
   }
   return found.metrics;
-}
-
-/**
- * Assert `arm` beats `baseline` on `metric`. By default a positive gap > `by`
- * (pass the combined se to clear the noise floor by hand). With
- * `{ significant: true }` the verdict must be `better` instead — the computed
- * noise floor: a 0/1 metric needs disjoint Wilson intervals (3/3 against 0/3 is
- * not enough — raise `trials`), any other a Welch gap at `alpha`.
- *
- * @public
- */
-export function assertImproves(report: EvalReport, opts: ImprovesGate): void {
-  const a = report.arms[opts.arm]?.metrics[opts.metric];
-  const b = report.arms[opts.baseline]?.metrics[opts.metric];
-  if (a === undefined || b === undefined) fail(noData(opts));
-  if (opts.significant === true) {
-    assertSignificantGap(report, opts);
-    return;
-  }
-  const by = opts.by ?? 0;
-  const delta = a - b;
-  if (delta <= by) {
-    fail(
-      `expected ${opts.arm} to beat ${opts.baseline} on ${opts.metric} by > ${String(by)}, got ${delta.toFixed(3)}`,
-    );
-  }
-}
-
-/**
- * The options of {@link assertImproves}.
- *
- * @public
- */
-export interface ImprovesGate {
-  readonly baseline: string;
-  readonly arm: string;
-  readonly metric: string;
-  /** The gap must exceed this (default 0). Ignored with `significant`. */
-  readonly by?: number;
-  /** Demand the verdict `better` — the computed noise floor — instead of a gap. */
-  readonly significant?: boolean;
-  /** The significance level for `significant` (default 0.05). */
-  readonly alpha?: number;
-}
-
-const noData = (o: ImprovesGate): string =>
-  `no data to compare ${o.arm} vs ${o.baseline} on ${o.metric}`;
-
-function assertSignificantGap(report: EvalReport, opts: ImprovesGate): void {
-  const alpha = opts.alpha ?? 0.05;
-  const v = experimental_verdict(
-    report,
-    opts.baseline,
-    opts.arm,
-    opts.metric,
-    alpha,
-  );
-  if (v.kind === "better") return;
-  if (v.kind === "unmeasured") fail(noData(opts));
-  fail(
-    `expected ${opts.arm} to significantly beat ${opts.baseline} on ${opts.metric} (α=${String(alpha)}); ${describeVerdict(v)}`,
-  );
 }
 
 /**

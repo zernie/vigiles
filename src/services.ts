@@ -38,7 +38,7 @@
  * WHAT SHIPS TODAY vs LATER. Today: the TYPES, the {@link ContainerRuntime} port,
  * the pure {@link experimental_startServices} / {@link experimental_withServices}
  * orchestration, and a Docker backend (`src/services-docker.ts`). Deferred: the
- * `runEval` / `measureArms` `services` option + `ctx.service(name)`, per-trial
+ * `runEval` `services` option + `ctx.service(name)`, per-trial
  * reset via an eval-loop hook, and the egress wall. Requires Docker (Linux-first).
  * It is an explicit opt-in and NEVER part of `vigiles audit` (audit stays
  * side-effect-free).
@@ -196,7 +196,7 @@ export interface ContainerRuntime {
  * fails to start, the ones already up are torn down before the error propagates,
  * so a partial failure never leaks a container.
  *
- * A Docker-backed `ContainerRuntime` and the `runEval` / `measureArms` wiring are
+ * A Docker-backed `ContainerRuntime` and the `runEval` wiring are
  * the next increment — until then this is the primitive you compose by hand:
  * start → pin egress to `session.endpoints` → run → read `session.handles` in
  * `measure` → `await session.teardown()`.
@@ -235,7 +235,7 @@ export async function experimental_startServices(
 /**
  * Run `fn` with the declared services up, disposing them afterwards — even if
  * `fn` throws. The scope-guard form of {@link experimental_startServices}: it
- * removes the manual `try/finally` so a `measureArms` / `measure` call can be
+ * removes the manual `try/finally` so a `runEval` call can be
  * wrapped in one line and its containers are always cleaned up.
  *
  * ⚠️ Read the SAFETY note in this module's header first — the container is the

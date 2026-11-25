@@ -23,6 +23,7 @@ import type {
   SubagentTrace,
 } from "./harness-test.js";
 import type { HookRunResult } from "./run-hook.js";
+import type { CheckJSON } from "./core/eval-report.js";
 import type { SkillFacts } from "./core/harness-driver.js";
 import { parseShellCommand } from "./core/hook-program.js";
 import { judge as runJudge } from "./judge.js";
@@ -61,15 +62,10 @@ export interface CheckResult {
   readonly message: string;
 }
 
-/**
- * A check's serialized form (for JSON/JUnit output and the promptfoo bridge).
- *
- * @public
- */
-export interface CheckJSON {
-  readonly kind: string;
-  readonly [field: string]: unknown;
-}
+// A check's serialized form (for JSON/JUnit output, the promptfoo bridge, and
+// the `checks` an eval report records). Declared in core beside the report
+// that carries it; re-exported here so existing imports resolve unchanged.
+export type { CheckJSON } from "./core/eval-report.js";
 
 /**
  * A declarative check over a result of type `T` ({@link Trace} or {@link HookRunResult}).

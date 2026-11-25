@@ -1,30 +1,17 @@
 /**
- * `assertRates` — the scored gate over a check, eval or trigger-rate report.
+ * `assertRates` — the scored gate over an eval or trigger-rate report.
  * Pure: it reads a finished report and throws; it never runs anything.
  */
-import type { CheckJSON } from "./check.js";
-import type { EvalReport, TriggerRateReport } from "./core/eval-report.js";
+import type {
+  ArmReport,
+  CheckJSON,
+  EvalReport,
+  TriggerRateReport,
+} from "./core/eval-report.js";
 import {
   assertTriggerRateReport,
   type TriggerRateGate,
 } from "./eval-readers.js";
-import {
-  checkLabel,
-  type CheckRate,
-  type CheckReport,
-} from "./eval-check-report.js";
-
-/**
- * The min rate a check must clear: its per-KIND override in `per`, else the
- * default `min`.
- */
-function checkRateThreshold(
-  check: CheckJSON,
-  min: number,
-  per?: Readonly<Record<string, number>>,
-): number {
-  return per?.[check.kind] ?? min;
-}
 
 /**
  * The threshold half of an {@link assertRates} gate: an average floor (`min`),
@@ -38,37 +25,40 @@ export type RateGate =
   | { readonly min?: number; readonly passK: 1 };
 
 /**
- * {@link assertRates} over a check report: every check, `per` overriding `min` by check kind.
+ * {@link assertRates} over an eval report: one arm — `arm`, which may be left
+ * out when the report has only one (a spec with no `arms` runs one, named
+ * `"default"`) — and either one `metric`, or none, which gates every check of
+ * a run scored with `checks`, `per` overriding `min` by check kind.
  *
  * @public
  */
-export type CheckRateGate = RateGate & {
-  readonly per?: Readonly<Record<string, number>>;
-};
-
-/**
- * {@link assertRates} over one arm × metric of an eval report.
- *
- * @public
- */
-export type ArmRateGate = RateGate & {
-  readonly arm: string;
-  readonly metric: string;
-};
+export type ArmRateGate = RateGate &
+  (
+    | {
+        readonly arm?: string;
+        readonly metric: string;
+        readonly per?: never;
+      }
+    | {
+        readonly arm?: string;
+        readonly metric?: never;
+        /** A per-check-KIND `min`, e.g. `{ skill: 1 }`: the skill must fire every time. */
+        readonly per?: Readonly<Record<string, number>>;
+      }
+  );
 
 /**
  * The scored gate: throw if a measured rate is below its threshold — the
- * `paid_measure` counterpart to `assertChecks` (strict). Reads the rate, not a
+ * `paid_runEval` counterpart to `assertChecks` (strict). Reads the rate, not a
  * single run, so it never trips on one noisy trial.
  *
- * Over a {@link CheckReport}: `min` is the default threshold for every check,
- * and `per` overrides it for a check KIND (e.g. `{ min: 0.8, per: { skill: 1.0 } }`
- * — "every check ≥ 80%, but the skill must FIRE on every trial"). `passK: 1`
- * demands every check passed on EVERY trial — "worked every time", not "on
- * average".
- *
- * Over an {@link EvalReport}: name the `arm` and `metric`; `min` gates the
- * metric's mean, `passK: 1` that it succeeded on every trial.
+ * Over an {@link EvalReport}: pick the `arm` (optional when there is one).
+ * With a `metric`, `min` gates its mean and `passK: 1` that it succeeded on
+ * every trial. Without one, every CHECK of a run scored with `checks` is gated:
+ * `min` is the default threshold, and `per` overrides it for a check KIND
+ * (`{ min: 0.8, per: { skill: 1.0 } }` — "every check ≥ 80%, but the skill must
+ * FIRE on every trial"); `passK: 1` demands every check passed on EVERY trial.
+ * A run scored with `measure(ctx)` has no checks, so it needs the `metric`.
  *
  * Over a {@link TriggerRateReport} (`paid_measureTriggerRate`): `min` gates
  * recall, `maxFalsePositive` and `minPrecision` the precision side — see
@@ -77,8 +67,6 @@ export type ArmRateGate = RateGate & {
 /* eslint-disable no-redeclare -- TypeScript function overloads (the base
    no-redeclare rule, unlike @typescript-eslint/no-redeclare, flags them) */
 /** @public */
-export function assertRates(report: CheckReport, opts: CheckRateGate): void;
-/** @public */
 export function assertRates(report: EvalReport, opts: ArmRateGate): void;
 /** @public */
 export function assertRates(
@@ -86,67 +74,61 @@ export function assertRates(
   opts: TriggerRateGate,
 ): void;
 export function assertRates(
-  report: CheckReport | EvalReport | TriggerRateReport,
-  opts: CheckRateGate | ArmRateGate | TriggerRateGate,
+  report: EvalReport | TriggerRateReport,
+  opts: ArmRateGate | TriggerRateGate,
 ): void {
   if ("perPrompt" in report) assertTriggerRateReport(report, opts);
-  else if ("perCheck" in report) assertCheckRates(report, opts);
-  else if ("arm" in opts) assertArmRate(report, opts);
-  else throw new Error("assertRates: an eval report needs `arm` and `metric`");
+  else assertArmRates(report, opts);
 }
 /* eslint-enable no-redeclare */
 
-/** The fields {@link assertCheckRates} reads; the overloads pair a check report with a {@link CheckRateGate}. */
-interface CheckGateFields {
+/** The fields an eval-report gate reads; the overloads pair it with an {@link ArmRateGate}. */
+interface ArmGateFields {
+  readonly arm?: string;
+  readonly metric?: string;
   readonly min?: number;
   readonly passK?: 1;
   readonly per?: Readonly<Record<string, number>>;
 }
 
-function assertCheckRates(report: CheckReport, opts: CheckGateFields): void {
-  // An empty report gates nothing — a green that tested NOTHING (the silent-pass
-  // the no-silent-skips rule forbids). Fail loudly instead of vacuously passing.
-  if (report.perCheck.length === 0) {
-    throw new Error(
-      "assertRates: the report has no checks to gate — did you call " +
-        "`measure({ checks: [...] })` with an empty list? An empty gate is a silent pass.",
-    );
-  }
-  const thresholdFor = (c: CheckRate): number =>
-    checkRateThreshold(c.check, opts.min ?? 0, opts.per);
-  const below = report.perCheck.filter((c) => c.rate < thresholdFor(c));
-  if (below.length > 0) {
-    throw new Error(
-      `${String(below.length)} check(s) below their min rate:\n` +
-        below
-          .map(
-            (c) =>
-              `  ✗ ${checkLabel(c.check)}: ${(c.rate * 100).toFixed(0)}% ± ${(c.se * 100).toFixed(0)}% (min ${(thresholdFor(c) * 100).toFixed(0)}%)`,
-          )
-          .join("\n"),
-    );
-  }
-  if (opts.passK !== 1) return;
-  const flaky = report.perCheck.filter((c) => c.passK !== 1);
-  if (flaky.length > 0) {
-    throw new Error(
-      `${String(flaky.length)} check(s) did not pass on every trial (pass^k = 1 required):\n` +
-        flaky
-          .map(
-            (c) =>
-              `  ✗ ${checkLabel(c.check)}: passed ${(c.rate * 100).toFixed(0)}% of ${String(c.n)} trials`,
-          )
-          .join("\n"),
-    );
-  }
+function assertArmRates(report: EvalReport, opts: ArmGateFields): void {
+  const [name, arm] = armOf(report, opts);
+  if (opts.metric !== undefined)
+    assertMetricRate(arm, { ...opts, arm: name, metric: opts.metric });
+  else assertCheckRates(report, arm, opts);
 }
 
-function assertArmRate(report: EvalReport, opts: ArmRateGate): void {
-  const stat = report.arms[opts.arm]?.stats[opts.metric];
-  const mean = report.arms[opts.arm]?.metrics[opts.metric];
+/** The arm a gate reads: the named one, or the report's only one. */
+function armOf(
+  report: EvalReport,
+  opts: ArmGateFields,
+): readonly [string, ArmReport] {
+  const names = Object.keys(report.arms);
+  const only = names.length === 1 ? names[0] : undefined;
+  const name = opts.arm ?? only;
+  if (name === undefined)
+    throw new Error(
+      `assertRates: report "${report.name}" has ${String(names.length)} arms (${names.join(", ")}) — name the \`arm\` to gate.`,
+    );
+  const found = Object.entries(report.arms).find(([n]) => n === name);
+  if (found === undefined) {
+    const on = opts.metric === undefined ? "" : " on " + opts.metric;
+    throw new Error(
+      `assertRates: no data for ${name}${on} in report "${report.name}" (arms: ${names.join(", ")})`,
+    );
+  }
+  return found;
+}
+
+function assertMetricRate(
+  armReport: ArmReport,
+  opts: ArmGateFields & { readonly arm: string; readonly metric: string },
+): void {
+  const stat = armReport.stats[opts.metric];
+  const mean = armReport.metrics[opts.metric];
   if (stat === undefined || mean === undefined) {
     throw new Error(
-      `assertRates: no data for ${opts.arm} on ${opts.metric} in report "${report.name}"`,
+      `assertRates: no data for ${opts.arm} on ${opts.metric} (it has: ${Object.keys(armReport.metrics).join(", ") || "no metrics"})`,
     );
   }
   if (opts.min !== undefined && mean < opts.min) {
@@ -159,4 +141,74 @@ function assertArmRate(report: EvalReport, opts: ArmRateGate): void {
       `expected ${opts.arm} to pass ${opts.metric} on every trial (pass^k=1), got pass^k=${String(stat.passK)}`,
     );
   }
+}
+
+/** One check's standing in an arm: its key (the label), its check, its stats. */
+interface CheckRow {
+  readonly key: string;
+  readonly check: CheckJSON;
+  readonly rate: number;
+  readonly se: number;
+  readonly passK: number;
+  readonly n: number;
+}
+
+/** Every check of a `checks`-scored report, as read in one arm. */
+function checkRows(report: EvalReport, arm: ArmReport): readonly CheckRow[] {
+  const checks = report.checks;
+  if (checks === undefined)
+    throw new Error(
+      `assertRates: report "${report.name}" was scored by \`measure(ctx)\`, so it has no checks to gate — name the \`metric\` (${Object.keys(arm.metrics).join(", ") || "none"}).`,
+    );
+  // An arm with no scored trial reports no metric: its checks read as 0 of 0,
+  // which fails any floor rather than passing an empty measurement.
+  return Object.entries(checks).map(([key, check]) => {
+    const s = arm.stats[key];
+    return {
+      key,
+      check,
+      rate: s?.mean ?? 0,
+      se: s?.se ?? 0,
+      passK: s?.passK ?? 0,
+      n: s?.n ?? 0,
+    };
+  });
+}
+
+const pct = (x: number): string => (x * 100).toFixed(0);
+
+function assertCheckRates(
+  report: EvalReport,
+  arm: ArmReport,
+  opts: ArmGateFields,
+): void {
+  const rows = checkRows(report, arm);
+  const thresholdFor = (c: CheckRow): number =>
+    opts.per?.[c.check.kind] ?? opts.min ?? 0;
+  const below = rows.filter((c) => c.rate < thresholdFor(c));
+  if (below.length > 0)
+    throw new Error(
+      `${String(below.length)} check(s) below their min rate:\n` +
+        below
+          .map(
+            (c) =>
+              `  ✗ ${c.key}: ${pct(c.rate)}% ± ${pct(c.se)}% (min ${pct(thresholdFor(c))}%)`,
+          )
+          .join("\n"),
+    );
+  if (opts.passK === 1) assertEveryTrial(rows);
+}
+
+function assertEveryTrial(rows: readonly CheckRow[]): void {
+  const flaky = rows.filter((c) => c.passK !== 1);
+  if (flaky.length === 0) return;
+  throw new Error(
+    `${String(flaky.length)} check(s) did not pass on every trial (pass^k = 1 required):\n` +
+      flaky
+        .map(
+          (c) =>
+            `  ✗ ${c.key}: passed ${pct(c.rate)}% of ${String(c.n)} trials`,
+        )
+        .join("\n"),
+  );
 }

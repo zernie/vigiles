@@ -397,7 +397,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 680 project files. */
+  /** 683 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -873,6 +873,7 @@ declare module "vigiles/generated" {
     | "src/eval-entry.ts"
     | "src/eval-file-shape.test.ts"
     | "src/eval-format.ts"
+    | "src/eval-improves.ts"
     | "src/eval-injected-driver-guard.test.ts"
     | "src/eval-lock-wiring.test.ts"
     | "src/eval-lock.test.ts"
@@ -882,6 +883,8 @@ declare module "vigiles/generated" {
     | "src/eval-rate-gate.ts"
     | "src/eval-readers.test.ts"
     | "src/eval-readers.ts"
+    | "src/eval-spec-shape.test.ts"
+    | "src/eval-spec-shape.ts"
     | "src/eval-stubs.test.ts"
     | "src/eval.test.ts"
     | "src/eval.ts"
@@ -1921,6 +1924,7 @@ declare module "vigiles/spec" {
       | "src/eval-entry.ts"
       | "src/eval-file-shape.test.ts"
       | "src/eval-format.ts"
+      | "src/eval-improves.ts"
       | "src/eval-injected-driver-guard.test.ts"
       | "src/eval-lock-wiring.test.ts"
       | "src/eval-lock.test.ts"
@@ -1930,6 +1934,8 @@ declare module "vigiles/spec" {
       | "src/eval-rate-gate.ts"
       | "src/eval-readers.test.ts"
       | "src/eval-readers.ts"
+      | "src/eval-spec-shape.test.ts"
+      | "src/eval-spec-shape.ts"
       | "src/eval-stubs.test.ts"
       | "src/eval.test.ts"
       | "src/eval.ts"

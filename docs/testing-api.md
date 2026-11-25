@@ -15,7 +15,7 @@ what it is for, typical calls, and every export. Signatures are in the
 - [The `Trace` model](#the-trace-model)
 - [Where the reference lives](#where-the-reference-lives)
 - [Imports &amp; harness selection](#imports--harness-selection)
-- [Migrating to v53](#migrating-to-v53), [v52](#migrating-to-v52), [v51](#migrating-to-v51), [the v50 assertion form](#migrating-to-the-v50-assertion-form)
+- [Migrating to v55](#migrating-to-v55), [v53](#migrating-to-v53), [v52](#migrating-to-v52), [v51](#migrating-to-v51), [the v50 assertion form](#migrating-to-the-v50-assertion-form)
 
 ## Picking a runner
 
@@ -52,7 +52,7 @@ the former instead of passing vacuously.
 
 Every tier produces one **`Trace`**: the observable record of a run. A
 `runHarnessTest` result _is_ a `Trace`, and so is the `ctx` handed to a `runEval`
-`measure`. Its fields:
+`measure` or check. Its fields:
 
 | Field           | What it holds                                                      |
 | --------------- | ------------------------------------------------------------------ |
@@ -83,7 +83,7 @@ the entry its names are imported from:
 | a subagent's typed outcome                         | [`vigiles/spec`](api/spec.md#assert-a-subagents-outcome-without-a-model-judge)                          |
 | vitest / jest matchers                             | [matchers](api/matchers.md)                                                                             |
 | `measureTriggerRate` options                       | [`vigiles/eval`](api/eval.md#measuretriggerrate-options)                                                |
-| `runEval`, `measure`, `measureArms`                | [`vigiles/eval`](api/eval.md#runeval-measure-measurearms)                                               |
+| `runEval`: arms or one, `checks` or `measure`      | [`vigiles/eval`](api/eval.md#runeval-one-runner-two-choices)                                            |
 | significance and regression gating                 | [`vigiles/eval`](api/eval.md#significance--regression-gating)                                           |
 | the selection-collision matrix (Claude Code only)  | [`vigiles/harness/claude-code`](api/harness-claude-code.md#catch-one-skill-stealing-a-siblings-prompts) |
 
@@ -123,7 +123,7 @@ Two consequences worth stating plainly:
   `assertRates`, `assertNoRegression` and friends read a report without running
   anything; their only reader just ran an eval, so they sit beside the runners.
   To forbid spending in CI, match the `paid_*` names, not the door. The report
-  TYPES (`EvalReport`, `CheckReport`, …) are on `vigiles`, since `defineEval`
+  TYPES (`EvalReport`, `EvalSpec`, …) are on `vigiles`, since `defineEval`
   speaks them too.
 
 **Selecting a harness.** The runners (`runHook`, `runHarnessTest`, `runEval`) are
@@ -141,6 +141,39 @@ when the harness changes; unused adapters tree-shake out. The CLI can't take an
 import, so it **auto-detects** the harness from the repo. For the full
 adapter/import model and the capability matrix, see
 [`docs/harnesses.md`](harnesses.md).
+
+## Migrating to v55
+
+v55 makes `paid_runEval` the one task runner of `vigiles/eval`. `paid_measure`
+(one configuration scored by `checks`) and `paid_measureArms` (several scored by
+`checks`) were the same operation under other names, so they are gone, with
+their `defineEval` keys. A `runEval` spec now takes `arms` or none (one arm,
+named `"default"`, configured at the top level), and `checks` or `measure(ctx)`
+— exactly one of each, a type error and a refusal before the first trial in
+plain JavaScript. The report is one `EvalReport` either way, and every reader
+takes it. There are no aliases.
+
+| Removed in v55                                                                                    | Write instead                                                                                                                               |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `paid_measure({ pluginDir, task, checks, … })`                                                    | `paid_runEval({ env, pluginDir, task, checks, … })` — no `arms`; read `report.arms.default`                                                 |
+| `paid_measureArms({ arms, task, checks, … })`                                                     | `paid_runEval({ env, arms, task, checks, … })`                                                                                              |
+| `defineEval({ measure: … })` / `defineEval({ measureArms: … })`                                   | `defineEval({ runEval: … })` — the same spec, plus `env`; `vigiles eval` names the rewrite for a file that still has the old key            |
+| the default `model: "sonnet"`                                                                     | `paid_runEval` defaults to `"haiku"`: set `model: "sonnet"` to keep measuring the same thing                                                |
+| no `env` (the run inherited your HOME and environment)                                            | `env` is required: `{ kind: "ephemeral" }`, or `{ kind: "inherit", reason }` for what the old runners did                                   |
+| the per-trial context check off                                                                   | on, as for every `runEval`: a trial whose instruction files missed the model is not scored; `experimental_contextCheck: false` turns it off |
+| `report.n` / `report.perCheck[i].rate` / `.se` / `.passK`                                         | `report.arms.default.runs` / `.metrics[label]` / `.stats[label].se` / `.stats[label].passK` — the label is the check's, e.g. `tool(Bash)`   |
+| `report.namespace` (`CheckReport`)                                                                | `report.arms[arm].namespace`                                                                                                                |
+| `compareCheck(report, base, arm, i)` (internal, from `dist/eval.js`)                              | `compare(report, base, arm)[label]` — `{ gap, significant, verdict }`; `Object.keys(report.checks)` lists the labels in order               |
+| `assertRates(checkReport, { min, per })`                                                          | `assertRates(report, { arm?, min, per })` — `arm` may be left out when the report has one; with `metric` it gates that one metric           |
+| types `MeasureSpec`, `ArmsMeasureSpec`, `CheckReport`, `ArmsCheckReport`, `CheckRate` (`vigiles`) | `EvalSpec` and `EvalReport` (whose `checks` maps each label to its `CheckJSON`)                                                             |
+| type `CheckRateGate` (`vigiles/eval`)                                                             | `ArmRateGate`, without `metric`                                                                                                             |
+
+Two fixes ride along. `assertImproves` and `compare` read every metric as
+higher-is-better, so a cheaper arm was a loss on a `cost` metric: pass
+`lowerIsBetter: true` to `assertImproves` (it flips the verdict and the `by`
+margin) and `lowerIsBetter: ["cost"]` to `compare`. And a lock over a
+`checks`-scored eval now goes stale when the checks change, since the replayed
+report is their scores.
 
 ## Migrating to v53
 
@@ -262,7 +295,7 @@ keeps its entry, so only the import path changes.
 | `loadHook`, `assertHookDenies/Allows/Notices/Silent` from `vigiles`                                                                                                                                             | `experimental_loadHook`, `experimental_assertHook*` from `vigiles/hook-test` |
 | `runHookProgram`, `RawHookEvent`, `HookProgramOutcome` from `vigiles/hook`                                                                                                                                      | the same names from `vigiles/hook-test`                                      |
 
-Each goes in `assertChecks(r, [ … ])`, `expect(r).toPass(…)`, or a `measure`'s
+Each goes in `assertChecks(r, [ … ])`, `expect(r).toPass(…)`, or a `runEval`'s
 `checks` / a trigger-rate `fired:`.
 
 ## See also

@@ -31,7 +31,8 @@ import { judged } from "../../dist/check.js";
 // eval and `vigiles eval` runs it. Like the YAML — and unlike a script that
 // calls the runner at the top — reading this file cannot spend anything.
 export default defineEval({
-  measure: {
+  runEval: {
+    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
     name: "summary: one accurate sentence, mentions the invoice, cheap",
     fixture: {
       "in.txt":

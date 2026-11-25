@@ -184,6 +184,44 @@ test("lock check after a measure-only change still REPLAYS (assertions re-run li
   }
 });
 
+test("lock check after a CHECKS change: stale — the replayed report is the checks' scores", async () => {
+  // Unlike a `measure` function, checks serialize — and a replay of a report
+  // scored by other checks would gate the new ones against old numbers.
+  const dir = tmp();
+  try {
+    const s = spec(dir, "update");
+    const scored = (mode: "check" | "update", id: string) => ({
+      name: s.name,
+      env: s.env,
+      arms: s.arms,
+      task: s.task,
+      trials: s.trials,
+      model: s.model,
+      spacingSec: s.spacingSec,
+      lock: { mode, dir, evalApiVersion: 1 } as const,
+      checks: [skill(id)],
+    });
+    const recorded = await runEvalWith(
+      scored("update", "x:a"),
+      countingRunner().run,
+    );
+    assert.deepEqual(recorded.checks, {
+      "skill(x:a)": { kind: "skill", id: "x:a" },
+    });
+    const same = countingRunner();
+    await runEvalWith(scored("check", "x:a"), same.run);
+    assert.equal(same.calls(), 0, "the same checks replay");
+    const other = countingRunner();
+    await assert.rejects(
+      () => runEvalWith(scored("check", "x:b"), other.run),
+      /STALE|changed/,
+    );
+    assert.equal(other.calls(), 0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("trigger-rate seam: update records, check replays the skill's report (no model)", async () => {
   const dir = tmp();
   try {

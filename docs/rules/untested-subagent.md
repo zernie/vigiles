@@ -19,7 +19,7 @@ and this is the split the coverage nudge now reflects:
 | tier                             | model          | what it establishes                                                                                                       |
 | -------------------------------- | -------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | deterministic (`runHarnessTest`) | scripted mock  | the contract parses and the rail holds — `check.subagent(...)`, `check.tool(…, { max: 0 })`, `experimental_assertAgentOk` |
-| eval (`runEval` / `measure`)     | **real**, paid | a real model, handed this agent's prompt, stays inside the contract                                                       |
+| eval (`runEval`)                 | **real**, paid | a real model, handed this agent's prompt, stays inside the contract                                                       |
 
 Keep the same assertions across both; only the model changes. The typed-outcome
 helpers are model-free by design — see
@@ -42,7 +42,7 @@ loose-skills form throws; the plugin form returns a _number_ for a surface it
 never installed, which is worse than an error. "Does Claude pick this subagent
 when it should?" is a real question — vigiles has no API for it yet.
 
-⚠️ `runEval` / `measure` / `measureArms` drive Claude Code and take **no**
+⚠️ `runEval` drives Claude Code and takes **no**
 `evalDriver` (only `measureTriggerRate` has that seam, and `runEvalWith` is not
 exported from `vigiles/eval`). On a harness other than Claude Code the eval
 tier has no public dispatch for a subagent yet — Codex has no subagent dir at all

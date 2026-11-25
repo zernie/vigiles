@@ -3,7 +3,7 @@
  *
  * Exercises the new eval-side checks together: does the skill FIRE
  * (`skill`), is its suggestion actually GOOD (`judged`, model-graded), and is the
- * run CHEAP (`cost`)? `measure` scores each across trials (rate ± se + pass^k);
+ * run CHEAP (`cost`)? `runEval` scores each check across trials (rate ± se + pass^k);
  * `assertRates` gates them. This is the promptfoo-class scored path, dogfooded.
  *
  *   npx vigiles eval examples/harness/dogfood/skill-quality.eval.mjs
@@ -20,7 +20,8 @@ import { fileURLToPath } from "node:url";
 const pluginDir = fileURLToPath(new URL("../../../", import.meta.url));
 
 export default defineEval({
-  measure: {
+  runEval: {
+    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
     pluginDir,
     // A repo whose CLAUDE.md spec has a guidance() rule that a linter could enforce.
     fixture: {

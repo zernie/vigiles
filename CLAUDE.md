@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:5900848a4326bf8d compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:d7a558d2e137270d compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -341,6 +341,10 @@ BUILD + TOOLING + GENERATED:
 ### Dual Language Tests
 
 **Guidance only** — Harness/eval test SCRIPTS must run whether authored in JavaScript (`.mjs` / `.cjs` / `.js`) or TypeScript (`.ts` / `.mts` / `.cts`) — neither language is second-class. [Details](docs/contributing/rules.md#dual-language-tests)
+
+### One Schema Not Two Guards
+
+**Guidance only** — Supporting JavaScript callers does not mean re-writing the TypeScript types as hand-written runtime guards: a public input that must be checked at run time is described ONCE, as a schema (Zod), and the type is derived from it or bound to it by a compile-time test. [Details](docs/contributing/rules.md#one-schema-not-two-guards)
 
 ### Analogical Transfer
 

@@ -10,7 +10,7 @@
       "grandfathered": []
     },
     "./eval": {
-      "ceiling": 12,
+      "ceiling": 10,
       "grandfathered": []
     },
     "./rule-proof": {

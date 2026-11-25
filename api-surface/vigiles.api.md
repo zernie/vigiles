@@ -26,40 +26,12 @@ export type ArgvToken = string | Readonly<RegExp>;
 export interface ArmReport {
     readonly context?: readonly ContextEvidence[];
     readonly metrics: Record<string, number>;
+    readonly namespace?: string;
     // (undocumented)
     readonly runs: number;
     readonly stats: Record<string, MetricStat>;
     readonly unansweredStubCalls: readonly StubCall[];
     readonly usage: ArmUsage;
-}
-
-// @public
-export interface ArmsCheckReport {
-    // (undocumented)
-    readonly arms: Record<string, CheckReport>;
-}
-
-// @public
-export interface ArmsMeasureSpec {
-    // (undocumented)
-    readonly allowedTools?: readonly string[];
-    readonly arms: Record<string, EvalArm>;
-    // (undocumented)
-    readonly checks: readonly Check<RunContext>[];
-    readonly effort?: string | number;
-    // (undocumented)
-    readonly fixture?: Record<string, string>;
-    // (undocumented)
-    readonly model?: string;
-    // (undocumented)
-    readonly spacingSec?: number;
-    readonly stubSkillBodies?: boolean;
-    // (undocumented)
-    readonly task: string;
-    // (undocumented)
-    readonly timeoutMs?: number;
-    // (undocumented)
-    readonly trials?: number;
 }
 
 // @public
@@ -124,26 +96,6 @@ export interface CheckJSON {
 }
 
 // @public
-export interface CheckRate {
-    // (undocumented)
-    readonly check: CheckJSON;
-    readonly n: number;
-    readonly passK: number;
-    readonly rate: number;
-    readonly se: number;
-}
-
-// @public (undocumented)
-export interface CheckReport {
-    // (undocumented)
-    readonly n: number;
-    readonly namespace?: string;
-    // (undocumented)
-    readonly perCheck: readonly CheckRate[];
-    readonly usage: ArmUsage;
-}
-
-// @public
 export interface CheckResult {
     readonly message: string;
     readonly pass: boolean;
@@ -178,7 +130,13 @@ export type ContextEvidence =
 };
 
 // @public
-export function defineEval<K extends EvalKind>(def: EvalDefinitionInput<K>): EvalDefinition<K>;
+export function defineEval(def: EvalDefinitionInput<"runEval">): EvalDefinition<"runEval">;
+
+// @public
+export function defineEval(def: EvalDefinitionInput<"measureTriggerRate">): EvalDefinition<"measureTriggerRate">;
+
+// @public
+export function defineEval(def: EvalDefinitionInput<"measureSelectionMatrix">): EvalDefinition<"measureSelectionMatrix">;
 
 // @public
 export type DeliveryChannel =
@@ -273,11 +231,9 @@ export type EvalKind = keyof EvalMeasurements;
 
 // @public
 export interface EvalMeasurements {
-    readonly measure?: MeasureSpec;
-    readonly measureArms?: ArmsMeasureSpec;
     readonly measureSelectionMatrix?: SelectionMatrixSpec;
     readonly measureTriggerRate?: TriggerRateSpec;
-    readonly runEval?: EvalSpec<Metrics>;
+    readonly runEval?: EvalSpec;
 }
 
 // @public (undocumented)
@@ -286,6 +242,7 @@ export interface EvalReport {
     // (undocumented)
     readonly arms: Record<string, ArmReport>;
     readonly chargedUsd?: number;
+    readonly checks?: Readonly<Record<string, CheckJSON>>;
     readonly env?: {
         readonly kind: "ephemeral";
     } | {
@@ -303,10 +260,6 @@ export interface EvalReport {
 // @public
 export interface EvalReports {
     // (undocumented)
-    readonly measure: CheckReport;
-    // (undocumented)
-    readonly measureArms: ArmsCheckReport;
-    // (undocumented)
     readonly measureSelectionMatrix: SelectionReport;
     // (undocumented)
     readonly measureTriggerRate: TriggerRateReport;
@@ -314,32 +267,49 @@ export interface EvalReports {
     readonly runEval: EvalReport;
 }
 
-// @public (undocumented)
-export interface EvalSpec<M extends Metrics> {
+// @public
+export type EvalSpec<M extends Metrics = Metrics> = {
+    readonly name?: string;
+    readonly fixture?: Record<string, string>;
+    readonly stubSkillBodies?: boolean;
+    readonly task: string;
+    readonly trials?: number;
+    readonly model?: string;
+    readonly effort?: string | number;
     readonly allowedTools?: readonly string[];
-    readonly arms: Record<string, EvalArm>;
+    readonly timeoutMs?: number;
+    readonly spacingSec?: number;
     readonly cache?: CacheMode;
     readonly cacheDir?: string;
     readonly concurrency?: number;
-    readonly effort?: string | number;
-    readonly env: RunEnv;
-    readonly experimental_contextCheck?: false;
-    readonly fixture?: Record<string, string>;
-    readonly lock?: EvalLockOptions;
     readonly maxCostUsd?: number;
-    readonly measure: (ctx: RunContext) => M;
-    readonly model?: string;
-    // (undocumented)
-    readonly name?: string;
     readonly rateLimitRetries?: number;
     readonly retryBackoffMs?: number;
-    readonly spacingSec?: number;
+    readonly env: RunEnv;
     readonly stubs?: readonly ToolStub[];
-    readonly stubSkillBodies?: boolean;
-    readonly task: string;
-    readonly timeoutMs?: number;
-    readonly trials?: number;
-}
+    readonly lock?: EvalLockOptions;
+    readonly experimental_contextCheck?: false;
+} & ({
+    readonly arms: Record<string, EvalArm>;
+    readonly settings?: never;
+    readonly plugin?: never;
+    readonly pluginDir?: never;
+    readonly skillsDir?: never;
+    readonly interceptTools?: never;
+} | {
+    readonly arms?: never;
+    readonly settings?: unknown;
+    readonly plugin?: string;
+    readonly pluginDir?: string;
+    readonly skillsDir?: string;
+    readonly interceptTools?: readonly ToolIntercept[];
+}) & ({
+    readonly checks: readonly Check<RunContext>[];
+    readonly measure?: never;
+} | {
+    readonly measure: (ctx: RunContext) => M;
+    readonly checks?: never;
+});
 
 // @public
 export interface EvalUsage {
@@ -522,25 +492,6 @@ export type JudgeFn = (opts: {
 
 // @public
 export function makeTmpDir(suffix?: string): string;
-
-// @public
-export interface MeasureSpec {
-    readonly allowedTools?: readonly string[];
-    readonly checks: readonly Check<RunContext>[];
-    readonly effort?: string | number;
-    readonly fixture?: Record<string, string>;
-    readonly interceptTools?: readonly ToolIntercept[];
-    readonly model?: string;
-    readonly plugin?: string;
-    readonly pluginDir?: string;
-    readonly settings?: unknown;
-    readonly skillsDir?: string;
-    readonly spacingSec?: number;
-    readonly stubSkillBodies?: boolean;
-    readonly task: string;
-    readonly timeoutMs?: number;
-    readonly trials?: number;
-}
 
 // @public (undocumented)
 export type Metrics = Record<string, number | boolean>;
