@@ -12,9 +12,14 @@
  * never through a dot-directory (a `.claude/worktrees/*` checkout is a copy of
  * the repository, not a folder of it) — a declared path such as
  * `.claude/CLAUDE.md` names its own dot segment, which `**` still never
- * descends into — never `node_modules`, never a symlink, and
- * the repository's `exclude` applies. Absent `folderInstructionFiles` ⇒
- * nothing is walked.
+ * descends into — never `node_modules`, never a symlink. Absent
+ * `folderInstructionFiles` ⇒ nothing is walked.
+ *
+ * 🔴 THE REPOSITORY'S `exclude` IS DELIBERATELY NOT A PARAMETER. What the
+ * harness loads is decided by files `exclude` may name: a folder's
+ * `CLAUDE.md` supersedes the `AGENTS.md` beside it whether or not vigiles
+ * reports on it. So the walk reads every declared file, and `exclude` filters
+ * only which findings are reported (`measureOnDemand` in `src/scan.ts`).
  *
  * I/O, so it lives here and the composition root hands the result to the
  * on-demand check (`measureOnDemand` in `src/scan.ts`).
@@ -24,7 +29,6 @@ import { join } from "node:path";
 import { globSync } from "glob";
 import { sortBy } from "remeda";
 
-import { withIgnored, type GlobIgnore } from "../core/glob-ignore.js";
 import type { PluginLayout } from "../core/layout.js";
 
 /** The text of a regular file (never a symlink), or `undefined`. */
@@ -40,8 +44,6 @@ function readRegular(abs: string): string | undefined {
 export function folderInstructionFiles(
   root: string,
   layout: Pick<PluginLayout, "folderInstructionFiles">,
-  /** The repository's `exclude`, as its glob face (`ExcludeSet.globIgnore`). */
-  ignore?: GlobIgnore,
 ): Readonly<Record<string, string>> {
   const names = layout.folderInstructionFiles ?? [];
   if (names.length === 0) return {};
@@ -53,7 +55,7 @@ export function folderInstructionFiles(
       nodir: true,
       dot: false,
       follow: false,
-      ignore: withIgnored(["**/node_modules/**"], ignore),
+      ignore: ["**/node_modules/**"],
     },
   ).filter((rel) => rel.includes("/"));
   return Object.fromEntries(

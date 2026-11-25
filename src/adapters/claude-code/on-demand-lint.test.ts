@@ -227,6 +227,30 @@ describe("settings decide loading whatever vigiles excludes", () => {
   });
 });
 
+describe("exclude never hides what decides loading", () => {
+  it.each(["pkg/CLAUDE.md", "pkg/.claude/**"])(
+    "a superseding file excluded by %s still supersedes",
+    (pattern) => {
+      put(
+        ".vigilesrc.json",
+        JSON.stringify({
+          harnesses: { "claude-code": {} },
+          exclude: [pattern],
+        }),
+      );
+      put(
+        pattern === "pkg/CLAUDE.md" ? "pkg/CLAUDE.md" : "pkg/.claude/CLAUDE.md",
+        sized(100),
+      );
+      put("pkg/AGENTS.md", sized(LIMIT + 1));
+      const r = run(["lint"]);
+      // Guards: exclude hides a file from the report, never from what decides loading.
+      expect(r.code).toBe(0);
+      expect(flags(r.out, "pkg/AGENTS.md")).toBe(false);
+    },
+  );
+});
+
 describe("the folder walk", () => {
   it("a folder's .claude/CLAUDE.md supersedes its AGENTS.md", () => {
     put("pkg/.claude/CLAUDE.md", sized(100));

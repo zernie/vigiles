@@ -3118,11 +3118,7 @@ async function runLint(
       ),
     measureOnDemand: () =>
       measureOnDemand(frame.root, adapter, {
-        folderFiles: folderInstructionFiles(
-          frame.root,
-          adapter.layout,
-          excludes.globIgnore,
-        ),
+        folderFiles: folderInstructionFiles(frame.root, adapter.layout),
         excludes,
         limit: onDemandLimit(config),
       }),
@@ -10021,11 +10017,7 @@ function auditScan(
     // The files loaded on demand, by the same detector `lint` gates on —
     // against the harness's own cut, like every other audit limit.
     onDemand: {
-      folderFiles: folderInstructionFiles(
-        target,
-        adapter.layout,
-        at.excludes.globIgnore,
-      ),
+      folderFiles: folderInstructionFiles(target, adapter.layout),
       excludes: at.excludes,
       limit: undefined,
     },
