@@ -2,9 +2,10 @@
  * A folder's own instruction file on a Claude Code repository, through the
  * BUILT CLI (vitest, e2e on `dist/cli.js`, no model). Claude Code loads
  * `<folder>/CLAUDE.md` the first time a file in that folder is read, keeps it
- * until compaction, and since 2.1.309 cuts it past a per-file limit (40,000
- * characters on a 200K-window model, 150,000 on a 1M one). `context-creep`
- * reports each such file over the floor as a finding no baseline accepts.
+ * until compaction, and since 2.1.309 cuts it past a per-file limit (150,000
+ * characters on the 1M window of today's default models, 40,000 on a 200K
+ * one). `context-creep` reports each such file over the adapter's limit as a
+ * finding no baseline accepts; a 200K-window team lowers it by option.
  * The Codex twin is `src/adapters/codex/on-demand-lint.test.ts`.
  */
 import { spawnSync } from "node:child_process";
@@ -97,6 +98,23 @@ describe("a folder's CLAUDE.md against the per-file limit", () => {
     expect(r.code).not.toBe(0);
     expect(flags(r.out, "pkg/deep/er/CLAUDE.md")).toBe(true);
     expect(flags(r.out, "pkg/CLAUDE.md")).toBe(false);
+  });
+
+  it("a team on a smaller window lowers the limit by option", () => {
+    put(
+      ".vigilesrc.json",
+      JSON.stringify({
+        harnesses: { "claude-code": {} },
+        rules: {
+          "context-creep": ["error", { limits: { "on-demand-file": 100 } }],
+        },
+      }),
+    );
+    put("pkg/CLAUDE.md", sized(101));
+    const r = run(["lint"]);
+    // Guards: the threshold is the repository's to set, below the default too.
+    expect(r.code).not.toBe(0);
+    expect(flags(r.out, "pkg/CLAUDE.md")).toBe(true);
   });
 
   it("is never recorded: --update-baseline leaves no entry and lint still fails", () => {

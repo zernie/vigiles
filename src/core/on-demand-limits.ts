@@ -21,11 +21,13 @@
  * Recording that size would accept lost rules, so the finding carries no
  * measurement and the baseline store passes it through as a finding.
  *
- * WHICH LIMIT. The harness publishes one per model window; the adapter
- * supplies the FLOOR (the smallest window), the same choice the skill listing
- * makes, because the window is a per-machine fact and the check is a property
- * of the commit. A repository that only runs larger windows raises it in
- * `.vigilesrc.json`. Absent on the dialect ⇒ not modelled, said as such.
+ * WHICH LIMIT. The harness publishes one cut per model window; the adapter
+ * supplies the cut of the window its DEFAULT models run, so a file over it is
+ * cut for every user who did not choose otherwise. A smaller window cuts
+ * earlier; a repository that runs one lowers the limit in `.vigilesrc.json`,
+ * as an ESLint size rule takes its threshold as an option: one rule, one
+ * severity, the threshold configured. Absent on the dialect ⇒ not modelled,
+ * said as such.
  *
  * Pure.
  */
@@ -41,12 +43,12 @@ import { sizeIn } from "./harness-unit.js";
 /** The harness's per-file cut for files it loads after launch. */
 export interface OnDemandFileLimit {
   readonly unit: "chars" | "bytes";
-  /** The cut on the smallest model window the harness ships. */
+  /** The cut on the window the harness's default models run. */
   readonly limit: number;
   /** The harness version the cut first applies in. */
   readonly since: string;
-  /** The larger cuts, as one phrase for the message ("150,000 on a 1M window"). */
-  readonly larger: string;
+  /** The cuts on other windows, as one phrase for the message ("40,000 on a 200K window"). */
+  readonly otherWindows: string;
   /** Where a repository tells the harness never to load a file: setting and file. */
   readonly excludeSetting: { readonly key: string; readonly file: string };
   /** The vendor artifact or measurement this was read from. */
@@ -163,7 +165,7 @@ export function formatOnDemandOver(
 ): string {
   return (
     `${f.path} is ${n(f.size)} ${check.unit}, over the per-file cut of ${n(check.limit)} ` +
-    `(${check.rule.larger}; since ${check.rule.since}): it ${LOADS[f.when]} and stays until compaction, ` +
+    `(${check.rule.otherWindows}; since ${check.rule.since}): it ${LOADS[f.when]} and stays until compaction, ` +
     `and the harness delivers only the start of it — the rules past the cut do not reach the model`
   );
 }

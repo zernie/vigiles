@@ -195,17 +195,26 @@ Claude Code 2.1.309 the harness **cuts it** past a per-file limit: the model
 gets the start and a note to read the rest, and the rules after the cut do not
 reach it.
 
-| Model window | Cut per file       |
-| ------------ | ------------------ |
-| 200K         | 40,000 characters  |
-| 1M           | 150,000 characters |
+| Model window | Cut per file       | Who runs it                                                   |
+| ------------ | ------------------ | ------------------------------------------------------------- |
+| 1M           | 150,000 characters | every current default model (Opus 4.7+, Sonnet 5+, Haiku 5.5) |
+| 200K         | 40,000 characters  | older models, or `CLAUDE_CODE_DISABLE_1M_CONTEXT=1`           |
 
-The rule checks each such file against the **40,000** floor, because the
-window is a per-machine fact and the check is a property of the commit (the
-skill listing uses the same floor). Each file over it is one finding:
+The rule checks each such file against **150,000**: a file over it is cut on
+every model a user gets by default. Each file over it is one finding:
 
 ```
-✗ pkg/CLAUDE.md is 113,402 chars, over the per-file cut of 40,000 (150,000 on a 1M-window model; since Claude Code 2.1.309): …
+✗ pkg/CLAUDE.md is 163,402 chars, over the per-file cut of 150,000 (40,000 on a 200K-window model; since Claude Code 2.1.309): …
+```
+
+If your team runs a 200K window, lower the limit to that window's cut:
+
+```json
+{
+  "rules": {
+    "context-creep": ["error", { "limits": { "on-demand-file": 40000 } }]
+  }
+}
 ```
 
 What is different from the rest of this rule:
@@ -382,8 +391,8 @@ over a limit with no baseline sees a note.
 ```
 
 `on-demand-file` moves the per-file cut on files loaded after launch
-([below](#files-loaded-on-demand)), for a repository whose sessions all run on
-a larger window.
+([below](#files-loaded-on-demand)): down to 40,000 for a repository whose
+sessions run on a 200K window.
 
 Each value is a positive integer in the harness's own unit (characters for
 Claude Code, bytes for Codex). A part left out keeps the harness's number. An

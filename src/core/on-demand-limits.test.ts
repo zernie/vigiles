@@ -17,7 +17,7 @@ const RULE: OnDemandFileLimit = {
   unit: "chars",
   limit: 10,
   since: "v1",
-  larger: "20 on a large window",
+  otherWindows: "5 on a small window",
   excludeSetting: { key: "excludes", file: "settings.json" },
   capturedFrom: "test",
 };
