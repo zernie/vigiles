@@ -162,6 +162,37 @@ describe("the same class: every file the chain says loads on demand", () => {
     expect(flags(r.out, ".claude/rules/api.md")).toBe(true);
   });
 
+  it.each([
+    ["unscoped", ""],
+    ["path-scoped", '---\npaths:\n  - "src/**"\n---\n'],
+  ])(
+    "a %s rule in a folder's .claude/rules over the limit fails",
+    (_, head) => {
+      put("pkg/.claude/rules/api.md", `${head}${sized(LIMIT + 1)}`);
+      const r = run(["lint"]);
+      // Guards: a folder's rules load when a file there is read, cut like its CLAUDE.md.
+      expect(r.code).not.toBe(0);
+      expect(flags(r.out, "pkg/.claude/rules/api.md")).toBe(true);
+    },
+  );
+
+  it("a folder's rule under the limit passes", () => {
+    put("pkg/.claude/rules/api.md", sized(LIMIT));
+    const r = run(["lint"]);
+    // Guards: weighing the folder's rules adds no failure below the cut.
+    expect(r.code).toBe(0);
+    expect(failures(r.out)).toEqual([]);
+  });
+
+  it("a folder's rule over the limit fails a lint of that folder too", () => {
+    put("pkg/.claude/rules/api.md", sized(LIMIT + 1));
+    put("pkg/CLAUDE.md", "# pkg\n");
+    const r = run(["lint", "pkg"]);
+    // Guards: a nested lint target sees the rules under it.
+    expect(r.code).not.toBe(0);
+    expect(r.out).toContain(".claude/rules/api.md");
+  });
+
   it("a folder's AGENTS.md beside its CLAUDE.md is never read, so it is not weighed", () => {
     put("pkg/CLAUDE.md", sized(100));
     put("pkg/AGENTS.md", sized(LIMIT + 1));

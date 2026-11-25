@@ -152,6 +152,7 @@ import {
 } from "../../core/frontmatter-read.js";
 import { proseLines, proseWords, wordsOf } from "../../core/markdown.js";
 import { createRequire } from "node:module";
+import { sortBy } from "remeda";
 // ES module: `require` does not exist; this one keeps the lazy, synchronous loads.
 const require = createRequire(import.meta.url);
 
@@ -495,6 +496,8 @@ export interface ClaudeCodeChainInput {
   readonly parseSettings: (text: string) => Record<string, unknown>;
   /** {@link RULE_FILE_LEAF_RE}, compiled against the rules dir. */
   readonly ruleRe: RegExp;
+  /** A rule file in a folder's own rules dir (`folderRuleFileRe`). */
+  readonly folderRuleRe: Readonly<RegExp>;
 }
 
 /**
@@ -592,6 +595,33 @@ function takeRules(b: Building, ruleRe: RegExp): void {
     }
     take(b, path, { role: "rule", scope: "repo" });
   }
+}
+
+/**
+ * Every rule file in a FOLDER's own rules dir, IF the caller handed one over:
+ * on demand, `subdirectory` when unscoped and `path-scoped` with `paths:`. Like
+ * {@link takeSubdirectories}, the domain's bound never enumerates one; only
+ * the on-demand walk hands these over. Runs after the imports pass for the
+ * same reason that pass does: a rule file a loaded file imports is taken there.
+ */
+function takeFolderRules(
+  b: Readonly<Building>,
+  folderRuleRe: Readonly<RegExp>,
+): void {
+  const named = new Set([...b.loaded, ...b.unloaded].map((e) => e.path));
+  const rules = sortBy(
+    Object.entries(b.files).filter(
+      ([path]) => !named.has(path) && folderRuleRe.test(path),
+    ),
+    ([path]) => path,
+  );
+  rules.forEach(([path, text]) => {
+    defer(b, path, {
+      role: "rule",
+      scope: "repo",
+      when: isPathScoped(text) ? "path-scoped" : "subdirectory",
+    });
+  });
 }
 
 /**
@@ -972,6 +1002,7 @@ export function claudeCodeInstructionChain(
     new Set([input.instructionFile, AGENTS_FILE]),
     new Set(crossToolPaths),
   );
+  takeFolderRules(b, input.folderRuleRe);
 
   // THE VERDICT, LAST: anything cross-tool that the passes above did not claim
   // is present, unread, and the reason is a file rather than a setting. `scope`

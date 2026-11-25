@@ -482,6 +482,27 @@ export function ruleFileRe(
 }
 
 /**
+ * A rule file in a FOLDER's own rules dir — `pkg/.claude/rules/api.md` — as
+ * opposed to the repository root's, which {@link ruleFileRe} matches. Claude
+ * Code loads such a file the first time a file in that folder is read (and a
+ * `paths:` one only for a matching file), never at launch; the vendor lists
+ * "Rules files in a subdirectory's `.claude/rules/`" among the files cut past
+ * the per-file limit. Measured on 2.1.332 (2026-11-25): neither of
+ * `pkg/.claude/rules/{u,s}.md` loaded when `other/b.txt` was read; both
+ * arrived as `nested_memory` once `pkg/a.txt` was. Built from the same
+ * {@link rulesHome}, so the two readers cannot disagree about the dir.
+ * Capture group 1 is the folder.
+ */
+export function folderRuleFileRe(
+  layout: Readonly<Pick<PluginLayout, "rulesDir" | "userSurfaceRoot">>,
+): Readonly<RegExp> | null {
+  const under = rulesHome(layout);
+  return under === null
+    ? null
+    : new RegExp(`^(.+?)/${escapeRe(under)}/${RULE_FILE_LEAF_RE}$`);
+}
+
+/**
  * ⚠️ The fourth copy of this three-liner in `src/` (`core/linters.ts`,
  * `rule-inventory.ts`, `tool-intercept.ts`, `test-coverage-files.ts` hold the
  * others). Consolidating them is its own change with its own callers to walk;

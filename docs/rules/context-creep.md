@@ -193,7 +193,10 @@ Some instruction files load **after** launch, not at session start:
 - a folder's own `CLAUDE.md` (or `AGENTS.md` when the folder has no
   `CLAUDE.md`), the first time the agent reads a file in that folder;
 - a rule in `.claude/rules/` with a `paths:` list, when the agent reads a
-  matching file.
+  matching file;
+- a rule in a folder's own `.claude/rules/` (`pkg/.claude/rules/api.md`), the
+  first time the agent reads a file in that folder (or, with `paths:`, a
+  matching file there).
 
 Such a file is not cheap. Once loaded it **stays until compaction**, and since
 Claude Code 2.1.309 the harness **cuts it** past a per-file limit: the model
@@ -252,9 +255,6 @@ What is different from the rest of this rule:
 - **Imports are not weighed yet.** A file that an on-demand file imports with
   `@` loads with it and is cut the same way, but this check does not read it
   yet ([#560](https://github.com/zernie/vigiles/issues/560)).
-- **Rules in a subfolder's `.claude/rules/` are not weighed yet.** Claude Code
-  loads and cuts them the same way, but this check reads only the root's
-  `.claude/rules/` ([#563](https://github.com/zernie/vigiles/issues/563)).
 - **Codex is not modelled.** Codex builds its chain once, from the root to the
   folder it starts in, and cuts the sum; `vigiles audit` says this check is
   not modelled there.
