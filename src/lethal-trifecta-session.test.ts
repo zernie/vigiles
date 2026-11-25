@@ -33,6 +33,7 @@ import type { HarnessAdapter } from "./core/adapter.js";
 import { skillsHome } from "./core/layout.js";
 import { scanPlugin, formatScanReport, type ScanReport } from "./scan.js";
 import { scanFiles } from "./scan-files.js";
+import { sessionShare } from "./core/trifecta-fix.js";
 import { auditScore } from "./audit-score.js";
 import {
   W_TRIFECTA,
@@ -246,8 +247,9 @@ for (const a of ADAPTERS.filter((x) => !fenced(x) && !x.subagents)) {
 }
 
 test("lint still names every unit that holds the trifecta: nothing is silenced (#392)", () => {
-  // #392 changes the score and the audit report, not lint: a unit that only
-  // inherits the session is as exposed as before, so CI must still see it.
+  // A unit that only inherits the session is as exposed as before, so lint
+  // still names it — inside the one repository-wide finding (#539), which
+  // spells out up to five names; this fixture has four.
   const a = defaultAdapter;
   const dir = put(fixtureFiles(a));
   const out = spawnSync("node", [CLI, "lint"], {
@@ -260,6 +262,46 @@ test("lint still names every unit that holds the trifecta: nothing is silenced (
   for (const [name, cause] of Object.entries(expectedCauses(a)))
     if (cause !== "none")
       assert.match(section, new RegExp(`\\b${name}\\b`), `${name}\n${section}`);
+  cleanupTmpDir(dir);
+});
+
+test("lint annotates the inheriting units once for the repo, every other finding at its file (#539)", () => {
+  const a = defaultAdapter;
+  const dir = put(fixtureFiles(a));
+  const r = scanPlugin(dir, a.layout, a.dialect);
+  const env: NodeJS.ProcessEnv = { ...process.env, GITHUB_ACTIONS: "true" };
+  delete env.GITHUB_STEP_SUMMARY;
+  const out = spawnSync("node", [CLI, "lint"], {
+    cwd: dir,
+    encoding: "utf-8",
+    env,
+  }).stdout;
+  const notes = out.split("\n").filter((l) => /^::(?:warning|error)/.test(l));
+  type Finding = ScanReport["trifectaFindings"][number];
+  // Two units can share a message, so a finding is its message AT its file
+  // (the scan reports some paths relative to the root, some absolute).
+  const at = (t: Finding): number =>
+    notes.filter(
+      (l) =>
+        l.includes(`file=${relative(dir, resolve(dir, t.path))}`) &&
+        l.includes(t.finding.message),
+    ).length;
+  const inherits = (t: Finding): boolean => t.finding.cause === "session";
+  for (const t of r.trifectaFindings.filter((t) => !inherits(t)))
+    assert.equal(at(t), 1, `${t.name}\n${out}`);
+  for (const t of r.trifectaFindings.filter(inherits))
+    assert.equal(at(t), 0, `${t.name}\n${out}`);
+  const share = sessionShare(
+    r.trifectaFindings.map((t) => ({
+      name: t.name,
+      cause: t.finding.cause,
+      edit: t.finding.edit,
+    })),
+  );
+  assert.ok(share, "the fixture has units that only inherit");
+  const shared = notes.filter((l) => l.includes(share.problem));
+  assert.equal(shared.length, 1, out);
+  assert.doesNotMatch(shared[0] ?? "", /file=/);
   cleanupTmpDir(dir);
 });
 

@@ -31,7 +31,18 @@ import {
 } from "node:fs";
 import { injectableEventsOf } from "./core/event-capability.js";
 import { terminalPaint } from "./term-colour.js";
-import { fileBlocks } from "./term-render.js";
+import {
+  fileBlocks,
+  groupBlock,
+  type FileFinding,
+  type Paint,
+} from "./term-render.js";
+import {
+  fixLine,
+  sessionShare,
+  type SessionShare,
+} from "./core/trifecta-fix.js";
+import { namesLine } from "./core/finding-groups.js";
 import {
   resolve,
   dirname,
@@ -6506,9 +6517,11 @@ function checkDescriptionBudget(ctx: BundleCheck): {
  * CI. Surfaces across BOTH subagents and skills, so it is NOT gated on the
  * `subagents` capability — a skill-only harness still has the surface.
  *
- * One line and one annotation per finding, at its file, like any linter: `lint`
- * is the gate an author fixes file by file, so it never groups. The human
- * reports (terminal audit, PR comment, HTML) group through `groupFindings`.
+ * Every finding a unit causes itself is reported at its file, one annotation
+ * each, like any linter: `lint` never merges findings across files. The one
+ * exception is not a merge but a different fact: units that only inherit the
+ * session are ONE finding for the repository (#539), because the risk is the
+ * session's — reported once, not once per unit.
  */
 function checkLethalTrifecta(ctx: BundleCheck): {
   issues: number;
@@ -6524,6 +6537,7 @@ function checkLethalTrifecta(ctx: BundleCheck): {
       message: string;
       problem: string;
       edit: string;
+      cause: "session" | "fence" | "unit";
       fence?: string;
     };
   }[];
@@ -6537,24 +6551,123 @@ function checkLethalTrifecta(ctx: BundleCheck): {
   );
   if (found.length > 0 && !silent) {
     console.log("\nLethal-trifecta check:\n");
-    const paint = terminalPaint(process.stdout.isTTY, process.env);
-    const rows = found.map((t) => ({
-      path: ctx.bundle.scanned(t.path),
-      mark: markOf(t.sev).mark,
-      tone: t.sev === "error" ? ("bad" as const) : ("warn" as const),
-      problem: t.finding.problem,
-      edit: t.finding.edit,
-    }));
-    console.log(fileBlocks(rows, "  ", paint).join("\n"));
-    found.forEach((t) => {
-      ctx.annotate(
-        markOf(t.sev).level,
-        t.finding.message,
-        ctx.bundle.scanned(t.path),
-      );
-    });
+    reportTrifecta(ctx, found);
   }
-  return tally(found);
+  return tally(lintUnits(found));
+}
+
+/** What the trifecta finding reads in `lint`: a unit's own data, graded. */
+interface LintTrifecta {
+  readonly path: string;
+  readonly name: string;
+  readonly sev: "warn" | "error";
+  readonly finding: {
+    readonly message: string;
+    readonly problem: string;
+    readonly edit: string;
+    readonly cause: "session" | "fence" | "unit";
+  };
+}
+
+/** The units that only inherit the session, as one share, with its severity. */
+function inheritedShare(found: readonly LintTrifecta[]): {
+  readonly share: SessionShare | undefined;
+  readonly sev: "warn" | "error";
+} {
+  const inherited = found.filter((t) => t.finding.cause === "session");
+  return {
+    share: sessionShare(
+      inherited.map((t) => ({
+        name: t.name,
+        cause: t.finding.cause,
+        edit: t.finding.edit,
+      })),
+    ),
+    sev: inherited.some((t) => t.sev === "error") ? "error" : "warn",
+  };
+}
+
+/**
+ * What `lint` counts: every finding a unit causes itself, plus ONE for all the
+ * units that only inherit the session (#539) — the risk is the session's.
+ */
+function lintUnits(
+  found: readonly LintTrifecta[],
+): readonly { readonly sev: "warn" | "error" }[] {
+  const { share, sev } = inheritedShare(found);
+  return [
+    ...found.filter((t) => t.finding.cause !== "session"),
+    ...(share === undefined ? [] : [{ sev }]),
+  ];
+}
+
+/** Prints and annotates the trifecta findings: the shared one first. */
+function reportTrifecta(
+  ctx: BundleCheck,
+  found: readonly LintTrifecta[],
+): void {
+  const paint = terminalPaint(process.stdout.isTTY, process.env);
+  const { share, sev } = inheritedShare(found);
+  if (share !== undefined) reportSessionShare(ctx, { share, sev, paint });
+  reportOwnFindings(
+    ctx,
+    found
+      .filter((t) => t.finding.cause !== "session")
+      .map((t) => ({
+        path: ctx.bundle.scanned(t.path),
+        mark: markOf(t.sev).mark,
+        tone: toneOf(t.sev),
+        level: markOf(t.sev).level,
+        problem: t.finding.problem,
+        edit: t.finding.edit,
+        message: t.finding.message,
+      })),
+    paint,
+  );
+}
+
+/** The terminal tone of a severity. */
+const toneOf = (sev: "warn" | "error"): "bad" | "warn" =>
+  sev === "error" ? "bad" : "warn";
+
+/** The units that only inherit the session: one block, one annotation (#539). */
+function reportSessionShare(
+  ctx: BundleCheck,
+  o: {
+    readonly share: SessionShare;
+    readonly sev: "warn" | "error";
+    readonly paint: Paint;
+  },
+): void {
+  console.log(
+    groupBlock(o.share, {
+      indent: "  ",
+      mark: markOf(o.sev).mark,
+      tone: toneOf(o.sev),
+      paint: o.paint,
+    }).join("\n"),
+  );
+  ctx.annotate(
+    markOf(o.sev).level,
+    `${fixLine(o.share)} (${namesLine(o.share.names)})`,
+  );
+}
+
+/** Every finding a unit causes itself: at its file, one annotation each. */
+function reportOwnFindings(
+  ctx: BundleCheck,
+  rows: readonly (FileFinding & {
+    readonly path: RepoPath;
+    readonly level: "error" | "warning";
+    readonly message: string;
+  })[],
+  paint: Paint,
+): void {
+  if (rows.length === 0) return;
+  console.log(fileBlocks(rows, "  ", paint).join("\n"));
+  rows.forEach((r) => {
+    ctx.annotate(r.level, r.message, r.path);
+  });
 }
 
 /** A rule of the set that is a module: it reports its own findings. */

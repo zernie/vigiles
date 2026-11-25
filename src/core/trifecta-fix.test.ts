@@ -7,6 +7,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  sessionShare,
   describeFix,
   fixLine,
   type TrifectaFix,
@@ -80,5 +81,42 @@ describe("describeFix", () => {
   it("no two fixes read the same", () => {
     const lines = cases.map((c) => fixLine(describeFix(c.fix, legs)));
     expect(new Set(lines).size).toBe(lines.length);
+  });
+});
+
+describe("sessionShare", () => {
+  const f = (
+    name: string,
+    cause: "session" | "fence" | "unit",
+    edit = "add `disallowed-tools: WebFetch`",
+  ) => ({ name, cause, edit });
+
+  it("collapses only the units that just inherit the session, keeping every name", () => {
+    const share = sessionShare([
+      f("a", "session"),
+      f("b", "unit"),
+      f("c", "session"),
+      f("d", "fence"),
+    ]);
+    expect(share?.names).toEqual(["a", "c"]);
+    expect(share?.problem).toContain("2");
+  });
+
+  it("keeps the units' edit when they share one, and a general one when they don't", () => {
+    const one = sessionShare([
+      f("a", "session", "E1"),
+      f("b", "session", "E1"),
+    ]);
+    const two = sessionShare([
+      f("a", "session", "E1"),
+      f("b", "session", "E2"),
+    ]);
+    expect(one?.edit).toContain("E1");
+    expect(two?.edit).not.toContain("E1");
+    expect(two?.edit).not.toContain("E2");
+  });
+
+  it("is absent when no unit only inherits", () => {
+    expect(sessionShare([f("b", "unit"), f("d", "fence")])).toBeUndefined();
   });
 });
