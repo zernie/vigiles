@@ -1367,7 +1367,7 @@ describe("the experimental rule group (skill-resource-resolves)", () => {
       assert.equal(r.exitCode, 0, r.stdout);
       assert.match(
         r.stdout,
-        /⚠ \S+SKILL\.md:5: pdf: bundled resource "references\/notes\.md" is referenced but missing/,
+        /⚠ \[skill-resource-resolves\] \S+SKILL\.md:5: pdf: bundled resource "references\/notes\.md" is referenced but missing/,
       );
     });
 

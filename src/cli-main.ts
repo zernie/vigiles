@@ -2467,8 +2467,17 @@ type BundleRun = Pick<
   "config" | "rules" | "silent" | "adapter" | "excludes" | "frame"
 >;
 
+/**
+ * A severity together with the rule that set it. Every finding line prints
+ * both (`✗ [rule] message`), so a reader can find the rule to fix or configure.
+ */
+interface Verdict {
+  readonly rule: RuleId;
+  readonly sev: "warn" | "error";
+}
+
 /** A finding at the severity its own path gets; `off` findings are dropped. */
-type Graded<F> = F & { readonly sev: "warn" | "error" };
+type Graded<F> = F & Verdict;
 
 /**
  * Each finding with the severity `rule` has at its path (`overrides`
@@ -2484,8 +2493,39 @@ function graded<F extends object>(
 ): readonly Graded<F>[] {
   return found.flatMap((f) => {
     const sev = rules.severityAt(rule, pathOf(f));
-    return sev === false ? [] : [{ ...f, sev }];
+    return sev === false ? [] : [{ ...f, rule, sev }];
   });
+}
+
+/**
+ * The verdict `rule` has across the whole repository, or `false` when it is
+ * off. Rule-wide: `overrides` are not applied (#568).
+ */
+function ruleVerdict(
+  config: Readonly<VigilesConfig> | undefined,
+  rule: RuleId,
+): Verdict | false {
+  const sev = ruleSeverity<unknown>(config?.rules?.[rule]);
+  return sev === false ? false : { rule, sev };
+}
+
+/** Prints a heading, then each finding under it with the rule's mark, and annotates it. */
+function reportLabelled(
+  ctx: BundleCheck,
+  { verdict, heading }: { readonly verdict: Verdict; readonly heading: string },
+  found: readonly { readonly message: string }[],
+): void {
+  console.log(heading);
+  const shown = markOf(verdict);
+  for (const issue of found) {
+    console.log(`  ${shown.mark} ${ctx.label(issue.message)}`);
+    ctx.annotate(shown.level, shown.note(issue.message));
+  }
+}
+
+/** How many of `count` findings fail the run: all of them at `error`, none at `warn`. */
+function failing(v: Verdict, count: number): number {
+  return v.sev === "error" ? count : 0;
 }
 
 /** The `{ issues, errors }` a per-surface check returns, from its graded findings. */
@@ -2499,14 +2539,23 @@ function tally(found: readonly { readonly sev: "warn" | "error" }[]): {
   };
 }
 
-/** The terminal mark and annotation level for a severity. */
-function markOf(sev: "warn" | "error"): {
+/**
+ * How a finding is shown: `mark` opens its terminal line with the severity
+ * glyph and the rule id, `note` puts the rule id on its annotation text, and
+ * `level` is the annotation level. Taking a {@link Verdict} rather than a bare
+ * severity is what keeps a finding from printing without its rule.
+ */
+function markOf(v: Verdict): {
   readonly mark: string;
   readonly level: "error" | "warning";
+  readonly note: (message: string) => string;
 } {
-  return sev === "error"
-    ? { mark: "✗", level: "error" }
-    : { mark: "⚠", level: "warning" };
+  const tag = `[${v.rule}]`;
+  return {
+    mark: `${v.sev === "error" ? "✗" : "⚠"} ${tag}`,
+    level: v.sev === "error" ? "error" : "warning",
+    note: (message) => `${tag} ${message}`,
+  };
 }
 
 /**
@@ -2649,16 +2698,18 @@ async function checkSpecRefs(
   ).filter((m) => m.sev === "error");
   if (found.length > 0 && !silent) {
     console.log("\nSpec reference check:\n");
-    for (const { msg, sev } of found) {
-      console.log(`  ${markOf(sev).mark} ${msg}`);
-      ghAnnotate(markOf(sev).level, msg);
+    for (const f of found) {
+      const shown = markOf(f);
+      console.log(`  ${shown.mark} ${f.msg}`);
+      ghAnnotate(shown.level, shown.note(f.msg));
     }
   }
   if (overBudget.length > 0 && !silent) {
     console.log("\nCompile budget check (compile-budget):\n");
-    overBudget.forEach(({ msg }) => {
-      console.log(`  ✗ ${msg}`);
-      ghAnnotate("error", `compile-budget: ${msg}`);
+    overBudget.forEach((f) => {
+      const shown = markOf(f);
+      console.log(`  ${shown.mark} ${f.msg}`);
+      ghAnnotate(shown.level, shown.note(f.msg));
     });
   }
   return { ...tally(found), budgetErrors: overBudget.length };
@@ -2958,7 +3009,8 @@ async function runLint(
   // always-blocking check and deleting the `orphans` block. `warn` now reports
   // without touching the exit code and `false`/`"off"` skips the scan, exactly
   // like every other rule.
-  const orphansCfg = rules.mayFire("orphan-docs") ? config?.orphans : undefined;
+  const orphanRule = "orphan-docs";
+  const orphansCfg = rules.mayFire(orphanRule) ? config?.orphans : undefined;
   if (!silent) console.log("\nOrphan docs check:\n");
   let orphanReport: ReturnType<typeof findOrphanDocs> = {
     include: [],
@@ -2982,13 +3034,15 @@ async function runLint(
     // report (it still counts as a doc that references others).
     const orphanGraded = graded(
       rules,
-      "orphan-docs",
+      orphanRule,
       found.orphans.map((doc) => ({ doc })),
       (o) => o.doc,
     );
     orphanReport = { ...found, orphans: orphanGraded.map((o) => o.doc) };
     if (!silent) {
-      for (const line of formatOrphanReport(orphanReport).split("\n")) {
+      for (const line of formatOrphanReport(orphanReport, orphanRule).split(
+        "\n",
+      )) {
         console.log(`  ${line}`);
       }
     }
@@ -3161,11 +3215,13 @@ async function runLint(
   // 7w. Deprecated-key-files — an instruction spec still using `keyFiles`. Once
   // over the repository, like the ratchet: a nested bundle's spec would
   // otherwise be reported again by every bundle that encloses it.
+  const keyFilesRule = "deprecated-key-files";
   const deprecatedKeyFiles = checkDeprecatedKeyFiles({
-    severity: rules.mayFire("deprecated-key-files") ? "warn" : false,
-    severityAt: (path) => rules.severityAt("deprecated-key-files", path),
+    severity: rules.mayFire(keyFilesRule) ? "warn" : false,
+    severityAt: (path) => rules.severityAt(keyFilesRule, path),
     find: () => specsUsingKeyFiles(root, excludes.globIgnore),
     silent,
+    rule: keyFilesRule,
     annotate: (level, message, path) => {
       ghAnnotate(level, message, frame.repo(resolve(root, path)));
     },
@@ -3242,6 +3298,7 @@ async function runLint(
       const rendered = formatDocRefReport(
         { ...docRefFound, errors: g.errors },
         g.sev,
+        "doc-refs",
       );
       for (const line of rendered.split("\n")) {
         console.log(`  ${line}`);
@@ -3255,9 +3312,10 @@ async function runLint(
   // on the PR. CI-only (isGitHubActions); skipped under --json/--summary.
   if (isGitHubActions() && !silent && docRefSeverity) {
     for (const e of docRefReport.errors) {
+      const shown = markOf(e);
       ghAnnotate(
-        markOf(e.sev).level,
-        `${e.kind}("${e.value}") — ${e.message}`,
+        shown.level,
+        shown.note(`${e.kind}("${e.value}") — ${e.message}`),
         frame.repo(resolve(root, e.file)),
         e.line,
       );
@@ -6038,7 +6096,7 @@ function checkIntegrityForFiles(
   for (const { filePath, severity, result } of checked) {
     if (!result.intact) {
       log(
-        `  ${markOf(severity).mark} ${filePath} — ${result.reason ?? "tampered"}`,
+        `  ${markOf({ rule: "integrity", sev: severity }).mark} ${filePath} — ${result.reason ?? "tampered"}`,
       );
     } else if (!silent) {
       log(`  ✓ ${filePath}`);
@@ -6191,19 +6249,20 @@ function checkUntestedSurfaces(ctx: BundleCheck): {
   // Per surface: an `overrides` entry may turn its kind's rule off for a folder.
   const untested = scanned.untested.flatMap((s) => {
     const sev = sevFor(s.kind, s.path);
-    return sev === false ? [] : [{ ...s, sev }];
+    return sev === false ? [] : [{ ...s, rule: UNTESTED_RULE[s.kind], sev }];
   });
   const report = { ...scanned, untested };
 
   if (!silent) {
     console.log("\nUntested surfaces:\n");
-    for (const line of formatUntestedReport(report).split("\n")) {
+    const ruleIds = [...new Set(untested.map((s) => s.rule))];
+    for (const line of formatUntestedReport(report, ruleIds).split("\n")) {
       console.log(`  ${line}`);
     }
     for (const s of report.untested) {
       ctx.annotate(
-        markOf(s.sev).level,
-        `${s.kind} ${s.path} ships without a test or eval`,
+        markOf(s).level,
+        markOf(s).note(`${s.kind} ${s.path} ships without a test or eval`),
         frame.repo(join(frame.root, s.path)),
       );
     }
@@ -6281,8 +6340,8 @@ function checkSubagentToolContracts(ctx: BundleCheck): {
     console.log("\nSubagent tool-contract check:\n");
     for (const issue of found) {
       const at = ctx.bundle.scanned(issue.path);
-      console.log(`  ${markOf(issue.sev).mark} ${at}: ${issue.message}`);
-      ctx.annotate(markOf(issue.sev).level, issue.message, at);
+      console.log(`  ${markOf(issue).mark} ${at}: ${issue.message}`);
+      ctx.annotate(markOf(issue).level, markOf(issue).note(issue.message), at);
     }
   }
   return tally(found);
@@ -6296,8 +6355,8 @@ function checkSubagentToolContracts(ctx: BundleCheck): {
  */
 function checkHookEvents(ctx: BundleCheck): { issues: number; errors: number } {
   const { config, silent, adapter } = ctx;
-  const sev = ruleSeverity(config?.rules?.["hook-events"]);
-  if (!sev) return { issues: 0, errors: 0 };
+  const verdict = ruleVerdict(config, "hook-events");
+  if (!verdict) return { issues: 0, errors: 0 };
   if (!adapter.shellHooks) {
     reportNotApplicable("Hook-event check", "shell hooks", adapter, silent);
     return { issues: 0, errors: 0 };
@@ -6309,15 +6368,12 @@ function checkHookEvents(ctx: BundleCheck): { issues: number; errors: number } {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
-    console.log("\nHook-event check:\n");
-    for (const issue of found) {
-      console.log(
-        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(issue.message)}`,
-      );
-      ctx.annotate(sev === "error" ? "error" : "warning", issue.message);
-    }
+    reportLabelled(ctx, { verdict, heading: "\nHook-event check:\n" }, found);
   }
-  return { issues: found.length, errors: sev === "error" ? found.length : 0 };
+  return {
+    issues: found.length,
+    errors: failing(verdict, found.length),
+  };
 }
 
 /**
@@ -6356,10 +6412,10 @@ function checkFrontmatterSchema(ctx: BundleCheck): {
   if (found.length > 0 && !silent) {
     console.log("\nFrontmatter-schema check:\n");
     for (const issue of found) {
-      console.log(`  ${markOf(issue.sev).mark} ${ctx.label(issue.message)}`);
+      console.log(`  ${markOf(issue).mark} ${ctx.label(issue.message)}`);
       ctx.annotate(
-        markOf(issue.sev).level,
-        issue.message,
+        markOf(issue).level,
+        markOf(issue).note(issue.message),
         ctx.bundle.scanned(issue.path),
       );
     }
@@ -6393,10 +6449,10 @@ function checkSkillFrontmatter(ctx: BundleCheck): {
   if (found.length > 0 && !silent) {
     console.log("\nSkill-frontmatter check:\n");
     for (const issue of found) {
-      console.log(`  ${markOf(issue.sev).mark} ${ctx.label(issue.message)}`);
+      console.log(`  ${markOf(issue).mark} ${ctx.label(issue.message)}`);
       ctx.annotate(
-        markOf(issue.sev).level,
-        issue.message,
+        markOf(issue).level,
+        markOf(issue).note(issue.message),
         ctx.bundle.scanned(issue.path),
       );
     }
@@ -6411,8 +6467,8 @@ function checkSkillFrontmatter(ctx: BundleCheck): {
  */
 function checkMcpConfig(ctx: BundleCheck): { issues: number; errors: number } {
   const { config, silent } = ctx;
-  const sev = ruleSeverity(config?.rules?.["mcp-config"]);
-  if (!sev) return { issues: 0, errors: 0 };
+  const verdict = ruleVerdict(config, "mcp-config");
+  if (!verdict) return { issues: 0, errors: 0 };
   let found: readonly { message: string }[];
   try {
     found = ctx.scan().mcpIssues;
@@ -6420,15 +6476,12 @@ function checkMcpConfig(ctx: BundleCheck): { issues: number; errors: number } {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
-    console.log("\nMCP-config check:\n");
-    for (const issue of found) {
-      console.log(
-        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(issue.message)}`,
-      );
-      ctx.annotate(sev === "error" ? "error" : "warning", issue.message);
-    }
+    reportLabelled(ctx, { verdict, heading: "\nMCP-config check:\n" }, found);
   }
-  return { issues: found.length, errors: sev === "error" ? found.length : 0 };
+  return {
+    issues: found.length,
+    errors: failing(verdict, found.length),
+  };
 }
 
 /**
@@ -6467,11 +6520,11 @@ function checkDisallowedTools(ctx: BundleCheck): {
     console.log("\nDisallowed-tools check:\n");
     for (const issue of found) {
       console.log(
-        `  ${markOf(issue.sev).mark} ${ctx.bundle.scanned(issue.path)}: ${issue.message}`,
+        `  ${markOf(issue).mark} ${ctx.bundle.scanned(issue.path)}: ${issue.message}`,
       );
       ctx.annotate(
-        markOf(issue.sev).level,
-        issue.message,
+        markOf(issue).level,
+        markOf(issue).note(issue.message),
         ctx.bundle.scanned(issue.path),
       );
     }
@@ -6505,10 +6558,10 @@ function checkFrontmatterValid(ctx: BundleCheck): {
   if (found.length > 0 && !silent) {
     console.log("\nFrontmatter-validity check:\n");
     for (const issue of found) {
-      console.log(`  ${markOf(issue.sev).mark} ${ctx.label(issue.message)}`);
+      console.log(`  ${markOf(issue).mark} ${ctx.label(issue.message)}`);
       ctx.annotate(
-        markOf(issue.sev).level,
-        issue.message,
+        markOf(issue).level,
+        markOf(issue).note(issue.message),
         ctx.bundle.scanned(issue.path),
       );
     }
@@ -6528,8 +6581,8 @@ function checkDescriptionOverlap(ctx: BundleCheck): {
   errors: number;
 } {
   const { config, silent } = ctx;
-  const sev = ruleSeverity(config?.rules?.["description-overlap"]);
-  if (!sev) return { issues: 0, errors: 0 };
+  const verdict = ruleVerdict(config, "description-overlap");
+  if (!verdict) return { issues: 0, errors: 0 };
   let found: readonly { message: string }[];
   try {
     found = ctx.scan().descriptionOverlaps;
@@ -6537,15 +6590,16 @@ function checkDescriptionOverlap(ctx: BundleCheck): {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
-    console.log("\nDescription-overlap check:\n");
-    for (const issue of found) {
-      console.log(
-        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(issue.message)}`,
-      );
-      ctx.annotate(sev === "error" ? "error" : "warning", issue.message);
-    }
+    reportLabelled(
+      ctx,
+      { verdict, heading: "\nDescription-overlap check:\n" },
+      found,
+    );
   }
-  return { issues: found.length, errors: sev === "error" ? found.length : 0 };
+  return {
+    issues: found.length,
+    errors: failing(verdict, found.length),
+  };
 }
 
 /**
@@ -6560,8 +6614,8 @@ function checkDescriptionBudget(ctx: BundleCheck): {
   errors: number;
 } {
   const { config, silent } = ctx;
-  const sev = ruleSeverity(config?.rules?.["skill-description-budget"]);
-  if (!sev) return { issues: 0, errors: 0 };
+  const verdict = ruleVerdict(config, "skill-description-budget");
+  if (!verdict) return { issues: 0, errors: 0 };
   let found: readonly { message: string }[];
   try {
     found = ctx.scan().descriptionBudgetIssues;
@@ -6569,15 +6623,16 @@ function checkDescriptionBudget(ctx: BundleCheck): {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
-    console.log("\nSkill-description-budget check:\n");
-    for (const issue of found) {
-      console.log(
-        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(issue.message)}`,
-      );
-      ctx.annotate(sev === "error" ? "error" : "warning", issue.message);
-    }
+    reportLabelled(
+      ctx,
+      { verdict, heading: "\nSkill-description-budget check:\n" },
+      found,
+    );
   }
-  return { issues: found.length, errors: sev === "error" ? found.length : 0 };
+  return {
+    issues: found.length,
+    errors: failing(verdict, found.length),
+  };
 }
 
 /**
@@ -6628,10 +6683,9 @@ function checkLethalTrifecta(ctx: BundleCheck): {
 }
 
 /** What the trifecta finding reads in `lint`: a unit's own data, graded. */
-interface LintTrifecta {
+interface LintTrifecta extends Verdict {
   readonly path: string;
   readonly name: string;
-  readonly sev: "warn" | "error";
   readonly finding: {
     readonly message: string;
     readonly problem: string;
@@ -6672,6 +6726,21 @@ function lintUnits(
   ];
 }
 
+/** One row per finding a unit causes itself, marked with its rule. */
+function ownRows(ctx: BundleCheck, found: readonly LintTrifecta[]) {
+  return found
+    .filter((t) => t.finding.cause !== "session")
+    .map((t) => ({
+      path: ctx.bundle.scanned(t.path),
+      mark: markOf(t).mark,
+      tone: toneOf(t.sev),
+      level: markOf(t).level,
+      problem: t.finding.problem,
+      edit: t.finding.edit,
+      message: markOf(t).note(t.finding.message),
+    }));
+}
+
 /** Prints and annotates the trifecta findings: the shared one first. */
 function reportTrifecta(
   ctx: BundleCheck,
@@ -6679,22 +6748,13 @@ function reportTrifecta(
 ): void {
   const paint = terminalPaint(process.stdout.isTTY, process.env);
   const { share, sev } = inheritedShare(found);
-  if (share !== undefined) reportSessionShare(ctx, { share, sev, paint });
-  reportOwnFindings(
-    ctx,
-    found
-      .filter((t) => t.finding.cause !== "session")
-      .map((t) => ({
-        path: ctx.bundle.scanned(t.path),
-        mark: markOf(t.sev).mark,
-        tone: toneOf(t.sev),
-        level: markOf(t.sev).level,
-        problem: t.finding.problem,
-        edit: t.finding.edit,
-        message: t.finding.message,
-      })),
-    paint,
-  );
+  if (share !== undefined)
+    reportSessionShare(ctx, {
+      share,
+      verdict: { rule: "lethal-trifecta", sev },
+      paint,
+    });
+  reportOwnFindings(ctx, ownRows(ctx, found), paint);
 }
 
 /** The terminal tone of a severity. */
@@ -6706,21 +6766,22 @@ function reportSessionShare(
   ctx: BundleCheck,
   o: {
     readonly share: SessionShare;
-    readonly sev: "warn" | "error";
+    readonly verdict: Verdict;
     readonly paint: Paint;
   },
 ): void {
+  const shown = markOf(o.verdict);
   console.log(
     groupBlock(o.share, {
       indent: "  ",
-      mark: markOf(o.sev).mark,
-      tone: toneOf(o.sev),
+      mark: shown.mark,
+      tone: toneOf(o.verdict.sev),
       paint: o.paint,
     }).join("\n"),
   );
   ctx.annotate(
-    markOf(o.sev).level,
-    `${fixLine(o.share)} (${namesLine(o.share.names)})`,
+    shown.level,
+    shown.note(`${fixLine(o.share)} (${namesLine(o.share.names)})`),
   );
 }
 
@@ -6785,9 +6846,7 @@ function checkRuleModule(
     console.log(`\n${rule.id}:\n`);
     for (const f of shown) {
       const { mark, level } =
-        f.kind === "note"
-          ? { mark: "ℹ", level: "notice" as const }
-          : markOf(f.sev);
+        f.kind === "note" ? { mark: "ℹ", level: "notice" as const } : markOf(f);
       const msg = `${f.subject}: ${f.message}`;
       const at = f.line === undefined ? "" : `:${String(f.line)}`;
       console.log(`  ${mark} ${pathOf(f)}${at}: ${msg}`);
@@ -6828,10 +6887,12 @@ function checkSkillMissingFence(ctx: BundleCheck): {
     console.log("\nSkill-missing-fence check:\n");
     for (const s of found) {
       const msg = `${s.name}: ${s.finding.message}`;
-      console.log(
-        `  ${markOf(s.sev).mark} ${ctx.bundle.scanned(s.path)}: ${msg}`,
+      console.log(`  ${markOf(s).mark} ${ctx.bundle.scanned(s.path)}: ${msg}`);
+      ctx.annotate(
+        markOf(s).level,
+        markOf(s).note(msg),
+        ctx.bundle.scanned(s.path),
       );
-      ctx.annotate(markOf(s.sev).level, msg, ctx.bundle.scanned(s.path));
     }
   }
   return tally(found);
@@ -6862,8 +6923,8 @@ function checkPluginDirLayout(ctx: BundleCheck): {
   if (found.length > 0 && !silent) {
     console.log("\nPlugin-dir-layout check:\n");
     for (const p of found) {
-      console.log(`  ${markOf(p.sev).mark} ${ctx.label(p.message)}`);
-      ctx.annotate(markOf(p.sev).level, p.message);
+      console.log(`  ${markOf(p).mark} ${ctx.label(p.message)}`);
+      ctx.annotate(markOf(p).level, markOf(p).note(p.message));
     }
   }
   return tally(found);
@@ -6900,10 +6961,12 @@ function checkDelegationTrifecta(ctx: BundleCheck): {
     console.log("\nDelegation-trifecta check:\n");
     for (const d of found) {
       const msg = `${d.finding.name}: ${d.finding.message}`;
-      console.log(
-        `  ${markOf(d.sev).mark} ${ctx.bundle.scanned(d.path)}: ${msg}`,
+      console.log(`  ${markOf(d).mark} ${ctx.bundle.scanned(d.path)}: ${msg}`);
+      ctx.annotate(
+        markOf(d).level,
+        markOf(d).note(msg),
+        ctx.bundle.scanned(d.path),
       );
-      ctx.annotate(markOf(d.sev).level, msg, ctx.bundle.scanned(d.path));
     }
   }
   return tally(found);
@@ -6921,8 +6984,8 @@ function checkHookBlockIneffective(ctx: BundleCheck): {
   errors: number;
 } {
   const { config, silent, adapter } = ctx;
-  const sev = ruleSeverity(config?.rules?.["hook-block-ineffective"]);
-  if (!sev) return { issues: 0, errors: 0 };
+  const verdict = ruleVerdict(config, "hook-block-ineffective");
+  if (!verdict) return { issues: 0, errors: 0 };
   if (!adapter.shellHooks) {
     reportNotApplicable("Hook-block check", "shell hooks", adapter, silent);
     return { issues: 0, errors: 0 };
@@ -6938,16 +7001,18 @@ function checkHookBlockIneffective(ctx: BundleCheck): {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
-    const mark = sev === "error" ? "✗" : "⚠";
-    const level = sev === "error" ? "error" : "warning";
+    const shown = markOf(verdict);
     console.log("\nHook-block check:\n");
     for (const h of found) {
-      const { msg, file, shown } = hookBlockLine(ctx, h);
-      console.log(`  ${mark} ${shown}`);
-      ctx.annotate(level, msg, file);
+      const { msg, file, shown: line } = hookBlockLine(ctx, h);
+      console.log(`  ${shown.mark} ${line}`);
+      ctx.annotate(shown.level, shown.note(msg), file);
     }
   }
-  return { issues: found.length, errors: sev === "error" ? found.length : 0 };
+  return {
+    issues: found.length,
+    errors: failing(verdict, found.length),
+  };
 }
 
 /**
@@ -6982,8 +7047,8 @@ function checkHookMatcher(ctx: BundleCheck): {
   errors: number;
 } {
   const { config, silent, adapter } = ctx;
-  const sev = ruleSeverity(config?.rules?.["hook-matcher"]);
-  if (!sev) return { issues: 0, errors: 0 };
+  const verdict = ruleVerdict(config, "hook-matcher");
+  if (!verdict) return { issues: 0, errors: 0 };
   if (!adapter.shellHooks) {
     reportNotApplicable("Hook-matcher check", "shell hooks", adapter, silent);
     return { issues: 0, errors: 0 };
@@ -6996,12 +7061,16 @@ function checkHookMatcher(ctx: BundleCheck): {
   }
   if (found.length > 0 && !silent) {
     console.log("\nHook-matcher check:\n");
+    const shown = markOf(verdict);
     for (const m of found) {
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(m.message)}`);
-      ctx.annotate(sev === "error" ? "error" : "warning", m.message);
+      console.log(`  ${shown.mark} ${ctx.label(m.message)}`);
+      ctx.annotate(shown.level, shown.note(m.message));
     }
   }
-  return { issues: found.length, errors: sev === "error" ? found.length : 0 };
+  return {
+    issues: found.length,
+    errors: failing(verdict, found.length),
+  };
 }
 
 /**
@@ -7016,8 +7085,8 @@ function checkMcpHookTargets(ctx: BundleCheck): {
   errors: number;
 } {
   const { config, silent, adapter } = ctx;
-  const sev = ruleSeverity(config?.rules?.["mcp-hook-target-resolves"]);
-  if (!sev) return { issues: 0, errors: 0 };
+  const verdict = ruleVerdict(config, "mcp-hook-target-resolves");
+  if (!verdict) return { issues: 0, errors: 0 };
   if (!adapter.shellHooks) {
     reportNotApplicable(
       "MCP hook-target check",
@@ -7034,15 +7103,16 @@ function checkMcpHookTargets(ctx: BundleCheck): {
     return { issues: 0, errors: 0 };
   }
   if (found.length > 0 && !silent) {
-    console.log("\nMCP hook-target check:\n");
-    for (const issue of found) {
-      console.log(
-        `  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(issue.message)}`,
-      );
-      ctx.annotate(sev === "error" ? "error" : "warning", issue.message);
-    }
+    reportLabelled(
+      ctx,
+      { verdict, heading: "\nMCP hook-target check:\n" },
+      found,
+    );
   }
-  return { issues: found.length, errors: sev === "error" ? found.length : 0 };
+  return {
+    issues: found.length,
+    errors: failing(verdict, found.length),
+  };
 }
 
 /**
@@ -7095,8 +7165,8 @@ function reportHookLines(
   messagesOf: (scan: Readonly<ScanReport>) => readonly string[],
 ): Readonly<{ issues: number; errors: number }> {
   const { config, silent, adapter } = ctx;
-  const sev = ruleSeverity(config?.rules?.[rule]);
-  if (!sev) return { issues: 0, errors: 0 };
+  const verdict = ruleVerdict(config, rule);
+  if (!verdict) return { issues: 0, errors: 0 };
   if (!adapter.shellHooks) {
     reportNotApplicable(heading, "shell hooks", adapter, silent);
     return { issues: 0, errors: 0 };
@@ -7109,14 +7179,15 @@ function reportHookLines(
   }
   if (messages.length > 0 && !silent) {
     console.log(`\n${heading}:\n`);
+    const shown = markOf(verdict);
     for (const msg of messages) {
-      console.log(`  ${sev === "error" ? "✗" : "⚠"} ${ctx.label(msg)}`);
-      ctx.annotate(sev === "error" ? "error" : "warning", msg);
+      console.log(`  ${shown.mark} ${ctx.label(msg)}`);
+      ctx.annotate(shown.level, shown.note(msg));
     }
   }
   return {
     issues: messages.length,
-    errors: sev === "error" ? messages.length : 0,
+    errors: failing(verdict, messages.length),
   };
 }
 
@@ -7159,11 +7230,11 @@ function checkMcpToolResolves(ctx: BundleCheck): {
     console.log("\nMCP tool-resolution check:\n");
     for (const issue of found) {
       console.log(
-        `  ${markOf(issue.sev).mark} ${ctx.bundle.scanned(issue.path)}: ${issue.message}`,
+        `  ${markOf(issue).mark} ${ctx.bundle.scanned(issue.path)}: ${issue.message}`,
       );
       ctx.annotate(
-        markOf(issue.sev).level,
-        issue.message,
+        markOf(issue).level,
+        markOf(issue).note(issue.message),
         ctx.bundle.scanned(issue.path),
       );
     }
@@ -7185,8 +7256,9 @@ async function checkCoverageThresholds(
   config: VigilesConfig | undefined,
   silent: boolean,
 ): Promise<number> {
-  const severity = ruleSeverity(config?.rules.coverage);
-  if (!severity) return 0;
+  const verdict = ruleVerdict(config, "coverage");
+  if (!verdict) return 0;
+  const shown = markOf(verdict);
 
   const opts = ruleOptions<CoverageThresholds>(config?.rules.coverage);
   if (!opts) return 0;
@@ -7205,7 +7277,7 @@ async function checkCoverageThresholds(
         : 100;
     const ok = pct >= opts.linterRules;
     if (!ok) failing++;
-    const marker = ok ? "✓" : severity === "error" ? "✗" : "⚠";
+    const marker = ok ? "✓" : shown.mark;
     log(
       `  ${marker} linterRules: ${String(pct)}% (threshold: ${String(opts.linterRules)}%)`,
     );
@@ -7225,13 +7297,13 @@ async function checkCoverageThresholds(
     );
     const ok = metric.passing;
     if (!ok) failing++;
-    const marker = ok ? "✓" : severity === "error" ? "✗" : "⚠";
+    const marker = ok ? "✓" : shown.mark;
     log(
       `  ${marker} scripts: ${String(metric.percent)}% (threshold: ${String(opts.scripts)}%)`,
     );
   }
 
-  return severity === "error" ? failing : 0;
+  return verdict.sev === "error" ? failing : 0;
 }
 
 async function countGuidanceRules(

@@ -58,7 +58,7 @@ test("lint: a spec using keyFiles is reported at warn, with its size and the mig
   const r = run(["lint"]);
   expect(r.out).toContain("Deprecated-key-files check:");
   expect(r.out).toMatch(
-    /⚠ CLAUDE\.md\.spec\.ts: `keyFiles` is deprecated .*2 entries, 58 characters/,
+    /⚠ \[deprecated-key-files\] CLAUDE\.md\.spec\.ts: `keyFiles` is deprecated .*2 entries, 58 characters/,
   );
   expect(r.out).toContain("docs/rules/deprecated-key-files.md");
   // The warning says where each entry goes, not only that the field is deprecated.
@@ -97,7 +97,9 @@ test("lint: opted into error, it gates; turned off, it says nothing", () => {
     JSON.stringify({ rules: { "deprecated-key-files": "error" } }),
   );
   const gated = run(["lint"]);
-  expect(gated.out).toMatch(/✗ CLAUDE\.md\.spec\.ts: `keyFiles` is deprecated/);
+  expect(gated.out).toMatch(
+    /✗ \[deprecated-key-files\] CLAUDE\.md\.spec\.ts: `keyFiles` is deprecated/,
+  );
   expect(gated.code).toBe(2);
   expect(counters()).toMatchObject({
     deprecatedKeyFilesIssues: 1,
