@@ -3141,6 +3141,7 @@ async function runLint(
   // instruction file, a path-scoped or folder rule) against the harness's
   // per-file cut. Once over the repository, like context-creep; no baseline.
   const onDemand = checkOnDemandLimit({
+    ruleId: ON_DEMAND_RULE,
     severityAt: (path) => rules.severityAt(ON_DEMAND_RULE, path),
     mayFire: rules.mayFire(ON_DEMAND_RULE),
     scope: frame.bundle(scanRoot).at,

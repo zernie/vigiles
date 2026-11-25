@@ -31,7 +31,7 @@ every model a user gets by default. Each file over it is one finding:
 ```
 Context truncation (files loaded after launch):
 
-  ✗ pkg/CLAUDE.md is 163,402 chars, over the per-file cut of 150,000: the model gets only the start. Split it, or move lists and records to a file nothing loads; for a copy no session loads, add `**/<folder>/**` to `claudeMdExcludes` (.claude/settings.json).
+  ✗ [context-truncation] pkg/CLAUDE.md is 163,402 chars, over the per-file cut of 150,000: the model gets only the start. Split it, or move lists and records to a file nothing loads; for a copy no session loads, add `**/<folder>/**` to `claudeMdExcludes` (.claude/settings.json).
 ```
 
 The detector is `checkOnDemandFiles` in `src/core/on-demand-limits.ts`;

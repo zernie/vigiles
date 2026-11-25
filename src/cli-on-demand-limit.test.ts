@@ -67,7 +67,8 @@ test("a lowered limit fails a folder file the default passes", () => {
   const r = run(["lint"]);
   // Guards: the threshold is the repository's to set, below the default too.
   expect(r.code).not.toBe(0);
-  expect(r.out).toContain("pkg/CLAUDE.md");
+  // Guards: each finding names its rule, so the reader knows what to configure.
+  expect(r.out).toContain(`✗ [${TRUNCATION}] pkg/CLAUDE.md is`);
 });
 
 test("the weight rule off leaves the per-file cut on", () => {
@@ -114,6 +115,6 @@ test("an override at warn reports the folder without failing", () => {
   );
   const r = run(["lint"]);
   // Guards: a per-folder warn is a warning, not the rule-wide error.
-  expect(r.out).toMatch(/⚠ pkg\/CLAUDE\.md is/);
+  expect(r.out).toContain(`⚠ [${TRUNCATION}] pkg/CLAUDE.md is`);
   expect(r.code).toBe(0);
 });

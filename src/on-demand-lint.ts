@@ -17,6 +17,8 @@ import type { RuleSeverity } from "./core/types.js";
 
 /** What {@link checkOnDemandLimit} takes. */
 export interface OnDemandLimitOptions {
+  /** The rule's id, printed on every finding so the reader knows what to configure. */
+  readonly ruleId: string;
   /** The rule's severity for a file at `path`, with `overrides` applied. */
   readonly severityAt: (path: string) => RuleSeverity;
   /** Whether the rule is on anywhere (in `rules` or some override). */
@@ -53,13 +55,14 @@ export interface OnDemandFinding {
 export function onDemandLimitFindings(
   check: Extract<OnDemandCheck, { kind: "checked" }>,
   scope: string,
+  ruleId: string,
 ): readonly OnDemandFinding[] {
   const cure = onDemandRemedy(check.rule.excludeSetting);
   return check.over
     .filter((f) => inScope(f.path, scope))
     .map((f) => ({
       path: f.path,
-      line: `${formatOnDemandOver(f, check)}. ${cure}`,
+      line: `[${ruleId}] ${formatOnDemandOver(f, check)}. ${cure}`,
     }));
 }
 
@@ -120,7 +123,10 @@ export function checkOnDemandLimit(
     return NONE;
   }
   return report(
-    graded(onDemandLimitFindings(check, opts.scope), opts.severityAt),
+    graded(
+      onDemandLimitFindings(check, opts.scope, opts.ruleId),
+      opts.severityAt,
+    ),
     opts,
   );
 }
