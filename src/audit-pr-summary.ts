@@ -154,32 +154,54 @@ const NAMES_IN_CELL = 3;
 /** A markdown table cell: one line, `|` escaped. */
 const cell = (s: string): string => flat(s).replaceAll("|", "\\|");
 
-/** Groups as a table: problem, fix and units in their own columns. */
-function groupTable(groups: readonly FindingGroup[]): string {
-  return [
-    "| Problem | Fix | Units |",
-    "|---|---|---|",
-    ...groups.map(
-      (g) =>
-        `| ${cell(g.problem)} | ${cell(g.edit)} | ${cell(namesLine(g.names, " · ", NAMES_IN_CELL))} |`,
-    ),
-  ].join("\n");
+/** The comment's character budget for findings, after the frame around them. */
+const FINDINGS_BUDGET = AUDIT_SUMMARY_MAX_CHARS - FRAME_CHARS;
+
+/** How many of the items fit in `budget`, given each one's length, in order. */
+function keptCount(lengths: readonly number[], budget: number): number {
+  const ends = lengths.reduce<readonly number[]>(
+    (acc, n) => [...acc, (acc.at(-1) ?? 0) + n],
+    [],
+  );
+  return ends.filter((end) => end <= budget).length;
 }
+
+/** The line that names what a budget cut left out. */
+const cutLine = (n: number): string =>
+  `… and ${String(n)} more — run \`npx vigiles audit\` locally for the full list`;
+
+/** One group as a table row: problem, fix and units in their own cells. */
+const groupRow = (g: FindingGroup): string =>
+  `| ${cell(g.problem)} | ${cell(g.edit)} | ${cell(namesLine(g.names, " · ", NAMES_IN_CELL))} |`;
+
+const table = (rows: readonly string[]): string =>
+  ["| Problem | Fix | Units |", "|---|---|---|", ...rows].join("\n");
 
 /**
  * A ring's groups: the first rows as a table, the rest in a collapsed table
  * right below it, so a long list never runs the comment long (`tidy-output`).
+ * The collapsed table takes at most half the findings budget, then names what
+ * it left out.
  */
 function groupTables(groups: readonly FindingGroup[]): readonly string[] {
   if (groups.length === 0) return [];
-  const rest = groups.slice(SHOWN_ROWS);
+  const rest = groups.slice(SHOWN_ROWS).map(groupRow);
+  const kept = keptCount(
+    rest.map((r) => r.length + 1),
+    FINDINGS_BUDGET / 2,
+  );
+  const cut = rest.length - kept;
+  const folded = [
+    `<details><summary>${String(rest.length)} more</summary>`,
+    "",
+    table(rest.slice(0, kept)),
+    ...(cut > 0 ? ["", cutLine(cut)] : []),
+    "",
+    "</details>",
+  ].join("\n");
   return [
-    groupTable(groups.slice(0, SHOWN_ROWS)),
-    ...(rest.length === 0
-      ? []
-      : [
-          `<details><summary>${String(rest.length)} more</summary>\n\n${groupTable(rest)}\n\n</details>`,
-        ]),
+    table(groups.slice(0, SHOWN_ROWS).map(groupRow)),
+    ...(rest.length === 0 ? [] : [folded]),
   ];
 }
 
@@ -218,43 +240,28 @@ function gradedFindings(report: AuditReport): readonly string[] {
 const SHOWN_CHUNKS = 6;
 
 /**
- * The chunks, the first few shown and the rest folded, cut to the budget with
- * a last line naming how many did not fit.
+ * The chunks, the first few shown and the rest folded, all of them within the
+ * findings budget, with a last line naming how many did not fit.
  */
 function chunked(chunks: readonly string[]): readonly string[] {
-  const folded = chunks.slice(SHOWN_CHUNKS);
+  const lengths = chunks.map((c) => c.length + 2);
+  const fit = chunks.slice(0, keptCount(lengths, FINDINGS_BUDGET));
+  const cut = chunks.length - fit.length;
+  const folded = fit.slice(SHOWN_CHUNKS);
   return [
     "**Findings**",
     "",
-    ...chunks.slice(0, SHOWN_CHUNKS).flatMap((c) => [c, ""]),
-    ...(folded.length === 0 ? [] : foldedChunks(folded)),
-  ];
-}
-
-/**
- * The chunks past the first few, in a collapsed block, as many as fit the
- * budget and then a line naming how many did not.
- */
-function foldedChunks(folded: readonly string[]): readonly string[] {
-  const budget = AUDIT_SUMMARY_MAX_CHARS - FRAME_CHARS;
-  const ends = folded.reduce<readonly number[]>(
-    (acc, c) => [...acc, (acc.at(-1) ?? 0) + c.length + 2],
-    [],
-  );
-  const kept = folded.slice(0, ends.filter((end) => end <= budget).length);
-  const cut = folded.length - kept.length;
-  return [
-    `<details><summary>${String(folded.length)} more</summary>`,
-    "",
-    ...kept.flatMap((c) => [c, ""]),
-    ...(cut > 0
-      ? [
-          `… and ${String(cut)} more — run \`npx vigiles audit\` locally for the full list`,
+    ...fit.slice(0, SHOWN_CHUNKS).flatMap((c) => [c, ""]),
+    ...(folded.length === 0
+      ? []
+      : [
+          `<details><summary>${String(folded.length)} more</summary>`,
           "",
-        ]
-      : []),
-    "</details>",
-    "",
+          ...folded.flatMap((c) => [c, ""]),
+          "</details>",
+          "",
+        ]),
+    ...(cut > 0 ? [cutLine(cut), ""] : []),
   ];
 }
 
@@ -264,17 +271,13 @@ function foldedChunks(folded: readonly string[]): readonly string[] {
  */
 function fitted(items: readonly string[], budget: number): readonly string[] {
   const lines = items.map((f) => `- ${f}`);
-  const ends = lines.reduce<readonly number[]>(
-    (acc, l) => [...acc, (acc.at(-1) ?? 0) + l.length + 1],
-    [],
+  const kept = keptCount(
+    lines.map((l) => l.length + 1),
+    budget,
   );
-  const kept = ends.filter((end) => end <= budget).length;
   return kept === lines.length
     ? lines
-    : [
-        ...lines.slice(0, kept),
-        `- … and ${String(lines.length - kept)} more — run \`npx vigiles audit\` locally for the full list`,
-      ];
+    : [...lines.slice(0, kept), `- ${cutLine(lines.length - kept)}`];
 }
 
 /**
@@ -297,7 +300,7 @@ function listed(items: readonly string[]): readonly string[] {
     "",
     `<details><summary>All ${String(items.length)} fixes</summary>`,
     "",
-    ...fitted(items, AUDIT_SUMMARY_MAX_CHARS - FRAME_CHARS),
+    ...fitted(items, FINDINGS_BUDGET),
     "",
     "</details>",
     "",

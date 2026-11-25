@@ -336,6 +336,25 @@ describe("renderAuditPrSummary — finding groups", () => {
   });
 });
 
+describe("renderAuditPrSummary — group budget", () => {
+  it("stays within its budget however many groups, and says how many it left out", () => {
+    const groups = Array.from({ length: 1000 }, (_, i) => ({
+      problem: `\`allowed-tools:\` pre-approves \`mcp__server_${String(i)}__tool\`, a trifecta leg`,
+      edit: "drop the pre-approval",
+      names: [`skill-${String(i)}`],
+    }));
+    const md = renderAuditPrSummary(
+      findingsOnly([
+        ring("Safety", 40, { findings: groups.map(groupLine), groups }),
+      ]),
+      { kind: "none" },
+    );
+    expect(md.length).toBeLessThanOrEqual(AUDIT_SUMMARY_MAX_CHARS);
+    expect(md).toMatch(/and \d+ more/);
+    expect(md.trimEnd().split("\n").at(-1)).toContain("npx vigiles audit");
+  });
+});
+
 describe("renderAuditPrSummary — ring findings and short fix lists", () => {
   it("keeps a table row one row when a finding holds a pipe or a newline", () => {
     const groups = [{ problem: "a | b\nc", edit: "e", names: ["u"] }];
