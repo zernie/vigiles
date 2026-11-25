@@ -685,15 +685,17 @@ function takeFolderRules(
  * and the dot-directory is not a subdirectory of the project in the vendor's
  * sense. It is empty-set-safe: every root candidate is already in `named` on
  * the paths that reach this today.
+ *
+ * `ruleRe` holds a folder's rules dir back for {@link takeFolderRules}: a file
+ * there is a rule whatever its name, so a `pkg/.claude/rules/AGENTS.md` beside
+ * a `pkg/.claude/rules/CLAUDE.md` is weighed as a rule, never superseded.
  */
-function takeSubdirectories(
-  b: Building,
-  leafNames: ReadonlySet<string>,
-  reserved: ReadonlySet<string>,
-): void {
+function takeSubdirectories(b: Building, pass: SubdirectoryPass): void {
+  const { leafNames, reserved, ruleRe } = pass;
   const named = new Set([...b.loaded, ...b.unloaded].map((e) => e.path));
   for (const path of Object.keys(b.files).sort()) {
     if (named.has(path) || reserved.has(path) || !path.includes("/")) continue;
+    if (ruleRe.test(path)) continue;
     if (isNeverRead(path)) continue;
     if (!leafNames.has(path.slice(path.lastIndexOf("/") + 1))) continue;
     const by = folderSuperseder(b, path);
@@ -708,6 +710,16 @@ function takeSubdirectories(
       });
     }
   }
+}
+
+/** What {@link takeSubdirectories} claims, and what it leaves to others. */
+interface SubdirectoryPass {
+  /** The instruction-file basenames this pass recognises. */
+  readonly leafNames: ReadonlySet<string>;
+  /** Root-level paths this chain owns, never a subdirectory file. */
+  readonly reserved: ReadonlySet<string>;
+  /** A folder's rules dir, left to {@link takeFolderRules}. */
+  readonly ruleRe: Readonly<RegExp>;
 }
 
 /**
@@ -997,11 +1009,11 @@ export function claudeCodeInstructionChain(
   // pass go first makes the question moot BY CONSTRUCTION: an imported file is
   // taken because a token names it, and what this pass then sees is exactly the
   // set nothing imported. The bound is untouched — no new path is read.
-  takeSubdirectories(
-    b,
-    new Set([input.instructionFile, AGENTS_FILE]),
-    new Set(crossToolPaths),
-  );
+  takeSubdirectories(b, {
+    leafNames: new Set([input.instructionFile, AGENTS_FILE]),
+    reserved: new Set(crossToolPaths),
+    ruleRe: input.folderRuleRe,
+  });
   takeFolderRules(b, input.folderRuleRe);
 
   // THE VERDICT, LAST: anything cross-tool that the passes above did not claim

@@ -4,8 +4,8 @@
  * `<folder>/CLAUDE.md` the first time a file in that folder is read, keeps it
  * until compaction, and since 2.1.309 cuts it past a per-file limit (150,000
  * characters on the 1M window of today's default models, 40,000 on a 200K
- * one). `context-creep` reports each such file over the adapter's limit as a
- * finding no baseline accepts; a 200K-window team lowers it by option.
+ * one). `context-truncation` reports each such file over the adapter's limit
+ * as a finding no baseline accepts; a 200K-window team lowers it by option.
  * The Codex twin is `src/adapters/codex/on-demand-lint.test.ts`.
  */
 import { spawnSync } from "node:child_process";
@@ -312,5 +312,17 @@ describe("the folder walk", () => {
     const r = run(["lint"]);
     // Guards: a checkout inside a dot-directory is a copy, not a folder of the repo.
     expect(failures(r.out)).toEqual([]);
+  });
+});
+
+describe("a file in a folder's rules dir", () => {
+  it("a rule named AGENTS.md beside a rule named CLAUDE.md is still weighed", () => {
+    put("pkg/.claude/rules/CLAUDE.md", sized(100));
+    put("pkg/.claude/rules/AGENTS.md", sized(LIMIT + 1));
+    const r = run(["lint"]);
+    // Guards: a file in a rules dir is a rule whatever its name; the
+    // instruction-file supersede check must not hide it.
+    expect(r.code).not.toBe(0);
+    expect(flags(r.out, "pkg/.claude/rules/AGENTS.md")).toBe(true);
   });
 });
