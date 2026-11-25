@@ -688,6 +688,10 @@ export function killOnAbort(
   return () => signal.aborted;
 }
 
+// Moves with #552: this subprocess group (resolveSpawnEnv … closedRun) spells
+// the `claude` CLI and belongs in src/adapters/claude-code/; the pipeline below
+// needs only the AgentRunner port. After the move, the timeout kill becomes an
+// Effect finalizer (acquireRelease + Effect.timeout), the last item of #527.
 /* v8 ignore start -- real claude subprocess; exercised by bench/, not the unit gate */
 /** The unguarded spawn itself; wrapped by {@link spawnAgent}, never bound raw. */
 function spawnAgentRaw(a: AgentRunArgs): Promise<RunOut> {
@@ -1155,6 +1159,7 @@ export function belowModelFloor(model: string, floor: string): boolean {
   return m !== null && f !== null && m < f;
 }
 
+// Moves with #552: the harness version is a Claude Code fact, like the spawn above.
 /* v8 ignore start -- spawns the real harness binary; memoized, cache-path only */
 let cachedHarnessVersion: string | undefined;
 /**
