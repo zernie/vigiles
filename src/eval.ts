@@ -1562,21 +1562,33 @@ type RetryingRunner = (beforeAttempt?: () => void) => AgentRunner;
 /**
  * Call `runner`, retrying with exponential backoff while it looks rate-limited.
  * `beforeAttempt` runs before every attempt, the first included: it resets the
- * state a discarded attempt would otherwise leave to the next.
+ * state a discarded attempt would otherwise leave to the next. The run's
+ * `signal` interrupts the backoff too, so a cancelled trial does not start the
+ * agent again once its wait ends (#527).
  */
-async function runWithRetry(
+function runWithRetry(
   runArgs: AgentRunArgs,
   runner: AgentRunner,
   retries: number,
   baseMs: number,
   beforeAttempt?: () => void,
 ): Promise<RunOut> {
-  for (let attempt = 0; ; attempt++) {
+  const attempt = (): Promise<RunOut> => {
     beforeAttempt?.();
-    const out = await runner(runArgs);
-    if (!isRateLimited(out) || attempt >= retries) return out;
-    await sleep(baseMs * 2 ** attempt);
-  }
+    return runner(runArgs);
+  };
+  return runEffect(
+    ({ Effect, Schedule }) =>
+      Effect.repeat(
+        Effect.tryPromise({ try: attempt, catch: (error) => error }),
+        {
+          schedule: Schedule.exponential(baseMs),
+          times: retries,
+          while: isRateLimited,
+        },
+      ),
+    runArgs.signal,
+  );
 }
 
 /**
@@ -1590,12 +1602,7 @@ export async function runPool<T, R>(
   concurrency: number,
   worker: (item: T, signal: Readonly<AbortSignal>) => Promise<R>,
 ): Promise<R[]> {
-  // A dynamic import, kept on purpose: `effect` is ESM-only, and the CommonJS
-  // copy this package ships for Jest is loaded by Jest's own module system,
-  // which cannot `require` ESM. Loading it here keeps it out of every import
-  // that never runs an eval pool, Jest's included.
-  const { Cause, Effect, Exit } = await import("effect");
-  const exit = await Effect.runPromiseExit(
+  return runEffect(({ Effect }) =>
     Effect.forEach(
       items,
       // The thunk must NAME its parameter: Effect passes the AbortSignal only
@@ -1608,9 +1615,32 @@ export async function runPool<T, R>(
       { concurrency: Math.max(1, concurrency) },
     ),
   );
-  if (Exit.isSuccess(exit)) return exit.value;
-  // The worker's own error, not Effect's wrapper: callers match on it.
-  throw Cause.squash(exit.cause);
+}
+
+type EffectModule = typeof import("effect");
+
+/**
+ * Run the Effect program `build` returns; `signal`, when given, interrupts it.
+ * Rejects with the program's own error, not Effect's wrapper: callers match on it.
+ *
+ * `effect` loads here, by a dynamic import kept on purpose: it is ESM-only, and
+ * the CommonJS copy this package ships for Jest is loaded by Jest's own module
+ * system, which cannot `require` ESM. Loading it on first use also keeps it out
+ * of every import that never runs an eval.
+ */
+async function runEffect<A>(
+  build: (
+    fx: Readonly<EffectModule>,
+  ) => Readonly<import("effect").Effect.Effect<A, unknown>>,
+  signal?: Readonly<AbortSignal>,
+): Promise<A> {
+  const fx = await import("effect");
+  const exit = await fx.Effect.runPromiseExit(
+    build(fx),
+    signal === undefined ? undefined : { signal },
+  );
+  if (fx.Exit.isSuccess(exit)) return exit.value;
+  throw fx.Cause.squash(exit.cause);
 }
 
 /** One unit of work: a single trial of a single arm. */
