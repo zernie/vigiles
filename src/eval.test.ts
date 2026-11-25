@@ -31,6 +31,7 @@ import {
   runEvalWith,
   runPool,
   killOnAbort,
+  refuseCancelled,
   isRateLimited,
   measureTriggerRateWith,
   measureTriggerRate,
@@ -2873,6 +2874,14 @@ test("a cancelled trial does not retry after its backoff (#527)", async () => {
   );
   await new Promise((r) => setTimeout(r, 300));
   assert.equal(attempts, 2);
+});
+
+test("refuseCancelled throws only for a run whose signal fired (#527)", () => {
+  assert.throws(() => {
+    refuseCancelled(AbortSignal.abort());
+  }, /trial cancelled/);
+  refuseCancelled(new AbortController().signal);
+  refuseCancelled(undefined);
 });
 
 // The built-in runner's half of #527: the signal kills the agent process, and

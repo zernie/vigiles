@@ -1085,9 +1085,12 @@ async function runWithCache(
 /**
  * Throw for a run whose signal fired. A cancelled run's output is partial:
  * replayed later it would count as a real trial, so it is neither recorded nor
- * returned to be scored (#527).
+ * returned to be scored (#527). The retry's interruption already stops most
+ * cancelled runs; this covers one that finished as the cancel arrived.
  */
-function refuseCancelled(signal: Readonly<AbortSignal> | undefined): void {
+export function refuseCancelled(
+  signal: Readonly<AbortSignal> | undefined,
+): void {
   if (signal?.aborted === true) throw new Error("trial cancelled");
 }
 
