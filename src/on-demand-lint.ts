@@ -1,5 +1,5 @@
 /**
- * The `on-demand-truncation` rule for `lint`: each instruction file the harness
+ * The `context-truncation` rule for `lint`: each instruction file the harness
  * loads after launch, against the harness's per-file cut (the detector is
  * core's `checkOnDemandFiles`, which `audit` runs too). Prints one line per
  * file over the cut, annotates it, and returns the counts `lint` sums.
@@ -34,7 +34,7 @@ export interface OnDemandLimitResult {
   readonly errors: number;
 }
 
-const HEADER = "On-demand truncation (files loaded after launch):";
+const HEADER = "Context truncation (files loaded after launch):";
 
 /** Whether a repo-relative path is the scanned bundle or inside it. */
 const inScope = (path: string, scope: string): boolean =>

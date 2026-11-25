@@ -1,5 +1,5 @@
 /**
- * The `on-demand-truncation` rule's CONFIG, through the REAL built CLI: its
+ * The `context-truncation` rule's CONFIG, through the REAL built CLI: its
  * `limit` option (a repository on a smaller window lowers the per-file cut)
  * and its independence from `context-creep` (each rule has its own switch).
  * The cut's other contracts are in `adapters/claude-code/on-demand-lint.test.ts`;

@@ -3137,7 +3137,7 @@ async function runLint(
     },
   });
 
-  // 7v'. On-demand truncation — each file loaded after launch (a folder's own
+  // 7v'. Context truncation — each file loaded after launch (a folder's own
   // instruction file, a path-scoped or folder rule) against the harness's
   // per-file cut. Once over the repository, like context-creep; no baseline.
   const onDemand = checkOnDemandLimit({

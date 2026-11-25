@@ -1,5 +1,5 @@
 /**
- * `on-demand-truncation` — an instruction file the harness loads AFTER launch
+ * `context-truncation` — an instruction file the harness loads AFTER launch
  * (a folder's own `CLAUDE.md`, a folder `AGENTS.md` with no `CLAUDE.md`
  * beside it, a `paths:` rule, a rule in a folder's own rules dir) is longer
  * than the harness delivers: Claude Code cuts it past a per-file limit, so the
@@ -15,7 +15,7 @@
  * cut on the 1M window its default models run). A repository whose sessions
  * run on a 200K window sets 40000. A threshold, not a second rule: one rule
  * has one severity, and the number is the repository's to set, as ESLint's
- * `max-lines` takes `max`. See docs/rules/on-demand-truncation.md.
+ * `max-lines` takes `max`. See docs/rules/context-truncation.md.
  */
 import { z } from "zod";
 
@@ -26,8 +26,8 @@ export const onDemandLimitOptions = z
   .object({ limit: z.number().int().positive().optional() })
   .strict();
 
-export const onDemandTruncation = defineRule({
-  id: "on-demand-truncation",
+export const contextTruncation = defineRule({
+  id: "context-truncation",
   group: "structural",
   bucket: "external-decidable",
   surface: ["instruction"],

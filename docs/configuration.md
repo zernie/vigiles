@@ -355,20 +355,20 @@ The size a repository accepted over a limit lives in `.vigiles/baseline.json`,
 written by `vigiles init` or `vigiles lint --update-baseline`, never by plain
 `lint`.
 
-#### `on-demand-truncation` limit
+#### `context-truncation` limit
 
-[`on-demand-truncation`](rules/on-demand-truncation.md) checks each file the
+[`context-truncation`](rules/context-truncation.md) checks each file the
 harness loads after launch (a folder's own `CLAUDE.md`, a path-scoped or
 folder rule) against the per-file cut: 150,000 characters on Claude Code, the
 cut every default model applies. If your sessions run on a 200K window, set
 that window's cut:
 
 ```json
-{ "rules": { "on-demand-truncation": ["error", { "limit": 40000 }] } }
+{ "rules": { "context-truncation": ["error", { "limit": 40000 }] } }
 ```
 
 `limit` is a positive integer in the harness's unit; anything else is a config
-error. The [rule doc](rules/on-demand-truncation.md#limit-if-your-team-runs-a-200k-window)
+error. The [rule doc](rules/context-truncation.md#limit-if-your-team-runs-a-200k-window)
 says why it is an option and not a second rule.
 
 ### `overrides`

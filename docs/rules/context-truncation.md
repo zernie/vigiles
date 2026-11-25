@@ -1,4 +1,4 @@
-# on-demand-truncation — a file loaded after launch fits the harness's per-file cut
+# context-truncation — a file loaded after launch fits the harness's per-file cut
 
 Some instruction files load **after** launch, not at session start:
 
@@ -29,7 +29,7 @@ The rule checks each such file against **150,000**: a file over it is cut on
 every model a user gets by default. Each file over it is one finding:
 
 ```
-On-demand truncation (files loaded after launch):
+Context truncation (files loaded after launch):
 
   ✗ pkg/CLAUDE.md is 163,402 chars, over the per-file cut of 150,000: the model gets only the start. Split it, or move lists and records to a file nothing loads; for a copy no session loads, add `**/<folder>/**` to `claudeMdExcludes` (.claude/settings.json).
 ```
@@ -66,7 +66,7 @@ what is left into files each under the cut.
 ## Configuration
 
 ```json
-{ "rules": { "on-demand-truncation": "error" } }
+{ "rules": { "context-truncation": "error" } }
 ```
 
 | Value               | Behavior                                                            |
@@ -85,7 +85,7 @@ Lower the cut to that window's in `.vigilesrc.json`:
 ```json
 {
   "rules": {
-    "on-demand-truncation": ["error", { "limit": 40000 }]
+    "context-truncation": ["error", { "limit": 40000 }]
   }
 }
 ```
