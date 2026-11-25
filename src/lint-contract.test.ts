@@ -23,6 +23,7 @@ import {
   readFileSync,
   existsSync,
   rmSync,
+  readdirSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -301,4 +302,109 @@ test("spec-refs is tierable, and silent when every ref is alive", () => {
   const warned = run(["lint", "."]);
   assert.equal(warned.code, 0, "warn does not fail the build");
   assert.match(warned.out, /guide\.md/, "…but still reports");
+});
+
+// --- #570: every finding line names its rule ------------------------------
+
+/** The rule ids a user can configure: each has its own page in docs/rules/. */
+function documentedRuleIds(): ReadonlySet<string> {
+  const docs = resolve(import.meta.dirname, "..", "docs", "rules");
+  return new Set(
+    readdirSync(docs)
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => f.slice(0, -".md".length)),
+  );
+}
+
+/** A repo that trips one rule from each way `lint` prints a finding. */
+function plantMixedFindings(root: string): void {
+  writeFileSync(
+    join(root, ".vigilesrc.json"),
+    JSON.stringify({
+      orphans: { include: ["docs/**/*.md"] },
+      rules: {
+        "skill-description-budget": "warn",
+        "orphan-docs": "error",
+        "hook-matcher": "error",
+        "frontmatter-valid": "warn",
+      },
+    }),
+  );
+  skill(root, "long", true);
+  const bad = join(root, "skills", "bad");
+  mkdirSync(bad, { recursive: true });
+  writeFileSync(
+    join(bad, "SKILL.md"),
+    `---\nname: bad\ndescription: Use when: <example>user: "x"</example>\n---\n\nBody.\n`,
+  );
+  mkdirSync(join(root, "docs"), { recursive: true });
+  writeFileSync(join(root, "docs", "orphan.md"), "# Orphan\n\nNo links.\n");
+  mkdirSync(join(root, ".claude"), { recursive: true });
+  writeFileSync(
+    join(root, ".claude", "settings.json"),
+    JSON.stringify({
+      hooks: {
+        PreToolUse: [
+          { matcher: "Wrte", hooks: [{ type: "command", command: "true" }] },
+        ],
+      },
+    }),
+  );
+  writeFileSync(join(root, "CLAUDE.md"), "# Project\n\nSee docs.\n");
+}
+
+/** `lint` as GitHub Actions runs it, so annotations are printed too. */
+function runInActions(args: string[]): string {
+  try {
+    return execFileSync("node", [CLI, ...args], {
+      cwd: dir,
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...humanCliEnv(process.env), GITHUB_ACTIONS: "true" },
+    });
+  } catch (e) {
+    const err = e as { stdout?: string; stderr?: string };
+    return `${err.stdout ?? ""}${err.stderr ?? ""}`;
+  }
+}
+
+test("every finding line and annotation names a documented rule (#570)", () => {
+  plantMixedFindings(dir);
+  const out = runInActions(["lint", "."]);
+  const known = documentedRuleIds();
+
+  const marked = out
+    .split("\n")
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("✗") || l.startsWith("⚠"));
+  const annotations = out
+    .split("\n")
+    .filter((l) => /^::(error|warning)\b/.test(l))
+    .map((l) => l.slice(l.indexOf("::", 2) + 2));
+
+  const idOf = (text: string): string | undefined =>
+    /^\[([a-z0-9-]+)\] /.exec(text)?.[1];
+  const named = new Set<string>();
+  for (const line of marked) {
+    const id = idOf(line.slice(2));
+    // Guards: a finding line the reader cannot trace to a rule to configure.
+    assert.ok(id !== undefined && known.has(id), `no rule id: ${line}`);
+    named.add(id);
+  }
+  for (const note of annotations) {
+    const id = idOf(note);
+    // Guards: an annotation on a PR that does not say which rule raised it.
+    assert.ok(id !== undefined && known.has(id), `no rule id: ${note}`);
+  }
+
+  // Guards: the filter above saw the planted findings, not an empty output.
+  for (const id of [
+    "skill-description-budget",
+    "orphan-docs",
+    "hook-matcher",
+    "frontmatter-valid",
+    "lethal-trifecta",
+  ]) {
+    assert.ok(named.has(id), `planted ${id} finding not printed with its id`);
+  }
 });
