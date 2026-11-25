@@ -40,7 +40,7 @@ function lint(): string {
 const annotated = (out: string): string[] =>
   [
     ...out.matchAll(
-      /^::(?:warning|error) file=([^:,]+)::skill \S+ ships without a test/gm,
+      /^::(?:warning|error) file=([^:,]+)::\[[a-z-]+\] skill \S+ ships without a test/gm,
     ),
   ].map((m) => m[1]);
 
