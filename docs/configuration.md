@@ -340,9 +340,13 @@ part for this repository:
 - Each value is a **positive integer in the harness's own unit**: characters
   for Claude Code, bytes for Codex. A part you leave out keeps the harness's
   number.
-- The keys are `instructions` (the selected output style counts with them) and
-  `skill-listing`. Anything else, `0`, a fraction or a string is refused by the
-  strict schema, and `lint` stops with the config error.
+- The keys are `instructions` (the selected output style counts with them),
+  `skill-listing`, and `on-demand-file`: the per-file cut on a file loaded
+  after launch, such as a folder's own `CLAUDE.md` (150,000 characters on
+  Claude Code; set `40000` if your sessions run on a 200K window, see the
+  [rule doc](rules/context-creep.md#if-your-team-runs-a-200k-window)).
+  Anything else, `0`, a fraction or a string is refused by the strict schema,
+  and `lint` stops with the config error.
 - The override applies to `lint`, `compile` and `init`. `vigiles audit`
   reports against the harness's own limits.
 - A committed `skillListingBudgetFraction` (Claude Code) or `[skills]

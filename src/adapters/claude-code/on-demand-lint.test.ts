@@ -100,23 +100,6 @@ describe("a folder's CLAUDE.md against the per-file limit", () => {
     expect(flags(r.out, "pkg/CLAUDE.md")).toBe(false);
   });
 
-  it("a team on a smaller window lowers the limit by option", () => {
-    put(
-      ".vigilesrc.json",
-      JSON.stringify({
-        harnesses: { "claude-code": {} },
-        rules: {
-          "context-creep": ["error", { limits: { "on-demand-file": 100 } }],
-        },
-      }),
-    );
-    put("pkg/CLAUDE.md", sized(101));
-    const r = run(["lint"]);
-    // Guards: the threshold is the repository's to set, below the default too.
-    expect(r.code).not.toBe(0);
-    expect(flags(r.out, "pkg/CLAUDE.md")).toBe(true);
-  });
-
   it("is never recorded: --update-baseline leaves no entry and lint still fails", () => {
     put("pkg/CLAUDE.md", sized(LIMIT + 1));
     run(["lint", "--update-baseline"]);

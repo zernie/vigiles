@@ -14,6 +14,11 @@ So a repository far under the limits never pays for a gate it does not need,
 and a repository already several times over starts green and fails only when
 it gets heavier.
 
+One more check rides on this rule and works differently: a file the harness
+loads **later**, such as a folder's own `CLAUDE.md`, fails as soon as it is
+longer than the harness delivers, with no baseline. See
+[Files loaded on demand](#files-loaded-on-demand).
+
 The rule itself is stateless: it measures and compares against the limit. The
 baseline store is applied **after** the rule has produced its findings, the way
 ESLint applies bulk suppressions: the rule never reads the store, and the store
@@ -207,7 +212,9 @@ every model a user gets by default. Each file over it is one finding:
 ✗ pkg/CLAUDE.md is 163,402 chars, over the per-file cut of 150,000 (40,000 on a 200K-window model; since Claude Code 2.1.309): …
 ```
 
-If your team runs a 200K window, lower the limit to that window's cut:
+### If your team runs a 200K window
+
+Lower the limit to that window's cut in `.vigilesrc.json`:
 
 ```json
 {
@@ -216,6 +223,17 @@ If your team runs a 200K window, lower the limit to that window's cut:
   }
 }
 ```
+
+Which window a session runs is a per-machine fact (the model each person
+picks, an environment variable), so vigiles cannot read it from the
+repository. The default is the cut that applies to everyone who did not choose
+otherwise; a team that knows it runs the smaller window says so once.
+
+This is a threshold, not a second rule, for the same reason ESLint's
+`max-lines` takes `max` as an option: one rule has one severity, and the
+number it checks is the repository's to set. Two rules (an error at 150,000
+and a warning at 40,000) would warn most repositories about a setup they do
+not use.
 
 What is different from the rest of this rule:
 
@@ -371,11 +389,11 @@ is written. Run `--update-baseline` once more to accept the current size.
 { "rules": { "context-creep": "error" } }
 ```
 
-| Value               | Behavior                                                                 |
-| ------------------- | ------------------------------------------------------------------------ |
-| `"error"` (default) | `vigiles lint` exits 2 when a part over its limit grew past the baseline |
-| `"warn"`            | Prints the finding, exits 0                                              |
-| `false`             | Skip the check (and `init` records nothing)                              |
+| Value               | Behavior                                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `"error"` (default) | `vigiles lint` exits 2 when a part over its limit grew past the baseline, or when a file loaded on demand is over the cut |
+| `"warn"`            | Prints the finding, exits 0                                                                                               |
+| `false`             | Skip the check (and `init` records nothing)                                                                               |
 
 On by default because a repository under every limit sees nothing, and one
 over a limit with no baseline sees a note.
@@ -394,8 +412,9 @@ over a limit with no baseline sees a note.
 ```
 
 `on-demand-file` moves the per-file cut on files loaded after launch
-([below](#files-loaded-on-demand)): down to 40,000 for a repository whose
-sessions run on a 200K window.
+([Files loaded on demand](#files-loaded-on-demand)): down to 40,000 for a
+repository whose sessions run on a 200K window
+([why](#if-your-team-runs-a-200k-window)).
 
 Each value is a positive integer in the harness's own unit (characters for
 Claude Code, bytes for Codex). A part left out keeps the harness's number. An
