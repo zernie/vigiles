@@ -16,6 +16,7 @@
     "composition.ts",
     "hook-fired.ts",
     "check-options.ts",
+    "eval-spec-schema.ts",
     "../../examples/**/*.spec.ts"
   ]
 }

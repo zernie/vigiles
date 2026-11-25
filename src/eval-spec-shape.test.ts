@@ -113,3 +113,10 @@ test("stubSkillBodies with nothing to stub, or beside a judged check, is refused
     /`stubSkillBodies` is for firing/,
   );
 });
+
+test("a spec that is not an object is refused by the schema, not read as an empty one", () => {
+  assert.throws(
+    () => shapeEvalSpec(asSpec("a task string")),
+    /^Error: runEval: .*this spec has neither/s,
+  );
+});
