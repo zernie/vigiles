@@ -31,6 +31,7 @@ import {
   runEvalWith,
   runPool,
   killOnAbort,
+  refuseCancelled,
   isRateLimited,
   measureTriggerRateWith,
   measureTriggerRate,
@@ -2842,6 +2843,45 @@ test("a cancelled run never enters the replay cache (#527)", async () => {
     [],
   );
   cleanupTmpDir(cacheDir);
+});
+
+// vigiles#527: a trial waiting out its rate-limit backoff ignored the cancel,
+// slept to the end and started the agent again.
+test("a cancelled trial does not retry after its backoff (#527)", async () => {
+  const limited = { code: 1, stdout: "", stderr: "rate limit exceeded" };
+  let attempts = 0;
+  // The first call (one trial) is rate-limited, the second (the other trial)
+  // fails; a third would be the cancelled trial retrying after its backoff.
+  const runner = (): Promise<typeof limited> =>
+    ++attempts === 1
+      ? Promise.resolve(limited)
+      : Promise.reject(new Error("the other trial failed"));
+  await assert.rejects(
+    runEvalWith(
+      {
+        env: INHERIT,
+        arms: { a: {}, b: {} },
+        task: "t",
+        trials: 1,
+        spacingSec: 0,
+        concurrency: 2,
+        retryBackoffMs: 200,
+        measure: () => ({ ok: true }),
+      },
+      runner,
+    ),
+    /the other trial failed/,
+  );
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(attempts, 2);
+});
+
+test("refuseCancelled throws only for a run whose signal fired (#527)", () => {
+  assert.throws(() => {
+    refuseCancelled(AbortSignal.abort());
+  }, /trial cancelled/);
+  refuseCancelled(new AbortController().signal);
+  refuseCancelled(undefined);
 });
 
 // The built-in runner's half of #527: the signal kills the agent process, and

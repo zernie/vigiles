@@ -688,6 +688,10 @@ export function killOnAbort(
   return () => signal.aborted;
 }
 
+// Moves with #552: this subprocess group (resolveSpawnEnv … closedRun) spells
+// the `claude` CLI and belongs in src/adapters/claude-code/; the pipeline below
+// needs only the AgentRunner port. After the move, the timeout kill becomes an
+// Effect finalizer (acquireRelease + Effect.timeout), the last item of #527.
 /* v8 ignore start -- real claude subprocess; exercised by bench/, not the unit gate */
 /** The unguarded spawn itself; wrapped by {@link spawnAgent}, never bound raw. */
 function spawnAgentRaw(a: AgentRunArgs): Promise<RunOut> {
@@ -1081,9 +1085,12 @@ async function runWithCache(
 /**
  * Throw for a run whose signal fired. A cancelled run's output is partial:
  * replayed later it would count as a real trial, so it is neither recorded nor
- * returned to be scored (#527).
+ * returned to be scored (#527). The retry's interruption already stops most
+ * cancelled runs; this covers one that finished as the cancel arrived.
  */
-function refuseCancelled(signal: Readonly<AbortSignal> | undefined): void {
+export function refuseCancelled(
+  signal: Readonly<AbortSignal> | undefined,
+): void {
   if (signal?.aborted === true) throw new Error("trial cancelled");
 }
 
@@ -1155,6 +1162,7 @@ export function belowModelFloor(model: string, floor: string): boolean {
   return m !== null && f !== null && m < f;
 }
 
+// Moves with #552: the harness version is a Claude Code fact, like the spawn above.
 /* v8 ignore start -- spawns the real harness binary; memoized, cache-path only */
 let cachedHarnessVersion: string | undefined;
 /**
@@ -1562,21 +1570,33 @@ type RetryingRunner = (beforeAttempt?: () => void) => AgentRunner;
 /**
  * Call `runner`, retrying with exponential backoff while it looks rate-limited.
  * `beforeAttempt` runs before every attempt, the first included: it resets the
- * state a discarded attempt would otherwise leave to the next.
+ * state a discarded attempt would otherwise leave to the next. The run's
+ * `signal` interrupts the backoff too, so a cancelled trial does not start the
+ * agent again once its wait ends (#527).
  */
-async function runWithRetry(
+function runWithRetry(
   runArgs: AgentRunArgs,
   runner: AgentRunner,
   retries: number,
   baseMs: number,
   beforeAttempt?: () => void,
 ): Promise<RunOut> {
-  for (let attempt = 0; ; attempt++) {
+  const attempt = (): Promise<RunOut> => {
     beforeAttempt?.();
-    const out = await runner(runArgs);
-    if (!isRateLimited(out) || attempt >= retries) return out;
-    await sleep(baseMs * 2 ** attempt);
-  }
+    return runner(runArgs);
+  };
+  return runEffect(
+    ({ Effect, Schedule }) =>
+      Effect.repeat(
+        Effect.tryPromise({ try: attempt, catch: (error) => error }),
+        {
+          schedule: Schedule.exponential(baseMs),
+          times: retries,
+          while: isRateLimited,
+        },
+      ),
+    runArgs.signal,
+  );
 }
 
 /**
@@ -1590,12 +1610,7 @@ export async function runPool<T, R>(
   concurrency: number,
   worker: (item: T, signal: Readonly<AbortSignal>) => Promise<R>,
 ): Promise<R[]> {
-  // A dynamic import, kept on purpose: `effect` is ESM-only, and the CommonJS
-  // copy this package ships for Jest is loaded by Jest's own module system,
-  // which cannot `require` ESM. Loading it here keeps it out of every import
-  // that never runs an eval pool, Jest's included.
-  const { Cause, Effect, Exit } = await import("effect");
-  const exit = await Effect.runPromiseExit(
+  return runEffect(({ Effect }) =>
     Effect.forEach(
       items,
       // The thunk must NAME its parameter: Effect passes the AbortSignal only
@@ -1608,9 +1623,32 @@ export async function runPool<T, R>(
       { concurrency: Math.max(1, concurrency) },
     ),
   );
-  if (Exit.isSuccess(exit)) return exit.value;
-  // The worker's own error, not Effect's wrapper: callers match on it.
-  throw Cause.squash(exit.cause);
+}
+
+type EffectModule = typeof import("effect");
+
+/**
+ * Run the Effect program `build` returns; `signal`, when given, interrupts it.
+ * Rejects with the program's own error, not Effect's wrapper: callers match on it.
+ *
+ * `effect` loads here, by a dynamic import kept on purpose: it is ESM-only, and
+ * the CommonJS copy this package ships for Jest is loaded by Jest's own module
+ * system, which cannot `require` ESM. Loading it on first use also keeps it out
+ * of every import that never runs an eval.
+ */
+async function runEffect<A>(
+  build: (
+    fx: Readonly<EffectModule>,
+  ) => Readonly<import("effect").Effect.Effect<A, unknown>>,
+  signal?: Readonly<AbortSignal>,
+): Promise<A> {
+  const fx = await import("effect");
+  const exit = await fx.Effect.runPromiseExit(
+    build(fx),
+    signal === undefined ? undefined : { signal },
+  );
+  if (fx.Exit.isSuccess(exit)) return exit.value;
+  throw fx.Cause.squash(exit.cause);
 }
 
 /** One unit of work: a single trial of a single arm. */

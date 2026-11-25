@@ -5281,10 +5281,10 @@
       "count": 9
     },
     "functional/no-let": {
-      "count": 13
+      "count": 12
     },
     "functional/no-loop-statements": {
-      "count": 18
+      "count": 17
     },
     "functional/prefer-immutable-types": {
       "count": 39
