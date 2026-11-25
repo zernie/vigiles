@@ -220,8 +220,11 @@ What is different from the rest of this rule:
   folder loads the moment a file there is read. If no session should load it,
   say so where the harness reads it: a `**/<folder>/**` pattern in
   `claudeMdExcludes` (`.claude/settings.json`). An `exclude` in
-  `.vigilesrc.json` also stops vigiles from reading it, but the harness still
+  `.vigilesrc.json` only stops vigiles from reporting it: the harness still
   loads it.
+- **Imports are not weighed yet.** A file that an on-demand file imports with
+  `@` loads with it and is cut the same way, but this check does not read it
+  yet ([#560](https://github.com/zernie/vigiles/issues/560)).
 - **Codex is not modelled.** Codex builds its chain once, from the root to the
   folder it starts in, and cuts the sum; `vigiles audit` says this check is
   not modelled there.
