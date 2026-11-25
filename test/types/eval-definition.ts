@@ -56,20 +56,20 @@ defineEval({
 });
 
 // Scoring is exactly one of `checks` and `measure`.
+// @ts-expect-error `checks` and `measure` cannot both score a trial
 const both: EvalSpec = {
   env,
   task: "t",
-  // @ts-expect-error `checks` and `measure` cannot both score a trial
   checks: [check.tool("Bash")],
   measure: () => ({ ok: 1 }),
 };
 // @ts-expect-error a spec with neither `checks` nor `measure` scores nothing
 const neither: EvalSpec = { env, task: "t" };
 // The one-arm fields belong to a spec with no `arms`.
+// @ts-expect-error `pluginDir` beside `arms`: set it on each arm instead
 const armsAndTop: EvalSpec = {
   env,
   arms: { a: {} },
-  // @ts-expect-error `pluginDir` beside `arms`: set it on each arm instead
   pluginDir: ".",
   task: "t",
   checks: [check.tool("Bash")],
@@ -86,9 +86,9 @@ defineEval({
   runEval: { task: "t", checks: [check.tool("Bash")] },
 });
 // `home` exists only on an ephemeral env — "seed my real HOME" cannot be written.
+// @ts-expect-error no `home` on an inherited env
 defineEval({
   runEval: {
-    // @ts-expect-error no `home` on an inherited env
     env: { kind: "inherit", reason: "r", home: { kind: "files", files: {} } },
     arms: {},
     task: "t",
@@ -101,9 +101,9 @@ defineEval({
 });
 
 // The report is the DECLARED measurement's, not any other's.
+// @ts-expect-error a TriggerRateReport is not an EvalReport
 defineEval({
   measureTriggerRate: { prompts: [], fired: () => true },
-  // @ts-expect-error a TriggerRateReport is not an EvalReport
   assert: (r: EvalReport) => void r.arms,
 });
 

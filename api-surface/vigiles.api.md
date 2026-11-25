@@ -130,7 +130,13 @@ export type ContextEvidence =
 };
 
 // @public
-export function defineEval<K extends EvalKind>(def: EvalDefinitionInput<K>): EvalDefinition<K>;
+export function defineEval(def: EvalDefinitionInput<"runEval">): EvalDefinition<"runEval">;
+
+// @public
+export function defineEval(def: EvalDefinitionInput<"measureTriggerRate">): EvalDefinition<"measureTriggerRate">;
+
+// @public
+export function defineEval(def: EvalDefinitionInput<"measureSelectionMatrix">): EvalDefinition<"measureSelectionMatrix">;
 
 // @public
 export type DeliveryChannel =

@@ -303,6 +303,8 @@ export function ranAsEntryRefusal(argv1: string): string {
   );
 }
 
+/* eslint-disable no-redeclare -- TypeScript function overloads (the base
+   no-redeclare rule, unlike @typescript-eslint/no-redeclare, flags them) */
 /**
  * Declare the eval a file describes. Returns a plain, branded value; it starts
  * nothing, spends nothing, and touches no filesystem.
@@ -326,6 +328,28 @@ export function ranAsEntryRefusal(argv1: string): string {
  *
  * @public
  */
+export function defineEval(
+  def: EvalDefinitionInput<"runEval">,
+): EvalDefinition<"runEval">;
+/**
+ * Declare a `measureTriggerRate` eval: `assert` gets its report type.
+ *
+ * @public
+ */
+export function defineEval(
+  def: EvalDefinitionInput<"measureTriggerRate">,
+): EvalDefinition<"measureTriggerRate">;
+/**
+ * Declare a `measureSelectionMatrix` eval: `assert` gets its report type.
+ *
+ * @public
+ */
+export function defineEval(
+  def: EvalDefinitionInput<"measureSelectionMatrix">,
+): EvalDefinition<"measureSelectionMatrix">;
+// One signature per measurement, not one generic in `K`: inferred from the
+// literal, `K` took every key of it (`assert` included), broke its constraint
+// and fell back to EVERY kind, so `assert` got the union of all three reports.
 export function defineEval<K extends EvalKind>(
   def: EvalDefinitionInput<K>,
 ): EvalDefinition<K> {
@@ -335,3 +359,4 @@ export function defineEval<K extends EvalKind>(
     throw new Error(ranAsEntryRefusal(argv1));
   return { ...def, [EVAL_DEFINITION]: true };
 }
+/* eslint-enable no-redeclare */
