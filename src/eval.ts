@@ -24,7 +24,7 @@
  */
 import { refuseUnderForeignRunner } from "./core/foreign-runner.js";
 import { refuseDuringEvalLoad } from "./core/eval-load-phase.js";
-import { spawn, execSync } from "node:child_process";
+import { spawn, execSync, type ChildProcess } from "node:child_process";
 import {
   mkdirSync,
   writeFileSync,
@@ -670,6 +670,24 @@ export const spawnAgent: AgentRunner = withEffortGuard(
   withStartGuard(spawnAgentRaw),
 );
 
+/**
+ * Kill `child` when `signal` fires: the eval no longer needs the run, because
+ * another trial failed (#527). Returns whether it fired, so a cancelled run is
+ * not read as a timeout and charged its whole budget cap (#416).
+ */
+export function killOnAbort(
+  child: Readonly<Pick<ChildProcess, "kill">>,
+  signal: Readonly<AbortSignal> | undefined,
+): () => boolean {
+  if (signal === undefined) return () => false;
+  const kill = (): void => {
+    child.kill("SIGKILL");
+  };
+  if (signal.aborted) kill();
+  else signal.addEventListener("abort", kill, { once: true });
+  return () => signal.aborted;
+}
+
 /* v8 ignore start -- real claude subprocess; exercised by bench/, not the unit gate */
 /** The unguarded spawn itself; wrapped by {@link spawnAgent}, never bound raw. */
 function spawnAgentRaw(a: AgentRunArgs): Promise<RunOut> {
@@ -689,10 +707,12 @@ function spawnAgentRaw(a: AgentRunArgs): Promise<RunOut> {
     child.stdout.on("data", (d: Buffer) => (stdout += d.toString()));
     child.stderr.on("data", (d: Buffer) => (stderr += d.toString()));
     const timer = setTimeout(() => child.kill("SIGKILL"), a.timeoutMs);
+    const cancelled = killOnAbort(child, a.signal);
     child.on("close", (code, signal) => {
       clearTimeout(timer);
-      // The only kill is the timer's, so `killed` says the timeout fired.
-      const timedOut = child.killed;
+      // Two kills: the timer's and a cancel's, so a kill is a timeout only
+      // when the run was not cancelled.
+      const timedOut = child.killed && !cancelled();
       resolvePromise(closedRun({ code, signal, timedOut, stdout, stderr }));
     });
   });
@@ -1045,6 +1065,7 @@ async function runWithCache(
     };
   }
   const out = await runner(runArgs);
+  refuseCancelled(runArgs.signal);
   const seen = collect();
   if (cfg.cache === "readwrite") {
     writeCache(cfg.cacheDir, key, {
@@ -1055,6 +1076,15 @@ async function runWithCache(
     });
   }
   return { out, ...seen };
+}
+
+/**
+ * Throw for a run whose signal fired. A cancelled run's output is partial:
+ * replayed later it would count as a real trial, so it is neither recorded nor
+ * returned to be scored (#527).
+ */
+function refuseCancelled(signal: Readonly<AbortSignal> | undefined): void {
+  if (signal?.aborted === true) throw new Error("trial cancelled");
 }
 
 /** What a trial observed besides its output: stub calls and context evidence. */
@@ -1372,11 +1402,15 @@ interface TrialOutcome<M extends Metrics> {
 async function executeTrial(
   spec: ParsedEvalSpec,
   arm: EvalArm,
-  trial: { readonly index: number; readonly maxBudgetUsd?: number },
+  trial: {
+    readonly index: number;
+    readonly maxBudgetUsd?: number;
+    readonly signal?: AbortSignal;
+  },
   retrying: RetryingRunner,
   cfg: RunConfig,
 ): Promise<TrialOutcome<Metrics>> {
-  const { index: trialIndex, maxBudgetUsd } = trial;
+  const { index: trialIndex, maxBudgetUsd, signal } = trial;
   // Resolved before any temp dir exists, so a bad plugin leaves nothing behind.
   const resolved = resolveHarness({
     plugin: arm.plugin,
@@ -1429,6 +1463,7 @@ async function executeTrial(
         pluginDir: arm.pluginDir,
         timeoutMs: cfg.timeoutMs,
         ...(maxBudgetUsd === undefined ? {} : { maxBudgetUsd }),
+        ...(signal === undefined ? {} : { signal }),
         // The request-body channel is added here, not in `run`: it is an
         // observation, not an input, so it stays out of the cache key.
         env:
@@ -1544,34 +1579,38 @@ async function runWithRetry(
   }
 }
 
-/** Map `worker` over `items` with at most `concurrency` in flight, order preserved. */
+/**
+ * Map `worker` over `items` with at most `concurrency` in flight, order
+ * preserved. When one worker fails, the others are interrupted: the `signal`
+ * each received fires, so a run in flight can stop instead of spending until
+ * its own timeout (#527). A worker that ignores the signal runs to its end.
+ */
 export async function runPool<T, R>(
   items: readonly T[],
   concurrency: number,
-  worker: (item: T) => Promise<R>,
+  worker: (item: T, signal: Readonly<AbortSignal>) => Promise<R>,
 ): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  // A worker that throws rejects the whole pool; the others must stop taking
-  // items then, or they keep starting (and paying for) work nobody will read.
-  const stop = new AbortController();
-  let next = 0;
-  const drain = async (): Promise<void> => {
-    for (;;) {
-      if (stop.signal.aborted) return;
-      const i = next++;
-      const item = items[i];
-      if (i >= items.length || item === undefined) return;
-      try {
-        results[i] = await worker(item);
-      } catch (e) {
-        stop.abort();
-        throw e;
-      }
-    }
-  };
-  const workers = Math.max(1, Math.min(concurrency, items.length || 1));
-  await Promise.all(Array.from({ length: workers }, drain));
-  return results;
+  // A dynamic import, kept on purpose: `effect` is ESM-only, and the CommonJS
+  // copy this package ships for Jest is loaded by Jest's own module system,
+  // which cannot `require` ESM. Loading it here keeps it out of every import
+  // that never runs an eval pool, Jest's included.
+  const { Cause, Effect, Exit } = await import("effect");
+  const exit = await Effect.runPromiseExit(
+    Effect.forEach(
+      items,
+      // The thunk must NAME its parameter: Effect passes the AbortSignal only
+      // to a callback that declares one.
+      (item) =>
+        Effect.tryPromise({
+          try: (signal) => worker(item, signal),
+          catch: (error) => error,
+        }),
+      { concurrency: Math.max(1, concurrency) },
+    ),
+  );
+  if (Exit.isSuccess(exit)) return exit.value;
+  // The worker's own error, not Effect's wrapper: callers match on it.
+  throw Cause.squash(exit.cause);
 }
 
 /** One unit of work: a single trial of a single arm. */
@@ -2097,7 +2136,10 @@ async function runResolvedEval(
   // `concurrency` caps. Reserving each cap at start would hold the line but
   // serialize the pool behind the first trial; needs its own design.
   let stopped: "budget" | "unanswered" | undefined;
-  const worker = async (unit: Unit): Promise<UnitResult<Metrics>> => {
+  const worker = async (
+    unit: Unit,
+    signal: Readonly<AbortSignal>,
+  ): Promise<UnitResult<Metrics>> => {
     if (stopped !== undefined) return { armName: unit.armName, skipped: true };
     // The run's own cap: the budget not yet charged. Past it the CLI ends the
     // turn and reports its cost; a run killed first is charged the cap.
@@ -2109,6 +2151,7 @@ async function runResolvedEval(
         unit.arm,
         {
           index: unit.trialIndex,
+          signal,
           ...(cap === undefined ? {} : { maxBudgetUsd: cap }),
         },
         retrying,

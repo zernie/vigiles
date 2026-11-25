@@ -5278,13 +5278,13 @@
       "count": 4
     },
     "functional/immutable-data": {
-      "count": 10
+      "count": 9
     },
     "functional/no-let": {
-      "count": 14
+      "count": 13
     },
     "functional/no-loop-statements": {
-      "count": 19
+      "count": 18
     },
     "functional/prefer-immutable-types": {
       "count": 39
@@ -5296,7 +5296,7 @@
       "count": 1
     },
     "max-lines-per-function": {
-      "count": 21
+      "count": 20
     },
     "max-params": {
       "count": 6
@@ -5308,7 +5308,7 @@
       "count": 11
     },
     "sonarjs/cognitive-complexity": {
-      "count": 12
+      "count": 11
     },
     "sonarjs/different-types-comparison": {
       "count": 1

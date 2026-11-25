@@ -180,6 +180,13 @@ export interface AgentRunArgs {
   readonly pluginDir: string | undefined;
   readonly timeoutMs: number;
   /**
+   * Fires when the eval no longer needs this run: another trial failed, or the
+   * run was cancelled. A runner should stop its agent when it fires — the built-in
+   * one kills the process — because a run nobody will read still spends. Optional,
+   * so a runner that ignores it stays valid; it then runs to its own `timeoutMs`.
+   */
+  readonly signal?: AbortSignal;
+  /**
    * The most this one run may spend, in USD, handed to the harness as its own
    * per-run cap (`claude --max-budget-usd`). Set by `runEval` under `maxCostUsd`
    * to the budget still unspent and unreserved, so a run that would cross the

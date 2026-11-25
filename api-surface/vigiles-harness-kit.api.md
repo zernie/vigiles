@@ -25,6 +25,7 @@ export interface AgentRunArgs {
     // (undocumented)
     readonly pluginDir: string | undefined;
     readonly replaceEnv?: boolean;
+    readonly signal?: AbortSignal;
     // (undocumented)
     readonly task: string;
     // (undocumented)

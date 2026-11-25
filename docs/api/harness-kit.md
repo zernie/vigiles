@@ -137,7 +137,7 @@ executableSourceDirs(claudeCodeAdapter.layout); // the same plus "hooks"
 - `HarnessTestDriver`: what a harness brings so `runHarnessTest` can drive it: arguments, mock, parser.
 - `EvalDriver`: what a harness brings for the paid runners: a runner, an output parser, and an optional experimental caveat.
 - `AgentRunner`: runs one trial and returns its raw output.
-- `AgentRunArgs`: the per-trial arguments an `AgentRunner` receives.
+- `AgentRunArgs`: the per-trial arguments an `AgentRunner` receives. Its optional `signal` fires when the eval no longer needs the run, because another trial failed: stop the agent when it fires. The built-in runner kills its process; a runner that ignores the signal runs to its own `timeoutMs`.
 - `ModelOutputParser`: maps a trial's raw output to run facts.
 - `ParsedModelRun`: those facts: output, tool calls, turns, hooks, subagents and usage.
 - `RunOut`: a trial's raw output: exit code, streams and timeout flag.

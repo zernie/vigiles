@@ -191,6 +191,9 @@ export const APP_LIBRARIES = [
   "node:url",
   "module",
   "node:module",
+  // Effect's core: effects as values, run by the caller (vigiles#527). Only the
+  // root entry: `effect/process`, `effect/http` and the like do I/O.
+  "effect",
 ];
 
 const ORIGINS = ["external", "core"];
