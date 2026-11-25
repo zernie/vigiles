@@ -118,3 +118,12 @@ test("an override at warn reports the folder without failing", () => {
   expect(r.out).toContain(`⚠ [${TRUNCATION}] pkg/CLAUDE.md is`);
   expect(r.code).toBe(0);
 });
+
+test("--summary never says clean while a file is over the cut", () => {
+  put(".vigilesrc.json", config({ [TRUNCATION]: ["error", { limit: 100 }] }));
+  const r = run(["lint", "--summary"]);
+  // Guards: the session-start hook reads this line and ignores the exit code.
+  expect(r.code).not.toBe(0);
+  expect(r.out).not.toContain("vigiles: clean");
+  expect(r.out).toMatch(/vigiles: .*1 truncated instruction file/);
+});

@@ -3401,6 +3401,21 @@ async function runLint(
 }
 
 /** Single-line lint summary for SessionStart hooks — minimal token cost. */
+/**
+ * The summary line's text. Never "clean" while `lint` counted a finding: a check
+ * this list does not name still shows as a count, because the session-start
+ * hook reads this line and ignores the exit code.
+ */
+export function summaryText(
+  parts: readonly string[],
+  findings: number,
+): string {
+  if (parts.length > 0) return parts.join(" / ");
+  return findings > 0
+    ? `${String(findings)} finding(s), run \`vigiles lint\` for details`
+    : "clean";
+}
+
 function printLintSummary(report: LintReport): void {
   const parts: string[] = [];
   if (report.hashErrors > 0) parts.push(`${String(report.hashErrors)} stale`);
@@ -3433,11 +3448,15 @@ function printLintSummary(report: LintReport): void {
     parts.push(
       `${String(report.integrityErrors)} tampered (edit the .spec.ts source)`,
     );
-  if (parts.length === 0) {
-    console.log("vigiles: clean");
-  } else {
-    console.log(`vigiles: ${parts.join(" / ")}`);
-  }
+  const truncated =
+    report.onDemandIssues > 0
+      ? [
+          `${String(report.onDemandIssues)} truncated instruction file(s) (split them)`,
+        ]
+      : [];
+  console.log(
+    `vigiles: ${summaryText([...parts, ...truncated], lintTotals(report).findings)}`,
+  );
   // One extra line per note, only when there is one: the command to record or
   // migrate the baseline reaches the agent through the session-start hook.
   report.contextCreepNotes.forEach((note) => {
