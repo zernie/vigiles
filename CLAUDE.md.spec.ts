@@ -547,6 +547,14 @@ BUILD + TOOLING + GENERATED:
       },
     ),
 
+    "one-schema-not-two-guards": guidance(
+      "Supporting JavaScript callers does not mean re-writing the TypeScript types as hand-written runtime guards: a public input that must be checked at run time is described ONCE, as a schema (Zod), and the type is derived from it or bound to it by a compile-time test.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "one-schema-not-two-guards",
+      },
+    ),
+
     "analogical-transfer": guidance(
       "Find non-obvious checks by analogical transfer: map a mature CS principle onto the harness, even when it looks crazy at first.",
       {
