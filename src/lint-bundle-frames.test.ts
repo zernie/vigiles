@@ -193,7 +193,7 @@ describe("lint under bundles: all — one frame for every printed path (#281)", 
     // `file=skills/dup/SKILL.md`, which exists — so the property above sees no
     // `-n` and the one before it sees a real file. Only a count per path tells.
     const fence = annotations()
-      .filter((a) => a.msg.startsWith("dup: SKILL.md is missing"))
+      .filter((a) => /^\[[a-z-]+\] dup: SKILL\.md is missing/.test(a.msg))
       .map((a) => a.file)
       .sort();
     assert.deepEqual(fence, [
@@ -211,15 +211,19 @@ describe("lint under bundles: all — one frame for every printed path (#281)", 
       hookEvent.some((a) => a.msg.startsWith("[plugins/p] ")),
       JSON.stringify(hookEvent),
     );
-    // The lint target itself is never labelled — output for the common case,
-    // one bundle, is byte-identical to what it was.
-    assert.ok(hookEvent.some((a) => !a.msg.startsWith("[")));
+    // The lint target itself is never labelled with a bundle: its line
+    // opens with the rule id alone.
+    assert.ok(hookEvent.some((a) => /^\[[a-z-]+\] /.test(a.msg)));
   });
 
   it("the hook-script finding prints the script in the repo frame, not as a machine path", () => {
     const missing = annotations().filter((a) => a.msg.includes("hook script"));
     assert.deepEqual(
-      missing.map((a) => a.msg.slice(0, a.msg.indexOf(" is referenced"))),
+      missing.map((a) =>
+        a.msg
+          .slice(0, a.msg.indexOf(" is referenced"))
+          .replace(/\[[a-z-]+\] /, ""),
+      ),
       [
         'hook script ".vigiles/hooks/missing-r.hook.mjs"',
         '[plugins/p] hook script "plugins/p/.vigiles/hooks/missing-n.hook.mjs"',

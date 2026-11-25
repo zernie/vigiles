@@ -1421,7 +1421,7 @@
       "count": 32
     },
     "complexity": {
-      "count": 37
+      "count": 29
     },
     "functional/immutable-data": {
       "count": 102
@@ -1430,7 +1430,7 @@
       "count": 96
     },
     "functional/no-loop-statements": {
-      "count": 111
+      "count": 107
     },
     "functional/prefer-immutable-types": {
       "count": 189
@@ -1439,7 +1439,7 @@
       "count": 3
     },
     "local/no-rule-ids": {
-      "count": 183
+      "count": 182
     },
     "max-depth": {
       "count": 6
@@ -1454,13 +1454,13 @@
       "count": 33
     },
     "max-statements": {
-      "count": 90
+      "count": 87
     },
     "no-restricted-syntax": {
       "count": 1
     },
     "sonarjs/cognitive-complexity": {
-      "count": 85
+      "count": 80
     },
     "sonarjs/deprecation": {
       "count": 1
@@ -1478,7 +1478,7 @@
       "count": 1
     },
     "sonarjs/no-nested-conditional": {
-      "count": 6
+      "count": 4
     },
     "sonarjs/no-nested-template-literals": {
       "count": 5

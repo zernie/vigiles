@@ -23,9 +23,12 @@ import {
   readFileSync,
   existsSync,
   rmSync,
+  readdirSync,
+  cpSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
+import { z } from "zod";
 
 import { makeTmpDir, cleanupTmpDir, humanCliEnv } from "./core/test-utils.js";
 
@@ -33,13 +36,17 @@ const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 
 let dir: string;
 
-function run(args: string[], cwd = dir): { code: number; out: string } {
+function run(
+  args: string[],
+  cwd = dir,
+  extraEnv: Readonly<Record<string, string>> = {},
+): { code: number; out: string } {
   try {
     const out = execFileSync("node", [CLI, ...args], {
       cwd,
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"],
-      env: humanCliEnv(process.env),
+      env: { ...humanCliEnv(process.env), ...extraEnv },
     });
     return { code: 0, out };
   } catch (e) {
@@ -301,4 +308,65 @@ test("spec-refs is tierable, and silent when every ref is alive", () => {
   const warned = run(["lint", "."]);
   assert.equal(warned.code, 0, "warn does not fail the build");
   assert.match(warned.out, /guide\.md/, "…but still reports");
+});
+
+// --- #570: every finding line names its rule ------------------------------
+
+/** The rule ids a user can configure: each has its own page in docs/rules/. */
+function documentedRuleIds(): ReadonlySet<string> {
+  const docs = resolve(import.meta.dirname, "..", "docs", "rules");
+  return new Set(
+    readdirSync(docs)
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => f.slice(0, -".md".length)),
+  );
+}
+
+const MIXED = resolve(
+  import.meta.dirname,
+  "..",
+  "test",
+  "fixtures",
+  "lint-mixed-findings",
+);
+
+/** The rule id at the start of a finding's text, if there is one. */
+function idOf(text: string): string | undefined {
+  return /^\[([a-z0-9-]+)\] /.exec(text)?.[1];
+}
+
+test("every finding line and annotation names a documented rule (#570)", () => {
+  cpSync(MIXED, dir, { recursive: true });
+  const planted = Object.keys(
+    z
+      .object({ rules: z.record(z.string(), z.unknown()) })
+      .parse(JSON.parse(readFileSync(join(MIXED, ".vigilesrc.json"), "utf-8")))
+      .rules,
+  );
+  const { out } = run(["lint", "."], dir, { GITHUB_ACTIONS: "true" });
+  const known = documentedRuleIds();
+
+  const lines = out.split("\n");
+  const marked = lines
+    .map((l) => l.trim())
+    .filter((l) => l.startsWith("✗") || l.startsWith("⚠"));
+  const annotations = lines
+    .filter((l) => /^::(error|warning)\b/.test(l))
+    .map((l) => l.slice(l.indexOf("::", 2) + 2));
+
+  const named = new Set<string>();
+  for (const line of marked) {
+    const id = idOf(line.slice(2)) ?? "";
+    // Guards: a finding line the reader cannot trace to a rule to configure.
+    assert.ok(known.has(id), `no rule id: ${line}`);
+    named.add(id);
+  }
+  for (const note of annotations) {
+    // Guards: an annotation on a PR that does not say which rule raised it.
+    assert.ok(known.has(idOf(note) ?? ""), `no rule id: ${note}`);
+  }
+  // Guards: the filters above saw the planted findings, not an empty output.
+  for (const id of planted) {
+    assert.ok(named.has(id), `planted ${id} finding not printed with its id`);
+  }
 });

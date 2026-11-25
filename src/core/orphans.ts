@@ -267,12 +267,17 @@ export function findOrphanDocs(options: FindOrphansOptions): OrphanReport {
 }
 
 /** Format an orphan report as human-readable text. */
-export function formatOrphanReport(report: OrphanReport): string {
+export function formatOrphanReport(
+  report: OrphanReport,
+  /** The id of the rule that raised the finding, shown after the mark. */
+  rule?: string,
+): string {
   if (report.orphans.length === 0) {
     return `✓ no orphan docs (${String(report.totalDocs)} scanned across ${report.include.join(", ") || "no include patterns"})`;
   }
+  const tag = rule === undefined ? "" : ` [${rule}]`;
   const lines = [
-    `✗ ${String(report.orphans.length)} orphan doc(s) — referenced by no other .md:`,
+    `✗${tag} ${String(report.orphans.length)} orphan doc(s) — referenced by no other .md:`,
   ];
   for (const o of report.orphans) lines.push(`    ${o}`);
   lines.push(

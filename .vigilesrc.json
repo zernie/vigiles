@@ -52,6 +52,7 @@
     "startup/**",
     "rule-enforcer/**",
     "test/fixtures/instruction-chain-vendor/**",
+    "test/fixtures/lint-mixed-findings/**",
     "test/dogfood/trailofbits-skills-curated@6d05be4/CLAUDE.md"
   ]
 }

@@ -62,6 +62,8 @@ export function checkDeprecatedKeyFiles(opts: {
   /** Called only when the rule is on. */
   readonly find: () => readonly DeprecatedKeyFilesFinding[];
   readonly silent: boolean;
+  /** The id of the rule, shown on every finding line and annotation. */
+  readonly rule: string;
   /** One per finding, with the spec's path relative to `root`. */
   readonly annotate: (
     level: "error" | "warning",
@@ -82,8 +84,14 @@ export function checkDeprecatedKeyFiles(opts: {
   if (!opts.silent)
     found.forEach((f) => {
       const message = messageFor(f);
-      console.log(`  ${f.sev === "error" ? "✗" : "⚠"} ${f.path}: ${message}`);
-      opts.annotate(f.sev === "error" ? "error" : "warning", message, f.path);
+      console.log(
+        `  ${f.sev === "error" ? "✗" : "⚠"} [${opts.rule}] ${f.path}: ${message}`,
+      );
+      opts.annotate(
+        f.sev === "error" ? "error" : "warning",
+        `[${opts.rule}] ${message}`,
+        f.path,
+      );
     });
   return {
     issues: found.length,

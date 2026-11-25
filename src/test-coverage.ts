@@ -1302,7 +1302,11 @@ export function coverageCaveats(report: UntestedReport): readonly string[] {
   ];
 }
 
-export function formatUntestedReport(report: UntestedReport): string {
+export function formatUntestedReport(
+  report: UntestedReport,
+  /** Ids of the rules that raised the findings, shown after the mark. */
+  ruleIds: readonly string[] = [],
+): string {
   // Every coverage number is printed WITH its provenance. "28 covered" and
   // "28 covered, all of it a name appearing in a file" are different facts, and
   // the detector used to be able to say only the first.
@@ -1328,7 +1332,11 @@ export function formatUntestedReport(report: UntestedReport): string {
           `nothing has measured whether they actually fire (a harness can't tell you that).`;
   }
   const lines = [
-    `⚠ ${String(report.untested.length)} surface(s) with no test or eval:`,
+    [
+      "⚠",
+      ...ruleIds.map((id) => `[${id}]`),
+      `${String(report.untested.length)} surface(s) with no test or eval:`,
+    ].join(" "),
   ];
   for (const s of report.untested) {
     lines.push(

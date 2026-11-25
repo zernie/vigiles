@@ -179,7 +179,7 @@ describe("through the built CLI", () => {
   it("in GitHub Actions the annotation carries the file AND the line", () => {
     const r = run(["lint"], repo(BROKEN), { GITHUB_ACTIONS: "true" });
     expect(r.out).toContain(
-      "::warning file=CLAUDE.md,line=3::@docs/missing.md: ",
+      `::warning file=CLAUDE.md,line=3::[${RULE_ID}] @docs/missing.md: `,
     );
   });
 
