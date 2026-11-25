@@ -36,10 +36,13 @@ function lint(): string {
     return err.stdout ?? "";
   }
 }
+/** The untested-skill annotations only: other rules annotate skills too. */
 const annotated = (out: string): string[] =>
-  [...out.matchAll(/^::(?:warning|error) file=([^:,]+)::skill /gm)].map(
-    (m) => m[1],
-  );
+  [
+    ...out.matchAll(
+      /^::(?:warning|error) file=([^:,]+)::skill \S+ ships without a test/gm,
+    ),
+  ].map((m) => m[1]);
 
 beforeEach(() => {
   dir = makeTmpDir();

@@ -52,11 +52,16 @@ import {
   W_NO_CONTRACT,
   TRIFECTA_LABEL,
   trifectaExposure,
-  sessionTrifectaSummary,
   type PluginScore,
 } from "./score-core.js";
 import type { ScanReport } from "./scan.js";
 import type { GradedView } from "./core/apply-rules.js";
+import {
+  groupFindings,
+  groupLine,
+  type FindingGroup,
+} from "./core/finding-groups.js";
+import { groupBlock, plain, type Paint, type Tone } from "./term-render.js";
 
 export type CategoryKey =
   | "Truthfulness"
@@ -90,6 +95,13 @@ export interface CategoryScore {
   readonly advisory?: boolean;
   /** Human-readable deductions / notes, worst first; empty when clean. */
   readonly findings: readonly string[];
+  /**
+   * The same findings, grouped, for a surface that lays a finding out in parts
+   * (the terminal, the PR comment): each group's one-line form
+   * (`groupLine`) is also in {@link findings}, so a reader of `findings` alone
+   * loses nothing. Absent when the ring has nothing to group.
+   */
+  readonly groups?: readonly FindingGroup[];
 }
 
 export interface AuditScore {
@@ -383,63 +395,26 @@ function safety(r: ScanReport): CategoryScore {
         pluralizeLabel(exposure.exposed, TRIFECTA_LABEL),
     );
   }
-  // 🔴 #392: every unit that only INHERITS the session (`cause: "session"`) is the
-  // same fact, so it is ONE line — and charged once (see trifectaExposure). The
-  // units whose own file supplies the legs keep their own lines below.
-  const session = r.trifectaFindings.filter(
-    (f) => f.finding.cause === "session",
+  // One line per distinct finding, naming every unit in it (`groupFindings`): a
+  // cause the session supplies to eight skills is one fact, and so is the same
+  // pre-approval in three. 🔴 #392: the session's units are still charged once —
+  // that is `trifectaExposure`'s arithmetic, not this text.
+  const groups = groupFindings(
+    r.trifectaFindings
+      .filter((f) => f.finding.severity === "advisory")
+      .map((f) => ({
+        name: f.name,
+        problem: f.finding.problem,
+        edit: f.finding.edit,
+      })),
   );
-  // A unit-made skill finding keeps its own line while there are FEW of each kind:
-  // it is the author's mistake, so naming the skill is what a reader acts on.
-  //
-  // MEASURED 2026-08-28 that "few" does not always hold: a fixture where every
-  // skill carried a naive `disallowed-tools: WebFetch` printed the same
-  // ~450-character paragraph ten times. Past the threshold it stops being N facts
-  // about N skills and becomes one fact about the harness, so it collapses into
-  // one line that keeps every name. The same holds for unfenced skills that each
-  // pre-approve a leg tool (`fence: "none"`, `cause: "unit"`) or have a block
-  // that does not parse.
-  const skillKind = (fence: "none" | "ineffective") =>
-    r.trifectaFindings.filter(
-      (f) =>
-        f.finding.severity === "advisory" &&
-        f.finding.cause !== "session" &&
-        f.kind === "skill" &&
-        f.finding.fence === fence,
-    );
-  const ineffective = skillKind("ineffective");
-  const ownLeg = skillKind("none");
-  const collapsed = [ineffective, ownLeg].filter(
-    (g) => g.length > MAX_NAMED_INEFFECTIVE_FENCES,
-  );
-  for (const f of r.trifectaFindings) {
-    if (f.finding.severity !== "advisory") continue;
-    if (session.includes(f)) continue;
-    if (collapsed.some((g) => g.includes(f))) continue;
-    findings.push(`${f.name}: ${f.finding.message}`);
-  }
-  findings.push(
-    ...[
-      collapsed.includes(ineffective)
-        ? `${String(ineffective.length)} skill(s) declare a \`disallowed-tools:\` that closes no lethal-trifecta leg — a leg is closed only when EVERY built-in supplying it is denied: ` +
-          `${ineffective.map((f) => f.name).join(", ")}. ` +
-          `Name every supplier of the leg you mean to close — private-data read = Read, Grep, Glob, Bash; untrusted intake = WebFetch, WebSearch, Bash; exfiltration = WebFetch, WebSearch, Bash.`
-        : null,
-      collapsed.includes(ownLeg)
-        ? `${String(ownLeg.length)} skill(s) supply a trifecta leg from their own frontmatter (a leg tool or MCP tool pre-approved in \`allowed-tools:\`, or a block that does not parse) and declare no \`disallowed-tools:\` fence: ` +
-          `${ownLeg.map((f) => f.name).join(", ")}. Drop the pre-approval, or add a \`disallowed-tools:\` line that closes a leg.`
-        : null,
-      // TODO(#461): interim — replace with per-unit legs from the session baseline
-      session.length > 0
-        ? sessionTrifectaSummary(session.map((f) => f.name))
-        : null,
-    ].filter((line): line is string => line !== null),
-  );
+  findings.push(...groups.map(groupLine));
   return {
     key: "Safety",
     score: Math.max(0, 100 - exposure.penalty),
     weight: 1,
     findings,
+    ...(groups.length > 0 ? { groups } : {}),
   };
 }
 
@@ -669,14 +644,6 @@ export function auditScore(
   };
 }
 
-/**
- * How many INEFFECTIVE `disallowed-tools:` fences are named one at a time before
- * the Safety ring collapses them into a single line. Past this it is one fact
- * about the harness, not N facts about N skills — see the measurement in
- * {@link safety}.
- */
-const MAX_NAMED_INEFFECTIVE_FENCES = 3;
-
 // A 22-cell bar gauge ("ring" in the terminal; the real rings are the HTML).
 const BAR_CELLS = 22;
 
@@ -706,18 +673,38 @@ export function categoryScoreLabel(c: CategoryScore): string {
   return c.notMeasured ? "not measured" : "n/a";
 }
 
+/** The band a ring's number falls in, as a colour. */
+function bandTone(c: CategoryScore): Tone {
+  if (c.score === null) return "muted";
+  if (c.score >= 90) return "good";
+  return c.score >= 70 ? "warn" : "bad";
+}
+
+/** A ring's findings: the ungrouped ones one per line, then each group as a block. */
+function ringFindingLines(c: CategoryScore, paint: Paint): readonly string[] {
+  const grouped = new Set((c.groups ?? []).map(groupLine));
+  return [
+    ...c.findings.filter((f) => !grouped.has(f)).map((f) => `       └ ${f}`),
+    ...(c.groups ?? []).flatMap((g) => [
+      "",
+      ...groupBlock(g, { indent: "       ", mark: "⚠", tone: "warn", paint }),
+    ]),
+    ...(c.groups === undefined ? [] : [""]),
+  ];
+}
+
 /** Render the category rings (diagnostic) + the summed overall for the terminal. */
-export function formatAuditScore(s: AuditScore): string {
+export function formatAuditScore(s: AuditScore, paint: Paint = plain): string {
   const lines: string[] = ["Harness audit", ""];
   for (const c of s.categories) {
-    const glyph = bandGlyph(c);
+    const tone = bandTone(c);
     const label = c.key.padEnd(13);
     const num = categoryScoreLabel(c).padStart(4);
-    const tag = c.advisory ? "  · advisory (not graded)" : "";
-    lines.push(`  ${glyph} ${label} ${num}  ${bar(c)}${tag}`);
-    if (c.findings.length > 0) {
-      lines.push(`       └ ${c.findings.join("; ")}`);
-    }
+    const tag = c.advisory ? paint("muted", "  · advisory (not graded)") : "";
+    lines.push(
+      `  ${paint(tone, bandGlyph(c))} ${label} ${num}  ${paint(tone, bar(c))}${tag}`,
+    );
+    lines.push(...ringFindingLines(c, paint));
   }
   lines.push("");
   lines.push(

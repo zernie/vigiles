@@ -160,19 +160,31 @@ for (const a of ADAPTERS.filter(fenced)) {
     cleanupTmpDir(dir);
   });
 
-  test(`audit states the session cause once and names every other finding (#392, ${a.name})`, () => {
+  test(`audit names every unit once, one line per distinct finding (#392, ${a.name})`, () => {
     const dir = put(fixtureFiles(a));
-    const text = formatScanReport(shown(scan(dir)));
-    const session = text
-      .split("\n")
-      .filter((l) => l.includes("inherit the session's tools"));
-    const inherit = Object.entries(expectedCauses(a)).filter(
-      ([, c]) => c === "session",
+    const r = scan(dir);
+    const text = formatScanReport(shown(r));
+    const start = text.indexOf("Lethal trifecta");
+    // The section runs to the next unindented heading: groups inside it are
+    // separated by blank lines.
+    const after = text.slice(start).split("\n").slice(1);
+    const end = after.findIndex((l) => l !== "" && !l.startsWith(" "));
+    const section = end === -1 ? after : after.slice(0, end);
+    // Units in the same state share one group (three lines: mark + problem,
+    // → edit, the units), so there are exactly as many groups as distinct
+    // findings, never one per unit.
+    const marks = section.filter((l) => /^ {2}[⚠✗] /.test(l));
+    const distinct = new Set(
+      r.trifectaFindings.map((t) => `${t.finding.problem}\n${t.finding.edit}`),
     );
-    assert.equal(session.length, 1, text);
-    assert.ok(session[0]?.includes(`${String(inherit.length)} unit(s)`));
-    for (const [n, c] of Object.entries(expectedCauses(a)))
-      assert.equal(text.includes(` ${n} (`), c !== "session", `${n}: ${text}`);
+    assert.equal(marks.length, distinct.size, text);
+    const nameLines = section.filter(
+      (l) => l.startsWith("    ") && !l.startsWith("    → "),
+    );
+    for (const n of Object.keys(expectedCauses(a))) {
+      const named = nameLines.filter((l) => l.trim().split(" · ").includes(n));
+      assert.equal(named.length, 1, `${n}: ${text}`);
+    }
     cleanupTmpDir(dir);
   });
 
@@ -228,7 +240,7 @@ for (const a of ADAPTERS.filter((x) => !fenced(x) && !x.subagents)) {
     const r = scanPlugin(dir, a.layout, a.dialect);
     assert.ok(r.skills.length >= 6, "precondition: the skills are read");
     assert.deepEqual(r.trifectaFindings, []);
-    assert.ok(!formatScanReport(shown(r)).includes("inherit the session"));
+    assert.ok(!formatScanReport(shown(r)).includes("Lethal trifecta"));
     cleanupTmpDir(dir);
   });
 }

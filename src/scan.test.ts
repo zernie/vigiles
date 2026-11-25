@@ -1653,7 +1653,9 @@ test("scanPlugin flags a HARD lethal trifecta on a subagent with all three legs"
   assert.equal(flat.kind, "subagent");
   // …and it prints in the human report under the trifecta section.
   assert.match(formatScanReport(shown(r)), /Lethal trifecta/);
-  assert.match(formatScanReport(shown(r)), /✗ subagent exfil/);
+  // A group is three lines: ✗ problem, → edit, then the units.
+  assert.match(formatScanReport(shown(r)), /^ {2}✗ .*\n {4}→ .*\n {4}exfil$/m);
+  assert.equal(flat.finding.fix.kind, "remove-a-tool");
   cleanupTmpDir(dir);
 });
 
@@ -1669,10 +1671,7 @@ test("scanPlugin reports an inherits-all subagent trifecta as ADVISORY", () => {
   assert.equal(agent?.trifecta?.severity, "advisory");
   // No `tools:` line adds nothing of its own: the session is the cause (#392).
   assert.equal(agent?.trifecta?.cause, "session");
-  assert.match(
-    formatScanReport(shown(r)),
-    /⚠ Lethal trifecta: 1 unit\(s\) inherit the session's tools.*: wide\./,
-  );
+  assert.match(formatScanReport(shown(r)), /^ {2}⚠ .*\n {4}→ .*\n {4}wide$/m);
   cleanupTmpDir(dir);
 });
 
@@ -1707,7 +1706,10 @@ test("a skill with NO disallowed-tools fence holds all three legs; user-invoked 
   const manual = r.skills.find((s) => s.name === "manual");
   assert.equal(leaky?.trifecta?.severity, "advisory");
   assert.equal(leaky?.trifecta?.fence, "none");
-  assert.match(leaky?.trifecta?.message ?? "", /no `disallowed-tools:` line/i);
+  assert.deepEqual(leaky?.trifecta?.fix, {
+    kind: "drop-pre-approval",
+    tools: ["WebFetch"],
+  });
   assert.equal(manual?.trifecta, null, "user-invoked skill is excluded");
   assert.ok(
     r.trifectaFindings.some((t) => t.name === "leaky" && t.kind === "skill"),
@@ -1790,7 +1792,7 @@ test("a PARTIAL disallowed-tools closes no leg and names the suppliers still sta
   const f = r.skills.find((s) => s.name === "half")?.trifecta;
   assert.equal(f?.fence, "ineffective");
   assert.equal(f?.severity, "advisory", "never LOUDER than declaring no fence");
-  assert.match(f?.message ?? "", /closes no lethal-trifecta leg/);
+  assert.equal(f?.fix.kind, "extend-fence");
   assert.deepEqual(f?.legs.private, ["Grep", "Glob", "Bash"]);
   cleanupTmpDir(dir);
 });
@@ -1812,11 +1814,10 @@ test("the report states the session cause ONCE but still counts every unit", () 
   assert.equal(r.trifectaFindings.length, 3, "every unit is still a finding");
   // The header counts UNITS (3), not the lines the aggregate collapsed them into.
   assert.match(text, /Lethal trifecta \(prompt-injection exfil risk\) \(3\)/);
-  assert.match(
-    text,
-    /3 unit\(s\) inherit the session's tools.*: alpha, beta, gamma\./,
-  );
-  assert.doesNotMatch(text, /skill alpha \(/, "no per-unit line");
+  // One line names all three: the grouping is by message (`groupFindings`).
+  assert.match(text, /^ {4}alpha · beta · gamma$/m);
+  const section = text.slice(text.indexOf("Lethal trifecta")).split("\n\n")[0];
+  assert.equal(section?.match(/\balpha\b/g)?.length, 1, "named once");
   cleanupTmpDir(dir);
 });
 
@@ -1938,7 +1939,7 @@ test("a SALVAGED all-three contract still convicts — the refusal is one-direct
   const agent = r.agents.find((a) => a.name === "leaky");
   assert.ok(r.malformedFrontmatter.some((i) => i.path.includes("leaky.md")));
   assert.equal(agent?.trifecta?.severity, "hard", "not demoted to advisory");
-  assert.match(agent?.trifecta?.message ?? "", /SALVAGED/);
+  assert.equal(agent?.trifecta?.fix.kind, "remove-a-tool");
   // …and the diagnostics built on the same salvage are NOT suppressed: dropping
   // them would delete findings, moving the grade the optimistic way.
   assert.ok(

@@ -36,7 +36,7 @@ test("explicit all-three → a hard finding naming each leg", () => {
   assert.ok(finding && finding.legs.private.includes("Read"));
   assert.ok(finding && finding.legs.untrusted.includes("WebSearch"));
   assert.ok(finding && finding.legs.exfil.includes("WebFetch"));
-  assert.match(finding?.message ?? "", /Lethal trifecta/);
+  assert.equal(finding?.fix.kind, "remove-a-tool");
 });
 
 test("Bash is dual (A+C): Bash alone covers two legs, Bash+WebFetch fires", () => {
@@ -72,7 +72,7 @@ test("inherits-all (wildcard '*') → an advisory finding", () => {
   const finding = lethalTrifectaIssues(["*"], claudeCodeDialect);
   assert.notEqual(finding, null);
   assert.equal(finding?.severity, "advisory");
-  assert.match(finding?.message ?? "", /no explicit tools/);
+  assert.deepEqual(finding?.fix, { kind: "declare-tools" });
 });
 
 test("an unreadable contract whose SALVAGE names all three legs still convicts", () => {
@@ -86,8 +86,7 @@ test("an unreadable contract whose SALVAGE names all three legs still convicts",
     { contractUnreadable: true },
   );
   assert.equal(finding?.severity, "hard");
-  assert.match(finding?.message ?? "", /Lethal trifecta/);
-  assert.match(finding?.message ?? "", /SALVAGED/);
+  assert.equal(finding?.fix.kind, "remove-a-tool");
 });
 
 test("an unreadable contract that reads NARROW falls back to inherits-all", () => {
@@ -98,7 +97,7 @@ test("an unreadable contract that reads NARROW falls back to inherits-all", () =
     contractUnreadable: true,
   });
   assert.equal(finding?.severity, "advisory");
-  assert.match(finding?.message ?? "", /not valid YAML/);
+  assert.deepEqual(finding?.fix, { kind: "fix-yaml", field: "tools" });
   // …and the same list in a block that PARSES is still clean (Rule of Two).
   assert.equal(lethalTrifectaIssues(["Read", "Bash"], claudeCodeDialect), null);
 });
@@ -112,9 +111,7 @@ test("an UNREADABLE contract says so, instead of 'no explicit tools'", () => {
     contractUnreadable: true,
   });
   assert.equal(finding?.severity, "advisory");
-  assert.match(finding?.message ?? "", /not valid YAML/);
-  assert.match(finding?.message ?? "", /INHERITS-ALL/);
-  assert.doesNotMatch(finding?.message ?? "", /no explicit tools/);
+  assert.deepEqual(finding?.fix, { kind: "fix-yaml", field: "tools" });
 });
 
 test("mcp__* servers classify per leg (github get_file=A, fetch=B, github PR=C)", () => {
@@ -276,10 +273,14 @@ test("a skill with NO fence holds all three legs, whatever it pre-approved", () 
   const f = skillTrifectaIssue(null, claudeCodeDialect);
   assert.equal(f?.severity, "advisory");
   assert.equal(f?.fence, "none");
-  assert.match(f?.message ?? "", /No `disallowed-tools:` line/);
   // The fix travels WITH the finding — a diagnosis with no prescription teaches
   // the author that narrowing is pointless (the lesson this file learned once).
-  assert.match(f?.message ?? "", /disallowed-tools/);
+  // It names the cheapest leg to close and every built-in that supplies it.
+  assert.deepEqual(f?.fix, {
+    kind: "add-fence",
+    leg: "untrusted",
+    deny: ["WebFetch", "WebSearch", "Bash"],
+  });
   // …and it names the built-ins that supply each leg, so "which one" is answered.
   assert.deepEqual(f?.legs.private, ["Read", "Grep", "Glob", "Bash"]);
   assert.deepEqual(f?.legs.untrusted, ["WebFetch", "WebSearch", "Bash"]);
@@ -306,21 +307,23 @@ test("🔴 …but an EXPLICIT `disallowed-tools: []` is an ATTEMPT, not a missin
   // never got a line of their own.
   const empty = skillTrifectaIssue([], claudeCodeDialect);
   assert.equal(empty?.fence, "ineffective");
-  assert.match(empty?.message ?? "", /declared but EMPTY/);
-  // It must NOT claim the line is absent — that is the sentence which sends an
-  // author looking for something they have already written.
-  assert.doesNotMatch(empty?.message ?? "", /No `disallowed-tools:` line/);
-  // The absent case keeps saying exactly that.
+  // It must NOT be told to ADD the line — that sends an author looking for
+  // something they have already written. It is told to extend it.
+  assert.equal(empty?.fix.kind, "extend-fence");
+  // The absent case is told to add one.
   const none = skillTrifectaIssue(null, claudeCodeDialect);
   assert.equal(none?.fence, "none");
-  assert.match(none?.message ?? "", /No `disallowed-tools:` line/);
+  assert.equal(none?.fix.kind, "add-fence");
   // 🔴 Unreadable frontmatter is NOT an attempt: a strict loader parses no block,
   // so whatever it appears to declare denies nothing and it stays in the aggregate.
   const broken = skillTrifectaIssue([], claudeCodeDialect, {
     contractUnreadable: true,
   });
   assert.equal(broken?.fence, "none");
-  assert.match(broken?.message ?? "", /not valid YAML/);
+  assert.deepEqual(broken?.fix, {
+    kind: "fix-yaml",
+    field: "disallowed-tools",
+  });
 });
 
 test("a fence that closes a WHOLE leg clears the finding (Rule of Two)", () => {
@@ -340,7 +343,14 @@ test("a fence that closes a WHOLE leg clears the finding (Rule of Two)", () => {
 test("a PARTIAL fence closes nothing and is never graded louder than no fence", () => {
   const partial = skillTrifectaIssue(["WebFetch"], claudeCodeDialect);
   assert.equal(partial?.fence, "ineffective");
-  assert.match(partial?.message ?? "", /closes no lethal-trifecta leg/);
+  // The edit names what is still missing from the leg it can close.
+  assert.deepEqual(partial?.fix, {
+    kind: "extend-fence",
+    declared: ["WebFetch"],
+    ignored: [],
+    leg: "untrusted",
+    deny: ["WebSearch", "Bash"],
+  });
   // WebSearch and Bash still supply both network legs.
   assert.deepEqual(partial?.legs.untrusted, ["WebSearch", "Bash"]);
   // 🔴 Severity parity is load-bearing. An ineffective fence has capability ≤ no
@@ -379,7 +389,7 @@ test("an unreadable block is not a fence, and the message says so", () => {
     },
   );
   assert.equal(f?.fence, "none");
-  assert.match(f?.message ?? "", /not valid YAML/);
+  assert.equal(f?.fix.kind, "fix-yaml");
 });
 
 test("the remedy names only tools THIS harness ships (no Codex `shell` in a CC message)", () => {
@@ -387,7 +397,10 @@ test("the remedy names only tools THIS harness ships (no Codex `shell` in a CC m
   // telling a Claude Code author to deny `shell` would be cry-wolf, and would make
   // the leg unclosable in practice.
   const f = skillTrifectaIssue(null, claudeCodeDialect);
-  assert.doesNotMatch(f?.message ?? "", /shell/);
+  assert.equal(
+    f?.fix.kind === "add-fence" && f.fix.deny.includes("shell"),
+    false,
+  );
   assert.equal(f?.legs.private.includes("shell"), false);
 });
 
@@ -444,62 +457,63 @@ test("…and the Claude Code path is untouched by that gate", () => {
 // right; the single sentence "Drop at least one leg" was identical for three
 // situations needing three different actions, and it pointed at narrowing
 // `Bash(...)` — a door `EFFECT_FREE` has closed for anything an author actually
-// runs. These tests pin the split, and each asserts BOTH the sentence it must
-// carry and the one it must not.
+// runs. These tests pin the split as the `fix` the detector decides; the words
+// are `describeFix`'s job (trifecta-fix.test.ts).
 // ---------------------------------------------------------------------------
 
 test("remedy (a) unrestricted shell: name the one edit that closes it", () => {
-  const m =
-    lethalTrifectaIssues(["Read", "WebFetch", "Bash"], claudeCodeDialect)
-      ?.message ?? "";
-  assert.match(m, /Bash alone supplies two of the three legs/);
-  // It must still WARN that narrowing is nearly useless, rather than recommend it.
-  assert.match(m, /only helps for a program whose effects are enumerable/);
-  assert.doesNotMatch(m, /narrowed but still counts/);
+  const f = lethalTrifectaIssues(
+    ["Read", "WebFetch", "Bash"],
+    claudeCodeDialect,
+  );
+  // Remove the shell — never "narrow it", which moves the finding only for a
+  // program on the effect-free list (docs/rules/lethal-trifecta.md says why).
+  assert.deepEqual(f?.fix, { kind: "remove-shell", shell: "Bash" });
 });
 
 test("remedy (b) a NARROWED shell grant that still counts: say why, do not re-recommend narrowing", () => {
-  // The worst of the three: this author already took the old advice.
-  const m =
-    lethalTrifectaIssues(
-      ["Read", "WebFetch", "Bash(node ./x.mjs:*)"],
-      claudeCodeDialect,
-    )?.message ?? "";
-  assert.match(m, /`Bash\(node \.\/x\.mjs:\*\)` is narrowed but still counts/);
-  assert.match(m, /narrowing further will not move this finding/);
-  // …and it must name a remedy that actually works.
-  assert.match(m, /remove Bash from the contract/);
+  // The worst of the three: this author already took the old advice, so the
+  // edit names the grant that still counts and does not say "narrow more".
+  const f = lethalTrifectaIssues(
+    ["Read", "WebFetch", "Bash(node ./x.mjs:*)"],
+    claudeCodeDialect,
+  );
+  assert.deepEqual(f?.fix, {
+    kind: "narrowed-still-counts",
+    grants: ["Bash(node ./x.mjs:*)"],
+    shell: "Bash",
+  });
 });
 
 test("remedy (c) no shell leg: there is nothing to narrow, so do not imply there is", () => {
-  const named =
+  assert.deepEqual(
     lethalTrifectaIssues(["Read", "WebSearch", "WebFetch"], claudeCodeDialect)
-      ?.message ?? "";
-  assert.match(named, /No shell grant supplies a leg here/);
-  assert.doesNotMatch(named, /Bash alone supplies/);
+      ?.fix,
+    { kind: "remove-a-tool" },
+  );
 
   // 🔴 The same branch must cover a shell grant that IS present but BOUNDED.
   // `Bash(echo ready:*)` contributes no leg, so telling this author to remove
   // Bash would send them to undo the one narrowing that worked. The first draft
   // of this branch keyed on "a shell is named" and got exactly that wrong.
-  const bounded =
+  assert.deepEqual(
     lethalTrifectaIssues(
       ["Read", "WebFetch", "Bash(echo ready:*)"],
       claudeCodeDialect,
-    )?.message ?? "";
-  assert.match(bounded, /No shell grant supplies a leg here/);
-  assert.doesNotMatch(bounded, /remove Bash from the contract/);
+    )?.fix,
+    { kind: "remove-a-tool" },
+  );
 });
 
-test("the three remedies are actually DIFFERENT text", () => {
-  // The whole point. If a refactor collapses them back to one sentence, this
-  // fails even though every message still 'mentions the legs'.
-  const messages = [
+test("the three remedies are actually DIFFERENT edits", () => {
+  // The whole point. If a refactor collapses them back to one remedy, this
+  // fails even though every finding still names the legs.
+  const kinds = [
     ["Read", "WebFetch", "Bash"],
     ["Read", "WebFetch", "Bash(node ./x.mjs:*)"],
     ["Read", "WebSearch", "WebFetch"],
-  ].map((tools) => lethalTrifectaIssues(tools, claudeCodeDialect)?.message);
-  assert.equal(new Set(messages).size, 3);
+  ].map((tools) => lethalTrifectaIssues(tools, claudeCodeDialect)?.fix.kind);
+  assert.equal(new Set(kinds).size, 3);
   // Classification is untouched by any of this: all three are still `hard`.
   for (const tools of [
     ["Read", "WebFetch", "Bash"],
@@ -526,23 +540,28 @@ test("skill fence: a RESTRICTED deny is DISCARDED, and the message says so", () 
   // to add more restricted denies and watch nothing happen.
   const all = skillTrifectaIssue(["Bash(curl:*)"], claudeCodeDialect);
   assert.equal(all?.fence, "ineffective"); // classification unchanged
-  assert.match(all?.message ?? "", /RESTRICTED deny is discarded, not weighed/);
-  assert.match(all?.message ?? "", /Every entry in this fence is restricted/);
+  assert.equal(all?.fix.kind, "extend-fence");
+  assert.deepEqual(all?.fix.kind === "extend-fence" ? all.fix.ignored : null, [
+    "Bash(curl:*)",
+  ]);
 
   // A MIXED fence: one real deny that does not close a whole leg, one discarded.
   const mixed = skillTrifectaIssue(
     ["WebFetch", "Bash(curl:*)"],
     claudeCodeDialect,
   );
-  assert.match(mixed?.message ?? "", /`Bash\(curl:\*\)` denies nothing/);
-  assert.match(mixed?.message ?? "", /unrestricted entries that remain/);
-  assert.doesNotMatch(mixed?.message ?? "", /Every entry in this fence/);
+  assert.deepEqual(
+    mixed?.fix.kind === "extend-fence" ? mixed.fix.ignored : null,
+    ["Bash(curl:*)"],
+  );
 
   // A fence with NO restricted entry keeps the original wording — the split must
   // not relabel the plain "you did not cover a whole leg" case.
   const plain = skillTrifectaIssue(["WebFetch"], claudeCodeDialect);
-  assert.match(plain?.message ?? "", /closes no lethal-trifecta leg/);
-  assert.doesNotMatch(plain?.message ?? "", /discarded/);
+  assert.deepEqual(
+    plain?.fix.kind === "extend-fence" ? plain.fix.ignored : null,
+    [],
+  );
 
   // And an EFFECTIVE fence is still clean — text work moved no verdict.
   assert.equal(
