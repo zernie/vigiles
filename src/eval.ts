@@ -1816,9 +1816,10 @@ export async function runPool<T, R>(
   concurrency: number,
   worker: (item: T, signal: Readonly<AbortSignal>) => Promise<R>,
 ): Promise<R[]> {
-  // A dynamic import: `effect` is ESM-only and this package is CommonJS, and a
-  // static `require` of ESM needs Node 20.19+. Loading it here also keeps it out
-  // of every command that never runs an eval pool.
+  // A dynamic import, kept on purpose: `effect` is ESM-only, and the CommonJS
+  // copy this package ships for Jest is loaded by Jest's own module system,
+  // which cannot `require` ESM. Loading it here keeps it out of every import
+  // that never runs an eval pool, Jest's included.
   const { Cause, Effect, Exit } = await import("effect");
   const exit = await Effect.runPromiseExit(
     Effect.forEach(
