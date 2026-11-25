@@ -212,7 +212,7 @@ The rule checks each such file against **150,000**: a file over it is cut on
 every model a user gets by default. Each file over it is one finding:
 
 ```
-✗ pkg/CLAUDE.md is 163,402 chars, over the per-file cut of 150,000 (40,000 on a 200K-window model; since Claude Code 2.1.309): …
+✗ pkg/CLAUDE.md is 163,402 chars, over the per-file cut of 150,000: the model gets only the start. Split it, or move lists and records to a file nothing loads; for a copy no session loads, add `**/<folder>/**` to `claudeMdExcludes` (.claude/settings.json).
 ```
 
 ### If your team runs a 200K window

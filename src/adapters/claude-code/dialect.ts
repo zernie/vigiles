@@ -121,8 +121,6 @@ export const claudeCodeDialect: HarnessDialect = {
   onDemandFileLimit: {
     unit: "chars",
     limit: 150000,
-    since: "Claude Code 2.1.309",
-    otherWindows: "40,000 on a 200K-window model",
     excludeSetting: { key: "claudeMdExcludes", file: ".claude/settings.json" },
     capturedFrom:
       "code.claude.com/docs/en/memory, 'Claude ignores the end of my subdirectory CLAUDE.md' (40,000 on 200K, 150,000 on 1M later models, since v2.1.309); code.claude.com/docs/en/model-config ('Fable models, Sonnet 5 and later, Haiku 5.5, and Opus 4.7 and later run with the 1M window by default'); measured on 2.1.332, 2026-11-25: a 170,001-char subdirectory CLAUDE.md delivered as 149,996 chars plus the 'Only the start of this file is shown' note on the opus/sonnet/haiku aliases, claude-fable-5-2 and claude-opus-4-8, and as 39,942 on claude-haiku-4-5 and claude-sonnet-4-5",

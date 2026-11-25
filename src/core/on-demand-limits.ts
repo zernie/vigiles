@@ -45,10 +45,6 @@ export interface OnDemandFileLimit {
   readonly unit: "chars" | "bytes";
   /** The cut on the window the harness's default models run. */
   readonly limit: number;
-  /** The harness version the cut first applies in. */
-  readonly since: string;
-  /** The cuts on other windows, as one phrase for the message ("40,000 on a 200K window"). */
-  readonly otherWindows: string;
   /** Where a repository tells the harness never to load a file: setting and file. */
   readonly excludeSetting: { readonly key: string; readonly file: string };
   /** The vendor artifact or measurement this was read from. */
@@ -153,19 +149,10 @@ export function checkOnDemandFiles(s: OnDemandSubject): OnDemandCheck {
 
 const n = (x: number): string => x.toLocaleString("en-US");
 
-const LOADS: Readonly<Record<OnDemandTrigger, string>> = {
-  subdirectory: "loads the first time a file in its folder is read",
-  "path-scoped": "loads when a file its `paths:` match is read",
-};
-
-/** One over-limit file, as a finding line. */
+/** One over-limit file, as a finding line: the file, its size, the cut, the loss. */
 export function formatOnDemandOver(
   f: OnDemandFile,
   check: Extract<OnDemandCheck, { kind: "checked" }>,
 ): string {
-  return (
-    `${f.path} is ${n(f.size)} ${check.unit}, over the per-file cut of ${n(check.limit)} ` +
-    `(${check.rule.otherWindows}; since ${check.rule.since}): it ${LOADS[f.when]} and stays until compaction, ` +
-    `and the harness delivers only the start of it — the rules past the cut do not reach the model`
-  );
+  return `${f.path} is ${n(f.size)} ${check.unit}, over the per-file cut of ${n(check.limit)}: the model gets only the start`;
 }

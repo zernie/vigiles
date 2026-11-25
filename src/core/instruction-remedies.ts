@@ -33,11 +33,7 @@ export function onDemandRemedy(setting: {
   readonly key: string;
   readonly file: string;
 }): string {
-  return (
-    `Split it into files each under the cut (each counts on its own), move lists, indexes and dated records ` +
-    `to a file nothing loads by itself, or — a copy no session should load — list a \`**/<folder>/**\` pattern in \`${setting.key}\` (${setting.file}) ` +
-    `or in \`exclude\` (.vigilesrc.json).`
-  );
+  return `Split it, or move lists and records to a file nothing loads; for a copy no session loads, add \`**/<folder>/**\` to \`${setting.key}\` (${setting.file}).`;
 }
 
 /**
