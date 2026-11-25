@@ -20,6 +20,15 @@ import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
 
 import { findKeyFilesInSpecSource } from "./core/keyfiles-source.js";
+import { starterHarnessName } from "./setup-plan.js";
+import { canRunTypeScript, detectNodeCaps } from "./ts-runner-caps.js";
+
+// The starter `init` writes on THIS Node: a fresh project has no local tsx, so the
+// choice is Node's own type stripping — the same probe `init` makes.
+const STARTER = starterHarnessName(
+  canRunTypeScript(detectNodeCaps(tmpdir())),
+  undefined,
+);
 
 const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 
@@ -1378,7 +1387,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
       const { stdout } = run("init --no-plugin", dir);
       assert.match(stdout, /pillars: lint \+ test/);
       assert.ok(existsSync(join(dir, "CLAUDE.md.spec.ts")), "spec");
-      assert.ok(existsSync(join(dir, "vigiles.harness.mjs")), "harness");
+      assert.ok(existsSync(join(dir, STARTER)), "harness");
       const wf = join(dir, ".github/workflows/vigiles.yml");
       assert.ok(existsSync(wf), "workflow");
       const yaml = readFileSync(wf, "utf-8");
@@ -1529,7 +1538,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     try {
       const { stdout } = run("init --test --no-plugin --no-gha", dir);
       assert.match(stdout, /pillars: test/);
-      assert.ok(existsSync(join(dir, "vigiles.harness.mjs")), "harness");
+      assert.ok(existsSync(join(dir, STARTER)), "harness");
       assert.ok(!existsSync(join(dir, "CLAUDE.md.spec.ts")), "no spec");
       assert.ok(
         !existsSync(join(dir, ".github/workflows/vigiles.yml")),
@@ -1564,7 +1573,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
       const { stdout } = run("init --lint --no-plugin --no-gha", dir);
       assert.match(stdout, /pillars: lint/);
       assert.ok(existsSync(join(dir, "CLAUDE.md.spec.ts")), "spec");
-      assert.ok(!existsSync(join(dir, "vigiles.harness.mjs")), "no harness");
+      assert.ok(!existsSync(join(dir, STARTER)), "no harness");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

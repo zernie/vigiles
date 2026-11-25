@@ -123,6 +123,8 @@ import {
   rerunScope,
   missingVigilesDevDep,
   fullSetupFollowUps,
+  starterHarnessName,
+  STARTER_HARNESS_NAMES,
   type AdoptionState,
   type FullSetupGap,
   type SetupPlan,
@@ -130,6 +132,7 @@ import {
   type AskFn,
   type ParsedSetupArgs,
 } from "./setup-plan.js";
+import { canRunTypeScript, detectNodeCaps } from "./ts-runner-caps.js";
 import type {
   CoverageThresholds,
   TestCoverageConfig,
@@ -4281,14 +4284,14 @@ function vigilesWorkflow(
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "lts/*"
       # No \`version:\` on purpose: the Action runs the vigiles your
       # package.json declares, so CI and a local \`npx vigiles\` cannot
       # drift onto two different pins.
       - uses: zernie/vigiles@v1
 `
     : "";
-  // The test pillar's harness job runs `*.harness.mjs` files that
+  // The test pillar's harness job runs `*.harness.*` files that
   // `import "vigiles"`, so it needs vigiles RESOLVABLE — a package.json +
   // install. A repo with no package.json can't run the JS test tier in CI at all
   // (the import won't resolve even though the CLI itself came from npx), so the
@@ -4301,7 +4304,8 @@ function vigilesWorkflow(
     plan.test && hasPackageJson
       ? `
   harness:
-    # Test pillar — run your *.harness.{mjs,ts} tests against the real agent CLI and
+    # Test pillar — run your *.harness.{ts,mjs} tests against the real agent CLI and
+    # (an LTS Node runs a .ts harness with no tsx: it strips the types natively)
     # a scripted mock model (deterministic, no API key). Drop this job if you only
     # author runHook unit tests, or keep it for the deterministic tier.
     runs-on: ubuntu-latest
@@ -4309,7 +4313,7 @@ function vigilesWorkflow(
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "lts/*"
       - run: npm install
       - run: npm i -g ${harnessTestBinaries(harnesses)} # mock tier needs the binary, no API key
       - run: npx vigiles test
@@ -4329,7 +4333,7 @@ function vigilesWorkflow(
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "lts/*"
       - run: npm install
       - run: npx vigiles eval --check --min=0
 `
@@ -4468,7 +4472,7 @@ const STARTER_HARNESS = `/**
  * Proves a hook actually FIRES, deterministically and with no API key.
  *
  *   npm i -D vigiles          # the testing API this imports
- *   npx vigiles test          # or: node vigiles.harness.mjs
+ *   npx vigiles test          # runs every *.harness.* file
  *
  * Guide: https://github.com/zernie/vigiles/blob/main/docs/harness-testing.md
  */
@@ -4498,19 +4502,37 @@ assert.ok(!allowed.blocked, "guard should allow a safe command");
 console.log("\\u2713 hook blocks rm -rf / and allows safe commands");
 `;
 
+/** The raw package.json text at `cwd`, or undefined — for the starter's extension. */
+function readPackageJsonText(cwd: string): string | undefined {
+  const p = resolve(cwd, PACKAGE_JSON);
+  return existsSync(p) ? readFileSync(p, "utf8") : undefined;
+}
+
 /** Pillar 2 — scaffold a starter harness test the user adapts to their hooks.
+ * TypeScript when this machine can run it, else JavaScript (`starterHarnessName`).
  * Returns the files it wrote (for the commit hint). */
 function scaffoldPillar2(): string[] {
-  const path = resolve(process.cwd(), "vigiles.harness.mjs");
-  if (existsSync(path)) {
-    console.log("✓ vigiles.harness.mjs already exists");
+  const cwd = process.cwd();
+  const existing = STARTER_HARNESS_NAMES.find((n) =>
+    existsSync(resolve(cwd, n)),
+  );
+  if (existing !== undefined) {
+    console.log(`✓ ${existing} already exists`);
     return [];
   }
-  writeFileSync(path, STARTER_HARNESS);
-  console.log(
-    "✓ Scaffolded vigiles.harness.mjs — Pillar 2 starter (npx vigiles test)",
+  const name = starterHarnessName(
+    canRunTypeScript(detectNodeCaps(cwd)),
+    readPackageJsonText(cwd),
   );
-  return ["vigiles.harness.mjs"];
+  writeFileSync(resolve(cwd, name), STARTER_HARNESS);
+  const why =
+    name === "vigiles.harness.mjs"
+      ? " (JavaScript: this Node can't run TypeScript — install tsx or use Node >= 22.6 for a .ts starter)"
+      : "";
+  console.log(
+    `✓ Scaffolded ${name} — Pillar 2 starter (npx vigiles test)${why}`,
+  );
+  return [name];
 }
 
 /** Interactive prompts (TTY only): the readline IO shell over the pure
@@ -5421,7 +5443,7 @@ function printSetupSummary(opts: {
   }
   if (plan.test) {
     nextSteps.push(
-      "Edit vigiles.harness.mjs to test a real hook, then `npx vigiles test`",
+      "Edit the starter vigiles.harness.* to test a real hook, then `npx vigiles test`",
     );
   }
   if (!strict) {
@@ -5796,7 +5818,13 @@ function fullSetupGap(
   return {
     workflow: plan.gha && !has(".github/workflows/vigiles.yml"),
     config: configGap(config, plan.lint),
-    harnessTest: plan.test && !has("vigiles.harness.mjs"),
+    harnessTest:
+      plan.test && !STARTER_HARNESS_NAMES.some(has)
+        ? starterHarnessName(
+            canRunTypeScript(detectNodeCaps(cwd)),
+            readPackageJsonText(cwd),
+          )
+        : null,
     unspecced,
     generated: pillar1 && !(has(GENERATED_TYPES) && has(GENERATED_SCHEMA)),
     installs: plan.plugin ? fullInstallLines(harnesses) : [],

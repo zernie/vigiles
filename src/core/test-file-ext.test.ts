@@ -2,7 +2,7 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import { testFileExt } from "./test-file-ext.js";
+import { esmTypeScriptExt, testFileExt } from "./test-file-ext.js";
 
 const pkg = (o: unknown) => JSON.stringify(o);
 
@@ -67,4 +67,29 @@ test("the finding and the generator must not contradict each other", () => {
   assert.equal(ts, "ts");
   assert.equal(js, "mjs");
   assert.notEqual(ts, js);
+});
+
+test("a TypeScript project whose package says CommonJS gets .mts, not .ts", () => {
+  // Measured on Node 22.23: an explicit `"type": "commonjs"` turns off module
+  // detection, so a generated `.ts` test's `import` throws; `.mts` is ESM always.
+  assert.equal(
+    testFileExt({ hasTsconfig: true, packageJson: pkg({ type: "commonjs" }) }),
+    "mts",
+  );
+  assert.equal(
+    testFileExt({ hasTsconfig: true, packageJson: pkg({ type: "module" }) }),
+    "ts",
+  );
+  // No TypeScript here → .mjs, which is ESM in a CommonJS package too.
+  assert.equal(
+    testFileExt({ hasTsconfig: false, packageJson: pkg({ type: "commonjs" }) }),
+    "mjs",
+  );
+});
+
+test("esmTypeScriptExt: .mts only for an explicit CommonJS package", () => {
+  assert.equal(esmTypeScriptExt(undefined), "ts");
+  assert.equal(esmTypeScriptExt("{ not json"), "ts");
+  assert.equal(esmTypeScriptExt(pkg({})), "ts");
+  assert.equal(esmTypeScriptExt(pkg({ type: "commonjs" })), "mts");
 });

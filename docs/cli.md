@@ -227,7 +227,7 @@ which is why every LLM-eval tool is separate from jest too.
 
 By default `init` sets up **both layers** — **Lint** (verify instruction-file
 references) and **Test** (test the harness): it scaffolds a typed spec + types
-(Lint), a starter `vigiles.harness.mjs` (Test), wires CI as a
+(Lint), a starter `vigiles.harness.ts` (Test), wires CI as a
 `zernie/vigiles@v1` workflow (creating `.github/workflows/vigiles.yml` when none
 exists), links vigiles's skills into the repo (`.claude/skills/<name>` →
 `node_modules/vigiles/skills/<name>`, to commit), and installs the Claude Code
@@ -257,7 +257,18 @@ which layers, CI, and the plugin. Run by an agent, in CI, or with piped input
 Passing a single positive layer flag selects only it (`--lint` = the Lint
 layer only); pass both, or neither, for both. `init` also adds `vigiles` to your
 `devDependencies` (moving it out of `dependencies` if it's there) so the
-scaffolded `vigiles.harness.mjs` resolves `vigiles`.
+scaffolded starter resolves `vigiles`.
+
+**Why the starter is TypeScript.** A `.ts` harness gets type errors as you edit
+it: a misspelled option or a wrong argument is red in your editor, not a failure
+after the run. `init` writes `vigiles.harness.ts` whenever this machine can run
+it (`tsx` is installed, or Node ≥ 22.6 strips the types itself), and
+`vigiles.harness.mjs` only where nothing can — Node 20 with no `tsx` — and says
+so. A package whose `package.json` says `"type": "commonjs"` gets
+`vigiles.harness.mts` instead: Node reads a `.ts` file there as CommonJS and the
+starter's `import` would fail, while `.mts` always runs as ESM. All of them run
+under `npx vigiles test`; the generated CI workflow uses an LTS Node, so a
+TypeScript harness runs there with no extra install.
 
 **`--ci-only` — the CI check only, nothing installed.** At a terminal the wizard's
 first question is "gate vs full"; `--ci-only` is the same choice for a headless run

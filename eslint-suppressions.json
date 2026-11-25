@@ -4398,12 +4398,6 @@
     "functional/no-loop-statements": {
       "count": 1
     },
-    "max-statements": {
-      "count": 1
-    },
-    "sonarjs/cognitive-complexity": {
-      "count": 1
-    },
     "sonarjs/no-redundant-optional": {
       "count": 3
     }
