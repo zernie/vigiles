@@ -12,19 +12,21 @@ export interface ArmComparison {
 }
 
 // @public
-export type ArmRateGate = RateGate & {
-    readonly arm: string;
+export type ArmRateGate = RateGate & ({
+    readonly arm?: string;
     readonly metric: string;
-};
+    readonly per?: never;
+} | {
+    readonly arm?: string;
+    readonly metric?: never;
+    readonly per?: Readonly<Record<string, number>>;
+});
 
 // @public
 export function assertImproves(report: EvalReport, opts: ImprovesGate): void;
 
 // @public
 export function assertNoRegression(current: EvalReport | readonly EvalReport[], gate: RegressionGate): void;
-
-// @public (undocumented)
-export function assertRates(report: CheckReport, opts: CheckRateGate): void;
 
 // @public (undocumented)
 export function assertRates(report: EvalReport, opts: ArmRateGate): void;
@@ -41,13 +43,9 @@ export interface BaselineFile {
 }
 
 // @public
-export type CheckRateGate = RateGate & {
-    readonly per?: Readonly<Record<string, number>>;
-};
-
-// @public
 export function compare(report: EvalReport, baseline: string, arm: string, opts?: {
     readonly alpha?: number;
+    readonly lowerIsBetter?: readonly string[];
 }): Readonly<Record<string, ArmComparison>>;
 
 // @public (undocumented)
@@ -70,6 +68,7 @@ export interface ImprovesGate {
     // (undocumented)
     readonly baseline: string;
     readonly by?: number;
+    readonly lowerIsBetter?: boolean;
     // (undocumented)
     readonly metric: string;
     readonly significant?: boolean;
@@ -102,17 +101,11 @@ export function paid_judged(rubric: string, opts?: {
 }): Check<Trace>;
 
 // @public
-export function paid_measure(spec: MeasureSpec): Promise<CheckReport>;
-
-// @public
-export function paid_measureArms(spec: ArmsMeasureSpec): Promise<ArmsCheckReport>;
-
-// @public
 export function paid_measureTriggerRate(spec: TriggerRateSpec, opts?: {
     evalDriver?: EvalDriver;
 }): Promise<TriggerRateReport>;
 
-// @public (undocumented)
+// @public
 export function paid_runEval<M extends Metrics>(spec: EvalSpec<M>): Promise<EvalReport>;
 
 // @public

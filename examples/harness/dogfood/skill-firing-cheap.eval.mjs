@@ -1,5 +1,5 @@
 /**
- * Dogfood — the CHEAP firing-only path: `measure` + `stubSkillBodies`.
+ * Dogfood — the CHEAP firing-only path: `runEval` + `checks` + `stubSkillBodies`.
  *
  * The sibling `skill-quality.eval.mjs` keeps each skill BODY because it grades
  * the suggestion (`judged`) — quality needs the body to run. This eval asks the
@@ -28,7 +28,8 @@ import { fileURLToPath } from "node:url";
 const pluginDir = fileURLToPath(new URL("../../../", import.meta.url));
 
 export default defineEval({
-  measure: {
+  runEval: {
+    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
     pluginDir,
     stubSkillBodies: true, // measure SELECTION only — bodies stubbed, ~18x cheaper
     task: "Strengthen the vigiles rules in my CLAUDE.md spec: scan the guidance() rules and find existing linter rules that could back them as enforce(). Use the right skill for this.",

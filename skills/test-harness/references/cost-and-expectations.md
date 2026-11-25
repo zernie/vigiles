@@ -17,7 +17,7 @@ surface sorts into one of three buckets:
 - **B — Model-gated, on your subscription** (real model, **no metered API**): does a
   skill's description **fire** (`measureTriggerRate`, recall + precision) **and**
   does its guidance actually **produce good output** (score it directly:
-  `measure({ checks: [judged(rubric)] })` + `assertRates` — the absolute oracle;
+  `runEval({ checks: [judged(rubric)] })` + `assertRates` — the absolute oracle;
   use a `runEval` A/B on-vs-off only when you need the _relative_ lift). This is
   the half a **prose / guidance skill** lives in —
   its worth is behavioral, so only a model can judge it. That is **not** "uncovered"
@@ -37,8 +37,8 @@ vigiles just does it on your subscription instead of metered API.
 
 ### After a real-model run: TELL THE USER WHAT IT SPENT
 
-Whenever you run a real-model eval (`runEval` / `measureArms` / `measureTriggerRate`
-/ `measure`), **surface the spend to the user in your reply** — don't let a paid run
+Whenever you run a real-model eval (`runEval` / `measureTriggerRate`),
+**surface the spend to the user in your reply** — don't let a paid run
 be silent. `runEval` prints a cost block to stderr and every report carries `usage`
 (`report.arms[*].usage`: `totalCostUsd` + token counts). Relay, in plain words:
 

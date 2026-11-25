@@ -80,6 +80,8 @@ export default defineConfig({
         "src/eval.ts",
         "src/eval-check-report.ts",
         "src/eval-rate-gate.ts",
+        "src/eval-spec-shape.ts",
+        "src/eval-improves.ts",
         "src/eval-format.ts",
         "src/core/eval-aggregate.ts",
         "src/core/eval-report-failures.ts",

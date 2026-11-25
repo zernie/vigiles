@@ -40,28 +40,18 @@ import {
   moduleDefault,
   type EvalDefinition,
   type EvalKind,
+  type RemovedEvalKind,
 } from "./eval-define.js";
 import {
-  measure,
-  measureArms,
   measureTriggerRate,
   runEval,
-  type ArmsMeasureSpec,
   type EvalReport,
   type EvalSpec,
-  type MeasureSpec,
   type TriggerRateReport,
   type EvalDriver,
   type TriggerRateSpec,
 } from "./eval.js";
-import {
-  formatCheckReport,
-  formatArmsCheckReport,
-  type ArmsCheckReport,
-  type CheckReport,
-} from "./eval-check-report.js";
 import { formatEvalReport, formatTriggerRateReport } from "./eval-format.js";
-import type { Metrics } from "./core/eval-aggregate.js";
 import {
   unansweredInReport,
   contextInReport,
@@ -75,12 +65,7 @@ import {
 import type { SelectionMatrixSpec } from "./eval-define.js";
 
 /** Every report this entry can produce. */
-type AnyReport =
-  | EvalReport
-  | CheckReport
-  | ArmsCheckReport
-  | TriggerRateReport
-  | SelectionReport;
+type AnyReport = EvalReport | TriggerRateReport | SelectionReport;
 
 /**
  * How many trials this run should use, or `undefined` to leave the spec alone.
@@ -103,13 +88,8 @@ export function trialsOverride(raw: string | undefined): number | undefined {
  * hand-write its own `report.n === 0` check (and why several forgot to).
  */
 export function runsIn(report: AnyReport): number | undefined {
-  if ("arms" in report) {
-    const arms = Object.values(
-      report.arms as Record<string, { n?: number; runs?: number }>,
-    );
-    if (arms.length === 0) return 0;
-    return arms.reduce((t, a) => t + (a.n ?? a.runs ?? 0), 0);
-  }
+  if ("arms" in report)
+    return Object.values(report.arms).reduce((t, a) => t + a.runs, 0);
   return "n" in report ? report.n : undefined;
 }
 
@@ -198,7 +178,7 @@ export function driverMisplaced(
   if (!hasDriver || kind === "measureTriggerRate") return undefined;
   return (
     `\`evalDriver\` is declared beside \`${kind}\`, which cannot use it.\n` +
-    `  Only \`measureTriggerRate\` takes a driver; \`runEval\` and the \`measure\` family always\n` +
+    `  Only \`measureTriggerRate\` takes a driver; \`runEval\` always\n` +
     `  drive Claude Code (see docs/harnesses.md, footnote 2). Remove it, or measure trigger rate.`
   );
 }
@@ -214,11 +194,7 @@ async function runDeclared(
     trials === undefined ? s : { ...s, trials };
   switch (kind) {
     case "runEval":
-      return runEval(withTrials(spec as EvalSpec<Metrics>));
-    case "measure":
-      return measure(withTrials(spec as MeasureSpec));
-    case "measureArms":
-      return measureArms(withTrials(spec as ArmsMeasureSpec));
+      return runEval(withTrials(spec as EvalSpec));
     case "measureTriggerRate":
       return measureTriggerRate(
         withTrials(spec as TriggerRateSpec),
@@ -236,12 +212,6 @@ function printReport(kind: EvalKind, report: AnyReport): void {
   switch (kind) {
     case "runEval":
       console.log(formatEvalReport(report as EvalReport));
-      return;
-    case "measure":
-      console.log(formatCheckReport(report as CheckReport));
-      return;
-    case "measureArms":
-      console.log(formatArmsCheckReport(report as ArmsCheckReport));
       return;
     case "measureTriggerRate":
       console.log(formatTriggerRateReport(report as TriggerRateReport));
@@ -271,10 +241,17 @@ export function notADescriptionMessage(file: string, why: string): string {
 
 /** The `why` line for each way a default export can fail to be a declaration. */
 export function declarationProblem(d: {
-  why: "not-a-definition" | "declares-nothing" | "declares-several";
+  why:
+    | "not-a-definition"
+    | "declares-nothing"
+    | "declares-several"
+    | "removed-kind";
   kinds?: readonly EvalKind[];
+  kind?: RemovedEvalKind;
 }): string {
   switch (d.why) {
+    case "removed-kind":
+      return removedKindProblem(d.kind ?? "measure");
     case "not-a-definition":
       return "no `export default defineEval({…})` found.";
     case "declares-nothing":
@@ -282,6 +259,23 @@ export function declarationProblem(d: {
     case "declares-several":
       return `\`defineEval({…})\` declares ${String(d.kinds?.length ?? 0)} measurements (${(d.kinds ?? []).join(", ")}) — declare exactly one.`;
   }
+}
+
+/**
+ * The rewrite for a file that still declares a key folded into `runEval` in
+ * v55. Named, not "declares nothing": the file declares exactly what it used
+ * to, under a key that no longer exists, and its author needs the new one.
+ */
+function removedKindProblem(kind: RemovedEvalKind): string {
+  const arms =
+    kind === "measureArms" ? "keep `arms`" : "drop `arms` (one arm, `default`)";
+  return (
+    `\`defineEval({ ${kind}: … })\` was folded into \`runEval\` in v55 — rename the key:\n` +
+    `      defineEval({ runEval: { env: { kind: "inherit", reason: "…" }, …the same spec… } })\n` +
+    `  \`runEval\` takes \`checks\` as before (${arms}), and needs \`env\`: \`{ kind: "ephemeral" }\`, or\n` +
+    `  \`{ kind: "inherit", reason }\` for the HOME and environment ${kind} used. Its default model is\n` +
+    `  \`haiku\` where ${kind}'s was \`sonnet\` — set \`model\` to keep measuring the same thing.`
+  );
 }
 
 /* v8 ignore start -- the process entry: exercised end-to-end through child processes in eval-entry.test.ts */

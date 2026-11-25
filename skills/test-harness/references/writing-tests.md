@@ -51,7 +51,7 @@ assertChecks(r, [
 ]);
 ```
 
-**Eval — absolute (`paid_measure` + `paid_judged`)** — testing _one_ skill, the usual case:
+**Eval — absolute (`paid_runEval` with `checks` + `paid_judged`)** — testing _one_ skill, the usual case:
 score its output directly against a rubric. No on/off baseline — this is the
 "is it any good?" oracle (what promptfoo/DeepEval lead with), and the right
 default when there's nothing to compare against:
@@ -65,14 +65,16 @@ import { defineEval, check } from "vigiles";
 import { paid_judged, assertRates } from "vigiles/eval";
 
 export default defineEval({
-  measure: {
-    pluginDir: "./",
+  runEval: {
+    env: { kind: "ephemeral" }, // required: a throwaway HOME, or { kind: "inherit", reason }
+    pluginDir: "./", // no `arms`: one configuration, reported as the arm "default"
     task: "…a task the skill should handle…",
     checks: [
       check.skill("my-plugin:my-skill"), // it fired
       paid_judged("the answer correctly does X and avoids Y"), // …and the output is good
     ],
     trials: 6,
+    model: "sonnet", // the default is haiku; measure on the model your users run
   },
   assert: (report) => assertRates(report, { min: 0.8 }), // each check ≥ 80% of trials
 });
@@ -93,7 +95,7 @@ export default defineEval({
     env: { kind: "ephemeral" }, // required: a throwaway HOME, or { kind: "inherit", reason }
     arms: { off: {}, on: { pluginDir: "./" } },
     task: "…a task the harness change should affect…",
-    measure: (ctx) => ({ ok: /* a bare predicate over the trace */ true }),
+    measure: (ctx) => ({ ok: /* a bare predicate over the trace */ true }), // or `checks: [...]`
     trials: 6,
     cache: "readwrite",
   },

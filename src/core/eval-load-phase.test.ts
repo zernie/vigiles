@@ -20,7 +20,7 @@ import {
   refuseDuringEvalLoad,
 } from "./eval-load-phase.js";
 
-test("the window is CLOSED by default — a direct `paid_measure(…)` call is nobody's business but the caller's", () => {
+test("the window is CLOSED by default — a direct `paid_runEval(…)` call is nobody's business but the caller's", () => {
   // The quiet half, and the one that matters most: a gate defaulting to closed
   // would refuse every correct direct call of the public paid API, which is the
   // exact failure that got `process.env.VITEST` rejected in foreign-runner.ts.

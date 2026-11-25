@@ -130,7 +130,7 @@ afterAll(() => {
 describe("check-export-prefixes: it FIRES on a violation", () => {
   it("flags a runtime export with no prefix", () => {
     const root = fixture(
-      "export declare function runEval(): void;\nexport declare function paid_measure(): void;\n",
+      "export declare function runEval(): void;\nexport declare function paid_measureTriggerRate(): void;\n",
     );
     const v = check(root);
     expect(v.map((x) => x.symbol)).toEqual(["runEval"]);
@@ -185,7 +185,7 @@ describe("check-export-prefixes: it is SILENT on the legitimate surface", () => 
       [
         "export interface EvalReport { ok: boolean }",
         "export type Metrics = Record<string, number>;",
-        "export declare function paid_measure(): void;",
+        "export declare function paid_measureTriggerRate(): void;",
         "",
       ].join("\n"),
     );

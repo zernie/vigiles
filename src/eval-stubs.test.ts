@@ -30,7 +30,6 @@ import {
 } from "./eval.js";
 import { formatEvalReport } from "./eval-format.js";
 import { unansweredInReport } from "./core/eval-report-failures.js";
-import type { Metrics } from "./core/eval-aggregate.js";
 // eslint-disable-next-line local/no-harness-names -- the test reads the auth file the real adapter declares, rather than spelling its path
 import { claudeCodeRuntime } from "./adapters/claude-code/runtime.js";
 import { experimental_stub } from "./stub.js";
@@ -91,11 +90,15 @@ function ghRunner(...calls: readonly (readonly string[])[]) {
 }
 
 /** A spec the type forbids, as a plain-JS eval file can still write it. */
-const looseSpec = (spec: unknown): EvalSpec<Metrics> =>
+const looseSpec = (spec: unknown): EvalSpec =>
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the shapes under test are exactly the ones the type rules out
-  spec as EvalSpec<Metrics>;
+  spec as EvalSpec;
 
-const base = (extra: Partial<EvalSpec<Metrics>> = {}): EvalSpec<Metrics> => ({
+const base = (
+  extra: Partial<
+    Extract<EvalSpec, { readonly arms: object; readonly measure: object }>
+  > = {},
+): EvalSpec => ({
   arms: { a: {} },
   task: "file it",
   trials: 1,

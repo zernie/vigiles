@@ -3,7 +3,7 @@
  *
  * vigiles's own plugin ships no subagents, so we dogfood on the vendored,
  * pinned **oh-my-claudecode** plugin, which registers a `code-reviewer` agent.
- * `measure` drives a task that should dispatch it via the `Task` tool;
+ * `runEval` drives a task that should dispatch it via the `Task` tool;
  * `check.subagent("code-reviewer", [checks])` then runs the check vocabulary over what
  * the SUBAGENT did (recovered from `parent_tool_use_id` — see parseSubagents).
  *
@@ -22,7 +22,8 @@ const pluginDir = fileURLToPath(
 );
 
 export default defineEval({
-  measure: {
+  runEval: {
+    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
     pluginDir,
     fixture: {
       "app.js": `function add(a, b) { return a - b; } // bug: subtracts\nmodule.exports = { add };\n`,

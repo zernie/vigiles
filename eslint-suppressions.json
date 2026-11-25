@@ -5002,19 +5002,7 @@
     }
   },
   "src/eval-check-report.ts": {
-    "functional/immutable-data": {
-      "count": 2
-    },
-    "functional/no-loop-statements": {
-      "count": 1
-    },
     "local/no-harness-names": {
-      "count": 1
-    },
-    "max-lines-per-function": {
-      "count": 1
-    },
-    "max-params": {
       "count": 1
     }
   },
@@ -5106,7 +5094,7 @@
   },
   "src/eval-entry.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 13
+      "count": 8
     },
     "functional/no-let": {
       "count": 1
@@ -5115,7 +5103,7 @@
       "count": 1
     },
     "max-lines-per-function": {
-      "count": 2
+      "count": 1
     },
     "max-params": {
       "count": 2
@@ -5253,9 +5241,6 @@
     }
   },
   "src/eval-rate-gate.ts": {
-    "max-lines-per-function": {
-      "count": 1
-    },
     "sonarjs/different-types-comparison": {
       "count": 2
     }
@@ -5265,13 +5250,13 @@
       "count": 1
     },
     "max-params": {
-      "count": 3
+      "count": 2
     },
     "sonarjs/cognitive-complexity": {
       "count": 1
     },
     "sonarjs/different-types-comparison": {
-      "count": 4
+      "count": 2
     },
     "sonarjs/function-return-type": {
       "count": 1
@@ -5317,16 +5302,16 @@
       "count": 4
     },
     "functional/immutable-data": {
-      "count": 11
+      "count": 10
     },
     "functional/no-let": {
       "count": 14
     },
     "functional/no-loop-statements": {
-      "count": 21
+      "count": 19
     },
     "functional/prefer-immutable-types": {
-      "count": 40
+      "count": 39
     },
     "local/no-harness-names": {
       "count": 18
@@ -5335,7 +5320,7 @@
       "count": 1
     },
     "max-lines-per-function": {
-      "count": 23
+      "count": 21
     },
     "max-params": {
       "count": 6

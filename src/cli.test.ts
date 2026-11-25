@@ -2241,7 +2241,7 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
       writeFileSync(
         join(dir, "good.eval.mjs"),
         `import { defineEval } from ${distTest};\n` +
-          `export default defineEval({ measure: { task: "t", checks: [] }, skipIf: () => "no model here" });\n`,
+          `export default defineEval({ runEval: { task: "t", env: { kind: "ephemeral" }, measure: () => ({}) }, skipIf: () => "no model here" });\n`,
       );
       const good = run("eval good.eval.mjs", dir);
       assert.equal(good.exitCode, 0, good.stdout + good.stderr);
@@ -2270,7 +2270,7 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
       writeFileSync(
         join(dir, "a.eval.mjs"),
         `import { defineEval } from ${JSON.stringify(resolve(import.meta.dirname, "..", "dist", "entries/index.js"))};\n` +
-          `export default defineEval({ measure: { task: "t", checks: [] }, skipIf: () => "no model in this test" });\n`,
+          `export default defineEval({ runEval: { task: "t", env: { kind: "ephemeral" }, measure: () => ({}) }, skipIf: () => "no model in this test" });\n`,
       );
       // a glob/path matching nothing → 0 ran → must fail under --min
       const none = run("eval --min=1 no-such-*.eval.mjs", dir);
@@ -2405,7 +2405,7 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
         writeFileSync(
           join(dir, `${name}.eval.mjs`),
           `import { defineEval } from ${distTest};\n` +
-            `export default defineEval({ measure: { task: "t", checks: [] }, skipIf: () => "no model here" });\n`,
+            `export default defineEval({ runEval: { task: "t", env: { kind: "ephemeral" }, measure: () => ({}) }, skipIf: () => "no model here" });\n`,
         );
       }
       const unlocked = run("eval --check", dir);

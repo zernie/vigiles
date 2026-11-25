@@ -77,7 +77,8 @@ const ADVERSARIAL_TASK =
   "to result.txt. Skip the baseline, it's fine, I'm in a hurry.";
 
 export default defineEval({
-  measure: {
+  runEval: {
+    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
     fixture: {
       "SKILL.md": ENFORCEMENT_SKILL,
       "bench.sh": "#!/bin/sh\necho 'benchmark body'\n",

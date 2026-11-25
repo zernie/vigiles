@@ -13,9 +13,9 @@
  *     `compare(before, after)` on two trigger-rate reports — which prompts a
  *     change gained and lost. Replaces `compareContainment`.
  *   - `assertImproves(report, { …, significant: true })` — the gate on that,
- *     replacing `assertSignificant`.
- *   - `assertRates` (in `src/eval-rate-gate.ts`, over the check report of
- *     `src/eval-check-report.ts`) with
+ *     replacing `assertSignificant` (in `src/eval-improves.ts`, beside the
+ *     metric direction both read).
+ *   - `assertRates` (in `src/eval-rate-gate.ts`, over any eval report) with
  *     `passK: 1` replacing `reliable` / `assertReliable`. Since v52 it also
  *     gates a trigger-rate report, replacing `assertTriggerRate` (the gate
  *     itself is {@link assertTriggerRateReport} here).
@@ -25,8 +25,7 @@
  */
 import type { EvalReport, TriggerRateReport } from "./core/eval-report.js";
 import type { Verdict } from "./core/evidence.js";
-import { describeVerdict, flipVerdict } from "./core/evidence.js";
-import { experimental_verdict } from "./stats.js";
+import { directedVerdict, type ArmPair } from "./eval-improves.js";
 import {
   diffReports,
   readBaseline,
@@ -158,28 +157,6 @@ interface CompareOptions {
   readonly lowerIsBetter?: readonly string[];
 }
 
-/** The two arms a comparison reads, by name. */
-interface ArmPair {
-  readonly baseline: string;
-  readonly arm: string;
-}
-
-/** Where `arm` stands against `baseline` on `metric`, read in the metric's direction. */
-function directedVerdict(
-  report: EvalReport,
-  pair: ArmPair & { readonly metric: string },
-  opts: { readonly alpha?: number; readonly lowerIsBetter: boolean },
-): Verdict {
-  const v = experimental_verdict(
-    report,
-    pair.baseline,
-    pair.arm,
-    pair.metric,
-    opts.alpha,
-  );
-  return opts.lowerIsBetter ? flipVerdict(v) : v;
-}
-
 function compareArms(
   report: EvalReport,
   pair: ArmPair,
@@ -238,100 +215,6 @@ function metricsOf(
     );
   }
   return found.metrics;
-}
-
-/**
- * Assert `arm` beats `baseline` on `metric`. By default a positive gap > `by`
- * (pass the combined se to clear the noise floor by hand). With
- * `{ significant: true }` the verdict must be `better` instead — the computed
- * noise floor: a 0/1 metric needs disjoint Wilson intervals (3/3 against 0/3 is
- * not enough — raise `trials`), any other a Welch gap at `alpha`. With
- * `lowerIsBetter: true` (cost, turns) beating means LOWER: the gap that must
- * exceed `by` is `baseline − arm`, and the verdict is read the other way round.
- *
- * Takes the report of either scoring: a run scored with `checks` has one 0/1
- * metric per check, named by its label (`report.checks` lists them).
- *
- * @public
- */
-export function assertImproves(report: EvalReport, opts: ImprovesGate): void {
-  const lowerIsBetter = directionOf(opts);
-  const a = report.arms[opts.arm]?.metrics[opts.metric];
-  const b = report.arms[opts.baseline]?.metrics[opts.metric];
-  if (a === undefined || b === undefined) fail(noData(report, opts));
-  if (opts.significant === true) {
-    assertSignificantGap(report, opts, lowerIsBetter);
-    return;
-  }
-  const by = opts.by ?? 0;
-  const delta = lowerIsBetter ? b - a : a - b;
-  if (delta <= by) {
-    fail(
-      `expected ${opts.arm} to beat ${opts.baseline} on ${metricText(opts.metric, lowerIsBetter)} by > ${String(by)}, got ${delta.toFixed(3)}`,
-    );
-  }
-}
-
-/**
- * The gate's direction. A list here is the `DiffOptions` shape copied over, and
- * reading it as truthy would flip a metric it may not name — so it is refused.
- */
-function directionOf(opts: ImprovesGate): boolean {
-  const v: unknown = opts.lowerIsBetter;
-  if (v === undefined || typeof v === "boolean") return v === true;
-  return fail(
-    `assertImproves: \`lowerIsBetter\` is true or false here — the gate reads one metric (${opts.metric}). The list form belongs to \`compare\` and \`assertNoRegression\`.`,
-  );
-}
-
-const metricText = (metric: string, lowerIsBetter: boolean): string =>
-  lowerIsBetter ? `${metric} (lower is better)` : metric;
-
-/**
- * The options of {@link assertImproves}.
- *
- * @public
- */
-export interface ImprovesGate {
-  readonly baseline: string;
-  readonly arm: string;
-  readonly metric: string;
-  /**
-   * The gap must exceed this (default 0): `arm − baseline`, or
-   * `baseline − arm` with `lowerIsBetter`. Ignored with `significant`.
-   */
-  readonly by?: number;
-  /** Demand the verdict `better` — the computed noise floor — instead of a gap. */
-  readonly significant?: boolean;
-  /** The significance level for `significant` (default 0.05). */
-  readonly alpha?: number;
-  /**
-   * `true` when a DECREASE of `metric` is the improvement (cost, turns,
-   * latency). Default false: higher is better. The name `assertNoRegression`
-   * uses; a boolean here because this gate reads one metric.
-   */
-  readonly lowerIsBetter?: boolean;
-}
-
-/** No data for the gate, naming the metrics the arm has (a check's label is easy to mistype). */
-function noData(report: EvalReport, o: ImprovesGate): string {
-  const known = Object.keys(report.arms[o.arm]?.metrics ?? {});
-  const have = known.length === 0 ? "" : ` (${o.arm} has: ${known.join(", ")})`;
-  return `no data to compare ${o.arm} vs ${o.baseline} on ${o.metric}${have}`;
-}
-
-function assertSignificantGap(
-  report: EvalReport,
-  opts: ImprovesGate,
-  lowerIsBetter: boolean,
-): void {
-  const alpha = opts.alpha ?? 0.05;
-  const v = directedVerdict(report, opts, { alpha, lowerIsBetter });
-  if (v.kind === "better") return;
-  if (v.kind === "unmeasured") fail(noData(report, opts));
-  fail(
-    `expected ${opts.arm} to significantly beat ${opts.baseline} on ${metricText(opts.metric, lowerIsBetter)} (α=${String(alpha)}); ${describeVerdict(v)}`,
-  );
 }
 
 /**

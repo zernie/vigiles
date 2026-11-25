@@ -33,8 +33,6 @@ import { EVAL_KINDS } from "./eval-define.js";
 /** The runners that spend. An eval file must not name any of them. */
 const PAID = [
   "runEval",
-  "measure",
-  "measureArms",
   "measureTriggerRate",
   "measureSelectionMatrix",
   "judge",
@@ -122,11 +120,9 @@ export function declaredKeys(sf: ts.SourceFile): string[] {
     .filter((n) => (KINDS as readonly string[]).includes(n));
 }
 
-/** The five measurements, mirrored from `EVAL_KINDS` (asserted below). */
+/** The three measurements, mirrored from `EVAL_KINDS` (asserted below). */
 const KINDS = [
   "runEval",
-  "measure",
-  "measureArms",
   "measureTriggerRate",
   "measureSelectionMatrix",
 ] as const;
@@ -181,7 +177,7 @@ describe("the gate fires on the shape it replaced", () => {
   test("a top-level await is caught, and one inside a function is NOT", () => {
     const bad = parse(
       "x.eval.mjs",
-      `import { measure } from "vigiles/eval";\nconst report = await measure({});\n`,
+      `import { paid_runEval } from "vigiles/eval";\nconst report = await paid_runEval({});\n`,
     );
     assert.equal(topLevelAwaits(bad).length, 1);
 
@@ -189,7 +185,7 @@ describe("the gate fires on the shape it replaced", () => {
     // the entire point of moving the work into them.
     const good = parse(
       "x.eval.mjs",
-      `export default defineEval({ measure: {}, assert: async (r) => { await check(r); } });\n`,
+      `export default defineEval({ runEval: {}, assert: async (r) => { await check(r); } });\n`,
     );
     assert.deepEqual(topLevelAwaits(good), []);
   });
@@ -220,14 +216,14 @@ describe("the gate fires on the shape it replaced", () => {
       defaultExportsDefineEval(
         parse(
           "x.eval.mjs",
-          `const r = await measure({});\nexport default r;\n`,
+          `const r = await runEval({});\nexport default r;\n`,
         ),
       ),
       false,
     );
     assert.equal(
       defaultExportsDefineEval(
-        parse("x.eval.mjs", `export default defineEval({ measure: {} });\n`),
+        parse("x.eval.mjs", `export default defineEval({ runEval: {} });\n`),
       ),
       true,
     );
@@ -243,9 +239,9 @@ test("the key list here mirrors the one the runner reads", () => {
 test("the exactly-one check fires on a typo and on a double declaration", () => {
   const one = parse(
     "x.eval.mjs",
-    `export default defineEval({ measure: {} });\n`,
+    `export default defineEval({ runEval: {} });\n`,
   );
-  assert.deepEqual(declaredKeys(one), ["measure"]);
+  assert.deepEqual(declaredKeys(one), ["runEval"]);
   // A typo is not a measurement — the file would declare nothing.
   const typo = parse(
     "x.eval.mjs",
@@ -254,9 +250,9 @@ test("the exactly-one check fires on a typo and on a double declaration", () => 
   assert.deepEqual(declaredKeys(typo), []);
   const two = parse(
     "x.eval.mjs",
-    `export default defineEval({ measure: {}, runEval: {} });\n`,
+    `export default defineEval({ measureTriggerRate: {}, runEval: {} });\n`,
   );
-  assert.deepEqual(declaredKeys(two), ["measure", "runEval"]);
+  assert.deepEqual(declaredKeys(two), ["measureTriggerRate", "runEval"]);
   // `module.exports = defineEval({…})` — the .cjs spelling — is seen too.
   const cjs = parse(
     "x.eval.cjs",

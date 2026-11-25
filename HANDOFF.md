@@ -141,9 +141,9 @@ Deterministic Codex audit = full parity (KEEP). Real-model **trigger-rate** on C
 - **The 100% coverage gate is an EXPLICIT allowlist** in `vitest.config.ts`
   (`coverage.include`). A new pillar file must be added there + real-IO seams marked
   `/* v8 ignore */`.
-- **`measure()` is SINGLE-arg** — `measure(spec)` where `checks`/`trials`/`model` live
-  INSIDE the one object. (Root `CLAUDE.md` eval.ts desc still wrongly says
-  "measure(spec, { trials, checks })" — fix the spec later.)
+- **`paid_runEval` is the one task runner (v55)** — one spec object, `checks` OR
+  `measure(ctx)` inside it, `arms` or none (one arm, `default`); `trials`/`model` live
+  in the same object.
 - `CLAUDE.md` (root + `src/` + `research/`) is COMPILED from `.spec.ts` — edit the spec +
   recompile (`node dist/cli.js compile <spec>`), NEVER hand-edit (a PostToolUse hook does).
 - **COMMIT SIGNING is BROKEN in-container** (0-byte pubkey) → "Unverified"; email correct.

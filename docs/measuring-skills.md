@@ -27,7 +27,7 @@ It does that by running the thing under test on both sides of an A/B and reading
 
 The signal is the **delta** between arms, not an absolute. Absolutes drift with model and task; deltas are comparable.
 
-This is `runEval` / `measureArms` — arms × trials → mean ± se, and a delta only counts if it clears the noise floor (`compare` / `assertImproves({ significant: true })`: Wilson intervals for a 0/1 metric, Welch's t-test for any other). It is **not** a prompt eval: the unit under test is the assembled harness, which a generic YAML-configured eval runner cannot reproduce.
+This is `runEval` — arms × trials → mean ± se, and a delta only counts if it clears the noise floor (`compare` / `assertImproves({ significant: true })`: Wilson intervals for a 0/1 metric, Welch's t-test for any other). It is **not** a prompt eval: the unit under test is the assembled harness, which a generic YAML-configured eval runner cannot reproduce.
 
 ## The metric triple — bill, target, blast radius
 
@@ -69,7 +69,7 @@ export default defineEval({
 // Read the per-arm delta: lower bill? target moved? correctness intact?
 ```
 
-> `runEval` takes a **`measure(ctx)` callback** that returns any numeric metrics (used above). Its sibling `measureArms` instead scores a **declarative `checks` array** (`output`/`judged`/`cost`/…) — reach for that when your A/B is a set of pass/fail assertions rather than custom numbers.
+> `runEval` takes a **`measure(ctx)` callback** that returns any numeric metrics (used above), or instead — exactly one of the two — a **declarative `checks` array** (`output`/`judged`/`cost`/…), each scored 0/1 and keyed by its label (`tool(Bash)`). Reach for `checks` when your A/B is a set of pass/fail assertions rather than custom numbers; leave out `arms` to score one configuration (reported as the arm `default`).
 
 Two ways to specify an arm:
 
@@ -197,7 +197,7 @@ A real-model run tells you **exactly what it spent**, so a paid run is never sil
 
 - **No "% of your plan."** Anthropic doesn't expose a subscription's quota (the real limits are rolling rate windows, not a dollar bucket), so vigiles won't invent a percentage. Tokens + the API-equivalent `$` + how you were billed is the honest, complete picture — plus a running session tally across the runs in one sitting.
 
-The numbers also live on the report — `report.usage` for a single run (`measure`, `measureTriggerRate`) or `report.arms[*].usage` per arm (`runEval`, `measureArms`) — and the `test-harness` skill relays them to you after any run it does on your behalf.
+The numbers also live on the report — `report.usage` for a trigger-rate run (`measureTriggerRate`) or `report.arms[*].usage` per arm (`runEval`, `default` when it has no `arms`) — and the `test-harness` skill relays them to you after any run it does on your behalf.
 
 ## Experimental: real side-effect testing
 
@@ -281,7 +281,7 @@ try {
 
 Runnable versions: [`side-effect-r3.mjs`](../examples/harness/side-effect-r3.mjs) (the primitive) and [`measure-with-service.mjs`](../examples/harness/measure-with-service.mjs) (the `runEval` composition above).
 
-**What ships today vs later.** Today: the types, the `ContainerRuntime` port, `experimental_startServices`, and a Docker backend — all on `vigiles/fixtures`, each name carrying the `experimental_` prefix. Deferred: a first-class `services` option on `measureArms` (+ `ctx.service(name)`), **per-trial** reset (today the container lives for the whole run — make your task self-contained or use `trials: 1`), and the egress wall. Requires Docker (Linux-first), stays an explicit opt-in, and is **never** part of `vigiles audit` — `audit` stays side-effect-free.
+**What ships today vs later.** Today: the types, the `ContainerRuntime` port, `experimental_startServices`, and a Docker backend — all on `vigiles/fixtures`, each name carrying the `experimental_` prefix. Deferred: a first-class `services` option on `runEval` (+ `ctx.service(name)`), **per-trial** reset (today the container lives for the whole run — make your task self-contained or use `trials: 1`), and the egress wall. Requires Docker (Linux-first), stays an explicit opt-in, and is **never** part of `vigiles audit` — `audit` stays side-effect-free.
 
 ## See also
 

@@ -110,7 +110,8 @@ Import [`vigiles/vitest` or `vigiles/jest`](matchers.md) once and `expect(r).toP
 import { defineEval, check } from "vigiles";
 
 export default defineEval({
-  measure: {
+  runEval: {
+    env: { kind: "ephemeral" },
     task: "Write hello.txt containing 'hi'",
     trials: 3,
     checks: [check.writes({ include: ["hello.txt"] })],
@@ -203,8 +204,9 @@ assertChecks(runHook(cmd, event), [
 
 // SCORED (eval): the SAME checks, as a rate ± se across trials.
 // the `paid_` prefix = it calls a model; reading the report (assertRates) is free
-import { paid_measure, assertRates } from "vigiles/eval";
-const report = await paid_measure({
+import { paid_runEval, assertRates } from "vigiles/eval";
+const report = await paid_runEval({
+  env: { kind: "ephemeral" },
   pluginDir: "./my-plugin", // or skillsDir: ".claude/skills" (loose, auto-packaged)
   task: "…",
   checks: [check.skill("vigiles:test-harness")],
@@ -226,9 +228,10 @@ from `vigiles` (type `check.` and the editor lists them; the table is under
 your own. The exception is `paid_judged`, which calls a model and so lives on
 [`vigiles/eval`](eval.md).
 
-`paid_measureArms({ arms, checks })` scores the same checks per arm (a hook/skill/rule
-**on vs off**): `report.arms[name].perCheck[i]` lines up across arms. It takes
-`stubSkillBodies` too.
+With `arms`, `paid_runEval({ arms, checks })` scores the same checks per arm (a
+hook/skill/rule **on vs off**): each check is one metric keyed by its label, so
+`report.arms[name].metrics["tool(Bash)"]` lines up across arms and
+`compare(report, "off", "on")` reads each one. It takes `stubSkillBodies` too.
 
 ## Every export
 
@@ -290,9 +293,9 @@ Names in `code` are the exact export names. Every name below is exported from `v
 
 ### Declare an eval
 
-| Name         | What it is                                                                                                                                                                                              |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `defineEval` | Declare what an eval file measures: exactly one of `runEval`, `measure`, `measureArms`, `measureTriggerRate`, `measureSelectionMatrix` (the keys keep their names; the runners they call are `paid_*`). |
+| Name         | What it is                                                                                                                                                                    |
+| ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `defineEval` | Declare what an eval file measures: exactly one of `runEval`, `measureTriggerRate`, `measureSelectionMatrix` (the keys keep their names; the runners they call are `paid_*`). |
 
 ### Typed results, emit channel (experimental)
 
@@ -385,30 +388,25 @@ The types below describe these: `EmitFieldSchema`, `EmitObjectSchema`, `EmitProp
 
 ### Types: evals
 
-| Type                  | What it describes                                          |
-| --------------------- | ---------------------------------------------------------- |
-| `EvalDefinition`      | What `defineEval` returns.                                 |
-| `EvalDefinitionInput` | What `defineEval` accepts.                                 |
-| `EvalHooks`           | `skipIf` and the report assertion of an eval file.         |
-| `EvalKind`            | The five measurement keys.                                 |
-| `EvalMeasurements`    | The measurement shapes an eval file may declare.           |
-| `EvalReports`         | The report type each measurement produces.                 |
-| `SelectionMatrixSpec` | Input of the selection-matrix measurement.                 |
-| `EvalSpec`            | A/B across arms with derived metrics.                      |
-| `EvalArm`             | One arm of an A/B.                                         |
-| `MeasureSpec`         | Checks scored over trials of one task.                     |
-| `ArmsMeasureSpec`     | The same checks scored per arm.                            |
-| `TriggerRateSpec`     | Whether a skill's description fires, over a prompt set.    |
-| `Metrics`             | The metric record an eval callback returns.                |
-| `EvalReport`          | The report of `paid_runEval` (eval key `runEval`).         |
-| `ArmReport`           | Per-arm figures inside a report.                           |
-| `ArmUsage`            | Cost and token totals of an arm.                           |
-| `EvalUsage`           | Cost, duration and token counts of one run.                |
-| `MetricStat`          | Mean, spread and sample size of one metric.                |
-| `CheckReport`         | Per-check pass rates over trials.                          |
-| `CheckRate`           | One check's rate, standard error and pass-all-trials flag. |
-| `ArmsCheckReport`     | A `CheckReport` per arm.                                   |
-| `TriggerRateReport`   | Recall and precision of a skill description.               |
-| `PromptTriggerStat`   | How often one prompt fired the skill.                      |
+| Type                  | What it describes                                                         |
+| --------------------- | ------------------------------------------------------------------------- |
+| `EvalDefinition`      | What `defineEval` returns.                                                |
+| `EvalDefinitionInput` | What `defineEval` accepts.                                                |
+| `EvalHooks`           | `skipIf` and the report assertion of an eval file.                        |
+| `EvalKind`            | The three measurement keys.                                               |
+| `EvalMeasurements`    | The measurement shapes an eval file may declare.                          |
+| `EvalReports`         | The report type each measurement produces.                                |
+| `SelectionMatrixSpec` | Input of the selection-matrix measurement.                                |
+| `EvalSpec`            | One task over trials: `arms` or one, `checks` or `measure`.               |
+| `EvalArm`             | One arm of an A/B.                                                        |
+| `TriggerRateSpec`     | Whether a skill's description fires, over a prompt set.                   |
+| `Metrics`             | The metric record an eval callback returns.                               |
+| `EvalReport`          | The report of `paid_runEval` (eval key `runEval`), however it was scored. |
+| `ArmReport`           | Per-arm figures inside a report.                                          |
+| `ArmUsage`            | Cost and token totals of an arm.                                          |
+| `EvalUsage`           | Cost, duration and token counts of one run.                               |
+| `MetricStat`          | Mean, spread and sample size of one metric.                               |
+| `TriggerRateReport`   | Recall and precision of a skill description.                              |
+| `PromptTriggerStat`   | How often one prompt fired the skill.                                     |
 
 Reading these reports (`compare`, `assertRates`, `assertImproves`, `assertNoRegression`) is on [`vigiles/eval`](eval.md).

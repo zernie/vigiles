@@ -907,8 +907,8 @@ test("skillTestNudge: a harness-covered AGENT is nudged about its CONTRACT, not 
   assert.match(msg, /subagent\(name/);
   assert.match(msg, /check\.tool\(name, \{ max: 0 \}\)/);
   assert.match(msg, /assertAgentOk/);
-  // ⚠️ It must not invent an argument the function does not take: `runEval` /
-  // `measure` / `measureArms` hard-wire `spawnAgent`, and `runEvalWith` is not
+  // ⚠️ It must not invent an argument the function does not take: `runEval`
+  // hard-wires `spawnAgent`, and `runEvalWith` is not
   // exported from `vigiles/eval` — only `paid_measureTriggerRate` has that seam.
   // Suggesting `runEval(spec, { evalDriver })` would be this finding's own class
   // of defect (a remedy that does not apply), so the honest limit is stated.

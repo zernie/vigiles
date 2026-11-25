@@ -1,12 +1,12 @@
 /**
  * `replies` reaches the eval tier: a real-model run's checks can see every reply,
- * not only the `result` event's last one. Driven through `measureWith` with a
+ * not only the `result` event's last one. Driven through `runEvalWith` with a
  * scripted runner returning Claude Code's stream-json, so no model is called.
  */
 import { describe, expect, it } from "vitest";
 
 import { check } from "../../check.js";
-import { measureWith, parseClaudeRun } from "../../eval.js";
+import { parseClaudeRun, runEvalWith } from "../../eval.js";
 
 const line = (o: unknown): string => JSON.stringify(o);
 /** Two replies in one turn: the second after a Stop hook blocked the first. */
@@ -39,8 +39,9 @@ describe("replies in the eval tier", () => {
   });
 
   it("reach the checks of a measured run", async () => {
-    const report = await measureWith(
+    const report = await runEvalWith(
       {
+        env: { kind: "inherit", reason: "unit test: a scripted runner" },
         task: "hi",
         checks: [
           check.output(/\*\*Status\*\*/, { eachReply: true }),
@@ -51,6 +52,6 @@ describe("replies in the eval tier", () => {
       },
       () => Promise.resolve({ code: 0, stdout: STREAM }),
     );
-    expect(report.perCheck.map((c) => c.rate)).toEqual([1, 0]);
+    expect(Object.values(report.arms.default?.metrics ?? {})).toEqual([1, 0]);
   });
 });

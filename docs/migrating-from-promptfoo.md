@@ -30,8 +30,8 @@ against the harness loaded the way a user installs it. See
 | -------------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------- |
 | `providers: [anthropic:messages:claude-…]` (metered API) | `model: "sonnet"` on the sub (`apiKeySource: "none"`) | The cost win — your own `claude` CLI, no metered billing. |
 | `prompts:` + `tests[].vars`                              | the `task` (+ `paid_measureTriggerRate` prompts)      | One prompt or a varied set.                               |
-| a `test` with `assert:`                                  | one `paid_measure` run with a `checks:` array         | Each assertion becomes a check.                           |
-| baseline vs skill (two providers/configs)                | `paid_measureArms({ arms: { … } })`                   | The A/B is first-class; the delta is the signal.          |
+| a `test` with `assert:`                                  | one `paid_runEval` run with a `checks:` array         | Each assertion becomes a check.                           |
+| baseline vs skill (two providers/configs)                | `paid_runEval({ arms: { … }, checks })`               | The A/B is first-class; the delta is the signal.          |
 | "did the skill even get used?"                           | `paid_measureTriggerRate` (recall + precision)        | The CC-specific question promptfoo can't cleanly answer.  |
 | a whole skill dir installed                              | `pluginDir: "./skills/my-skill"`                      | Loads the real plugin (skills + hooks) natively.          |
 
@@ -84,7 +84,8 @@ import { defineEval, check } from "vigiles"; // free: a description cannot spend
 import { paid_judged, assertRates } from "vigiles/eval";
 
 export default defineEval({
-  measure: {
+  runEval: {
+    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
     task: "Summarize in.txt in one sentence. Write it to out.txt, then stop.",
     fixture: { "in.txt": "…" },
     model: "sonnet",
@@ -103,7 +104,7 @@ Like promptfoo's YAML, the file is a **description**: `npx vigiles eval
 summary.eval.mjs` runs it. Unlike a JS file that calls the runner at the top
 level, importing it cannot spend anything.
 
-To A/B a skill against no-skill, declare `measureArms: { arms: { baseline: {}, skill: { pluginDir: "./skills/my-skill" } }, … }` instead and read the per-arm delta.
+To A/B a skill against no-skill, add `arms: { baseline: {}, skill: { pluginDir: "./skills/my-skill" } }` to the same `runEval` spec and read the per-arm delta with `compare(report, "baseline", "skill")`.
 
 ## What moves cleanly — and what doesn't yet
 
@@ -112,7 +113,7 @@ To A/B a skill against no-skill, declare `measureArms: { arms: { baseline: {}, s
 | Behavior / output assertions (contains, regex, rubric)  | ✅ Move cleanly, on the sub.                                                                                                                                                                                                                                                                                                           |
 | Cost / latency assertions                               | ✅ Move cleanly (real `total_cost_usd`).                                                                                                                                                                                                                                                                                               |
 | "Does the skill fire?"                                  | ✅ Better — `paid_measureTriggerRate` (recall + precision).                                                                                                                                                                                                                                                                            |
-| Baseline vs skill A/B                                   | ✅ First-class (`paid_measureArms` + significance).                                                                                                                                                                                                                                                                                    |
+| Baseline vs skill A/B                                   | ✅ First-class (`paid_runEval` with `arms` + significance).                                                                                                                                                                                                                                                                            |
 | **Redteam suites**                                      | ⚠️ **Not covered.** vigiles has a safety-hook battery (`runGuardrail`) and judged adversarial checks, but **no redteam _generator_**. Keep promptfoo (or your own adversarial prompts) for that.                                                                                                                                       |
 | Skills with **real side effects** (write to a DB, etc.) | 🧪 vigiles has an **experimental** tier that runs the skill against a disposable container and checks the real result — [R3](measuring-skills.md#experimental-real-side-effect-testing). promptfoo has **no equivalent** (it grades the model's text; it never runs a real side effect), so this is a capability you _gain_, not lose. |
 | `javascript`/`python` assertions                        | ✍️ Manual — port the logic into a custom `measure` callback (the spec field, not the runner).                                                                                                                                                                                                                                          |

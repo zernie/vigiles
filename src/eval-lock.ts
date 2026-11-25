@@ -158,8 +158,8 @@ export interface EvalLock {
   /**
    * The entry point's recorded report — the model's observed behavior, REPLAYED
    * verbatim on `--check` so the script's own assertions judge it. Stored as the
-   * exact return type of the entry point (`EvalReport` / `TriggerRateReport` /
-   * `CheckReport`) so replay is transparent to the caller.
+   * exact return type of the entry point (`EvalReport` / `TriggerRateReport`)
+   * so replay is transparent to the caller.
    */
   readonly report: unknown;
 }
@@ -348,7 +348,7 @@ export interface NumberDelta {
  * Collect the numeric leaves that changed between two recorded reports — the
  * human-facing delta printed at `--update` time (e.g. `rate: 0.900 → 0.650`).
  * Generic over any report shape (walks numbers by dotted path), so it works for
- * `EvalReport`, `TriggerRateReport`, and `CheckReport` without per-type code. The
+ * `EvalReport` and `TriggerRateReport` without per-type code. The
  * committed git diff is the primary review surface; this is the at-a-glance echo.
  */
 export function diffReportNumbers(
