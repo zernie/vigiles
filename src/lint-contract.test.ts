@@ -24,9 +24,11 @@ import {
   existsSync,
   rmSync,
   readdirSync,
+  cpSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
 import { execFileSync } from "node:child_process";
+import { z } from "zod";
 
 import { makeTmpDir, cleanupTmpDir, humanCliEnv } from "./core/test-utils.js";
 
@@ -34,13 +36,17 @@ const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 
 let dir: string;
 
-function run(args: string[], cwd = dir): { code: number; out: string } {
+function run(
+  args: string[],
+  cwd = dir,
+  extraEnv: Readonly<Record<string, string>> = {},
+): { code: number; out: string } {
   try {
     const out = execFileSync("node", [CLI, ...args], {
       cwd,
       encoding: "utf-8",
       stdio: ["ignore", "pipe", "pipe"],
-      env: humanCliEnv(process.env),
+      env: { ...humanCliEnv(process.env), ...extraEnv },
     });
     return { code: 0, out };
   } catch (e) {
@@ -316,95 +322,51 @@ function documentedRuleIds(): ReadonlySet<string> {
   );
 }
 
-/** A repo that trips one rule from each way `lint` prints a finding. */
-function plantMixedFindings(root: string): void {
-  writeFileSync(
-    join(root, ".vigilesrc.json"),
-    JSON.stringify({
-      orphans: { include: ["docs/**/*.md"] },
-      rules: {
-        "skill-description-budget": "warn",
-        "orphan-docs": "error",
-        "hook-matcher": "error",
-        "frontmatter-valid": "warn",
-      },
-    }),
-  );
-  skill(root, "long", true);
-  const bad = join(root, "skills", "bad");
-  mkdirSync(bad, { recursive: true });
-  writeFileSync(
-    join(bad, "SKILL.md"),
-    `---\nname: bad\ndescription: Use when: <example>user: "x"</example>\n---\n\nBody.\n`,
-  );
-  mkdirSync(join(root, "docs"), { recursive: true });
-  writeFileSync(join(root, "docs", "orphan.md"), "# Orphan\n\nNo links.\n");
-  mkdirSync(join(root, ".claude"), { recursive: true });
-  writeFileSync(
-    join(root, ".claude", "settings.json"),
-    JSON.stringify({
-      hooks: {
-        PreToolUse: [
-          { matcher: "Wrte", hooks: [{ type: "command", command: "true" }] },
-        ],
-      },
-    }),
-  );
-  writeFileSync(join(root, "CLAUDE.md"), "# Project\n\nSee docs.\n");
-}
+const MIXED = resolve(
+  import.meta.dirname,
+  "..",
+  "test",
+  "fixtures",
+  "lint-mixed-findings",
+);
 
-/** `lint` as GitHub Actions runs it, so annotations are printed too. */
-function runInActions(args: string[]): string {
-  try {
-    return execFileSync("node", [CLI, ...args], {
-      cwd: dir,
-      encoding: "utf-8",
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...humanCliEnv(process.env), GITHUB_ACTIONS: "true" },
-    });
-  } catch (e) {
-    const err = e as { stdout?: string; stderr?: string };
-    return `${err.stdout ?? ""}${err.stderr ?? ""}`;
-  }
+/** The rule id at the start of a finding's text, if there is one. */
+function idOf(text: string): string | undefined {
+  return /^\[([a-z0-9-]+)\] /.exec(text)?.[1];
 }
 
 test("every finding line and annotation names a documented rule (#570)", () => {
-  plantMixedFindings(dir);
-  const out = runInActions(["lint", "."]);
+  cpSync(MIXED, dir, { recursive: true });
+  const planted = Object.keys(
+    z
+      .object({ rules: z.record(z.string(), z.unknown()) })
+      .parse(JSON.parse(readFileSync(join(MIXED, ".vigilesrc.json"), "utf-8")))
+      .rules,
+  );
+  const { out } = run(["lint", "."], dir, { GITHUB_ACTIONS: "true" });
   const known = documentedRuleIds();
 
-  const marked = out
-    .split("\n")
+  const lines = out.split("\n");
+  const marked = lines
     .map((l) => l.trim())
     .filter((l) => l.startsWith("✗") || l.startsWith("⚠"));
-  const annotations = out
-    .split("\n")
+  const annotations = lines
     .filter((l) => /^::(error|warning)\b/.test(l))
     .map((l) => l.slice(l.indexOf("::", 2) + 2));
 
-  const idOf = (text: string): string | undefined =>
-    /^\[([a-z0-9-]+)\] /.exec(text)?.[1];
   const named = new Set<string>();
   for (const line of marked) {
-    const id = idOf(line.slice(2));
+    const id = idOf(line.slice(2)) ?? "";
     // Guards: a finding line the reader cannot trace to a rule to configure.
-    assert.ok(id !== undefined && known.has(id), `no rule id: ${line}`);
+    assert.ok(known.has(id), `no rule id: ${line}`);
     named.add(id);
   }
   for (const note of annotations) {
-    const id = idOf(note);
     // Guards: an annotation on a PR that does not say which rule raised it.
-    assert.ok(id !== undefined && known.has(id), `no rule id: ${note}`);
+    assert.ok(known.has(idOf(note) ?? ""), `no rule id: ${note}`);
   }
-
-  // Guards: the filter above saw the planted findings, not an empty output.
-  for (const id of [
-    "skill-description-budget",
-    "orphan-docs",
-    "hook-matcher",
-    "frontmatter-valid",
-    "lethal-trifecta",
-  ]) {
+  // Guards: the filters above saw the planted findings, not an empty output.
+  for (const id of planted) {
     assert.ok(named.has(id), `planted ${id} finding not printed with its id`);
   }
 });

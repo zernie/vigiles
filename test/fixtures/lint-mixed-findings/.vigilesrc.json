@@ -1,0 +1,10 @@
+{
+  "orphans": { "include": ["docs/**/*.md"] },
+  "rules": {
+    "skill-description-budget": "warn",
+    "orphan-docs": "error",
+    "hook-matcher": "error",
+    "frontmatter-valid": "warn",
+    "lethal-trifecta": "warn"
+  }
+}

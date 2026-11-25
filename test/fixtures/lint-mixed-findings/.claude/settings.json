@@ -1,0 +1,7 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      { "matcher": "Wrte", "hooks": [{ "type": "command", "command": "true" }] }
+    ]
+  }
+}
