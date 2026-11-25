@@ -6845,12 +6845,13 @@ function checkRuleModule(
   if (shown.length > 0 && !ctx.silent) {
     console.log(`\n${rule.id}:\n`);
     for (const f of shown) {
+      const named = markOf(f);
       const { mark, level } =
-        f.kind === "note" ? { mark: "ℹ", level: "notice" as const } : markOf(f);
+        f.kind === "note" ? { mark: "ℹ", level: "notice" as const } : named;
       const msg = `${f.subject}: ${f.message}`;
       const at = f.line === undefined ? "" : `:${String(f.line)}`;
       console.log(`  ${mark} ${pathOf(f)}${at}: ${msg}`);
-      ctx.annotate(level, msg, pathOf(f), f.line);
+      ctx.annotate(level, named.note(msg), pathOf(f), f.line);
     }
   }
   return tally(shown.filter((f) => f.kind === "finding"));
