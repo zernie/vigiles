@@ -90,6 +90,20 @@ describe("a folder's CLAUDE.md against the per-file limit", () => {
     expect(failures(r.out)).toEqual([]);
   });
 
+  it.each([
+    ["Cyrillic", "я", 1],
+    ["an emoji", "😀", 2],
+  ])("counts %s as Claude Code does (UTF-16 units)", (_, ch, units) => {
+    const head = "# Folder rules\n\n";
+    const body = (n: number): string =>
+      head + ch.repeat(Math.floor((n - head.length) / units));
+    put("pkg/CLAUDE.md", body(LIMIT));
+    // Guards: a non-Latin letter is one unit, not its UTF-8 bytes (the cut measured on 2.1.332).
+    expect(run(["lint"]).code).toBe(0);
+    put("pkg/CLAUDE.md", body(LIMIT) + ch);
+    expect(flags(run(["lint"]).out, "pkg/CLAUDE.md")).toBe(true);
+  });
+
   it("a deeper folder's file is checked on its own", () => {
     put("pkg/CLAUDE.md", sized(100));
     put("pkg/deep/er/CLAUDE.md", sized(LIMIT + 1));

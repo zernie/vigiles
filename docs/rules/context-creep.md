@@ -208,6 +208,11 @@ reach it.
 | 1M           | 150,000 characters | every current default model (Opus 4.7+, Sonnet 5+, Haiku 5.5) |
 | 200K         | 40,000 characters  | older models, or `CLAUDE_CODE_DISABLE_1M_CONTEXT=1`           |
 
+A character is counted the way Claude Code counts it: a Latin, Cyrillic or
+Chinese letter is one, an emoji two (JavaScript string length). Bytes do not
+matter, so a Cyrillic file is cut at the same number of letters as an English
+one.
+
 The rule checks each such file against **150,000**: a file over it is cut on
 every model a user gets by default. Each file over it is one finding:
 
