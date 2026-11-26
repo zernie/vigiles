@@ -15,7 +15,7 @@
 
 ## RESUME HERE
 
-**#416 point 2 (regression cases), in flight.** PR1 = #585 (draft): `experimental_workspace` on `paid_runEval`, which runs each trial in a sealed copy of the repo with a parent-held base record (`src/core/workspace.ts` port, `src/host/{repo-copy,installs,git-env}.io.ts`). Next: Codex findings, then PR2 = the `vigiles/regression-case` entry + scoring (with a `Size:` line). 8 unit tests fail in this container on clean `main` too (5 need the real agent binary, 3 are environmental).
+**#416 point 2 (regression cases), in flight.** PR1 = #585 (draft): `experimental_workspace` on `paid_runEval`, which runs each trial in a sealed copy of the repo with a parent-held base record (`src/core/workspace.ts` port, `src/host/{repo-copy,installs,git-env}.io.ts`). Next: Codex findings, then PR2 = the `vigiles/regression-case` entry + scoring (with a `Size:` line). 8 unit tests fail in this container: 3 fail on clean `main` too, 5 need the real agent binary (not rerun on `main`).
 
 **`vigiles.sh` is LIVE** 🎉 — landing at `/`, TypeDoc docs at `/api`, valid TLS. Site auto-deploys
 via `pages.yml` on push to main. Demo UX + real-F default MERGED (PRs #100–#106).
