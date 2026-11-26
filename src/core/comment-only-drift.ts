@@ -189,27 +189,38 @@ function tokenKey(
 
 /**
  * The trivia from `from` to `to` with plain comments deleted, "" if it holds
- * no directive: each directive verbatim, and between pieces only whether a
- * line break stands there. So a directive moved to another token, or to the
- * other side of a line break, reads as changed.
+ * no directive: each directive verbatim; before the first one only whether a
+ * line break stands there (ASI), from it on HOW MANY, since a next-line
+ * directive names its target by distance. So a directive moved to another
+ * token, across a line break, or a line further from its target reads as changed.
  */
 function directiveLayout(text: string, from: number, to: number): string {
   const ranges = commentRangesAt(text, from);
   const at = (r: Readonly<ts.CommentRange>): string => text.slice(r.pos, r.end);
-  if (!ranges.map(at).some(isDirective)) return "";
-  const ends = [from, ...ranges.map((r) => r.end)];
-  const pieces = ranges.flatMap((r, i) => [
-    breakMark(text.slice(ends[i], r.pos)),
-    isDirective(at(r)) ? at(r) : breakMark(at(r)),
+  const first = ranges.findIndex((r) => isDirective(at(r)));
+  if (first < 0) return "";
+  const rest = ranges.slice(first);
+  const start = Math.min(to, ...rest.map((r) => r.pos));
+  const ends = [start, ...rest.map((r) => r.end)];
+  const pieces = rest.flatMap((r, i) => [
+    lineBreaks(text.slice(ends[i], r.pos)),
+    isDirective(at(r)) ? at(r) : lineBreaks(at(r)),
   ]);
-  const last = breakMark(text.slice(ends[ranges.length], to));
-  const kept = [...pieces, last].filter((p) => p !== "");
-  // One line break or two read the same to ASI.
-  return kept.filter((p, i) => !(p === "\n" && kept[i - 1] === "\n")).join("");
+  const last = lineBreaks(text.slice(ends[rest.length], to));
+  return [breakMark(text.slice(from, start)), ...pieces, last].join("");
 }
 
 /** "\n" where a line break stands (a plain comment can hold one), else nothing. */
 const breakMark = (s: string): string => (hasLineBreak(s) ? "\n" : "");
+
+/** One "\n" per line terminator in `s`, CRLF counted once. */
+function lineBreaks(s: string): string {
+  const lf = s.split("\r\n").join("\n");
+  return Array.from({ length: lf.length }, (_, i) => lf.charCodeAt(i))
+    .filter(ts.isLineBreak)
+    .map(() => "\n")
+    .join("");
+}
 
 /** Any JavaScript line terminator (LF, CR, U+2028, U+2029), as the scanner reads one. */
 function hasLineBreak(trivia: string): boolean {

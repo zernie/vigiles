@@ -7,6 +7,7 @@ import {
   defaultSource,
   driftVerdict,
   fileDrift,
+  matchesAny,
   pathRefusal,
   resolvedSource,
   splitFix,
@@ -75,6 +76,16 @@ describe("defaultSource", () => {
     // Guards: src/core/a.ts gives src/**, a root file only itself, Markdown nothing.
     const paths = "src/x/a.ts src/b.ts t.json d/x.md R.md l/c.js".split(" ");
     expect(defaultSource(paths)).toEqual(["l/**", "src/**", "t.json"]);
+  });
+
+  it("escapes glob characters, so a default names its own path literally", () => {
+    const source = defaultSource(["[app]/x.ts", "*.ts"]);
+    // Guards: `[app]/**` as a glob matches `a/x.ts`, not `[app]/x.ts`.
+    expect(matchesAny("[app]/x.ts", source)).toBe(true);
+    expect(matchesAny("a/x.ts", source)).toBe(false);
+    // Guards: a root file named `*.ts` covers itself only, not every root `.ts`.
+    expect(matchesAny("*.ts", source)).toBe(true);
+    expect(matchesAny("b.ts", source)).toBe(false);
   });
 
   it("is overridden by a declared source", () => {

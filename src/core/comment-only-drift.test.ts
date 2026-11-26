@@ -153,6 +153,15 @@ describe("commentOnlyDrift: directives", () => {
     expect(
       kindOf("a.ts", `/* @ts-ignore */\n${decl}`, `\n/* @ts-ignore */ ${decl}`),
     ).toBe("not-comment-only:directive");
+    // Guards: a next-line directive one blank line further from its target no longer applies to it.
+    const next = "// eslint-disable-next-line no-alert\n";
+    expect(kindOf("a.js", `${next}alert(1);`, `${next}\nalert(1);`)).toBe(
+      "not-comment-only:directive",
+    );
+    // Guards: a plain comment line added between them pushes the target off the next line too.
+    expect(kindOf("a.js", `${next}alert(1);`, `${next}// x\nalert(1);`)).toBe(
+      "not-comment-only:directive",
+    );
   });
 
   it("refuses a changed shebang, which decides how the file runs", () => {

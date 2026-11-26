@@ -4,7 +4,7 @@
  * path refusals, the drift rules for a file that does not revert, and the
  * lock-key view. No git, no build, no process here.
  */
-import { minimatch } from "minimatch";
+import { escape, minimatch } from "minimatch";
 import { keys, sortBy, unique } from "remeda";
 import { commentOnlyDrift } from "./comment-only-drift.js";
 import type { PathRefusal, RevertConflict } from "./regression-case-refusal.js";
@@ -93,15 +93,17 @@ export function isMarkdown(path: string): boolean {
 /**
  * The default `source`: the top-level directories of the fix's non-test,
  * non-Markdown paths (`src/core/a.ts` gives `src/**`; a root-level file gives
- * that file only). Derived from the fix, so it cannot refuse the fix, and a
- * root runner config outside it stays at `head`.
+ * that file only), each escaped to name itself literally. Derived from the
+ * fix, so it cannot refuse the fix, and a root runner config outside it stays
+ * at `head`.
  */
 export function defaultSource(reverted: readonly string[]): readonly string[] {
   const dirs = reverted
     .filter((p) => !isMarkdown(p))
     .map((p) => {
       const slash = p.indexOf("/");
-      return slash < 0 ? p : `${p.slice(0, slash)}/**`;
+      // Escaped: a path is a literal, and `[app]/**` as a glob names `a/…`.
+      return slash < 0 ? escape(p) : `${escape(p.slice(0, slash))}/**`;
     });
   return sortBy(unique(dirs), (d) => d);
 }
