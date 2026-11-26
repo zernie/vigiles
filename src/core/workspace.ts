@@ -209,6 +209,15 @@ export interface TrialBase {
   readonly baseTree: string;
 }
 
+/**
+ * The trial's base record cannot be read or written, so the touched set is
+ * unknown. The one fault {@link WorkspaceHost.touchedPaths} throws on purpose:
+ * a scorer leaves such a trial unscored, and lets every other throw through.
+ */
+export class ShadowUnhealthyError extends Error {
+  override readonly name = "ShadowUnhealthyError";
+}
+
 /** What the agent changed against its base. */
 export interface TouchedSet {
   readonly rows: readonly TouchedRow[];

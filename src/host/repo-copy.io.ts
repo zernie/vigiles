@@ -36,6 +36,7 @@ import { basename, dirname, join, relative } from "node:path";
 import { makeTmpDir } from "../core/tmp-root.js";
 import {
   parseRawDiff,
+  ShadowUnhealthyError,
   type RepoTemplate,
   type TouchedSet,
   type TrialBase,
@@ -278,7 +279,7 @@ function assertShadowHealthy(
   const readable = gitOk(cwd, [dir, "cat-file", "-e", base.baseTree]);
   const writable = gitOk(cwd, [dir, "hash-object", "-w", "--stdin"], "probe\n");
   if (!readable || !writable) {
-    throw new Error(
+    throw new ShadowUnhealthyError(
       `the trial's base record is broken (${base.gitDir}): ${stderr.trim()}`,
     );
   }

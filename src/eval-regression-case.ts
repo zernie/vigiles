@@ -31,12 +31,13 @@ import {
 } from "./core/case-scoring.js";
 import { refuseCommandOutsideRunner } from "./core/eval-load-phase.js";
 import { makeTmpDir } from "./core/tmp-root.js";
-import type {
-  RepoTemplate,
-  TouchedSet,
-  TrialBase,
-  TrialWorkspaceView,
-  WorkspaceHost,
+import {
+  ShadowUnhealthyError,
+  type RepoTemplate,
+  type TouchedSet,
+  type TrialBase,
+  type TrialWorkspaceView,
+  type WorkspaceHost,
 } from "./core/workspace.js";
 
 /** Both ports a case needs; a root wires one value for both. */
@@ -125,15 +126,16 @@ async function scoreVerdict(
   }
 }
 
-/** The touched set, or undefined when the base record itself is broken. */
+/** The touched set, or undefined when the base record itself is broken; any other fault throws. */
 function touchedOrBroken(
   host: CaseHost,
   tree: ScoredTree,
 ): TouchedSet | undefined {
   try {
     return host.touchedPaths(tree.base, tree.cwd);
-  } catch {
-    return undefined;
+  } catch (e) {
+    if (e instanceof ShadowUnhealthyError) return undefined;
+    throw e;
   }
 }
 

@@ -296,6 +296,24 @@ describe("caseScorer", () => {
   });
 });
 
+describe("scoreTree host faults", () => {
+  it("a host fault other than a broken base rejects, never reads as unscored", async () => {
+    const world = caseWorld();
+    const faulty: CaseHost = {
+      ...HOST,
+      touchedPaths: () => {
+        throw new TypeError("a vigiles bug");
+      },
+    };
+    // Guards: only a broken base record is unscored; any other throw is loud.
+    await expect(
+      withVigilesRunner("eval-cli", () =>
+        caseScorer(faulty, world)(trial(world, fix)),
+      ),
+    ).rejects.toThrow("a vigiles bug");
+  });
+});
+
 describe("caseScorer faults", () => {
   it("a scoring that rejects does not stall the trials queued behind it", async () => {
     const world = caseWorld();

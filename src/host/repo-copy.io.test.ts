@@ -26,7 +26,7 @@ import {
   recordTrialBase,
   touchedPaths,
 } from "./repo-copy.io.js";
-import type { RepoTemplate } from "../core/workspace.js";
+import { ShadowUnhealthyError, type RepoTemplate } from "../core/workspace.js";
 
 const cleanup: string[] = [];
 afterEach(() => {
@@ -287,7 +287,7 @@ describe("touchedPaths against what could move the base", () => {
     rmSync(trial.view.gitDir, { recursive: true, force: true });
     // Guards: a broken shadow is vigiles' fault, never an agent outcome.
     expect(() => touchedPaths(trial.view, trial.cwd)).toThrow(
-      /base record is broken/,
+      ShadowUnhealthyError,
     );
   });
 
