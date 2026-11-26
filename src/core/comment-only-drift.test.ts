@@ -42,11 +42,9 @@ describe("commentOnlyDrift: comment-only changes", () => {
   });
 
   it("accepts a plain comment changed beside an unchanged directive", () => {
-    const before =
-      "// @ts-expect-error old reason\nconst a: string = 1;\n// note\n";
-    const after =
-      "// @ts-expect-error old reason\nconst a: string = 1;\n// other note\n";
-    // Guards: only a directive that DIFFERS refuses; one present on both sides is the same code.
+    const code = "// @ts-expect-error old reason\nconst a: string = 1;\n";
+    const [before, after] = [`// note\n${code}`, `/* other\n note */\n${code}`];
+    // Guards: a plain comment beside a directive, in the same trivia, may change; the directive's place did not.
     expect(kindOf("a.ts", before, after)).toBe("comment-only");
   });
 
@@ -114,6 +112,12 @@ describe("commentOnlyDrift: code changes", () => {
     expect(
       kindOf("a.tsx", "const x = <a>hi</a>;", "const x = <a>bye</a>;"),
     ).toBe("not-comment-only:tokens");
+    // Guards: its leading whitespace is rendered too, so it is part of the token.
+    expect(
+      ["<a> hi</a>", "<a>  hi</a>"].map((j) =>
+        kindOf("a.tsx", "const x = <a>hi</a>;", `const x = ${j};`),
+      ),
+    ).toEqual(Array(2).fill("not-comment-only:tokens"));
   });
 });
 
@@ -144,6 +148,11 @@ describe("commentOnlyDrift: directives", () => {
     expect(kindOf("a.ts", ig + a + b, a + ig + b)).toBe(
       "not-comment-only:directive",
     );
+    // Guards: before the same token, a directive on its own line and one on the token's line apply differently.
+    const decl = "const x: string = 1;";
+    expect(
+      kindOf("a.ts", `/* @ts-ignore */\n${decl}`, `\n/* @ts-ignore */ ${decl}`),
+    ).toBe("not-comment-only:directive");
   });
 
   it("refuses a changed shebang, which decides how the file runs", () => {

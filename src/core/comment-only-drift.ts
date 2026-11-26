@@ -2,9 +2,10 @@
  * Did a JS/TS file change between two commits ONLY in comments (vigiles#416)?
  * Pure: two texts in, a verdict out. Decided by the real parser, never the
  * bare scanner (which reads `/[//]b/` as a divide and a comment): both texts
- * parse, their leaf tokens match (kind, text, a line break before each, for
- * ASI), and every directive comment is the same and sits before the same
- * token. Any doubt reads as "not comment-only", which only refuses a case.
+ * parse, and they are the same text once every plain comment is deleted: each
+ * leaf token (kind, full text) and, between tokens, only whether a line break
+ * stands there (ASI) and every directive comment verbatim, in place. Any doubt
+ * reads as "not comment-only", which only refuses a case.
  */
 import ts from "typescript";
 
@@ -122,9 +123,7 @@ function read(
   return {
     tokens: leaves.map((n, i) => tokenKey(sf, n, i === 0)),
     directives: leaves.map((n) =>
-      JSON.stringify(
-        commentsBefore(text, n.getFullStart()).filter(isDirective),
-      ),
+      directiveLayout(text, n.getFullStart(), n.getStart(sf)),
     ),
     shebang: ts.getShebang(text) ?? "",
   };
@@ -172,6 +171,7 @@ function isJsDocNode(node: ts.Node): boolean {
 /**
  * A token as compared: its kind, its text, and a line break before it. The
  * first token has nothing before it to end, so its line break is not read.
+ * JSX text is read whole: its leading whitespace is rendered, not trivia.
  */
 function tokenKey(
   sf: Readonly<ts.SourceFile>,
@@ -180,8 +180,36 @@ function tokenKey(
 ): string {
   const trivia = sf.text.slice(node.getFullStart(), node.getStart(sf));
   const broken = !first && hasLineBreak(trivia) ? "\n" : "";
-  return `${broken}${String(node.kind)}:${node.getText(sf)}`;
+  const body =
+    node.kind === ts.SyntaxKind.JsxText
+      ? sf.text.slice(node.getFullStart(), node.end)
+      : node.getText(sf);
+  return `${broken}${String(node.kind)}:${body}`;
 }
+
+/**
+ * The trivia from `from` to `to` with plain comments deleted, "" if it holds
+ * no directive: each directive verbatim, and between pieces only whether a
+ * line break stands there. So a directive moved to another token, or to the
+ * other side of a line break, reads as changed.
+ */
+function directiveLayout(text: string, from: number, to: number): string {
+  const ranges = commentRangesAt(text, from);
+  const at = (r: Readonly<ts.CommentRange>): string => text.slice(r.pos, r.end);
+  if (!ranges.map(at).some(isDirective)) return "";
+  const ends = [from, ...ranges.map((r) => r.end)];
+  const pieces = ranges.flatMap((r, i) => [
+    breakMark(text.slice(ends[i], r.pos)),
+    isDirective(at(r)) ? at(r) : breakMark(at(r)),
+  ]);
+  const last = breakMark(text.slice(ends[ranges.length], to));
+  const kept = [...pieces, last].filter((p) => p !== "");
+  // One line break or two read the same to ASI.
+  return kept.filter((p, i) => !(p === "\n" && kept[i - 1] === "\n")).join("");
+}
+
+/** "\n" where a line break stands (a plain comment can hold one), else nothing. */
+const breakMark = (s: string): string => (hasLineBreak(s) ? "\n" : "");
 
 /** Any JavaScript line terminator (LF, CR, U+2028, U+2029), as the scanner reads one. */
 function hasLineBreak(trivia: string): boolean {
@@ -191,15 +219,14 @@ function hasLineBreak(trivia: string): boolean {
 }
 
 /**
- * The comments in the trivia that starts at `pos`, the same-line ones
- * included. At the start of the file the leading ranges already hold them.
+ * The comment ranges in the trivia that starts at `pos`, in order, the
+ * same-line ones first. At the start of the file the leading ranges hold all.
  */
-function commentsBefore(text: string, pos: number): readonly string[] {
+function commentRangesAt(
+  text: string,
+  pos: number,
+): readonly ts.CommentRange[] {
   const trailing =
     pos === 0 ? [] : (ts.getTrailingCommentRanges(text, pos) ?? []);
-  const ranges = [
-    ...trailing,
-    ...(ts.getLeadingCommentRanges(text, pos) ?? []),
-  ];
-  return ranges.map((r) => text.slice(r.pos, r.end));
+  return [...trailing, ...(ts.getLeadingCommentRanges(text, pos) ?? [])];
 }
