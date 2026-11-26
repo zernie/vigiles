@@ -31,6 +31,7 @@ import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 const DIST = resolve(import.meta.dirname, "..", "dist");
 const CODEX_EVAL = join(DIST, "adapters", "codex", "eval.js");
 const JUDGE = join(DIST, "judge.js");
+const RUNNER = join(DIST, "core", "eval-load-phase.js");
 
 let dir: string;
 beforeEach(() => {
@@ -116,16 +117,21 @@ guardTest(
 guardTest(
   "QUIET: outside a foreign runner the same calls are NOT refused",
   () => {
-    // The half that makes the guard a guard rather than an off switch. A plain
-    // `node file.mjs` must get PAST the refusal and fail on the missing binary
-    // instead (PATH is empty), so a fix that simply always threw would fail here.
+    // The half that makes the guard a guard rather than an off switch. Inside a
+    // vigiles runner and under no foreign one, the calls must get PAST the refusal
+    // and fail on the missing binary instead (PATH is empty), so a fix that simply
+    // always threw would fail here. Inside a runner, because outside one every
+    // spawn door refuses by design (vigiles#586, `core/eval-load-phase.ts`).
     const fixture =
       `import { paid_codexEvalDriver } from ${JSON.stringify(CODEX_EVAL)};\n` +
       `import { judge } from ${JSON.stringify(JUDGE)};\n` +
+      `import { withVigilesRunner } from ${JSON.stringify(RUNNER)};\n` +
       `let codexErr = "";\n` +
-      `try { await paid_codexEvalDriver.runner({ task: "t", cwd: ".", timeoutMs: 1000 }); }\n` +
-      `catch (e) { codexErr = String(e); }\n` +
-      `const verdict = judge({ rubric: "r", output: "o" });\n` +
+      `const verdict = await withVigilesRunner("eval-programmatic", async () => {\n` +
+      `  try { await paid_codexEvalDriver.runner({ task: "t", cwd: ".", timeoutMs: 1000 }); }\n` +
+      `  catch (e) { codexErr = String(e); }\n` +
+      `  return judge({ rubric: "r", output: "o" });\n` +
+      `});\n` +
       `if (/running under/.test(codexErr)) { console.log("REFUSED-CODEX"); process.exit(1); }\n` +
       `if (/running under/.test(verdict.reason)) { console.log("REFUSED-JUDGE"); process.exit(1); }\n` +
       `console.log("PAST-THE-GUARD");\n`;
