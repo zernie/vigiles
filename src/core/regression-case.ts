@@ -4,8 +4,8 @@
  * path refusals, the drift rules for a file that does not revert, and the
  * lock-key view. No git, no build, no process here.
  */
-import { escape, minimatch } from "minimatch";
-import { keys, sortBy, unique } from "remeda";
+import { minimatch } from "minimatch";
+import { keys, sortBy, uniqueBy } from "remeda";
 import type { PathRefusal, RevertConflict } from "./regression-case-refusal.js";
 
 /** A regression case as an eval spec declares it. */
@@ -90,29 +90,69 @@ export function isMarkdown(path: string): boolean {
 }
 
 /**
- * The default `source`: the top-level directories of the fix's non-test,
- * non-Markdown paths (`src/core/a.ts` gives `src/**`; a root-level file gives
- * that file only), each escaped to name itself literally. Derived from the
- * fix, so it cannot refuse the fix, and a root runner config outside it stays
- * at `head`.
+ * The `source` a case scores with. A declared one is globs; the default is
+ * literal paths, so nothing in a path the fix touched can read as a pattern.
  */
-export function defaultSource(reverted: readonly string[]): readonly string[] {
-  const dirs = reverted
-    .filter((p) => !isMarkdown(p))
-    .map((p) => {
-      const slash = p.indexOf("/");
-      // Escaped: a path is a literal, and `[app]/**` as a glob names `a/…`.
-      return slash < 0 ? escape(p) : `${escape(p.slice(0, slash))}/**`;
-    });
-  return sortBy(unique(dirs), (d) => d);
+export type Source =
+  | { readonly kind: "declared"; readonly globs: readonly string[] }
+  | { readonly kind: "default"; readonly roots: readonly SourceRoot[] };
+
+/** One default root: a top-level directory, or a file at the repo root. */
+export type SourceRoot =
+  | { readonly kind: "dir"; readonly dir: string }
+  | { readonly kind: "file"; readonly path: string };
+
+/**
+ * The default `source`: the top-level directories of the fix's non-test,
+ * non-Markdown paths (`src/core/a.ts` gives the dir `src`; a root-level file
+ * gives that file only). Derived from the fix, so it cannot refuse the fix,
+ * and a root runner config outside it stays at `head`.
+ */
+export function defaultSource(reverted: readonly string[]): Source {
+  const roots: readonly SourceRoot[] = uniqueBy(
+    reverted.filter((p) => !isMarkdown(p)).map(rootOf),
+    rootKey,
+  );
+  return { kind: "default", roots: sortBy(roots, rootKey) };
+}
+
+function rootOf(path: string): SourceRoot {
+  const slash = path.indexOf("/");
+  return slash < 0
+    ? { kind: "file", path }
+    : { kind: "dir", dir: path.slice(0, slash) };
+}
+
+const rootKey = (r: SourceRoot): string =>
+  r.kind === "dir" ? `${r.dir}/` : r.path;
+
+/** Is `path` (repo-relative) inside `source`? */
+export function inSource(path: string, source: Source): boolean {
+  switch (source.kind) {
+    case "declared":
+      return matchesAny(path, source.globs);
+    case "default":
+      return source.roots.some((r) => inRoot(path, r));
+  }
+}
+
+function inRoot(path: string, root: SourceRoot): boolean {
+  switch (root.kind) {
+    case "dir":
+      return path.startsWith(`${root.dir}/`);
+    case "file":
+      return path === root.path;
+  }
 }
 
 /** The `source` a case scores with: the declared one, else the default. */
 export function resolvedSource(
   declared: readonly string[] | undefined,
   split: FixSplit,
-): readonly string[] {
-  return declared ?? defaultSource(split.reverted);
+): Source {
+  return declared === undefined
+    ? defaultSource(split.reverted)
+    : { kind: "declared", globs: declared };
 }
 
 /** Lockfiles whose content decides a Node install. */

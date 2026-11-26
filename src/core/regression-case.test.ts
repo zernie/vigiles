@@ -6,7 +6,7 @@ import {
   caseKeyView,
   defaultSource,
   driftVerdict,
-  matchesAny,
+  inSource,
   pathRefusal,
   resolvedSource,
   splitFix,
@@ -72,30 +72,54 @@ describe("splitFix", () => {
 
 describe("defaultSource", () => {
   it("takes the top-level dir of each non-Markdown path, and a root file as itself", () => {
-    // Guards: src/core/a.ts gives src/**, a root file only itself, Markdown nothing.
+    // Guards: src/core/a.ts gives the dir src, a root file only itself, Markdown nothing.
     const paths = "src/x/a.ts src/b.ts t.json d/x.md R.md l/c.js".split(" ");
-    expect(defaultSource(paths)).toEqual(["l/**", "src/**", "t.json"]);
+    expect(defaultSource(paths)).toEqual({
+      kind: "default",
+      roots: [
+        { kind: "dir", dir: "l" },
+        { kind: "dir", dir: "src" },
+        { kind: "file", path: "t.json" },
+      ],
+    });
   });
 
-  it("escapes glob characters, so a default names its own path literally", () => {
-    const source = defaultSource(["[app]/x.ts", "*.ts"]);
-    // Guards: `[app]/**` as a glob matches `a/x.ts`, not `[app]/x.ts`.
-    expect(matchesAny("[app]/x.ts", source)).toBe(true);
-    expect(matchesAny("a/x.ts", source)).toBe(false);
-    // Guards: a root file named `*.ts` covers itself only, not every root `.ts`.
-    expect(matchesAny("*.ts", source)).toBe(true);
-    expect(matchesAny("b.ts", source)).toBe(false);
+  it.each([
+    ["[app]/x.ts", "a/x.ts"],
+    ["{app,lib}/x.ts", "lib/x.ts"],
+    ["!app/x.ts", "lib/x.ts"],
+    ["#app/x.ts", "app/x.ts"],
+    ["*.ts", "b.ts"],
+    ["!x.ts", "y.ts"],
+  ])("names %s literally, never as a pattern", (own, other) => {
+    const source = defaultSource([own]);
+    // Guards: a default root is a path, so no character in it is pattern syntax.
+    expect(inSource(own, source)).toBe(true);
+    expect(inSource(other, source)).toBe(false);
   });
 
-  it("is overridden by a declared source", () => {
+  it("matches a dir root by a whole first segment, not a prefix", () => {
+    // Guards: the root `src` does not cover `srcx/a.ts` or the bare name `src`.
+    const source = defaultSource(["src/a.ts"]);
+    expect(inSource("src/deep/b.ts", source)).toBe(true);
+    expect(inSource("srcx/a.ts", source)).toBe(false);
+    expect(inSource("src", source)).toBe(false);
+  });
+
+  it("is overridden by a declared source, read as globs", () => {
     const split: FixSplit = {
       oracle: [],
       testPaths: [],
       reverted: ["src/a.ts"],
     };
-    // Guards: the declaration wins; the default is only for an unset source.
-    expect(resolvedSource(["lib/**"], split)).toEqual(["lib/**"]);
-    expect(resolvedSource(undefined, split)).toEqual(["src/**"]);
+    const declared = resolvedSource(["lib/**"], split);
+    // Guards: the declaration wins and stays a glob; the default is only for an unset source.
+    expect(declared).toEqual({ kind: "declared", globs: ["lib/**"] });
+    expect(inSource("lib/a/b.ts", declared)).toBe(true);
+    expect(inSource("src/a.ts", declared)).toBe(false);
+    expect(resolvedSource(undefined, split)).toEqual(
+      defaultSource(["src/a.ts"]),
+    );
   });
 });
 
