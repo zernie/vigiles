@@ -157,7 +157,23 @@ import {
   type StubCall,
   type ToolStub,
 } from "./core/stub-rules.js";
-import { parseRunEnv, parseToolStubs } from "./core/eval-spec-parse.js";
+import {
+  parseRepoWorkspace,
+  parseRunEnv,
+  parseToolStubs,
+} from "./core/eval-spec-parse.js";
+import type {
+  RepoWorkspace,
+  TrialWorkspaceView,
+  WorkspaceHost,
+} from "./core/workspace.js";
+import {
+  disposeWorkspace,
+  prepareWorkspace,
+  recordView,
+  seedTrial,
+  type PreparedWorkspace,
+} from "./eval-workspace.js";
 import { makeTmpDir } from "./core/tmp-root.js";
 import type { ContextEvidence } from "./core/context-evidence.js";
 import { startContextCapture } from "./eval-context.js";
@@ -285,6 +301,12 @@ export interface RunContext extends Trace {
   readonly usage: EvalUsage;
   /** Run a shell command in the working dir; returns trimmed stdout ("" on error). */
   sh(command: string): string;
+  /**
+   * @experimental Present exactly when the spec sets `experimental_workspace`.
+   * Written by the parent before the agent starts: the trial's own tree, held
+   * in a git dir beside the trial, so a scorer can diff what the agent changed.
+   */
+  readonly experimental_workspace?: TrialWorkspaceView;
 }
 
 /**
@@ -307,6 +329,17 @@ export type EvalSpec<M extends Metrics = Metrics> = {
   readonly name?: string;
   /** Base fixture files (path → contents), written fresh for every run. */
   readonly fixture?: Record<string, string>;
+  /**
+   * @experimental Run every trial on a sealed copy of a commit of your own
+   * repository instead of a `fixture`: `git archive` of `ref` plus `patch`, one
+   * `baseline` commit, no history, no remote, no untracked file. With `deps:
+   * { kind: "node-modules" }` each trial gets its own byte copy of the
+   * checkout's installs. Refused beside `fixture`, with the cache on, and when
+   * the repo's `.vigilesrc.json` declares harnesses this runner does not drive.
+   * The agent is NOT confined: it runs with your rights, as `paid_runEval`
+   * always does.
+   */
+  readonly experimental_workspace?: RepoWorkspace;
   /**
    * Stub each arm's skill BODIES (frontmatter kept) before the run — for firing
    * comparisons (does the skill get SELECTED?), where a selected skill should
@@ -772,6 +805,14 @@ export async function runEval<M extends Metrics>(
   spec: EvalSpec<M>,
 ): Promise<EvalReport> {
   return runEvalReporting(spec, spawnAgent);
+}
+
+/** {@link runEval} with the machine side of `experimental_workspace` wired in. */
+export async function runEvalOnHost<M extends Metrics>(
+  spec: EvalSpec<M>,
+  host: WorkspaceHost,
+): Promise<EvalReport> {
+  return runEvalReporting(spec, spawnAgent, host);
 }
 /* v8 ignore stop */
 
@@ -1412,6 +1453,7 @@ async function executeTrial(
   arm: EvalArm,
   trial: {
     readonly index: number;
+    readonly armName: string;
     readonly maxBudgetUsd?: number;
     readonly signal?: AbortSignal;
   },
@@ -1429,7 +1471,7 @@ async function executeTrial(
   // The trial's world decides what its first request must carry (vigiles#416).
   const observed = startContextCapture({
     runtime: EVAL_RUNTIME,
-    world: files,
+    world: worldOf(spec.workspace, files),
     enabled: spec.experimental_contextCheck !== false,
   });
   const cwd = makeTmpDir("eval");
@@ -1442,6 +1484,9 @@ async function executeTrial(
   const stubs = spec.stubs;
   const stubDir =
     stubs.length > 0 ? writeStubDir(stubs, STUB_LAUNCHER) : undefined;
+  // The trial's base record: a git dir beside the work dir (never in it, so
+  // the agent's own git cannot reach it), removed with it.
+  const baseDir = spec.workspace === undefined ? undefined : makeTmpDir("base");
   try {
     const intercepts = arm.interceptTools ?? [];
     const settings = withInterceptToolHook(resolved.settings, intercepts);
@@ -1451,6 +1496,7 @@ async function executeTrial(
         ? { [INTERCEPT_TOOLS_ENV]: serializeIntercepts(intercepts) }
         : undefined;
     const run = trialEnv(spec.env, home, overlay, stubDir?.binDir);
+    if (spec.workspace !== undefined) seedTrial(spec.workspace, cwd);
     writeFiles(cwd, files);
     const hasSettings = settings !== undefined;
     if (hasSettings) {
@@ -1459,6 +1505,18 @@ async function executeTrial(
         JSON.stringify(settings, null, 2).replaceAll("{cwd}", cwd),
       );
     }
+    // After every per-arm write and before the spawn: the trial's own base.
+    const view = viewOf(
+      spec.workspace,
+      { gitDir: baseDir, cwd },
+      {
+        name: trial.armName,
+        paths: [
+          ...Object.keys(files),
+          ...(hasSettings ? ["settings.json"] : []),
+        ],
+      },
+    );
     const { out, stubCalls, context } = await runWithCache(
       {
         task: spec.task,
@@ -1502,8 +1560,11 @@ async function executeTrial(
       }),
     );
     const { ctx: base, costObserved } = makeTrialContext(cwd, out);
-    const ctx: RunContext =
-      stubCalls === undefined ? base : { ...base, stubCalls };
+    const ctx: RunContext = {
+      ...base,
+      ...(stubCalls === undefined ? {} : { stubCalls }),
+      ...(view === undefined ? {} : { experimental_workspace: view }),
+    };
     return {
       row: spec.measure(ctx),
       usage: ctx.usage,
@@ -1516,7 +1577,29 @@ async function executeTrial(
     rmSync(cwd, { recursive: true, force: true });
     rmSync(home, { recursive: true, force: true });
     if (stubDir !== undefined) removeStubDir(stubDir);
+    if (baseDir !== undefined)
+      rmSync(baseDir, { recursive: true, force: true });
   }
+}
+
+/** The files the instruction check reads: the workspace's world under the arm's own. */
+function worldOf(
+  ws: PreparedWorkspace | undefined,
+  files: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
+  return ws === undefined ? files : { ...ws.world, ...files };
+}
+
+/** Record a workspace trial's base; undefined without a workspace. */
+function viewOf(
+  ws: PreparedWorkspace | undefined,
+  at: { readonly gitDir: string | undefined; readonly cwd: string },
+  arm: { readonly name: string; readonly paths: readonly string[] },
+): TrialWorkspaceView | undefined {
+  const { gitDir, cwd } = at;
+  return ws === undefined || gitDir === undefined
+    ? undefined
+    : recordView(ws, { gitDir, cwd }, arm);
 }
 
 /** The stub calls nobody answered in one trial. */
@@ -1920,6 +2003,11 @@ function evalArmsInputs(spec: ParsedEvalSpec, cfg: RunConfig): unknown {
     // scores — a changed check must make the lock stale, not replay old ones.
     // Absent for `measure`, so the hash of a `measure` eval is unchanged.
     ...(spec.checks === undefined ? {} : { checks: spec.checks }),
+    // The world by tree id (source commit + patch) and how its deps are made.
+    // Absent without a workspace, so the hash of a fixture eval is unchanged.
+    ...(spec.workspace === undefined
+      ? {}
+      : { workspace: spec.workspace.lockView }),
   };
 }
 
@@ -1977,6 +2065,7 @@ const EVAL_SPEC_KEYS = {
   stubs: true,
   lock: true,
   experimental_contextCheck: true,
+  experimental_workspace: true,
 } satisfies Record<keyof EvalSpec, true>;
 
 const TRIGGER_RATE_SPEC_KEYS = {
@@ -2021,6 +2110,8 @@ type ParsedEvalSpec = Omit<
     readonly namespaces: Readonly<Record<string, string | undefined>>;
     readonly stubs: readonly ToolStub[];
     readonly env: RunEnv;
+    /** The checked workspace, when the spec sets one. */
+    readonly workspace?: PreparedWorkspace;
   };
 
 /**
@@ -2035,9 +2126,10 @@ type ParsedEvalSpec = Omit<
 export async function runEvalReporting<M extends Metrics>(
   spec: EvalSpec<M>,
   runner: AgentRunner,
+  host?: WorkspaceHost,
 ): Promise<EvalReport> {
   warnUnregisteredSkillArms(spec.arms ?? {});
-  const report = await runEvalWith(spec, runner);
+  const report = await runEvalWith(spec, runner, host);
   const unanswered = unansweredInReport(
     report,
     parseToolStubs(spec.stubs, "runEval"),
@@ -2054,6 +2146,8 @@ export async function runEvalReporting<M extends Metrics>(
 export async function runEvalWith<M extends Metrics>(
   input: EvalSpec<M>,
   runner: AgentRunner,
+  /** The machine side of `experimental_workspace`; the `vigiles/eval` entry wires it. */
+  host?: WorkspaceHost,
 ): Promise<EvalReport> {
   // A REMOVED field gets its rewrite, not "unknown field … did you mean".
   if (Object.hasOwn(input, "ephemeralEnv"))
@@ -2099,21 +2193,50 @@ export async function runEvalWith<M extends Metrics>(
     shape.arms,
     input.stubSkillBodies ?? false,
   );
-  const spec: ParsedEvalSpec = {
-    ...input,
-    measure: shape.measure,
-    // Set even when absent: the caller's `checks` LIST must not survive the spread.
-    checks: shape.checks,
-    arms: resolvedArms,
-    namespaces: mapValues(shape.arms, installNamespace),
-    stubs,
-    env,
-  };
   try {
-    return await runResolvedEval(spec, runner);
+    // Checked and copied ONCE, before a token is spent; refused with a
+    // WorkspaceRefusalError naming what to change.
+    const workspace = workspaceOf(input, host);
+    const spec: ParsedEvalSpec = {
+      ...input,
+      measure: shape.measure,
+      // Set even when absent: the caller's `checks` LIST must not survive the spread.
+      checks: shape.checks,
+      arms: resolvedArms,
+      namespaces: mapValues(shape.arms, installNamespace),
+      stubs,
+      env,
+      ...(workspace === undefined ? {} : { workspace }),
+    };
+    try {
+      return await runResolvedEval(spec, runner);
+    } finally {
+      if (workspace !== undefined) disposeWorkspace(workspace);
+    }
   } finally {
     for (const dir of packaged) rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/** The spec's workspace, parsed and prepared, or undefined when it sets none. */
+function workspaceOf(
+  input: EvalSpec,
+  host: WorkspaceHost | undefined,
+): PreparedWorkspace | undefined {
+  const ws = parseRepoWorkspace(input.experimental_workspace, "runEval");
+  if (ws === undefined) return undefined;
+  if (host === undefined)
+    throw new Error(
+      "runEval: experimental_workspace runs through `paid_runEval` from vigiles/eval, " +
+        "not through an eval file's default export (vigiles#416)",
+    );
+  return prepareWorkspace(ws, {
+    host,
+    hasFixture: input.fixture !== undefined,
+    cache: input.cache ?? "off",
+    concurrency: input.concurrency ?? 1,
+    driven: EVAL_RUNTIME.name,
+  });
 }
 
 /** Each arm's report with the namespace its skills installed under, when any. */
@@ -2189,6 +2312,7 @@ async function runResolvedEval(
         unit.arm,
         {
           index: unit.trialIndex,
+          armName: unit.armName,
           signal,
           ...(cap === undefined ? {} : { maxBudgetUsd: cap }),
         },

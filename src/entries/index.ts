@@ -259,6 +259,7 @@ export type {
   TriggerRateSpec,
 } from "../eval.js";
 export type { Metrics } from "../core/eval-aggregate.js";
+export type { RepoWorkspace, TrialWorkspaceView } from "../core/workspace.js";
 
 // --- R3: the disposable-service tier ---
 // `experimental_startServices` and `experimental_dockerRuntime` live on

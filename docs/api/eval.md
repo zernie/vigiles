@@ -253,6 +253,55 @@ names reach the report and the cache. Codex trials say "not checked" — no
 request channel is read there yet. `experimental_contextCheck: false` turns the
 check off.
 
+### Run the trials in your own repository: `experimental_workspace`
+
+A `fixture` is a handful of files you write by hand. To measure your harness
+on the code it really works on, give `paid_runEval` a commit of your own
+repository instead (a `RepoWorkspace`):
+
+```ts
+import { paid_runEval } from "vigiles/eval";
+
+const report = await paid_runEval({
+  env: { kind: "ephemeral" },
+  experimental_workspace: {
+    kind: "repo",
+    dir: ".",
+    ref: "HEAD",
+    deps: { kind: "node-modules" },
+  },
+  task: "Fix the failing test in src/parse.test.ts",
+  measure: (ctx) => ({ edited: ctx.experimental_workspace !== undefined }),
+});
+```
+
+What each trial gets, and why:
+
+- **A sealed copy, not your checkout.** `git archive` of `ref`, plus `patch`
+  when you give one, committed once as `baseline`: no history, no remote, and
+  no untracked or ignored file — a `.env` in your checkout never reaches it.
+- **Its own installs.** With `deps: { kind: "node-modules" }` every
+  `node_modules` of your checkout whose folder exists at `ref` is copied byte for
+  byte into each trial. Never linked: a test runner writes into `node_modules`
+  in place, and a shared file would be a write into yours.
+- **A base to diff against.** `ctx.experimental_workspace` (a
+  `TrialWorkspaceView`) holds the trial's tree from just before the agent
+  started — after the arm's `files` and `settings.json` were written — in a git
+  directory beside the trial. A scorer diffs the agent's edits against it; the
+  agent's own `git commit --amend`, `reset` or `gc` in the trial cannot move it.
+
+It is refused before the first trial, with a line saying what to change, when
+`fixture` is set beside it, when `cache` is not `"off"`, when the repo's
+`.vigilesrc.json` declares harnesses and none of them is the one `paid_runEval`
+drives, when a link inside `node_modules` points outside the repo, when the temp
+directory is inside the repo, and when the temp disk cannot hold two copies per
+trial in flight.
+
+What it does **not** do: confine the agent. It runs with your user's rights and
+your network, exactly as every `paid_runEval` trial does — pass only a
+repository you would run the agent in anyway. The copy uses `cp --reflink=auto`
+on Linux and `cp -c` on macOS; only Linux has been measured.
+
 The `measure` ctx — and every check — reads a full `Trace`, so a metric reads the agent's **actions**
 (`ctx.toolCalls`), its **final answer** (`ctx.output`), and the **filesystem**
 (`ctx.file`, `ctx.sh`) — reuse the bare predicates to compute them.

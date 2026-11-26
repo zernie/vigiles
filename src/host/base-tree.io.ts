@@ -94,7 +94,7 @@ export function copyBaseTree(cwd: string, ref: string): BaseCopy {
 }
 
 /** `git archive` of `sha` into `root`, through a tar file beside it (no shell, no buffer). */
-function exportTree(top: string, sha: string, root: string): void {
+export function exportTree(top: string, sha: string, root: string): void {
   const tar = `${root}.tar`;
   try {
     execFileSync("git", ["archive", "--format=tar", `--output=${tar}`, sha], {

@@ -71,6 +71,10 @@
  * on `vigiles/harness/codex`, and `paid_measureSelectionMatrix` / `assertNoCollision` on
  * `vigiles/harness/claude-code`, because those surfaces are chosen by harness.
  */
+import type { Metrics } from "../core/eval-aggregate.js";
+import type { EvalReport } from "../core/eval-report.js";
+import { runEvalOnHost, type EvalSpec } from "../eval.js";
+import { repoCopyHost } from "../host/repo-copy.io.js";
 
 // --- the runners: each one drives a real model ---
 
@@ -83,8 +87,16 @@
  * (docs/testing-api.md, "Migrating to v55").
  *
  * Here the `paid_` prefix is exact: it always drives the real `claude` CLI.
+ *
+ * @public
  */
-export { runEval as paid_runEval } from "../eval.js";
+export function paid_runEval<M extends Metrics>(
+  spec: EvalSpec<M>,
+): Promise<EvalReport> {
+  // The composition: the real agent runner plus the host adapter that copies
+  // a repo for `experimental_workspace`.
+  return runEvalOnHost(spec, repoCopyHost);
+}
 
 /**
  * Measure whether a skill's description actually FIRES (recall + precision) by
