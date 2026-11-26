@@ -202,20 +202,26 @@ assertChecks(runHook(cmd, event), [
   check.hook("PreToolUse", { blocked: true }),
 ]);
 
-// SCORED (eval): the SAME checks, as a rate ± se across trials.
-// the `paid_` prefix = it calls a model; reading the report (assertRates) is free
-import { paid_runEval, assertRates } from "vigiles/eval";
-const report = await paid_runEval({
-  env: { kind: "ephemeral" },
-  pluginDir: "./my-plugin", // or skillsDir: ".claude/skills" (loose, auto-packaged)
-  task: "…",
-  checks: [check.skill("vigiles:test-harness")],
-  stubSkillBodies: true, // firing check: stub bodies → a fraction of the tokens
-  trials: 10,
-  model: "sonnet",
+// SCORED (eval): the SAME checks, as a rate ± se across trials. An eval file
+// describes the run; `npx vigiles eval <file>` spends the money.
+// reading the report (assertRates) is free
+import { defineEval } from "vigiles";
+import { assertRates } from "vigiles/eval";
+export default defineEval({
+  runEval: {
+    env: { kind: "ephemeral" },
+    pluginDir: "./my-plugin", // or skillsDir: ".claude/skills" (loose, auto-packaged)
+    task: "…",
+    checks: [check.skill("vigiles:test-harness")],
+    stubSkillBodies: true, // firing check: stub bodies → a fraction of the tokens
+    trials: 10,
+    model: "sonnet",
+  },
+  assert: (report) => {
+    assertRates(report, { min: 0.8 }); // gate the rate, not one noisy run
+    assertRates(report, { passK: 1 }); // or: every check passed on EVERY trial
+  },
 });
-assertRates(report, { min: 0.8 }); // gate the rate, not one noisy run
-assertRates(report, { passK: 1 }); // or: every check passed on EVERY trial
 ```
 
 A check's **failure message is the product** (`expected the agent to use tool
@@ -228,7 +234,7 @@ from `vigiles` (type `check.` and the editor lists them; the table is under
 your own. The exception is `paid_judged`, which calls a model and so lives on
 [`vigiles/eval`](eval.md).
 
-With `arms`, `paid_runEval({ arms, checks })` scores the same checks per arm (a
+With `arms`, a `runEval` of `{ arms, checks }` scores the same checks per arm (a
 hook/skill/rule **on vs off**): each check is one metric keyed by its label, so
 `report.arms[name].metrics["tool(Bash)"]` lines up across arms and
 `compare(report, "off", "on")` reads each one. It takes `stubSkillBodies` too.

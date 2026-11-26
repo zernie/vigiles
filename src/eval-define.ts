@@ -73,7 +73,7 @@ import type {
 export const EVAL_DEFINITION = Symbol.for("vigiles.eval.definition");
 
 /**
- * `paid_measureSelectionMatrix`'s two arguments as one declarable object.
+ * `measureSelectionMatrix`'s two arguments as one declarable object.
  *
  * @public
  */
@@ -97,10 +97,10 @@ export interface EvalMeasurements {
    * removed `measure` and `measureArms` keys declared.
    */
   readonly runEval?: EvalSpec;
-  /** Does a skill's description actually fire — `paid_measureTriggerRate`. */
+  /** Does a skill's description actually fire — the trigger-rate runner. */
   readonly measureTriggerRate?: TriggerRateSpec;
   /**
-   * The N×N skill-selection collision matrix — `paid_measureSelectionMatrix` from
+   * The N×N skill-selection collision matrix — `measureSelectionMatrix` from
    * `vigiles/harness/claude-code`. Declared here because a description is a description
    * whatever harness answers it; only `eval-entry.ts` resolves it to a runner.
    */

@@ -14,7 +14,7 @@
  *
  * Boundary NOT asserted here: marketing copy on `site/` is a front door too, but
  * `landing-site` claims "reviewing … marketing copy" for site/. No site-copy
- * review prompt appears in either bank; that is a `paid_measureSelectionMatrix`
+ * review prompt appears in either bank; that is a `measureSelectionMatrix`
  * question over the whole `.claude/skills/`.
  *
  *   npx vigiles eval examples/harness/dogfood/review-docs.trigger.eval.mjs

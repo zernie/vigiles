@@ -540,7 +540,7 @@ Harness audit
   ● Safety         100  ██████████████████████
   ◑ Tested          88  ███████████████████░░░  · advisory (not graded)
   ? Evaluated  not measured                      · advisory (not graded)
-       └ 6 surfaces never measured with a real model; not measured — run `npx vigiles audit` interactively to measure, or add a `*.eval.mjs` (`paid_measureTriggerRate`, vigiles/eval)
+       └ 6 surfaces never measured with a real model; not measured — run `npx vigiles audit` interactively to measure, or add a `*.eval.mjs` (`defineEval({ measureTriggerRate })`, run by `vigiles eval`)
 
 Harness health: B (95/100)
 ```
@@ -971,7 +971,7 @@ a human to consent (there's **no execution flag** — see below):
   one-line nudge; never hangs, never silently executes.
 - **No execution flag.** `audit` is a local report — it runs the executing checks
   only when a human can consent. For automation, test the harness through the
-  [vigiles testing API](harness-testing.md) (`paid_measureTriggerRate` on `vigiles/eval`, `guardrail-check` on `vigiles`)
+  [vigiles testing API](harness-testing.md) (`defineEval({ measureTriggerRate })` run by `vigiles eval`, `guardrail-check` on `vigiles`)
   - skills — the layered tiers that exist for exactly that. The deterministic read is
     identical on every OS; there's deliberately no `--measure`/`--fast`.
 

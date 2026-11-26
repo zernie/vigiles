@@ -1,71 +1,22 @@
 /**
- * The program `vigiles eval` runs. Given one eval FILE, it imports the
- * description that file exports and executes the measurement it declares.
+ * The VERDICTS of an eval run, all pure: how many trials `VIGILES_TRIALS` asks
+ * for, whether a declaration is well formed, whether a report counts as a failed
+ * run, and the words of each refusal. `./eval-run.ts` runs a description and
+ * asks these; the tests ask them directly.
  *
- * This module exists so that the eval file does not have to be a program. The
- * old shape put the run in the module body, which made `import()` — the cheapest
- * way to ask "does this parse?" — spend real money (see `core/eval-load-phase.ts`
- * for the measurement and `eval-define.ts` for the shape that replaced it).
- *
- * ## What it does, in order
- *
- *   1. closes the paid tier, imports the file, reopens it — so a leftover
- *      top-level `measure(…)` in a half-migrated file throws with a migration
- *      message instead of quietly billing;
- *   2. reads the default export as a declaration — a pure function of a value,
- *      so "declares nothing" is answered before a cent is spent;
- *   3. honours `skipIf` (exit 77, the runner's loud `⊘ SKIPPED`);
- *   4. runs the one declared measurement, overriding `trials` from
- *      `VIGILES_TRIALS` — which is why no eval file parses env or argv any more;
- *   5. prints the report with the formatter that matches the measurement;
- *   6. fails on a run that executed ZERO trials — the check every file used to
- *      hand-write as `if (report.n === 0) throw`;
- *   7. fails — exit 2, before `assert` — on a `runEval` report with a stub call
- *      no rule answered: such a trial measured an answer nobody wrote, and the
- *      file's own `assert` may not look (most call only `compare`);
- *   8. calls `assert(report)`.
- *
- * ## Not a CLI verb
- *
- * `vigiles eval` is unchanged; this is the interpreter it spawns per file, the
- * same way it already spawned `node <file>`. It takes one positional argument
- * and has no flags — every knob stays on `vigiles eval`.
+ * The order a run asks them in, and why, is in `./eval-run.ts`.
  */
-import { pathToFileURL } from "node:url";
-import { resolve } from "node:path";
-
-import { beginEvalLoad, endEvalLoad } from "./core/eval-load-phase.js";
-import {
-  declaredEval,
-  moduleDefault,
-  type EvalDefinition,
-  type EvalKind,
-  type RemovedEvalKind,
-} from "./eval-define.js";
-import {
-  measureTriggerRate,
-  runEval,
-  type EvalReport,
-  type EvalSpec,
-  type TriggerRateReport,
-  type EvalDriver,
-  type TriggerRateSpec,
-} from "./eval.js";
-import { formatEvalReport, formatTriggerRateReport } from "./eval-format.js";
+import type { EvalKind, RemovedEvalKind } from "./eval-define.js";
+import type { EvalReport, TriggerRateReport } from "./eval.js";
 import {
   unansweredInReport,
   contextInReport,
 } from "./core/eval-report-failures.js";
 import { parseToolStubs } from "./core/eval-spec-parse.js";
-import {
-  paid_measureSelectionMatrix,
-  formatSelectionReport,
-  type SelectionReport,
-} from "./scan-behavioral.js";
-import type { SelectionMatrixSpec } from "./eval-define.js";
+import type { SelectionReport } from "./scan-behavioral.js";
 
 /** Every report this entry can produce. */
-type AnyReport = EvalReport | TriggerRateReport | SelectionReport;
+export type AnyReport = EvalReport | TriggerRateReport | SelectionReport;
 
 /**
  * How many trials this run should use, or `undefined` to leave the spec alone.
@@ -183,45 +134,6 @@ export function driverMisplaced(
   );
 }
 
-/** Run the one declared measurement. The only place the paid runners are called. */
-async function runDeclared(
-  kind: EvalKind,
-  spec: unknown,
-  trials: number | undefined,
-  evalDriver: EvalDriver | undefined,
-): Promise<AnyReport> {
-  const withTrials = <T extends object>(s: T): T =>
-    trials === undefined ? s : { ...s, trials };
-  switch (kind) {
-    case "runEval":
-      return runEval(withTrials(spec as EvalSpec));
-    case "measureTriggerRate":
-      return measureTriggerRate(
-        withTrials(spec as TriggerRateSpec),
-        evalDriver ? { evalDriver } : {},
-      );
-    case "measureSelectionMatrix": {
-      const { pluginDir, ...opts } = withTrials(spec as SelectionMatrixSpec);
-      return paid_measureSelectionMatrix(pluginDir, opts);
-    }
-  }
-}
-
-/** Print a report with the formatter that matches its measurement. */
-function printReport(kind: EvalKind, report: AnyReport): void {
-  switch (kind) {
-    case "runEval":
-      console.log(formatEvalReport(report as EvalReport));
-      return;
-    case "measureTriggerRate":
-      console.log(formatTriggerRateReport(report as TriggerRateReport));
-      return;
-    case "measureSelectionMatrix":
-      console.log(formatSelectionReport(report as SelectionReport));
-      return;
-  }
-}
-
 /**
  * The message for a file that is not a description. Separate from the flow so a
  * test can assert the WORDS — this is the ONLY thing an author sees when their
@@ -277,71 +189,3 @@ function removedKindProblem(kind: RemovedEvalKind): string {
     `  \`haiku\` where ${kind}'s was \`sonnet\` — set \`model\` to keep measuring the same thing.`
   );
 }
-
-/* v8 ignore start -- the process entry: exercised end-to-end through child processes in eval-entry.test.ts */
-export async function main(): Promise<void> {
-  const file = process.argv[2];
-  if (file === undefined) {
-    console.error(
-      "vigiles: eval-entry expects one eval file. Run `vigiles eval <file>`.",
-    );
-    process.exit(2);
-  }
-  let mod: unknown;
-  beginEvalLoad();
-  try {
-    mod = await import(pathToFileURL(resolve(file)).href);
-  } finally {
-    endEvalLoad();
-  }
-
-  const exported = moduleDefault(mod);
-  const declared = declaredEval(exported);
-  if (!declared.ok) {
-    console.error(notADescriptionMessage(file, declarationProblem(declared)));
-    process.exit(1);
-  }
-
-  const def = exported as EvalDefinition;
-
-  // A malformed declaration is reported BEFORE `skipIf` runs. Otherwise a file
-  // that skips on this machine (no `claude` installed, say) would hide its own
-  // misconfiguration until somebody ran it somewhere the capability exists.
-  const misplaced = driverMisplaced(
-    declared.kind,
-    def.evalDriver !== undefined,
-  );
-  if (misplaced !== undefined) {
-    console.error(`✗ ${file}: ${misplaced}`);
-    process.exit(1);
-  }
-
-  const reason = def.skipIf?.();
-  if (typeof reason === "string" && reason !== "") {
-    console.log(`SKIPPED: ${reason}`);
-    process.exit(77);
-  }
-
-  const report = await runDeclared(
-    declared.kind,
-    declared.spec,
-    trialsOverride(process.env["VIGILES_TRIALS"]),
-    def.evalDriver,
-  );
-  printReport(declared.kind, report);
-
-  const failure = runFailure(file, declared.kind, report, declared.spec);
-  if (failure !== undefined) {
-    console.error(failure.message);
-    process.exit(failure.code);
-  }
-
-  await (def.assert as ((r: AnyReport) => void | Promise<void>) | undefined)?.(
-    report,
-  );
-}
-
-// This module starts nothing when imported: `src/eval-program.ts` is the
-// program `vigiles eval` spawns, and all it does is call `main`. (An ES module
-// has no `require.main` to tell "imported" from "run", so the two are files.)
-/* v8 ignore stop */

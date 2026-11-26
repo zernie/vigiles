@@ -46,11 +46,10 @@ export {
   experimental_skill,
   type ClaudeCodeToolVocabulary,
 } from "../../adapters/claude-code/typed-spec.js";
-// The skill-selection matrix: which of your skills a real model picks.
-export {
-  paid_measureSelectionMatrix,
-  assertNoCollision,
-} from "../../scan-behavioral.js";
+// The skill-selection matrix: which of your skills a real model picks. It is
+// RUN by an eval file (`defineEval({ measureSelectionMatrix: … })`, vigiles#586);
+// this door keeps the gate over its report and the report's types.
+export { assertNoCollision } from "../../scan-behavioral.js";
 export type {
   SelectionReport,
   SkillSelectionStat,

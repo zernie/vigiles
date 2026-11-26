@@ -196,7 +196,7 @@ export function foreignRunnerRefusal(runner: string, what: string): string {
     `vigiles refused to spawn a model: this process is running under ${runner}.\n` +
     `  ${what} spends real model calls, and a general test runner picking it up ` +
     `would spend them on every push.\n` +
-    `  If this file is a vigiles eval, run it with \`vigiles eval\` (or \`node <file>\`) ` +
+    `  If this file is a vigiles eval, run it with \`vigiles eval <file>\` ` +
     `and name it \`<surface>.eval.mjs\` — that name is outside ${runner}'s default patterns.\n` +
     `  If ${runner} is meant to run it, it must not call the real-model tier.`
   );

@@ -136,9 +136,6 @@ export interface MockHandle {
 }
 
 // @public
-export function paid_measureSelectionMatrix(dir: string, opts?: SelectionMatrixOptions): Promise<SelectionReport>;
-
-// @public
 export function parseClaudeRun(out: RunOut): ParsedModelRun;
 
 // @public

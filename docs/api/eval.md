@@ -82,25 +82,28 @@ assertNoRegression(report, { baseline, lowerIsBetter: ["cost"] }); // gate
 
 ### Grade free text with a model
 
-`paid_judged` is a check, for a `paid_runEval` scored by `checks`; `paid_judge`
-is the synchronous call for inside a `measure(ctx)` callback.
+`paid_judged` is a check, for a `runEval` scored by `checks`; `paid_judge`
+is the synchronous call for inside a `measure(ctx)` callback. Both run only
+inside a runner (`vigiles eval`); a standalone call refuses.
 
 ```ts
-import { check } from "vigiles";
-import { paid_judged, paid_runEval, assertRates } from "vigiles/eval";
+import { check, defineEval } from "vigiles";
+import { paid_judged, assertRates } from "vigiles/eval";
 
-const report = await paid_runEval({
-  env: { kind: "ephemeral" },
-  task: "Summarize in.txt in one sentence.",
-  fixture: { "in.txt": "..." },
-  model: "sonnet",
-  checks: [
-    check.output(/invoice/i),
-    paid_judged("A single, accurate one-sentence summary", { min: 0.7 }),
-  ],
-  trials: 5,
+export default defineEval({
+  runEval: {
+    env: { kind: "ephemeral" },
+    task: "Summarize in.txt in one sentence.",
+    fixture: { "in.txt": "..." },
+    model: "sonnet",
+    checks: [
+      check.output(/invoice/i),
+      paid_judged("A single, accurate one-sentence summary", { min: 0.7 }),
+    ],
+    trials: 5,
+  },
+  assert: (report) => assertRates(report, { min: 0.8 }), // each check, in the one arm `default`
 });
-assertRates(report, { min: 0.8 }); // each check, in the one arm `default`
 ```
 
 ### Gate a cost, a turn count, a latency
@@ -128,7 +131,8 @@ file. See [testing output styles](../testing-output-styles.md).
 ### `measureTriggerRate` options
 
 ```ts
-const report = await paid_measureTriggerRate({
+defineEval({
+  measureTriggerRate: {
   skillsDir: ".claude/skills", // loose skills — auto-packaged. XOR pluginDir.
   pluginDir: "./my-plugin", //    already-packaged plugin. XOR skillsDir.
   prompts: [...], //              recall set (≥ minPrompts, NCD-diverse)
@@ -142,8 +146,10 @@ const report = await paid_measureTriggerRate({
   minModel: "sonnet", //          fail before spending a token if pointed below
   effort: "low", //               reasoning budget — pin it to reproduce a number
   minPrompts: 10, //              diversity-gate floor
+  },
+  assert: (report) =>
+    assertRates(report, { min: 0.8, maxFalsePositive: 0.1 }), // recall, precision side
 });
-assertRates(report, { min: 0.8, maxFalsePositive: 0.1 }); // recall, precision side
 ```
 
 - **`skillsDir` vs `pluginDir`** — exactly one. `skillsDir` packages a loose
@@ -256,22 +262,24 @@ check off.
 ### Run the trials in your own repository: `experimental_workspace`
 
 A `fixture` is a handful of files you write by hand. To measure your harness
-on the code it really works on, give `paid_runEval` a commit of your own
+on the code it really works on, give a `runEval` a commit of your own
 repository instead (a `RepoWorkspace`):
 
 ```ts
-import { paid_runEval } from "vigiles/eval";
+import { defineEval } from "vigiles";
 
-const report = await paid_runEval({
-  env: { kind: "ephemeral" },
-  experimental_workspace: {
-    kind: "repo",
-    dir: ".",
-    ref: "HEAD",
-    deps: { kind: "node-modules" },
+export default defineEval({
+  runEval: {
+    env: { kind: "ephemeral" },
+    experimental_workspace: {
+      kind: "repo",
+      dir: ".",
+      ref: "HEAD",
+      deps: { kind: "node-modules" },
+    },
+    task: "Fix the failing test in src/parse.test.ts",
+    measure: (ctx) => ({ edited: ctx.experimental_workspace !== undefined }),
   },
-  task: "Fix the failing test in src/parse.test.ts",
-  measure: (ctx) => ({ edited: ctx.experimental_workspace !== undefined }),
 });
 ```
 
@@ -292,7 +300,7 @@ What each trial gets, and why:
 
 It is refused before the first trial, with a line saying what to change, when
 `fixture` is set beside it, when `cache` is not `"off"`, when the repo's
-`.vigilesrc.json` declares harnesses and none of them is the one `paid_runEval`
+`.vigilesrc.json` declares harnesses and none of them is the one `runEval`
 drives, when a link in the copy (one the repo tracks, one the patch adds, or one
 inside `node_modules`) is absolute, climbs out of the repo, or has a `..` after a name
 (`dir/up/..`, which climbs from wherever `dir/up` leads; links are checked on one
@@ -301,7 +309,7 @@ directory is inside the repo, and when the temp disk cannot hold two copies per
 trial in flight.
 
 What it does **not** do: confine the agent. It runs with your user's rights and
-your network, exactly as every `paid_runEval` trial does — pass only a
+your network, exactly as every `runEval` trial does — pass only a
 repository you would run the agent in anyway. The copy uses `cp --reflink=auto`
 on Linux and `cp -c` on macOS; only Linux has been measured.
 
@@ -461,8 +469,7 @@ them. A new arm/metric absent from the baseline is skipped (not a regression).
 
 ### Runners (can spend money)
 
-- `paid_runEval`: run one task N times per configuration (one, or `arms` compared) and score each trial by `checks` or a `measure(ctx)` callback.
-- `paid_measureTriggerRate`: measure whether a skill's description fires on the right prompts and stays quiet on the wrong ones.
+- `paid_runEval`: the programmatic door to an eval. Takes an eval description (the value `defineEval` returns, e.g. `defineEval({ runEval: spec, assert })`), runs it exactly as `vigiles eval` runs a file, and returns `{ kind: "passed" | "failed" | "skipped" | "refused" }` (`passed` and `failed` carry `report`). Never throws on a failed run; sets `process.exitCode` as `vigiles eval` would.
 - `paid_judge`: grade one output against a rubric with a model, synchronously.
 - `paid_judged`: a check that grades the output against a rubric; takes an injectable judge that costs nothing.
 - `paid_claudeEvalDriver`: the Claude Code transport the runners use by default, for passing explicitly.

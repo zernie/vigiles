@@ -115,7 +115,7 @@ language** — the glob is `*.harness.*` / `*.eval.*` over `.mjs` `.cjs` `.js`
 `.mts` `.cts` `.ts` (`src/adapters/claude-code/run-scripts.ts`). Discovery is
 name-only and scoped to those infixes — **never `*.test.*` / `*.spec.*`** — so it
 won't pick up your vitest/jest/Playwright files (and it ignores `node_modules` +
-`dist`). A JavaScript file runs as a plain `node <file>`; a TypeScript file is run
+`dist`). A JavaScript harness file runs as a plain `node <file>` (an eval file only through `vigiles eval`); a TypeScript file is run
 through **`tsx`** when it's installed, else **Node's native type stripping**
 (Node ≥ 22.6), with an actionable error if neither is available. So you can author
 your own tests in TS and get types end-to-end, or in JS for zero setup.

@@ -74,25 +74,24 @@ for (const event of fileToolEvents("src/index.ts")) {
 ### Catch one skill stealing a sibling's prompts
 
 Per-skill trigger rate asks each skill in isolation, so it cannot catch one skill
-taking a **sibling's** prompt. `paid_measureSelectionMatrix` runs each skill's own
+taking a **sibling's** prompt. The `measureSelectionMatrix` eval runs each skill's own
 prompts against the whole installed set and records which skill fired: an N×N
 matrix whose diagonal is recall and whose off-diagonal mass is collision. It is
 Claude Code only, because only Claude Code reports which skill the selector chose;
 on another harness the report says `available: false` rather than passing.
 
 ```ts
-import {
-  paid_measureSelectionMatrix,
-  assertNoCollision,
-} from "vigiles/harness/claude-code";
+import { defineEval } from "vigiles";
+import { assertNoCollision } from "vigiles/harness/claude-code";
 
-const report = await paid_measureSelectionMatrix("./my-plugin", { trials: 1 });
-assertNoCollision(report, { maxOffDiagonal: 0.2 }); // per-skill collision ceiling
-// or the plugin-wide rate: assertNoCollision(report, { maxPluginCollision: 0.1 })
+export default defineEval({
+  measureSelectionMatrix: { pluginDir: "./my-plugin", trials: 1 },
+  assert: (report) => assertNoCollision(report, { maxOffDiagonal: 0.2 }), // per-skill collision ceiling
+  // or the plugin-wide rate: assertNoCollision(report, { maxPluginCollision: 0.1 })
+});
 ```
 
-This calls a real model (hence `paid_`). In an eval file, the `defineEval` key is
-still `measureSelectionMatrix`. Prompts are derived from each skill's description
+This calls a real model, so it runs only inside `npx vigiles eval <file>`. Prompts are derived from each skill's description
 unless you pass `prompts` (a `{ skill: { prompts: [...] } }` map).
 
 - **Zero-setup** — omit `prompts` and they're derived from descriptions (the same
@@ -147,9 +146,8 @@ experimental_agent({
 
 ### Skill selection
 
-- `paid_measureSelectionMatrix`: run each skill's prompts against the whole installed set and record which skill fires.
 - `assertNoCollision`: throw when a skill's prompts are taken by a sibling above a ceiling, or when nothing was measured.
-- `SelectionMatrixOptions`: options of `paid_measureSelectionMatrix`, including curated `prompts`.
+- `SelectionMatrixOptions`: options of the `measureSelectionMatrix` eval (with `pluginDir`), including curated `prompts`.
 - `SelectionOptions`: model, trials, concurrency and effort, shared with the audit's trigger tier.
 - `SelectionReport`: the matrix, the collision rate and the per-skill stats.
 - `SkillSelectionStat`: one skill's recall, collision rate and the skills it collides with.

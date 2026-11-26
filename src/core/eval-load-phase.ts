@@ -1,82 +1,133 @@
 /**
- * The paid tier is closed while an eval file is being LOADED.
+ * A real model is spawned only inside a vigiles runner, and never while an eval
+ * file is being loaded.
  *
- * ## The failure this removes
+ * ## The failures this removes
  *
- * An eval file used to do its work at the top level:
+ * 1. IMPORT IS EXECUTION. An eval file used to do its work at the top level:
  *
- *   const report = await measureTriggerRate({ … });   // ← module body
+ *      const report = await measureTriggerRate({ … });   // ← module body
  *
- * In ESM, `import` IS execution, so *reading* such a file spends real money.
- * Measured 2026-08-12 (and reproduced 2026-08-18 with an inert stand-in that
- * writes a marker file instead of spawning): `node -e 'import("./x.eval.mjs")'`
- * ran the whole body and the one guard that exists — `refuseUnderForeignRunner`
- * — stayed SILENT, because under `node -e` there is no `process.argv[1]` at all:
+ *    so `node -e 'import("./x.eval.mjs")'` — the cheapest way to ask "does this
+ *    parse?" — spent real money (measured 2026-08-12, reproduced 2026-08-18).
+ *    The shape changed (an eval file DESCRIBES its eval with `defineEval` and a
+ *    runner runs it), and the LOAD PHASE below refuses a half-migrated file that
+ *    still calls a runner in its module body.
  *
- *   node -e 'import(x)'   argv[1] = undefined  → foreignRunner(…) = null
+ * 2. TWO WAYS TO RUN, TWO ANSWERS. A script that called `paid_runEval(spec)`
+ *    directly got a report back on a broken trial (an instruction file missing
+ *    from the model's request) and exited 0; only `vigiles eval` exited 1
+ *    (reported in vigiles#416, fixed in vigiles#586). A model is now spawned only
+ *    inside a RUNNER — `vigiles eval`, the programmatic door `paid_runEval(definition)`
+ *    or the consented half of `vigiles audit` — and the eval runners share one
+ *    function, so the two answers cannot differ.
  *
- * That guard is not broken; it answers a different question ("does somebody
- * else's test runner own this process?"). No process fact distinguishes
- * `node -e 'import(x)'` from a legitimate runner doing `import(x)`, so no
- * argv-shaped guard can close this door without also refusing the correct
- * invocation — the exact failure mode that got `process.env.VITEST` rejected in
- * `foreign-runner.ts`.
+ * ## Why the default is CLOSED
  *
- * ## What closes it instead
+ * Until vigiles#586 it was open ("a guard that fires on correct input is a guard
+ * people delete"). The tools closest to this one close it and give the correct
+ * case its own door instead: Playwright Test refuses `test()` outside its runner
+ * ("Playwright Test did not expect test() to be called here."), Vitest refuses an
+ * import outside its run and offers `vitest/node` for programmatic use. The door
+ * here is `paid_runEval(definition)`: a correct direct call goes through it.
  *
- * The SHAPE changed: an eval file now DESCRIBES its eval (`defineEval`) and
- * `vigiles eval` runs it. A description cannot spend, so for a conforming file
- * the door is shut by construction and this module is not needed.
+ * ## How "inside" is known
  *
- * This module covers the file that is only HALF migrated — a `defineEval` export
- * plus a leftover top-level `measure(…)`. During the import that the eval runner
- * performs, the paid tier refuses. So the usual way anyone runs an eval turns a
- * silent bill into a loud error that names the fix, instead of paying it.
+ * One `AsyncLocalStorage`, kept on a `Symbol.for` global so a second installed
+ * copy of vigiles sees the same one. A process-wide boolean was the first design
+ * and both reviews refuted it: two concurrent runs (`Promise.all`) share one
+ * boolean, so the first to finish closes the door on the second mid-run. A store
+ * is scoped to the async call chain that entered it, so concurrent runs and an
+ * import inside one never see each other's phase.
  *
- * ⚠️ HONEST BOUNDARY, stated rather than implied. This is scoped to the runner's
- * own import. `node -e 'import("./half-migrated.eval.mjs")'` still spends,
- * because that file still contains the original defect — the redesign made the
- * defect *avoidable and detectable*, it cannot retroactively fix a file that did
- * not adopt it. The free syntax check is `node --check <file>`, which never
- * executes anything.
- *
- * ## Why the default is OPEN
- *
- * `paid_runEval` and friends are public API; somebody's own script calling them
- * at top level is their business. A gate that defaulted to closed would refuse
- * every correct direct call — again, "a guard that fires on correct input is a
- * guard people delete". So the window is opened by nobody and closed by exactly
- * one caller: `eval-entry.ts`, around its `import()`.
- *
- * Imports NOTHING, so every spawn door (including the adapters) can call it
- * without a cycle — the same reason `foreign-runner.ts` is a leaf.
+ * ⚠️ NOT A SECURITY BOUNDARY. Anyone can enter the store. It stops ACCIDENTS — a
+ * direct call that would exit 0, a half-migrated file that bills on import — not
+ * a caller who means to spend.
  */
+import { AsyncLocalStorage } from "node:async_hooks";
 
-/** Whether an eval module is being imported by the eval runner right now. */
-let loading = false;
+/** Who entered the runner. Each is a composition point that owns an exit. */
+export type RunnerKind = "eval-cli" | "eval-programmatic" | "audit-measure";
+
+/** The phase of the run the current async chain is in. */
+interface RunnerState {
+  readonly kind: RunnerKind;
+  /** True while an eval file is being imported: no model may be spawned. */
+  readonly loading: boolean;
+}
+
+const KEY = Symbol.for("vigiles.runner");
 
 /**
- * Open the no-spend window. Called by `eval-entry.ts` immediately before it
- * imports an eval file, and paired with {@link endEvalLoad} in a `finally`.
+ * The one store, shared across installed copies of this module. What it holds
+ * is PARSED on the way out ({@link current}): another copy, of another version,
+ * may have put a differently shaped state in it.
  */
-export function beginEvalLoad(): void {
-  loading = true;
+function store(): AsyncLocalStorage<unknown> {
+  const found: unknown = Reflect.get(globalThis, KEY);
+  if (found instanceof AsyncLocalStorage) return found;
+  const fresh = new AsyncLocalStorage<unknown>();
+  Reflect.set(globalThis, KEY, fresh);
+  return fresh;
 }
 
-/** Close the no-spend window: the description is loaded, the runner may spend. */
-export function endEvalLoad(): void {
-  loading = false;
+const KINDS: readonly string[] = [
+  "eval-cli",
+  "eval-programmatic",
+  "audit-measure",
+];
+
+function isRunnerState(v: unknown): v is RunnerState {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "kind" in v &&
+    typeof v.kind === "string" &&
+    KINDS.includes(v.kind) &&
+    "loading" in v &&
+    typeof v.loading === "boolean"
+  );
 }
 
-/** Whether the no-spend window is open (exported for tests + the entry). */
+/** The state of the current async chain, or undefined outside every runner. */
+function current(): RunnerState | undefined {
+  const s = store().getStore();
+  return isRunnerState(s) ? s : undefined;
+}
+
+/** Run `fn` inside a vigiles runner: a model may be spawned within it. */
+export function withVigilesRunner<T>(kind: RunnerKind, fn: () => T): T {
+  const state: RunnerState = { kind, loading: false };
+  return store().run(state, fn);
+}
+
+/**
+ * Run `fn` — the runner's own `import()` of an eval file — in the load phase:
+ * any model spawn inside it refuses. Only inside a runner, because only a
+ * runner imports eval files.
+ */
+export function withEvalLoad<T>(fn: () => T): T {
+  const state: RunnerState = {
+    kind: current()?.kind ?? "eval-cli",
+    loading: true,
+  };
+  return store().run(state, fn);
+}
+
+/** Whether the current async chain is loading an eval file. */
 export function inEvalLoad(): boolean {
-  return loading;
+  return current()?.loading === true;
+}
+
+/** Whether the current async chain is inside a vigiles runner. */
+export function inVigilesRunner(): boolean {
+  return current() !== undefined;
 }
 
 /**
- * The refusal message. Separate from the check so a test can assert the WORDS:
- * this fires on a file whose author has not seen the new shape yet, so it has to
- * teach it, not just stop.
+ * The load-phase refusal. Separate from the check so a test can assert the
+ * WORDS: it fires on a file whose author has not seen the new shape yet, so it
+ * has to teach it, not just stop.
  */
 export function evalLoadRefusal(what: string): string {
   return (
@@ -90,14 +141,32 @@ export function evalLoadRefusal(what: string): string {
   );
 }
 
+/** The refusal for a spawn outside any runner. It names both doors. */
+export function outsideRunnerRefusal(what: string): string {
+  return (
+    `vigiles refused to spawn a model: ${what} outside a vigiles runner.\n` +
+    `  Describe the eval in a \`*.eval.mjs\` file and run it with \`npx vigiles eval <file>\`:\n` +
+    `      import { defineEval } from "vigiles";\n` +
+    `      export default defineEval({ runEval: { …spec… }, assert: (report) => … });\n` +
+    `  From a script, pass that description to the programmatic door:\n` +
+    `      import { paid_runEval } from "vigiles/eval";\n` +
+    `      const outcome = await paid_runEval(definition); // sets process.exitCode on a failure\n` +
+    `  A grader (\`paid_judge\`, \`paid_judged\`) runs inside an eval's \`measure\` or \`checks\`.\n` +
+    `  See docs/harness-testing.md § Eval files.`
+  );
+}
+
 /**
- * Refuse to spend model budget while an eval file is being imported.
+ * Refuse a model spawn unless a runner is active and no eval file is loading.
  *
- * 🔴 CALL THIS AT EVERY REAL-MODEL SPAWN, beside `refuseUnderForeignRunner`, and
- * OUTSIDE any `try` that swallows — `judge` and `deriveAttackReal` both wrap
- * their spawn in `try { … } catch { return fallback }`, so a refusal thrown
- * inside would be downgraded to a score of 0 instead of stopping the run.
+ * 🔴 CALL THIS AT EVERY REAL-MODEL SPAWN, right after `refuseUnderForeignRunner`
+ * (whose message is the right one under vitest or jest), and OUTSIDE any `try`
+ * that swallows — `judge` and `deriveAttackReal` both wrap their spawn in
+ * `try { … } catch { return fallback }`, so a refusal thrown inside would be
+ * downgraded to a score of 0 instead of stopping the run.
  */
-export function refuseDuringEvalLoad(what: string): void {
-  if (loading) throw new Error(evalLoadRefusal(what));
+export function refuseOutsideRunner(what: string): void {
+  const state = current();
+  if (state === undefined) throw new Error(outsideRunnerRefusal(what));
+  if (state.loading) throw new Error(evalLoadRefusal(what));
 }

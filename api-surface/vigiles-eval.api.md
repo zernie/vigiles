@@ -57,6 +57,23 @@ export interface DiffOptions {
     readonly lowerIsBetter?: readonly string[];
 }
 
+// @public
+export type EvalOutcome = {
+    readonly kind: "passed";
+    readonly report: AnyReport;
+} | {
+    readonly kind: "failed";
+    readonly code: number;
+    readonly message: string;
+    readonly report: AnyReport | undefined;
+} | {
+    readonly kind: "skipped";
+    readonly reason: string;
+} | {
+    readonly kind: "refused";
+    readonly message: string;
+};
+
 // @beta
 export function experimental_outputStyleArms(path: string): Promise<OutputStyleArms>;
 
@@ -101,12 +118,11 @@ export function paid_judged(rubric: string, opts?: {
 }): Check<Trace>;
 
 // @public
-export function paid_measureTriggerRate(spec: TriggerRateSpec, opts?: {
-    evalDriver?: EvalDriver;
-}): Promise<TriggerRateReport>;
-
-// @public
-export function paid_runEval<M extends Metrics>(spec: EvalSpec<M>): Promise<EvalReport>;
+export function paid_runEval(definition: {
+    [K in EvalKind]: EvalDefinition<K>;
+}[EvalKind], options?: {
+    readonly trials?: number;
+}): Promise<EvalOutcome>;
 
 // @public
 export type RateGate = {

@@ -827,8 +827,8 @@ test("skillTestNudge: the firing remedy is runnable on a NON-default harness too
   });
   assert.ok(msg, "a Codex repo's skill must still be nudged about firing");
   assert.match(msg, /FIRES/);
-  // Runnable: `measureTriggerRate(spec, { evalDriver: paid_codexEvalDriver })` is
-  // exported from `vigiles/harness/codex`, so the tier IS reachable here — what the old
+  // Runnable: `defineEval({ measureTriggerRate: spec, evalDriver: paid_codexEvalDriver })`,
+  // the driver exported from `vigiles/harness/codex`, so the tier IS reachable here — what the old
   // wording omitted was the argument that points it at THIS harness.
   assert.match(msg, /evalDriver/);
   cleanupTmpDir(dir);
@@ -909,7 +909,7 @@ test("skillTestNudge: a harness-covered AGENT is nudged about its CONTRACT, not 
   assert.match(msg, /assertAgentOk/);
   // ⚠️ It must not invent an argument the function does not take: `runEval`
   // hard-wires `spawnAgent`, and `runEvalWith` is not
-  // exported from `vigiles/eval` — only `paid_measureTriggerRate` has that seam.
+  // exported from `vigiles/eval` — only a `measureTriggerRate` eval has that seam.
   // Suggesting `runEval(spec, { evalDriver })` would be this finding's own class
   // of defect (a remedy that does not apply), so the honest limit is stated.
   assert.doesNotMatch(msg, /runEval\(spec, \{ evalDriver/);
@@ -931,7 +931,7 @@ test("skillTestNudge: the SKILL sentence is untouched — the fix is a branch, n
   });
   assert.ok(msg);
   assert.match(msg, /actually FIRES/);
-  assert.match(msg, /measureTriggerRate\(spec, \{ evalDriver \}\)/);
+  assert.match(msg, /defineEval\(\{ measureTriggerRate: spec, evalDriver \}\)/);
   // …and it does NOT acquire the agent's vocabulary.
   assert.doesNotMatch(msg, /assertAgentOk/);
   cleanupTmpDir(dir);

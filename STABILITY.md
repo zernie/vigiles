@@ -34,15 +34,16 @@ their exit codes. Most of the churn is in the library API underneath it.
     [eval files describe their eval](docs/harness-testing.md#eval-files-describe-their-eval)
     for the migration.
   - `vigiles/eval` — the measurement API: the model-calling runners, each
-    carrying a `paid_` prefix (`paid_runEval`, `paid_measureTriggerRate`,
-    `paid_judge`, `paid_judged`, `paid_claudeEvalDriver`), and the free readers
+    carrying a `paid_` prefix (`paid_runEval`, which takes an eval description
+    from `defineEval`, `paid_judge`, `paid_judged`, `paid_claudeEvalDriver`), and the free readers
     of their report (`compare`, `assertRates`, `assertImproves`,
     `assertNoRegression`), which carry none.
     `assertTriggerRate` folded into `assertRates` and `readBaseline` /
     `writeBaseline` into `assertNoRegression`'s `baseline` option in v52 (see the
     [migration table](docs/testing-api.md#migrating-to-v52)); the two
     checks-scored runners folded into `paid_runEval` in v55
-    ([migration](docs/testing-api.md#migrating-to-v55)).
+    ([migration](docs/testing-api.md#migrating-to-v55)); a model spawns only inside
+    a vigiles runner since v57 ([migration](docs/testing-api.md#migrating-to-v57)).
   - `vigiles/hook/testing` — everything for testing a hook: prove a guard
     blocks (`runGuardrail` with its check `guardrail`, the case sets
     `disasters` / `experimental_crossRepo`, `DISASTER_CATALOG`; v53, see the
