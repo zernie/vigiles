@@ -19,7 +19,7 @@ import {
   statfsSync,
   type Dirent,
 } from "node:fs";
-import { isAbsolute, join, posix } from "node:path";
+import { isAbsolute, join } from "node:path";
 import type { RepoTemplate } from "../core/workspace.js";
 import { gitEnv } from "./git-env.io.js";
 
@@ -136,13 +136,20 @@ function installLinks(top: string, rel: string): readonly Link[] {
   });
 }
 
-/** Absolute, or climbs past the root from the link's own directory. */
+/**
+ * Absolute; or a `..` after a name (it would climb from wherever that name
+ * leads, which may be a link); or more leading `..` than the link has
+ * directories above it. Leading `..` walk up real directories (the link's
+ * path is real) and every name after them only descends, so a set of links
+ * that all pass cannot reach past the root through any chain of them.
+ */
 function escapes(link: Link): boolean {
   if (isAbsolute(link.target)) return true;
-  const landed = posix.normalize(
-    posix.join(posix.dirname(link.path), link.target),
-  );
-  return landed === ".." || landed.startsWith("../");
+  const parts = link.target.split("/").filter((p) => p !== "" && p !== ".");
+  const firstName = parts.findIndex((p) => p !== "..");
+  const climbs = firstName === -1 ? parts.length : firstName;
+  if (parts.slice(climbs).includes("..")) return true;
+  return climbs > link.path.split("/").length - 1;
 }
 
 /**

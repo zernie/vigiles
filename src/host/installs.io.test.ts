@@ -56,6 +56,7 @@ function repo(
   git("init", "-q");
   for (const [path, text] of Object.entries(files)) write(dir, path, text);
   for (const [path, target] of Object.entries(links)) {
+    mkdirSync(join(dir, path, ".."), { recursive: true });
     symlinkSync(target, join(dir, path));
   }
   git("add", "-A");
@@ -137,6 +138,20 @@ describe("linksOutside on links the world tracks", () => {
     );
     // Guards: `git archive` keeps a tracked link, so it reaches out of every trial.
     expect(outside(dir, [])).toEqual(["up -> ../../elsewhere"]);
+  });
+
+  it("reports a link whose `..` comes after a link, and keeps the links pnpm and workspaces make", () => {
+    const { dir } = repo(
+      { "pkg/a.js": "a\n", ".pnpm/bar@2/node_modules/bar/index.js": "b\n" },
+      {
+        "dir/up": "..",
+        escape: "dir/up/..",
+        "deep/x/bar": "../../.pnpm/bar@2/node_modules/bar",
+        "deep/x/pkg": "../../pkg",
+      },
+    );
+    // Guards: `dir/up/..` is lexically `dir` but really the root's parent (Codex, #585).
+    expect(outside(dir, [])).toEqual(["escape -> dir/up/.."]);
   });
 
   it("reports a link the patch adds, which the commit does not have", () => {
