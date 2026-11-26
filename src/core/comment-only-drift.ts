@@ -3,8 +3,8 @@
  * Pure: two texts in, a verdict out. Decided by the real parser, never the
  * bare scanner (which reads `/[//]b/` as a divide and a comment): both texts
  * parse, their leaf tokens match (kind, text, a line break before each, for
- * ASI), and no comment that differs is a directive. Any doubt reads as "not
- * comment-only", which only refuses a case.
+ * ASI), and every directive comment is the same and sits before the same
+ * token. Any doubt reads as "not comment-only", which only refuses a case.
  */
 import ts from "typescript";
 
@@ -57,16 +57,19 @@ const SCRIPT_KINDS: Readonly<Record<string, ts.ScriptKind>> = {
   ".jsx": ts.ScriptKind.JSX,
 };
 
-/** The script kind a path parses as; undefined for a language this rule does not read. */
+/** The script kind a path parses as; undefined if not read (`.d.ts` too: transpile cannot emit it). */
 export function scriptKindOf(path: string): ts.ScriptKind | undefined {
-  const dot = path.lastIndexOf(".");
-  return dot < 0 ? undefined : SCRIPT_KINDS[path.slice(dot).toLowerCase()];
+  const lower = path.toLowerCase();
+  const dot = lower.lastIndexOf(".");
+  const declaration = lower.slice(0, Math.max(dot, 0)).endsWith(".d");
+  return dot < 0 || declaration ? undefined : SCRIPT_KINDS[lower.slice(dot)];
 }
 
-/** What a parsed text is reduced to: its leaf tokens and its comments. */
+/** A parsed text: leaf tokens, the directives before each (aligned), the shebang. */
 interface Reading {
   readonly tokens: readonly string[];
-  readonly comments: readonly string[];
+  readonly directives: readonly string[];
+  readonly shebang: string;
 }
 
 /** Compare `before` and `after`, both the text of `path`. */
@@ -87,34 +90,15 @@ export function commentOnlyDrift(
 function compare(a: Reading, b: Reading): CommentDrift {
   if (!sameList(a.tokens, b.tokens))
     return { kind: "not-comment-only", why: "tokens" };
-  return differing(a.comments, b.comments).some(isDirective)
-    ? { kind: "not-comment-only", why: "directive" }
-    : { kind: "comment-only" };
+  // By position, not as a bag: a pragma moved to another token changes its target.
+  return sameList(a.directives, b.directives) && a.shebang === b.shebang
+    ? { kind: "comment-only" }
+    : { kind: "not-comment-only", why: "directive" };
 }
 
 function sameList(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((t, i) => t === b[i]);
 }
-
-/** Comments in one list and not the other (as a multiset), from both sides. */
-function differing(
-  a: readonly string[],
-  b: readonly string[],
-): readonly string[] {
-  return [...without(a, b), ...without(b, a)];
-}
-
-function without(
-  from: readonly string[],
-  other: readonly string[],
-): readonly string[] {
-  return from.filter(
-    (c, i) => countOf(from.slice(0, i + 1), c) > countOf(other, c),
-  );
-}
-
-const countOf = (xs: readonly string[], c: string): number =>
-  xs.filter((x) => x === c).length;
 
 export function isDirective(comment: string): boolean {
   return DIRECTIVE_MARKERS.some((m) => comment.includes(m));
@@ -137,10 +121,12 @@ function read(
   const leaves = leafTokens(sf, sf);
   return {
     tokens: leaves.map((n, i) => tokenKey(sf, n, i === 0)),
-    comments: [
-      ...shebangOf(text),
-      ...leaves.flatMap((n) => commentsBefore(text, n.getFullStart())),
-    ],
+    directives: leaves.map((n) =>
+      JSON.stringify(
+        commentsBefore(text, n.getFullStart()).filter(isDirective),
+      ),
+    ),
+    shebang: ts.getShebang(text) ?? "",
   };
 }
 
@@ -193,8 +179,15 @@ function tokenKey(
   first: boolean,
 ): string {
   const trivia = sf.text.slice(node.getFullStart(), node.getStart(sf));
-  const broken = !first && trivia.includes("\n") ? "\n" : "";
+  const broken = !first && hasLineBreak(trivia) ? "\n" : "";
   return `${broken}${String(node.kind)}:${node.getText(sf)}`;
+}
+
+/** Any JavaScript line terminator (LF, CR, U+2028, U+2029), as the scanner reads one. */
+function hasLineBreak(trivia: string): boolean {
+  return Array.from({ length: trivia.length }, (_, i) =>
+    trivia.charCodeAt(i),
+  ).some(ts.isLineBreak);
 }
 
 /**
@@ -209,10 +202,4 @@ function commentsBefore(text: string, pos: number): readonly string[] {
     ...(ts.getLeadingCommentRanges(text, pos) ?? []),
   ];
   return ranges.map((r) => text.slice(r.pos, r.end));
-}
-
-/** The shebang line, which no comment range holds. */
-function shebangOf(text: string): readonly string[] {
-  const shebang = ts.getShebang(text);
-  return shebang === undefined ? [] : [shebang];
 }

@@ -63,29 +63,18 @@ describe("splitFix", () => {
   });
 
   it("matches dot paths, so a test under a dot dir is test territory", () => {
-    const split = splitFix(
-      fix(M(".github/x.test.ts"), M(".env.example")),
-      TESTS,
-    );
+    const split = splitFix(fix(M(".ci/x.test.ts"), M(".env")), TESTS);
     // Guards: minimatch runs with dot: true.
-    expect(split.oracle).toEqual([".github/x.test.ts"]);
-    expect(split.reverted).toEqual([".env.example"]);
+    expect(split.oracle).toEqual([".ci/x.test.ts"]);
+    expect(split.reverted).toEqual([".env"]);
   });
 });
 
 describe("defaultSource", () => {
   it("takes the top-level dir of each non-Markdown path, and a root file as itself", () => {
     // Guards: src/core/a.ts gives src/**, a root file only itself, Markdown nothing.
-    expect(
-      defaultSource([
-        "src/core/a.ts",
-        "src/b.ts",
-        "tsconfig.json",
-        "docs/x.md",
-        "README.md",
-        "lib/c.js",
-      ]),
-    ).toEqual(["lib/**", "src/**", "tsconfig.json"]);
+    const paths = "src/x/a.ts src/b.ts t.json d/x.md R.md l/c.js".split(" ");
+    expect(defaultSource(paths)).toEqual(["l/**", "src/**", "t.json"]);
   });
 
   it("is overridden by a declared source", () => {
@@ -188,6 +177,8 @@ describe("fileDrift and driftVerdict", () => {
       markdownKeptAtHead: ["docs/x.md"],
       commentOnlyPutBack: ["src/a.ts"],
     });
+    // Guards: an empty failure list is not outdated.
+    expect(driftVerdict([]).kind).toBe("kept");
   });
 
   it("makes the case outdated naming only the files that conflict, each with its reason", () => {
@@ -209,22 +200,16 @@ describe("fileDrift and driftVerdict", () => {
   });
 
   it("reads a code file absent on either side as changed in code", () => {
+    const sides = [
+      [undefined, "x"],
+      ["x", undefined],
+    ] as const;
     // Guards: a deleted or new file is never comment-only.
     expect(
-      fileDrift({ path: "src/a.ts", atFix: undefined, atHead: "x" }),
-    ).toEqual({ kind: "conflict", drift: "not-comment-only" });
-    expect(
-      fileDrift({ path: "src/a.ts", atFix: "x", atHead: undefined }),
-    ).toEqual({ kind: "conflict", drift: "not-comment-only" });
-  });
-
-  it("is kept with nothing to list when no file failed", () => {
-    // Guards: an empty failure list is not outdated.
-    expect(driftVerdict([])).toEqual({
-      kind: "kept",
-      markdownKeptAtHead: [],
-      commentOnlyPutBack: [],
-    });
+      sides.map(([atFix, atHead]) =>
+        fileDrift({ path: "a.ts", atFix, atHead }),
+      ),
+    ).toEqual(Array(2).fill({ kind: "conflict", drift: "not-comment-only" }));
   });
 });
 

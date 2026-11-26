@@ -99,6 +99,16 @@ describe("commentOnlyDrift: code changes", () => {
     );
   });
 
+  it("reads every JavaScript line terminator as a line break", () => {
+    const one = "function f() { return 1; }";
+    // Guards: a lone CR, U+2028 or U+2029 after `return` ends the statement under ASI, as \n does.
+    expect(
+      ["\r", "\u2028", "\u2029"].map((lt) =>
+        kindOf("a.js", one, `function f() { return${lt}1; }`),
+      ),
+    ).toEqual(Array(3).fill("not-comment-only:tokens"));
+  });
+
   it("refuses changed JSX text", () => {
     // Guards: JSX text is rendered, so it is a token.
     expect(
@@ -120,6 +130,18 @@ describe("commentOnlyDrift: directives", () => {
     );
     // Guards: a changed pure annotation changes what a bundler keeps.
     expect(kindOf("a.js", "/*#__PURE__*/ f();", "/* plain */ f();")).toBe(
+      "not-comment-only:directive",
+    );
+  });
+
+  it("refuses an unchanged directive moved to another token", () => {
+    // Guards: the same pure annotation on another call lets a bundler drop a different call.
+    expect(
+      kindOf("a.js", "/*#__PURE__*/ f(); g();", "f(); /*#__PURE__*/ g();"),
+    ).toBe("not-comment-only:directive");
+    // Guards: moving `@ts-ignore` between declarations changes which error it hides.
+    const [ig, a, b] = ["// @ts-ignore\n", "let a = 1;\n", "let b = 2;\n"];
+    expect(kindOf("a.ts", ig + a + b, a + ig + b)).toBe(
       "not-comment-only:directive",
     );
   });
@@ -157,6 +179,11 @@ describe("commentOnlyDrift: what it cannot read", () => {
       "language-not-supported",
     );
     expect(kindOf("Makefile", "a", "b")).toBe("language-not-supported");
+    // Guards: a declaration file is refused as unread, never a throw from the transpiler.
+    const decl = "export declare const x: string;";
+    expect(kindOf("A.D.MTS", decl, `/** x */\n${decl}`)).toBe(
+      "language-not-supported",
+    );
   });
 
   it("maps every JS/TS extension to a script kind, case-insensitively", () => {
@@ -174,5 +201,9 @@ describe("commentOnlyDrift: what it cannot read", () => {
     // Guards: each extension of the design's list is read.
     expect(paths.filter((p) => scriptKindOf(p) === undefined)).toEqual([]);
     expect(scriptKindOf("a.d")).toBeUndefined();
+    // Guards: no declaration file is read, whatever its module flavour.
+    expect(["a.d.ts", "a.d.mts", "a.d.cts"].map(scriptKindOf)).toEqual(
+      Array(3).fill(undefined),
+    );
   });
 });
