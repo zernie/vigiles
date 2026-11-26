@@ -469,7 +469,7 @@ them. A new arm/metric absent from the baseline is skipped (not a regression).
 
 ### Runners (can spend money)
 
-- `paid_runEval`: the programmatic door to an eval. Takes an eval description (the value `defineEval` returns, e.g. `defineEval({ runEval: spec, assert })`), runs it exactly as `vigiles eval` runs a file, and returns `{ kind: "passed" | "failed" | "skipped" | "refused" }` (`passed` and `failed` carry `report`). Never throws on a failed run; sets `process.exitCode` as `vigiles eval` would.
+- `paid_runEval`: the programmatic door to an eval. Takes an eval description (the value `defineEval` returns, e.g. `defineEval({ runEval: spec, assert })`), runs it exactly as `vigiles eval` runs a file, and returns an `EvalOutcome`: `{ kind: "passed" | "failed" | "skipped" | "refused" }` (`passed` and `failed` carry `report`). Never throws on a failed run; sets `process.exitCode` as `vigiles eval` would.
 - `paid_judge`: grade one output against a rubric with a model, synchronously.
 - `paid_judged`: a check that grades the output against a rubric; takes an injectable judge that costs nothing.
 - `paid_claudeEvalDriver`: the Claude Code transport the runners use by default, for passing explicitly.
