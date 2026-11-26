@@ -78,22 +78,41 @@ function inTree(top: string, sha: string, rel: string): boolean {
  *
  * Judged on the link's text and never on where it lands in the checkout: an
  * absolute target inside the checkout is still the user's checkout from a
- * trial. Both lists hold real paths (`git` tracks no path through a link, the
- * install walk does not follow one), so when every link passes, no chain of
- * them can leave the root either.
+ * trial. The rule needs each link's path to be real in the copy: `git` tracks
+ * no path through a link, and an install under a directory that is a link in
+ * the copy is reported itself. Then when every link passes, no chain of them
+ * can leave the root either.
  */
 export function linksOutside(
   template: RepoTemplate,
   top: string,
   installs: readonly string[],
 ): readonly string[] {
+  const moved = installs.filter((i) => throughLink(template.root, i));
   return [
-    ...trackedLinks(template),
-    ...installs.flatMap((install) => installLinks(top, install)),
-  ]
-    .filter(escapes)
-    .map((l) => `${l.path} -> ${l.target}`)
-    .sort((a, b) => a.localeCompare(b));
+    ...[
+      ...trackedLinks(template),
+      ...installs.flatMap((i) => installLinks(top, i)),
+    ]
+      .filter(escapes)
+      .map((l) => `${l.path} -> ${l.target}`),
+    ...moved.map((i) => `${i} -> (its directory is a link in the copy)`),
+  ].sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Whether `rel` or a directory above it is a link in the template. The copy
+ * would follow it, so the install's links would not sit at the paths the
+ * depth rule reads them at.
+ */
+function throughLink(root: string, rel: string): boolean {
+  const parts = rel.split("/");
+  return parts.some(
+    (_, i) =>
+      lstatSync(join(root, ...parts.slice(0, i + 1)), {
+        throwIfNoEntry: false,
+      })?.isSymbolicLink() === true,
+  );
 }
 
 interface Link {

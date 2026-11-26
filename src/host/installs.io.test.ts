@@ -116,6 +116,34 @@ describe("linksOutside on install links", () => {
       `node_modules/pkg -> ${join(dir, "pkg")}`,
     ]);
   });
+
+  it("reports an install whose directory is a link in the copy, where its links would sit deeper", () => {
+    const { dir } = repo({
+      "real/index.js": "r\n",
+      "packages/pkg/package.json": "{}\n",
+    });
+    write(dir, "packages/pkg/node_modules/dep/index.js", "d\n");
+    const patch = [
+      "diff --git a/packages/pkg/package.json b/packages/pkg/package.json",
+      "deleted file mode 100644",
+      "--- a/packages/pkg/package.json",
+      "+++ /dev/null",
+      "@@ -1 +0,0 @@",
+      "-{}",
+      "diff --git a/packages/pkg b/packages/pkg",
+      "new file mode 120000",
+      "--- /dev/null",
+      "+++ b/packages/pkg",
+      "@@ -0,0 +1 @@",
+      "+../real",
+      "\\ No newline at end of file",
+      "",
+    ].join("\n");
+    // Guards: the depth rule assumes a link's path is real; in the copy this one is not (Codex, #585).
+    expect(outside(dir, ["packages/pkg/node_modules"], patch)).toEqual([
+      "packages/pkg/node_modules -> (its directory is a link in the copy)",
+    ]);
+  });
 });
 
 describe("linksOutside on links the world tracks", () => {
