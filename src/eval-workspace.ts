@@ -67,8 +67,8 @@ export function prepareWorkspace(
     ...(ws.patch === undefined ? {} : { patch: ws.patch }),
   });
   try {
-    refuseOutsideLinks(ctx.host, template, { top, installs });
     refuseLowDisk(ctx, template, { top, installs });
+    refuseOutsideLinks(ctx.host, template, { top, installs });
     const world = ctx.host.readWorld(template);
     const lockView = { tree: template.tree, deps: ws.deps.kind };
     return { host: ctx.host, template, top, installs, world, lockView };

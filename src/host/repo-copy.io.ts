@@ -1,8 +1,9 @@
 /**
  * The machine side of a repo workspace (vigiles#416): the sealed template a
  * workspace eval clones per trial, and the per-trial base record its scoring
- * diffs against. Implements core's `WorkspaceHost` port; the install half is
- * `./installs.io.ts`. The pure half is `src/core/workspace.ts`.
+ * diffs against. Part of the host adapter of core's `WorkspaceHost` port,
+ * which `./workspace-host.io.ts` assembles. The pure half is
+ * `src/core/workspace.ts`.
  *
  * Facts this file is built on, each measured (design v7.1 and its reviews):
  *
@@ -28,7 +29,6 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeTmpDir } from "../core/tmp-root.js";
 import {
@@ -36,18 +36,9 @@ import {
   type RepoTemplate,
   type TouchedSet,
   type TrialBase,
-  type WorkspaceHost,
 } from "../core/workspace.js";
 import { exportTree } from "./base-tree.io.js";
 import { gitEnv, IDENTITY } from "./git-env.io.js";
-import {
-  copyInstalls,
-  findInstalls,
-  freeBytes,
-  linksOutside,
-  readWorld,
-  treeBytes,
-} from "./installs.io.js";
 
 function git(cwd: string, args: readonly string[], input?: string): string {
   return execFileSync("git", args, {
@@ -214,25 +205,3 @@ function assertShadowHealthy(
     );
   }
 }
-
-/** The host adapter of core's `WorkspaceHost` port. */
-export const repoCopyHost: WorkspaceHost = {
-  workTreeTop,
-  resolveCommit,
-  showFile,
-  // Where `makeTmpDir` puts its dirs, by real path (it resolves its own).
-  tmpRoot: () => realpathSync(tmpdir()),
-  buildTemplate,
-  cloneTemplate,
-  recordTrialBase,
-  touchedPaths,
-  findInstalls,
-  linksOutside,
-  copyInstalls,
-  treeBytes,
-  freeBytes,
-  readWorld,
-  removeDir: (dir) => {
-    rmSync(dir, { recursive: true, force: true });
-  },
-};

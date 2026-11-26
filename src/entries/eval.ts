@@ -74,7 +74,7 @@
 import type { Metrics } from "../core/eval-aggregate.js";
 import type { EvalReport } from "../core/eval-report.js";
 import { runEvalOnHost, type EvalSpec } from "../eval.js";
-import { repoCopyHost } from "../host/repo-copy.io.js";
+import { repoCopyHost } from "../host/workspace-host.io.js";
 
 // --- the runners: each one drives a real model ---
 

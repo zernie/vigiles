@@ -29,7 +29,7 @@ import {
   type EvalSpec,
   type RunContext,
 } from "./eval.js";
-import { repoCopyHost } from "./host/repo-copy.io.js";
+import { repoCopyHost } from "./host/workspace-host.io.js";
 
 /** The harness paid_runEval drives, and one it does not. */
 const DRIVEN = defaultAdapter.name;

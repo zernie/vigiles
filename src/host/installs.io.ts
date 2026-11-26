@@ -1,7 +1,7 @@
 /**
  * The install half of a repo workspace (vigiles#416): which `node_modules`
- * belong to the world, whether a link in one leaves the world, the byte copy
- * into each trial, and the sizes the disk check needs. Part of the host
+ * belong to the world, the byte copy into each trial, and the sizes the disk
+ * check needs. Part of the host
  * adapter of core's `WorkspaceHost` port (`./repo-copy.io.ts` assembles it).
  *
  * Never a hardlink copy: measured, the scoring command itself (`vitest run`)
@@ -15,11 +15,10 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
-  readlinkSync,
   statfsSync,
   type Dirent,
 } from "node:fs";
-import { isAbsolute, join } from "node:path";
+import { join } from "node:path";
 import type { RepoTemplate } from "../core/workspace.js";
 import { gitEnv } from "./git-env.io.js";
 
@@ -68,107 +67,6 @@ function inTree(top: string, sha: string, rel: string): boolean {
       env: gitEnv(),
     }).status === 0
   );
-}
-
-/**
- * The links that would reach out of a trial, as `path -> target`, sorted: of
- * every link the patched template tracks and every link under the installs
- * (both copied as they are), each one that is absolute or whose text, read
- * from its own directory, climbs past the root.
- *
- * Judged on the link's text and never on where it lands in the checkout: an
- * absolute target inside the checkout is still the user's checkout from a
- * trial. The rule needs each link's path to be real in the copy: `git` tracks
- * no path through a link, and an install under a directory that is a link in
- * the copy is reported itself. Then when every link passes, no chain of them
- * can leave the root either.
- */
-export function linksOutside(
-  template: RepoTemplate,
-  top: string,
-  installs: readonly string[],
-): readonly string[] {
-  const moved = installs.filter((i) => throughLink(template.root, i));
-  return [
-    ...[
-      ...trackedLinks(template),
-      ...installs.flatMap((i) => installLinks(top, i)),
-    ]
-      .filter(escapes)
-      .map((l) => `${l.path} -> ${l.target}`),
-    ...moved.map((i) => `${i} -> (its directory is a link in the copy)`),
-  ].sort((a, b) => a.localeCompare(b));
-}
-
-/**
- * Whether `rel` or a directory above it is a link in the template. The copy
- * would follow it, so the install's links would not sit at the paths the
- * depth rule reads them at.
- */
-function throughLink(root: string, rel: string): boolean {
-  const parts = rel.split("/");
-  return parts.some(
-    (_, i) =>
-      lstatSync(join(root, ...parts.slice(0, i + 1)), {
-        throwIfNoEntry: false,
-      })?.isSymbolicLink() === true,
-  );
-}
-
-interface Link {
-  readonly path: string;
-  readonly target: string;
-}
-
-/** Links in the template's tree (mode 120000), with their stored targets. */
-function trackedLinks(template: RepoTemplate): readonly Link[] {
-  const listed = execFileSync("git", ["ls-tree", "-r", "-z", template.tree], {
-    cwd: template.root,
-    encoding: "utf-8",
-    env: gitEnv(),
-    maxBuffer: 256 * 1024 * 1024,
-  });
-  return listed
-    .split("\0")
-    .filter((row) => row.startsWith("120000 "))
-    .map((row) => trackedLink(template.root, row));
-}
-
-function trackedLink(root: string, row: string): Link {
-  const [meta = "", path = ""] = row.split("\t");
-  const object = meta.split(" ")[2] ?? "";
-  const target = execFileSync("git", ["cat-file", "blob", object], {
-    cwd: root,
-    encoding: "utf-8",
-    env: gitEnv(),
-  });
-  return { path, target };
-}
-
-function installLinks(top: string, rel: string): readonly Link[] {
-  return entries(join(top, rel)).flatMap((e) => {
-    const path = `${rel}/${e.name}`;
-    if (e.isSymbolicLink()) {
-      return [{ path, target: readlinkSync(join(top, path)) }];
-    }
-    return e.isDirectory() ? installLinks(top, path) : [];
-  });
-}
-
-/**
- * Absolute; or a `..` after a name (it would climb from wherever that name
- * leads, which may be a link); or more leading `..` than the link has
- * directories above it. Leading `..` walk up real directories (the link's
- * path is real) and every name after them only descends, so a set of links
- * that all pass cannot reach past the root through any chain of them.
- */
-function escapes(link: Link): boolean {
-  if (isAbsolute(link.target)) return true;
-  const parts = link.target.split("/").filter((p) => p !== "" && p !== ".");
-  const firstName = parts.findIndex((p) => p !== "..");
-  const climbs = firstName === -1 ? parts.length : firstName;
-  if (parts.slice(climbs).includes("..")) return true;
-  return climbs > link.path.split("/").length - 1;
 }
 
 /**

@@ -82,6 +82,8 @@ export default defineConfig({
         "src/core/workspace.ts",
         "src/host/repo-copy.io.ts",
         "src/host/installs.io.ts",
+        "src/host/link-probe.io.ts",
+        "src/host/workspace-host.io.ts",
         "src/host/git-env.io.ts",
         "src/eval-check-report.ts",
         "src/eval-rate-gate.ts",
