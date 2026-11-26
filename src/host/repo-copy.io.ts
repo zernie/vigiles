@@ -18,13 +18,16 @@
  * - Every parent git call runs with the user's global and system config off
  *   (`./git-env.io.ts`), so a `core.excludesFile` cannot hide a new file.
  * - `add -A` exits non-zero on a nested repo the agent left without a commit.
- *   That is the agent's tree, not a fault: what could be staged is scored and
- *   the touched set says `unstaged`.
+ *   That is the agent's tree, not a fault: the touched set says `unstaged`,
+ *   and a scorer must not score it.
+ * - `add -A` skips ignored files, so the base record also keeps the ignored
+ *   entries present before the agent, and the touched set counts the new ones.
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -166,7 +169,54 @@ export function recordTrialBase(
       "--",
       ...at.armPaths.map((p) => physicalPath(at.cwd, p)),
     ]);
-  return git(at.cwd, [...shadow, "write-tree"]).trim();
+  const tree = git(at.cwd, [...shadow, "write-tree"]).trim();
+  recordIgnored(at.gitDir, shadow, at.cwd);
+  return tree;
+}
+
+/** Keep the ignored entries present before the agent, beside the base. */
+function recordIgnored(
+  gitDir: string,
+  shadow: readonly string[],
+  cwd: string,
+): void {
+  writeFileSync(
+    join(gitDir, IGNORED_AT_BASE),
+    ignoredEntries(shadow, cwd).join("\0"),
+  );
+}
+
+/** Where the base record keeps its ignored entries (inside the parent's git dir). */
+const IGNORED_AT_BASE = "vigiles-ignored-at-base";
+
+/** Ignored untracked entries, a wholly ignored directory as one `dir/` entry. */
+function ignoredEntries(
+  shadow: readonly string[],
+  cwd: string,
+): readonly string[] {
+  const listed = git(cwd, [
+    ...shadow,
+    "ls-files",
+    "-z",
+    "--others",
+    "--ignored",
+    "--exclude-standard",
+    "--directory",
+  ]);
+  return listed.split("\0").filter((p) => p !== "");
+}
+
+/** Ignored entries now that were not there at the base (a base without the record counts all). */
+function ignoredNew(
+  base: TrialBase,
+  shadow: readonly string[],
+  cwd: string,
+): number {
+  const file = join(base.gitDir, IGNORED_AT_BASE);
+  const before = new Set(
+    existsSync(file) ? readFileSync(file, "utf-8").split("\0") : [],
+  );
+  return ignoredEntries(shadow, cwd).filter((p) => !before.has(p)).length;
 }
 
 /**
@@ -211,7 +261,11 @@ export function touchedPaths(base: TrialBase, cwd: string): TouchedSet {
     "-z",
     base.baseTree,
   ]);
-  return { rows: parseRawDiff(raw), unstaged };
+  return {
+    rows: parseRawDiff(raw),
+    unstaged,
+    ignoredNewFiles: ignoredNew(base, shadow, cwd),
+  };
 }
 
 /** The shadow can still read its base and write an object; else throw. */

@@ -223,7 +223,48 @@ describe("touchedPaths on trees only the agent made", () => {
       (r) => r.path === "vendor/lib",
     );
     // Guards: a gitlink carries no content, so scoring must see it as one.
-    expect(row?.gitlink).toBe(true);
+    expect(row?.entry).toEqual({ kind: "gitlink" });
+  });
+
+  it("a symlink the agent made is a symlink row, never a file row", () => {
+    const src = sourceRepo({ "src/a.ts": "a\n" });
+    const trial = startTrial(src);
+    rmSync(join(trial.cwd, "src/a.ts"));
+    symlinkSync("/etc/hostname", join(trial.cwd, "src/a.ts"));
+    const row = touchedPaths(trial.view, trial.cwd).rows.find(
+      (r) => r.path === "src/a.ts",
+    );
+    // Guards: a link's target is state outside the tree, so it must not be carried as content.
+    expect(row?.entry).toEqual({ kind: "symlink" });
+  });
+});
+
+describe("ignoredNewFiles", () => {
+  it("counts ignored entries the agent added, not the ones present at the base", () => {
+    const src = sourceRepo({
+      ".gitignore": "out/\n*.log\n",
+      "src/a.ts": "a\n",
+    });
+    const trial = startTrial(src, (cwd) => {
+      write(cwd, "out/old.js", "old\n");
+    });
+    // Guards: silent on correct — an ignored dir already there before the agent is not a new file.
+    expect(touchedPaths(trial.view, trial.cwd).ignoredNewFiles).toBe(0);
+    write(trial.cwd, "src/debug.log", "x\n");
+    write(trial.cwd, "src/b.ts", "b\n");
+    const set = touchedPaths(trial.view, trial.cwd);
+    // Guards: a new ignored file is never scored, so it must be counted, and a new tracked file must not be.
+    expect(set.ignoredNewFiles).toBe(1);
+    expect(set.rows.map((r) => r.path)).toEqual(["src/b.ts"]);
+  });
+
+  it("counts every ignored entry when the base has no ignored record", () => {
+    const src = sourceRepo({ ".gitignore": "*.log\n", "src/a.ts": "a\n" });
+    const trial = startTrial(src);
+    write(trial.cwd, "a.log", "x\n");
+    rmSync(join(trial.view.gitDir, "vigiles-ignored-at-base"));
+    // Guards: a missing record fails toward a larger count, never a silent zero.
+    expect(touchedPaths(trial.view, trial.cwd).ignoredNewFiles).toBe(1);
   });
 
   it("a rename out of a directory shows the deleted path as its own row", () => {

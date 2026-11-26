@@ -46,12 +46,13 @@ export function linksOutside(
 }
 
 /**
- * Run once before the installs are copied and once after: the copy writes
+ * The links under `probe` (not followed) that would reach out of it, as
+ * `path -> target`, sorted. Run once before the installs are copied and once after: the copy writes
  * through any link above an install, so a tracked link that escapes would
  * let the probe itself write outside. With none escaping, every link the
  * copy passes resolves inside the probe (the argument at `escapes`).
  */
-function escapingLinks(probe: string): readonly string[] {
+export function escapingLinks(probe: string): readonly string[] {
   return linksUnder(probe, "")
     .filter(escapes)
     .map((l) => `${l.path} -> ${l.target}`)
