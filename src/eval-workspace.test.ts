@@ -216,6 +216,72 @@ describe("runEvalWith on a repo workspace: the trial's world", () => {
   });
 });
 
+/**
+ * A runner whose first attempt is rate-limited AFTER it edited the tree (an
+ * agent that worked, then hit the limit), and whose later attempts record what
+ * they found before editing.
+ */
+function rateLimitedOnceRunner(found: string[]) {
+  let attempt = 0;
+  return (a: AgentRunArgs) => {
+    attempt += 1;
+    found.push(readFileSync(join(a.cwd, "src/a.ts"), "utf-8"));
+    writeFileSync(join(a.cwd, "src/a.ts"), `edit ${attempt}\n`);
+    writeFileSync(join(a.cwd, `scratch-${attempt}.txt`), "left behind\n");
+    return Promise.resolve(
+      attempt === 1
+        ? { code: 1, stdout: "", stderr: "API Error: 429 rate_limit_error" }
+        : { code: 0, stdout: RESULT },
+    );
+  };
+}
+
+describe("runEvalWith on a repo workspace: a rate-limited retry", () => {
+  it("reseeds the trial and records a fresh base, so the scored tree is one attempt's work", async () => {
+    const src = repo({ "src/a.ts": "broken\n" });
+    const found: string[] = [];
+    const rows: string[][] = [];
+    const arms = { retried: { files: { "notes/arm.md": "arm\n" } } };
+    const run = () =>
+      runEvalWith(
+        spec(ws(src), touchedRecorder(rows), {
+          arms,
+          rateLimitRetries: 1,
+          retryBackoffMs: 0,
+        }),
+        rateLimitedOnceRunner(found),
+        repoCopyHost,
+      );
+    const left = await leftIn(run);
+    // Guards: the retry starts from the seed, never from the discarded attempt's edit.
+    expect(found).toEqual(["broken\n", "broken\n"]);
+    // Guards: the base is re-recorded after the reseed, so only the scored attempt's edits are touched (the first attempt's scratch file is gone).
+    expect(rows).toEqual([
+      ["retried", "notes/arm.md", "A scratch-2.txt", "M src/a.ts"],
+    ]);
+    // Guards: the reseed leaves no temp dir behind.
+    expect(left).toEqual([]);
+  });
+
+  it("seeds a first attempt that is not retried exactly once", async () => {
+    const src = repo({ "src/a.ts": "broken\n" });
+    const seen: AgentRunArgs[] = [];
+    let clones = 0;
+    const host = {
+      ...repoCopyHost,
+      cloneTemplate: (
+        ...args: Parameters<typeof repoCopyHost.cloneTemplate>
+      ) => {
+        clones += 1;
+        repoCopyHost.cloneTemplate(...args);
+      },
+    };
+    await runEvalWith(spec(ws(src), noMetrics), editingRunner(seen), host);
+    // Guards: the first attempt is not double-seeded.
+    expect([seen.length, clones]).toEqual([1, 1]);
+  });
+});
+
 /** A checkout with a root install, a nested one, and one outside the tree. */
 function repoWithInstalls(): string {
   const src = repo({ "src/a.ts": "broken\n", "pkg/package.json": "{}\n" });
