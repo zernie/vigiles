@@ -137,8 +137,7 @@ function touchedOrBroken(
   }
 }
 
-/** The host and the world a scoring call reads. */
-export /** A fresh clone of the case's template, removed after `fn`. */
+/** A fresh clone of the case's template, removed after `fn`. */
 async function inScoringClone(
   s: Scoring,
   fn: (dir: string) => Promise<TreeOutcome>,

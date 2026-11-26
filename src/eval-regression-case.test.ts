@@ -151,6 +151,20 @@ describe("scoreTree on a fixture repository", () => {
     });
   });
 
+  it("a case with no build runs only its oracle", async () => {
+    const world: ScoringWorld = {
+      ...caseWorld(),
+      build: { kind: "none", reason: "plain node, nothing to compile" },
+    };
+    // Guards: `build: none` skips straight to the oracle, and the fix still scores solved.
+    expect(await score(world, fix)).toMatchObject({
+      metrics: { solved: true },
+    });
+    expect(await score(world, () => undefined)).toMatchObject({
+      metrics: { solved: false },
+    });
+  });
+
   it("an edit to the oracle is editedTests, never solved", async () => {
     const world = caseWorld();
     const cheat = (cwd: string): void => {
@@ -159,6 +173,22 @@ describe("scoreTree on a fixture repository", () => {
     // Guards: an agent that rewrites the test to pass is caught, not scored.
     expect(await score(world, cheat)).toMatchObject({
       metrics: { solved: false, editedTests: true },
+    });
+  });
+});
+
+describe("scoreTree and the build", () => {
+  it("a build that fails scores unsolved and runs no oracle", async () => {
+    const world: ScoringWorld = {
+      ...caseWorld(),
+      build: {
+        kind: "command",
+        argv: [process.execPath, "-e", "process.exit(1)"],
+      },
+    };
+    // Guards: a red build is never solved, even with the gold patch in the tree.
+    expect(await score(world, fix)).toMatchObject({
+      metrics: { solved: false },
     });
   });
 });
