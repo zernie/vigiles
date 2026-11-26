@@ -134,7 +134,7 @@ function running(pid: number): boolean {
 }
 
 describe("runScoring", () => {
-  it("returns the exit code, and 127 for a command that cannot start", async () => {
+  it("returns the exit code, and says when a command could not start or was killed", async () => {
     const cwd = tmp("case-run");
     const at = { cwd, timeoutMs: 20_000 };
     // Guards: a passing and a failing test are told apart by the exit code alone.
@@ -146,11 +146,14 @@ describe("runScoring", () => {
       kind: "exited",
       code: 3,
     });
-    // Guards: a missing binary is a failure, never a pass.
-    expect(await runScoring(["vigiles-no-such-binary-x"], at)).toEqual({
-      kind: "exited",
-      code: 127,
+    // Guards: a missing binary is its own kind, never an exit code a test could also return.
+    expect(await runScoring(["vigiles-no-such-binary-x"], at)).toMatchObject({
+      kind: "not-started",
     });
+    // Guards: a process killed by a signal is not "could not start".
+    expect(
+      await runScoring(node('process.kill(process.pid, "SIGKILL")'), at),
+    ).toEqual({ kind: "signalled", signal: "SIGKILL" });
   });
 
   it("runs with a fresh HOME, CI=1 and without the caller's other variables", async () => {

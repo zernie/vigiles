@@ -26,6 +26,10 @@ function matchesAny(path: string, globs: readonly string[]): boolean {
 /** How one scoring process ended. A command that could not start exits 127. */
 export type ScoringRun =
   | { readonly kind: "exited"; readonly code: number }
+  /** Killed by a signal (a crash, the OOM killer), not by the timeout. */
+  | { readonly kind: "signalled"; readonly signal: string }
+  /** Never started: not found, not executable. Counts as a fail, like any run but `exited 0`. */
+  | { readonly kind: "not-started"; readonly detail: string }
   | { readonly kind: "timed-out"; readonly ms: number };
 
 /** Why a trial is left out of the scores instead of being scored. */

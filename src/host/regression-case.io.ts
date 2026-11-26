@@ -62,9 +62,6 @@ function writeRow(gitDir: string, row: TouchedRow, dest: string): void {
   chmodSync(full, row.entry.mode === "100755" ? 0o755 : 0o644);
 }
 
-/** A command that could not start (not found, not executable) reads as this exit code. */
-const NOT_STARTED = 127;
-
 /**
  * Run `argv` in `cwd` as a scoring process: its own process group, a fresh
  * HOME removed after it, only `PATH`, the locale, `TERM`, `HOME`/`TMPDIR`
@@ -98,7 +95,7 @@ function spawnScoring(
 
 /**
  * Start the process as the leader of its own group. How it ended: its exit
- * code, or {@link NOT_STARTED} when it could not start.
+ * code, the signal that killed it, or that it never started.
  */
 function start(
   argv: readonly string[],
@@ -113,14 +110,21 @@ function start(
     stdio: "ignore",
   });
   const exited = new Promise<ScoringRun>((resolve) => {
-    child.on("error", () => {
-      resolve({ kind: "exited", code: NOT_STARTED });
+    child.on("error", (e) => {
+      resolve({ kind: "not-started", detail: e.message });
     });
-    child.on("exit", (code) => {
-      resolve({ kind: "exited", code: code ?? NOT_STARTED });
+    child.on("exit", (code, signal) => {
+      resolve(endOf(code, signal));
     });
   });
   return { pid: child.pid, exited };
+}
+
+/** How an exited process ended: Node sets exactly one of the two. */
+function endOf(code: number | null, signal: string | null): ScoringRun {
+  if (code !== null) return { kind: "exited", code };
+  // Node sets the signal whenever the code is null.
+  return { kind: "signalled", signal: String(signal) };
 }
 
 /** Resolves at the timeout, after killing the group; never once the process exited first. */

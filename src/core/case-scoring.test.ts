@@ -134,11 +134,21 @@ describe("caseScore", () => {
     ["a failing build", ran(fail, [])],
     ["a failing oracle path", ran(ok, [ok, fail])],
     ["an oracle path that never ran", ran(ok, [ok])],
+    [
+      "a build that could not start",
+      ran({ kind: "not-started", detail: "spawn x ENOENT" }, []),
+    ],
+    [
+      "an oracle path killed by a signal",
+      ran(ok, [ok, { kind: "signalled", signal: "SIGSEGV" }]),
+    ],
   ])("is not solved after %s", (_, outcome) => {
     // Guards: every oracle path must have run and passed; a short list is never a pass.
     expect(metricsOf(outcome)).toMatchObject({ metrics: { solved: false } });
   });
+});
 
+describe("caseScore beyond a plain run", () => {
   it("a timeout anywhere forces solved false and is reported", () => {
     // Guards: a hung suite is not a pass.
     expect(metricsOf(ran(late, []))).toMatchObject({
