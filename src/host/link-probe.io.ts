@@ -25,7 +25,8 @@ interface Link {
 
 /**
  * The links of a built trial that would reach out of it, as
- * `path -> target`, sorted. The probe is removed before this returns.
+ * `path -> target`, sorted. Escaping links in the template are reported
+ * without copying the installs. The probe is removed before this returns.
  */
 export function linksOutside(
   template: RepoTemplate,
@@ -35,14 +36,26 @@ export function linksOutside(
   const probe = makeTmpDir("link-probe");
   try {
     cloneTemplate(template, probe);
+    const tracked = escapingLinks(probe);
+    if (tracked.length > 0) return tracked;
     copyInstalls(top, installs, probe);
-    return linksUnder(probe, "")
-      .filter(escapes)
-      .map((l) => `${l.path} -> ${l.target}`)
-      .sort((a, b) => a.localeCompare(b));
+    return escapingLinks(probe);
   } finally {
     rmSync(probe, { recursive: true, force: true });
   }
+}
+
+/**
+ * Run once before the installs are copied and once after: the copy writes
+ * through any link above an install, so a tracked link that escapes would
+ * let the probe itself write outside. With none escaping, every link the
+ * copy passes resolves inside the probe (the argument at `escapes`).
+ */
+function escapingLinks(probe: string): readonly string[] {
+  return linksUnder(probe, "")
+    .filter(escapes)
+    .map((l) => `${l.path} -> ${l.target}`)
+    .sort((a, b) => a.localeCompare(b));
 }
 
 /** Every link under `rel`, by the path it really has; links are not followed. */

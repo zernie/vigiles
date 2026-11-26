@@ -5,7 +5,13 @@
  * make that must keep passing.
  */
 import { execFileSync } from "node:child_process";
-import { mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { makeTmpDir } from "../core/tmp-root.js";
@@ -119,6 +125,36 @@ describe("linksOutside on install links", () => {
     expect(outside(dir, ["packages/pkg/node_modules"], patch)).toEqual([
       "real/node_modules/escape -> ../../../",
     ]);
+  });
+});
+
+describe("linksOutside never writes outside the probe while building it", () => {
+  it("refuses a tracked link before copying an install through it", () => {
+    const away = makeTmpDir("outside-target");
+    cleanup.push(away);
+    const { dir } = repo({ "pkg/package.json": "{}\n" });
+    write(dir, "pkg/node_modules/marker", "from the checkout\n");
+    const patch = [
+      "diff --git a/pkg/package.json b/pkg/package.json",
+      "deleted file mode 100644",
+      "--- a/pkg/package.json",
+      "+++ /dev/null",
+      "@@ -1 +0,0 @@",
+      "-{}",
+      "diff --git a/pkg b/pkg",
+      "new file mode 120000",
+      "--- /dev/null",
+      "+++ b/pkg",
+      "@@ -0,0 +1 @@",
+      `+${away}`,
+      "\\ No newline at end of file",
+      "",
+    ].join("\n");
+    expect(outside(dir, ["pkg/node_modules"], patch)).toEqual([
+      `pkg -> ${away}`,
+    ]);
+    // Guards: the probe copied nothing through `pkg`, so the directory it leads to is untouched (Codex, #585).
+    expect(existsSync(join(away, "node_modules"))).toBe(false);
   });
 });
 
