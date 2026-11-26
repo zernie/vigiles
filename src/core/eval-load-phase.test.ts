@@ -59,6 +59,23 @@ test("while an eval file loads the spawn refuses, and the message teaches the ne
   });
 });
 
+test("a runner entered DURING a load phase stays in it — a nested door cannot reopen spawning", () => {
+  // Guards: Codex P1 on #587 — an eval file whose module body calls
+  // `paid_runEval(...)` entered a fresh runner with loading:false and billed
+  // during the import the load phase exists to keep free.
+  const refuse = (): void => {
+    refuseOutsideRunner("spawning `claude`");
+  };
+  withVigilesRunner("eval-cli", () => {
+    withEvalLoad(() => {
+      withVigilesRunner("eval-programmatic", () => {
+        assert.equal(inEvalLoad(), true);
+        assert.throws(refuse, /while an eval file was being IMPORTED/);
+      });
+    });
+  });
+});
+
 test("the load phase of an async import ends when its promise does, even when it rejects", async () => {
   // Guards: a throwing import must not leave the run stuck in the load phase.
   await withVigilesRunner("eval-cli", async () => {

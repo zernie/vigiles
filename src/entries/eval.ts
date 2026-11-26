@@ -74,7 +74,11 @@
 import { withVigilesRunner } from "../core/eval-load-phase.js";
 import type { EvalDefinition, EvalKind } from "../eval-define.js";
 import { trialsOverride } from "../eval-entry.js";
-import { exitCodeOf, runDefinition, type EvalOutcome } from "../eval-run.js";
+import {
+  publicExitCodeOf,
+  runDefinition,
+  type EvalOutcome,
+} from "../eval-run.js";
 import { repoCopyHost } from "../host/workspace-host.io.js";
 
 // --- the runner: the programmatic door to what `vigiles eval` runs ---
@@ -113,7 +117,7 @@ export function paid_runEval(
       // The door's contract, at the composition root: the caller's script fails
       // without its process being ended under it, as Vitest's `startVitest` does.
       // eslint-disable-next-line functional/immutable-data
-      process.exitCode = exitCodeOf(outcome);
+      process.exitCode = publicExitCodeOf(outcome);
     return outcome;
   });
 }

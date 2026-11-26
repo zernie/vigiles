@@ -90,6 +90,20 @@ test("a skip returns `skipped`, prints SKIPPED and sets no exit code", () => {
   assert.match(r.stdout, /OUTCOME=skipped/);
 });
 
+test("a throw inside the run is a `failed` outcome with exit 1, not a rejection", () => {
+  // Guards: Codex P1 on #587 — a throwing `skipIf` (or a measurement that
+  // rejects) escaped as a rejection, so a script that caught it exited 0.
+  const r = runScript(
+    IMPORTS +
+      `const outcome = await paid_runEval(defineEval({ runEval: { task: "t", checks: [] },\n` +
+      `  skipIf: () => { throw new Error("planted skipIf throw"); } }));\n` +
+      printOutcome,
+  );
+  assert.equal(r.status, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /OUTCOME=failed/);
+  assert.match(r.stderr, /planted skipIf throw/);
+});
+
 test("a bare spec — the pre-#586 call — is refused with the migration, before any run", () => {
   const r = runScript(
     IMPORTS +

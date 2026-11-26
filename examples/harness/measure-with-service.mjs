@@ -1,7 +1,7 @@
 /**
  * ⚠️ EXPERIMENTAL — A/B a skill against a REAL disposable service (R3), end to end.
  *
- * Wraps a `runEval` A/B (baseline vs the migrator skill) in a throwaway
+ * Wraps a `runEval` A/B (baseline vs the migrator skill, run through `paid_runEval`) in a throwaway
  * Postgres: run the skill for real, then verify the REAL resulting DB state — the
  * question promptfoo can't answer cheaply. See docs/measuring-skills.md § Experimental.
  *
@@ -19,7 +19,10 @@ import {
   experimental_startServices,
   experimental_dockerRuntime,
 } from "../../dist/entries/fixtures.js";
-import { runEval } from "../../dist/eval.js";
+// A real model is spawned only inside a vigiles runner (vigiles#586): the run
+// goes through the programmatic door, which prints the report itself.
+import { defineEval } from "../../dist/entries/index.js";
+import { paid_runEval } from "../../dist/entries/eval.js";
 
 if (!experimental_dockerRuntime.available()) {
   console.log("⊘ SKIPPED — no Docker daemon reachable (this tier needs one)");
@@ -46,38 +49,44 @@ const svc = await experimental_startServices(
 let report;
 try {
   // runEval — takes a measure(ctx) callback and an ephemeral `env`
-  report = await runEval({
-    name: "migrator: applies the migration to a real Postgres",
-    fixture: { "migration.sql": "ALTER TABLE users ADD COLUMN age int;" },
-    // The task carries the FULL connection string incl. the password — with
-    // an ephemeral env there is no ambient PGPASSWORD, so the agent needs it here.
-    task:
-      `Apply migration.sql to the Postgres at ` +
-      `postgresql://postgres:test@${svc.endpoints[0]}/app . Then stop.`,
-    // SINGLE arm (skill only): the container lives for the whole run, so a
-    // baseline arm would share this DB and leave `age` behind, crediting the
-    // skill arm for free. A clean baseline/skill A/B needs per-arm DB reset
-    // (a later increment); until then, measure the skill directly.
-    arms: { skill: { pluginDir: "./skills/migrator" } },
-    env: { kind: "ephemeral" }, // scrub real credentials from the run (recommended)
-    measure: () => {
-      // verify the REAL resulting DB state — the whole point of R3
-      const cols = svc.handles.db
-        .exec(
-          "psql -U postgres -d app -tAc " +
-            "\"select column_name from information_schema.columns where table_name='users'\"",
-        )
-        .stdout.split("\n")
-        .map((s) => s.trim());
-      return { migrated: cols.includes("age") ? 1 : 0 };
-    },
-    // trials: 1 — per-RUN container lifecycle, so a persistent side effect would
-    // make later trials pass for free. See docs § Experimental.
-    trials: 1,
-    model: "sonnet",
-  });
+  const outcome = await paid_runEval(
+    defineEval({
+      runEval: {
+        name: "migrator: applies the migration to a real Postgres",
+        fixture: { "migration.sql": "ALTER TABLE users ADD COLUMN age int;" },
+        // The task carries the FULL connection string incl. the password — with
+        // an ephemeral env there is no ambient PGPASSWORD, so the agent needs it here.
+        task:
+          `Apply migration.sql to the Postgres at ` +
+          `postgresql://postgres:test@${svc.endpoints[0]}/app . Then stop.`,
+        // SINGLE arm (skill only): the container lives for the whole run, so a
+        // baseline arm would share this DB and leave `age` behind, crediting the
+        // skill arm for free. A clean baseline/skill A/B needs per-arm DB reset
+        // (a later increment); until then, measure the skill directly.
+        arms: { skill: { pluginDir: "./skills/migrator" } },
+        env: { kind: "ephemeral" }, // scrub real credentials from the run (recommended)
+        measure: () => {
+          // verify the REAL resulting DB state — the whole point of R3
+          const cols = svc.handles.db
+            .exec(
+              "psql -U postgres -d app -tAc " +
+                "\"select column_name from information_schema.columns where table_name='users'\"",
+            )
+            .stdout.split("\n")
+            .map((s) => s.trim());
+          return { migrated: cols.includes("age") ? 1 : 0 };
+        },
+        // trials: 1 — per-RUN container lifecycle, so a persistent side effect would
+        // make later trials pass for free. See docs § Experimental.
+        trials: 1,
+        model: "sonnet",
+      },
+    }),
+  );
+  report = "report" in outcome ? outcome.report : undefined;
 } finally {
   await svc.teardown();
 }
 
+if (report === undefined) process.exit();
 console.log(JSON.stringify(report.arms, null, 2));

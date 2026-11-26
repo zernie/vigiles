@@ -39,6 +39,8 @@ import {
   driverMisplaced,
   notADescriptionMessage,
   runFailure,
+  UNANSWERED_STUB_EXIT_CODE,
+  UNANSWERED_STUB_VERB_EXIT,
   type AnyReport,
 } from "./eval-entry.js";
 import {
@@ -141,6 +143,22 @@ export function exitCodeOf(outcome: EvalOutcome): number {
   }
 }
 
+/**
+ * The exit code a CALLER of the eval sees. Equal to {@link exitCodeOf} except
+ * for the unanswered-stub sentinel: the eval program exits 78 so `vigiles eval`
+ * can tell that failure apart, and the CLI then exits 2. The programmatic door
+ * is the caller's process, so it gives the 2 directly. Pure.
+ */
+export function publicExitCodeOf(outcome: EvalOutcome): number {
+  const code = exitCodeOf(outcome);
+  return code === UNANSWERED_STUB_EXIT_CODE ? UNANSWERED_STUB_VERB_EXIT : code;
+}
+
+/** An error as the text a person reads: its stack when it has one. */
+function errorText(err: unknown): string {
+  return err instanceof Error ? (err.stack ?? err.message) : String(err);
+}
+
 /** What {@link runDefinition} needs besides the description. */
 export interface RunDefinitionOptions {
   /** Names the run in every line it prints: the file, or the door. */
@@ -162,6 +180,21 @@ export interface RunDefinitionOptions {
  * printed; it never exits the process and never throws on a failed run.
  */
 export async function runDefinition(
+  exported: unknown,
+  o: RunDefinitionOptions,
+): Promise<EvalOutcome> {
+  try {
+    return await runReady(exported, o);
+  } catch (err) {
+    // A throwing `skipIf`, a measurement that rejects (a model below
+    // `minModel`, a failed start guard): a failed run, exit 1, as `vigiles eval`
+    // exits on it — never a rejection a caller could catch and exit 0 on.
+    return failed(1, `✗ ${o.label}: ${errorText(err)}`, undefined);
+  }
+}
+
+/** The run of a description, any throw left to {@link runDefinition}. */
+async function runReady(
   exported: unknown,
   o: RunDefinitionOptions,
 ): Promise<EvalOutcome> {
@@ -255,8 +288,7 @@ async function asserted(
   try {
     await assert?.(report);
   } catch (err) {
-    const why = err instanceof Error ? (err.stack ?? err.message) : String(err);
-    return failed(1, `✗ ${label}: assert failed — ${why}`, report);
+    return failed(1, `✗ ${label}: assert failed — ${errorText(err)}`, report);
   }
   return { kind: "passed", report };
 }

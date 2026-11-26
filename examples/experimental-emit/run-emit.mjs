@@ -40,7 +40,10 @@ import {
   experimental_emitTool,
   experimental_parseEmitted,
 } from "../../dist/experimental-emit.js";
-import { runEval, formatEvalReport } from "../../dist/eval.js";
+// A real model is spawned only inside a vigiles runner (vigiles#586): the run
+// goes through the programmatic door, which prints the report itself.
+import { defineEval } from "../../dist/entries/index.js";
+import { paid_runEval } from "../../dist/entries/eval.js";
 
 const skillDir = resolve(process.argv[2] ?? "");
 const trials = Number(process.argv[3] ?? 3);
@@ -204,79 +207,86 @@ writeFileSync(EMITS, "");
 let seq = 0;
 let emitSeq = 0;
 
-const report = await runEval({
-  name: `emit from an UNFORKED skill (${skillName})`,
-  env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
-  fixture: FIXTURE,
-  arms: { emit: {} },
-  task:
-    `Use the ${skillName} skill on the paper directory \`paper\`. ` +
-    `Follow the skill exactly, including its Output contract section.`,
-  measure: (ctx) => {
-    const parsed = experimental_parseEmitted(ctx.toolCalls, CONTRACT);
-    const emitCalls = ctx.toolCalls.filter((c) => /emit_result$/.test(c.name));
-    const skillCalls = ctx.toolCalls.filter((c) => c.name === "Skill");
-    // The scorer's input: the tool call exactly as the runtime delivered it, so
-    // `score-emits.mjs` re-runs the parse for free after any change to it.
-    for (const c of emitCalls) {
-      appendFileSync(
-        EMITS,
-        JSON.stringify({
-          run: ++emitSeq,
-          cwd: `trial-${String(seq)}`,
-          at: new Date().toISOString(),
-          name: c.name,
-          input: c.input,
-        }) + "\n",
-      );
-    }
-    appendFileSync(
-      RECORDS,
-      JSON.stringify({
-        seq: seq++,
-        skill: skillName,
-        model: MODEL,
-        kind: parsed.kind,
-        reason: parsed.kind === "malformed" ? parsed.reason : undefined,
-        value: parsed.kind === "ok" ? parsed.value : undefined,
-        error: parsed.kind === "err" ? parsed.error : undefined,
-        emitCalls: emitCalls.length,
-        emitArgs: emitCalls.map((c) => c.input),
-        skillActivations: skillCalls.map((c) => c.input),
-        toolNames: ctx.toolCalls.map((c) => c.name),
-        costUsd: ctx.usage.costUsd,
-      }) + "\n",
-    );
-    return {
-      emitted: emitCalls.length > 0,
-      exactly_one: emitCalls.length === 1,
-      parsed_ok: parsed.kind === "ok",
-      skill_activated: skillCalls.length > 0,
-    };
-  },
-  trials,
-  model: MODEL,
-  allowedTools: [
-    "Skill",
-    "Read",
-    "Glob",
-    "Grep",
-    "Bash",
-    "mcp__emit__emit_result",
-  ],
-  maxCostUsd,
-  spacingSec: 3,
-  // 🔴 NOT the default 3. Measured 2026-08-13: the CLI emits an informational
-  // `rate_limit_event` line on every run, `isRateLimited` matched it, and every
-  // trial silently ran `retries + 1` = 4 times — 8 model runs for 2 trials, with
-  // only the LAST attempt's cost reaching `maxCostUsd`, so a $0.60 cap was crossed
-  // at roughly $3. The pattern is fixed in `src/eval.ts`; this stays at 0 anyway,
-  // because on a PAID script a silent re-run is the expensive failure and a real
-  // rate limit is a visible one.
-  rateLimitRetries: 0,
-});
+const outcome = await paid_runEval(
+  defineEval({
+    runEval: {
+      name: `emit from an UNFORKED skill (${skillName})`,
+      env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
+      fixture: FIXTURE,
+      arms: { emit: {} },
+      task:
+        `Use the ${skillName} skill on the paper directory \`paper\`. ` +
+        `Follow the skill exactly, including its Output contract section.`,
+      measure: (ctx) => {
+        const parsed = experimental_parseEmitted(ctx.toolCalls, CONTRACT);
+        const emitCalls = ctx.toolCalls.filter((c) =>
+          /emit_result$/.test(c.name),
+        );
+        const skillCalls = ctx.toolCalls.filter((c) => c.name === "Skill");
+        // The scorer's input: the tool call exactly as the runtime delivered it, so
+        // `score-emits.mjs` re-runs the parse for free after any change to it.
+        for (const c of emitCalls) {
+          appendFileSync(
+            EMITS,
+            JSON.stringify({
+              run: ++emitSeq,
+              cwd: `trial-${String(seq)}`,
+              at: new Date().toISOString(),
+              name: c.name,
+              input: c.input,
+            }) + "\n",
+          );
+        }
+        appendFileSync(
+          RECORDS,
+          JSON.stringify({
+            seq: seq++,
+            skill: skillName,
+            model: MODEL,
+            kind: parsed.kind,
+            reason: parsed.kind === "malformed" ? parsed.reason : undefined,
+            value: parsed.kind === "ok" ? parsed.value : undefined,
+            error: parsed.kind === "err" ? parsed.error : undefined,
+            emitCalls: emitCalls.length,
+            emitArgs: emitCalls.map((c) => c.input),
+            skillActivations: skillCalls.map((c) => c.input),
+            toolNames: ctx.toolCalls.map((c) => c.name),
+            costUsd: ctx.usage.costUsd,
+          }) + "\n",
+        );
+        return {
+          emitted: emitCalls.length > 0,
+          exactly_one: emitCalls.length === 1,
+          parsed_ok: parsed.kind === "ok",
+          skill_activated: skillCalls.length > 0,
+        };
+      },
+      trials,
+      model: MODEL,
+      allowedTools: [
+        "Skill",
+        "Read",
+        "Glob",
+        "Grep",
+        "Bash",
+        "mcp__emit__emit_result",
+      ],
+      maxCostUsd,
+      spacingSec: 3,
+      // 🔴 NOT the default 3. Measured 2026-08-13: the CLI emits an informational
+      // `rate_limit_event` line on every run, `isRateLimited` matched it, and every
+      // trial silently ran `retries + 1` = 4 times — 8 model runs for 2 trials, with
+      // only the LAST attempt's cost reaching `maxCostUsd`, so a $0.60 cap was crossed
+      // at roughly $3. The pattern is fixed in `src/eval.ts`; this stays at 0 anyway,
+      // because on a PAID script a silent re-run is the expensive failure and a real
+      // rate limit is a visible one.
+      rateLimitRetries: 0,
+    },
+  }),
+);
+if (!("report" in outcome) || outcome.report === undefined) process.exit();
+const report = outcome.report;
 
-console.log(formatEvalReport(report));
 console.log(
   `\nmodel=${MODEL} totalCostUsd=${report.totalCostUsd} aborted=${report.aborted}`,
 );

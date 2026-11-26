@@ -95,9 +95,14 @@ function current(): RunnerState | undefined {
   return isRunnerState(s) ? s : undefined;
 }
 
-/** Run `fn` inside a vigiles runner: a model may be spawned within it. */
+/**
+ * Run `fn` inside a vigiles runner: a model may be spawned within it — unless
+ * it was entered DURING a load phase. An eval file whose module body calls the
+ * programmatic door enters a runner inside the CLI's import, and that nested
+ * runner must not reopen spawning there (Codex on #587).
+ */
 export function withVigilesRunner<T>(kind: RunnerKind, fn: () => T): T {
-  const state: RunnerState = { kind, loading: false };
+  const state: RunnerState = { kind, loading: current()?.loading === true };
   return store().run(state, fn);
 }
 
