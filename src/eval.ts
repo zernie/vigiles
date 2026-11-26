@@ -1496,22 +1496,26 @@ async function executeTrial(
         ? { [INTERCEPT_TOOLS_ENV]: serializeIntercepts(intercepts) }
         : undefined;
     const run = trialEnv(spec.env, home, overlay, stubDir?.binDir);
+    if (spec.workspace !== undefined) seedTrial(spec.workspace, cwd);
+    writeFiles(cwd, files);
     const hasSettings = settings !== undefined;
-    // The trial's world and, after every per-arm write and before the spawn,
-    // its own base. A workspace trial is laid again before each retried
-    // attempt, so a scored tree is one attempt's work (#416).
-    const world = layPerAttempt(
-      () =>
-        layTrial(
-          spec.workspace,
-          { cwd, gitDir: baseDir },
-          { name: trial.armName, files, settings },
-        ),
-      baseDir === undefined
-        ? undefined
-        : () => {
-            emptyDirs([cwd, baseDir]);
-          },
+    if (hasSettings) {
+      writeFileSync(
+        join(cwd, "settings.json"),
+        JSON.stringify(settings, null, 2).replaceAll("{cwd}", cwd),
+      );
+    }
+    // After every per-arm write and before the spawn: the trial's own base.
+    const view = viewOf(
+      spec.workspace,
+      { gitDir: baseDir, cwd },
+      {
+        name: trial.armName,
+        paths: [
+          ...Object.keys(files),
+          ...(hasSettings ? ["settings.json"] : []),
+        ],
+      },
     );
     const { out, stubCalls, context } = await runWithCache(
       {
@@ -1548,7 +1552,6 @@ async function executeTrial(
       retrying(() => {
         observed.reset();
         if (stubDir !== undefined) resetStubCalls(stubDir);
-        world.beforeAttempt();
       }),
       cfg,
       () => ({
@@ -1557,7 +1560,6 @@ async function executeTrial(
       }),
     );
     const { ctx: base, costObserved } = makeTrialContext(cwd, out);
-    const view = world.view();
     const ctx: RunContext = {
       ...base,
       ...(stubCalls === undefined ? {} : { stubCalls }),
@@ -1578,79 +1580,6 @@ async function executeTrial(
     if (baseDir !== undefined)
       rmSync(baseDir, { recursive: true, force: true });
   }
-}
-
-/**
- * Lay a trial's world into `cwd`: the workspace seed (if any), the arm's
- * files, `settings.json`; then record the workspace base. Undefined view
- * without a workspace.
- */
-function layTrial(
-  ws: PreparedWorkspace | undefined,
-  at: { readonly cwd: string; readonly gitDir: string | undefined },
-  arm: {
-    readonly name: string;
-    readonly files: Readonly<Record<string, string>>;
-    readonly settings: unknown;
-  },
-): TrialWorkspaceView | undefined {
-  if (ws !== undefined) seedTrial(ws, at.cwd);
-  writeFiles(at.cwd, arm.files);
-  const written = writeSettings(at.cwd, arm.settings);
-  return viewOf(ws, at, {
-    name: arm.name,
-    paths: [...Object.keys(arm.files), ...written],
-  });
-}
-
-/** Write the arm's `settings.json`, if it has settings; returns the paths written. */
-function writeSettings(cwd: string, settings: unknown): readonly string[] {
-  if (settings === undefined) return [];
-  writeFileSync(
-    join(cwd, "settings.json"),
-    JSON.stringify(settings, null, 2).replaceAll("{cwd}", cwd),
-  );
-  return ["settings.json"];
-}
-
-/**
- * A trial's world, laid once now. `beforeAttempt` runs before every attempt;
- * the first one finds the world just laid and does nothing (no double seed).
- * Before a retried attempt, when `clear` is given, the discarded attempt's
- * tree and base are removed and the world is laid again, so the next attempt
- * starts from the seed and its base is fresh. Without `clear` a retry reuses
- * the tree, as a trace-scored trial always has.
- */
-function layPerAttempt<V>(
-  lay: () => V,
-  clear: (() => void) | undefined,
-): { readonly view: () => V; readonly beforeAttempt: () => void } {
-  // eslint-disable-next-line functional/no-let -- the retry's one state cell (the next attempt and the base it is scored against); replaced whole, never edited
-  let laid = { attempt: 0, view: lay() };
-  return {
-    view: () => laid.view,
-    beforeAttempt: () => {
-      const attempt = laid.attempt + 1;
-      laid = {
-        attempt,
-        view:
-          attempt === 1 || clear === undefined ? laid.view : relay(lay, clear),
-      };
-    },
-  };
-}
-
-function relay<V>(lay: () => V, clear: () => void): V {
-  clear();
-  return lay();
-}
-
-/** Empty each dir in place (its path stays: the agent's args and `settings.json` name it). */
-function emptyDirs(dirs: readonly string[]): void {
-  dirs.forEach((dir) => {
-    rmSync(dir, { recursive: true, force: true });
-    mkdirSync(dir, { mode: 0o700 });
-  });
 }
 
 /** The files the instruction check reads: the workspace's world under the arm's own. */
