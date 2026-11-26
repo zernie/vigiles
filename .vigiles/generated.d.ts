@@ -397,7 +397,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 700 project files. */
+  /** 703 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -949,10 +949,13 @@ declare module "vigiles/generated" {
     | "src/host/git-env.io.ts"
     | "src/host/installs.io.test.ts"
     | "src/host/installs.io.ts"
+    | "src/host/link-probe.io.test.ts"
+    | "src/host/link-probe.io.ts"
     | "src/host/repo-copy.io.test.ts"
     | "src/host/repo-copy.io.ts"
     | "src/host/rule-proof.io.test.ts"
     | "src/host/rule-proof.io.ts"
+    | "src/host/workspace-host.io.ts"
     | "src/instruction-sources.test.ts"
     | "src/instruction-sources.ts"
     | "src/jest.ts"
@@ -2017,10 +2020,13 @@ declare module "vigiles/spec" {
       | "src/host/git-env.io.ts"
       | "src/host/installs.io.test.ts"
       | "src/host/installs.io.ts"
+      | "src/host/link-probe.io.test.ts"
+      | "src/host/link-probe.io.ts"
       | "src/host/repo-copy.io.test.ts"
       | "src/host/repo-copy.io.ts"
       | "src/host/rule-proof.io.test.ts"
       | "src/host/rule-proof.io.ts"
+      | "src/host/workspace-host.io.ts"
       | "src/instruction-sources.test.ts"
       | "src/instruction-sources.ts"
       | "src/jest.ts"
