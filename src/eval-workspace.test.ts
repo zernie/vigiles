@@ -122,14 +122,27 @@ const noMetrics = (): Metrics => ({});
 async function leftIn(f: () => Promise<unknown>): Promise<string[]> {
   const own = makeTmpDir("own-tmp");
   cleanup.push(own);
+  await withTmpDir(own, f);
+  return readdirSync(own);
+}
+
+/**
+ * Run `f` with TMPDIR set to `dir`, then put back what was there. An unset
+ * TMPDIR is deleted again: assigning `undefined` to `process.env` stores the
+ * string "undefined", so every later temp dir lands under `undefined/`.
+ */
+async function withTmpDir(
+  dir: string,
+  f: () => Promise<unknown>,
+): Promise<void> {
   const saved = process.env.TMPDIR;
-  process.env.TMPDIR = own;
+  process.env.TMPDIR = dir;
   try {
     await f();
   } finally {
-    process.env.TMPDIR = saved;
+    if (saved === undefined) Reflect.deleteProperty(process.env, "TMPDIR");
+    else process.env.TMPDIR = saved;
   }
-  return readdirSync(own);
 }
 
 /** A measure that records what the trial's base shows as touched. */
@@ -357,14 +370,10 @@ describe("workspace refusals: the machine", () => {
     const src = repo({ "a.txt": "a\n" });
     const inside = join(src, "tmp");
     mkdirSync(inside);
-    const saved = process.env.TMPDIR;
-    process.env.TMPDIR = inside;
-    try {
+    await withTmpDir(inside, async () => {
       expect(await refusal(spec(ws(src), noMetrics))).toBe(
         "trial-dir-inside-repo",
       );
-    } finally {
-      process.env.TMPDIR = saved;
-    }
+    });
   });
 });

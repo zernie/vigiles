@@ -293,7 +293,8 @@ describe("touchedPaths against the user's own git config", () => {
       // Guards: parent git calls run with GIT_CONFIG_GLOBAL=/dev/null.
       expect(paths(trial)).toEqual(["A src/fix.local.ts"]);
     } finally {
-      process.env.HOME = saved;
+      if (saved === undefined) Reflect.deleteProperty(process.env, "HOME");
+      else process.env.HOME = saved;
     }
   });
 });
