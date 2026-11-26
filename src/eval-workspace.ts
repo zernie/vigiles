@@ -97,16 +97,19 @@ function checkedSource(
   return { top, sha, installs: checkedInstalls(ws, ctx.host, { top, sha }) };
 }
 
-/** The installs to copy; refused when a link in one leaves the world. */
+/**
+ * The installs to copy; refused when a link the world tracks, or one in an
+ * install, leaves the world. Tracked links are copied whatever `deps` says.
+ */
 function checkedInstalls(
   ws: RepoWorkspace,
   host: WorkspaceHost,
   at: { readonly top: string; readonly sha: string },
 ): readonly string[] {
-  if (ws.deps.kind === "none") return [];
-  const installs = host.findInstalls(at.top, at.sha);
-  const links = host.linksOutside(at.top, installs);
-  if (links.length > 0) refuse({ kind: "deps-link-outside-world", links });
+  const installs =
+    ws.deps.kind === "none" ? [] : host.findInstalls(at.top, at.sha);
+  const links = host.linksOutside(at.top, at.sha, installs);
+  if (links.length > 0) refuse({ kind: "link-outside-world", links });
   return installs;
 }
 

@@ -5,6 +5,7 @@
  */
 import { execFileSync } from "node:child_process";
 import {
+  existsSync,
   mkdirSync,
   readFileSync,
   rmSync,
@@ -34,7 +35,10 @@ function write(root: string, path: string, text: string): void {
   writeFileSync(join(root, path), text);
 }
 
-function repo(files: Record<string, string>): { dir: string; sha: string } {
+function repo(
+  files: Record<string, string>,
+  links: Record<string, string> = {},
+): { dir: string; sha: string } {
   const dir = makeTmpDir("installs");
   cleanup.push(dir);
   const git = (...args: string[]) =>
@@ -51,6 +55,9 @@ function repo(files: Record<string, string>): { dir: string; sha: string } {
     });
   git("init", "-q");
   for (const [path, text] of Object.entries(files)) write(dir, path, text);
+  for (const [path, target] of Object.entries(links)) {
+    symlinkSync(target, join(dir, path));
+  }
   git("add", "-A");
   git("commit", "-q", "-m", "base");
   return { dir, sha: git("rev-parse", "HEAD").trim() };
@@ -72,14 +79,14 @@ describe("findInstalls", () => {
 
 describe("linksOutside", () => {
   it("reports absolute links and relative links past the root, and keeps links inside", () => {
-    const { dir } = repo({ "packages/x/index.js": "x\n" });
+    const { dir, sha } = repo({ "packages/x/index.js": "x\n" });
     mkdirSync(join(dir, "node_modules/@scope"), { recursive: true });
     symlinkSync("../../packages/x", join(dir, "node_modules/@scope/x"));
     symlinkSync("/etc", join(dir, "node_modules/abs"));
     symlinkSync("../../../outside", join(dir, "node_modules/@scope/escape"));
     // Guards: a workspace link into the world's own packages is fine; both escapes are not.
     expect(
-      [...linksOutside(dir, ["node_modules"])].sort((a, b) =>
+      [...linksOutside(dir, sha, ["node_modules"])].sort((a, b) =>
         a.localeCompare(b),
       ),
     ).toEqual([
@@ -89,7 +96,48 @@ describe("linksOutside", () => {
   });
 });
 
+describe("linksOutside through links the world tracks", () => {
+  it("reports an install link whose target leaves the world through a tracked link, and the tracked link itself", () => {
+    const outside = makeTmpDir("outside-package");
+    cleanup.push(outside);
+    const { dir, sha } = repo(
+      { "a.txt": "a\n" },
+      { "linked-package": outside },
+    );
+    mkdirSync(join(dir, "node_modules"));
+    symlinkSync("../linked-package", join(dir, "node_modules/dep"));
+    // Guards: a lexical check of the install link alone passes this; a write through it lands outside.
+    expect(linksOutside(dir, sha, ["node_modules"])).toEqual([
+      `linked-package -> ${outside}`,
+      "node_modules/dep -> ../linked-package",
+    ]);
+  });
+
+  it("reports a tracked link past the root with no install at all, and keeps one inside", () => {
+    const { dir, sha } = repo(
+      { "docs/a.md": "a\n" },
+      { up: "../../elsewhere", "docs/b.md": "a.md" },
+    );
+    // Guards: `git archive` keeps a tracked link, so it reaches out of every trial.
+    expect(linksOutside(dir, sha, [])).toEqual(["up -> ../../elsewhere"]);
+  });
+});
+
 describe("copyInstalls", () => {
+  it("merges into an install directory the commit already tracks, never nesting it", () => {
+    const { dir } = repo({ "node_modules/.gitkeep": "" });
+    write(dir, "node_modules/dep/index.js", "dep\n");
+    const dest = makeTmpDir("installs-dest");
+    cleanup.push(dest);
+    write(dest, "node_modules/.gitkeep", "");
+    copyInstalls(dir, ["node_modules"], dest);
+    // Guards: `cp -a from to` with an existing `to` puts the copy at `to/node_modules`.
+    expect(readFileSync(join(dest, "node_modules/dep/index.js"), "utf-8")).toBe(
+      "dep\n",
+    );
+    expect(existsSync(join(dest, "node_modules/node_modules"))).toBe(false);
+  });
+
   it("copies bytes and keeps links as links", () => {
     const { dir } = repo({ "a.txt": "a\n" });
     write(dir, "node_modules/dep/index.js", "original\n");

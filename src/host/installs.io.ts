@@ -11,11 +11,13 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   cpSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   readlinkSync,
+  realpathSync,
   statfsSync,
   type Dirent,
 } from "node:fs";
@@ -71,32 +73,79 @@ function inTree(top: string, sha: string, rel: string): boolean {
 }
 
 /**
- * The symlinks under the installs that resolve outside `top` (absolute, or
- * `..` past the root), resolved lexically against the link's directory. A copy
- * keeps a link as it is, so such a link would reach the user's checkout or
- * machine from every trial.
+ * The links that would reach out of a trial: every link the world tracks in
+ * `sha` (a copy keeps it, so one past the root reaches out of every trial) and
+ * every link under the installs whose REAL target, through any chain of
+ * links in the checkout, is outside `top`. Each as `path -> target`, sorted.
  */
 export function linksOutside(
   top: string,
+  sha: string,
   installs: readonly string[],
 ): readonly string[] {
-  return installs.flatMap((install) => escapingLinks(top, install));
+  return [
+    ...trackedLinks(top, sha).filter((l) => !within(top, lexical(top, l))),
+    ...installs.flatMap((install) => installLinks(top, install)),
+  ]
+    .filter((l) => !within(top, landing(top, l)))
+    .map((l) => `${l.path} -> ${l.target}`)
+    .sort((a, b) => a.localeCompare(b));
 }
 
-function escapingLinks(top: string, rel: string): readonly string[] {
+interface Link {
+  readonly path: string;
+  readonly target: string;
+}
+
+/** Links in `sha`'s tree (mode 120000), with their stored targets. */
+function trackedLinks(top: string, sha: string): readonly Link[] {
+  const listed = execFileSync("git", ["ls-tree", "-r", "-z", sha], {
+    cwd: top,
+    encoding: "utf-8",
+    env: gitEnv(),
+    maxBuffer: 256 * 1024 * 1024,
+  });
+  return listed
+    .split("\0")
+    .filter((row) => row.startsWith("120000 "))
+    .map((row) => trackedLink(top, row));
+}
+
+function trackedLink(top: string, row: string): Link {
+  const [meta = "", path = ""] = row.split("\t");
+  const object = meta.split(" ")[2] ?? "";
+  const target = execFileSync("git", ["cat-file", "blob", object], {
+    cwd: top,
+    encoding: "utf-8",
+    env: gitEnv(),
+  });
+  return { path, target };
+}
+
+function installLinks(top: string, rel: string): readonly Link[] {
   return entries(join(top, rel)).flatMap((e) => {
     const path = `${rel}/${e.name}`;
-    if (e.isSymbolicLink()) return escapes(top, rel, path);
-    return e.isDirectory() ? escapingLinks(top, path) : [];
+    if (e.isSymbolicLink()) {
+      return [{ path, target: readlinkSync(join(top, path)) }];
+    }
+    return e.isDirectory() ? installLinks(top, path) : [];
   });
 }
 
-function escapes(top: string, rel: string, path: string): readonly string[] {
-  const target = readlinkSync(join(top, path));
-  const landed = relative(top, resolve(join(top, rel), target));
-  return isAbsolute(target) || landed.startsWith("..")
-    ? [`${path} -> ${target}`]
-    : [];
+/** Where the link's own text points, against its directory, links not followed. */
+function lexical(top: string, link: Link): string {
+  return resolve(join(top, dirname(link.path)), link.target);
+}
+
+/** Where the link really lands in the checkout; its text when it dangles. */
+function landing(top: string, link: Link): string {
+  const full = join(top, link.path);
+  return existsSync(full) ? realpathSync(full) : lexical(top, link);
+}
+
+function within(top: string, path: string): boolean {
+  const rel = relative(top, path);
+  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
 }
 
 /**
@@ -110,8 +159,10 @@ export function copyInstalls(
   dest: string,
 ): void {
   installs.forEach((install) => {
+    // Into the directory, never onto it: the commit may already track one
+    // (a `.gitkeep`), and `cp -a from to` with an existing `to` nests `from`.
     const to = join(dest, install);
-    mkdirSync(dirname(to), { recursive: true });
+    mkdirSync(to, { recursive: true });
     copyTree(join(top, install), to);
   });
 }
@@ -126,7 +177,7 @@ const CP_FLAGS: Readonly<Partial<Record<NodeJS.Platform, readonly string[]>>> =
     darwin: ["-a", "-c"],
   };
 
-/** `cp` with the platform's clone flag; Node's copy where there is none. */
+/** The contents of `from` into the directory `to` (it exists), with the platform's clone flag; Node's copy where there is none. */
 function copyTree(from: string, to: string): void {
   const flags = CP_FLAGS[process.platform];
   /* v8 ignore start -- a platform with neither GNU nor BSD `cp`; CI is Linux */
@@ -135,7 +186,7 @@ function copyTree(from: string, to: string): void {
     return;
   }
   /* v8 ignore stop */
-  execFileSync("cp", [...flags, from, to], { stdio: "ignore" });
+  execFileSync("cp", [...flags, `${from}/.`, to], { stdio: "ignore" });
 }
 
 /** Bytes under `path` (files and links, by `lstat`), without following links. */

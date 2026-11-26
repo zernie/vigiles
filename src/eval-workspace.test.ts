@@ -342,7 +342,7 @@ describe("workspace refusals: the machine", () => {
     symlinkSync("/etc", join(src, "node_modules", "escape"));
     const deps = { kind: "node-modules" } as const;
     expect(await refusal(spec(ws(src, { deps }), noMetrics))).toBe(
-      "deps-link-outside-world",
+      "link-outside-world",
     );
   });
 

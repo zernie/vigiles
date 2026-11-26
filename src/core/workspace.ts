@@ -72,7 +72,7 @@ export type WorkspaceRefusal =
   | { readonly kind: "not-a-git-work-tree"; readonly dir: string }
   | { readonly kind: "trial-dir-inside-repo"; readonly dir: string }
   | {
-      readonly kind: "deps-link-outside-world";
+      readonly kind: "link-outside-world";
       readonly links: readonly string[];
     }
   | {
@@ -96,8 +96,8 @@ export function describeWorkspaceRefusal(r: WorkspaceRefusal): string {
       return `experimental_workspace.dir ${r.dir} is not a git work tree`;
     case "trial-dir-inside-repo":
       return `the temp dir for trials (${r.dir}) is inside the workspace repository; set TMPDIR outside it`;
-    case "deps-link-outside-world":
-      return `node_modules links outside the copy, so a trial would reach your checkout: ${r.links.join(", ")}`;
+    case "link-outside-world":
+      return `links that leave the repository, so a trial would write outside its copy: ${r.links.join(", ")}`;
     case "not-enough-disk":
       return `not enough disk for the trial copies: need ${mb(r.neededBytes)}, ${mb(r.freeBytes)} free`;
   }
@@ -216,7 +216,11 @@ export interface WorkspaceHost {
   ): string;
   touchedPaths(base: TrialBase, cwd: string): TouchedSet;
   findInstalls(top: string, sha: string): readonly string[];
-  linksOutside(top: string, installs: readonly string[]): readonly string[];
+  linksOutside(
+    top: string,
+    sha: string,
+    installs: readonly string[],
+  ): readonly string[];
   copyInstalls(top: string, installs: readonly string[], dest: string): void;
   treeBytes(path: string): number;
   freeBytes(dir: string): number;
