@@ -11,17 +11,15 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   cpSync,
-  existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
   readlinkSync,
-  realpathSync,
   statfsSync,
   type Dirent,
 } from "node:fs";
-import { dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, join, posix } from "node:path";
 import type { RepoTemplate } from "../core/workspace.js";
 import { gitEnv } from "./git-env.io.js";
 
@@ -73,21 +71,27 @@ function inTree(top: string, sha: string, rel: string): boolean {
 }
 
 /**
- * The links that would reach out of a trial: every link the world tracks in
- * `sha` (a copy keeps it, so one past the root reaches out of every trial) and
- * every link under the installs whose REAL target, through any chain of
- * links in the checkout, is outside `top`. Each as `path -> target`, sorted.
+ * The links that would reach out of a trial, as `path -> target`, sorted: of
+ * every link the patched template tracks and every link under the installs
+ * (both copied as they are), each one that is absolute or whose text, read
+ * from its own directory, climbs past the root.
+ *
+ * Judged on the link's text and never on where it lands in the checkout: an
+ * absolute target inside the checkout is still the user's checkout from a
+ * trial. Both lists hold real paths (`git` tracks no path through a link, the
+ * install walk does not follow one), so when every link passes, no chain of
+ * them can leave the root either.
  */
 export function linksOutside(
+  template: RepoTemplate,
   top: string,
-  sha: string,
   installs: readonly string[],
 ): readonly string[] {
   return [
-    ...trackedLinks(top, sha).filter((l) => !within(top, lexical(top, l))),
+    ...trackedLinks(template),
     ...installs.flatMap((install) => installLinks(top, install)),
   ]
-    .filter((l) => !within(top, landing(top, l)))
+    .filter(escapes)
     .map((l) => `${l.path} -> ${l.target}`)
     .sort((a, b) => a.localeCompare(b));
 }
@@ -97,10 +101,10 @@ interface Link {
   readonly target: string;
 }
 
-/** Links in `sha`'s tree (mode 120000), with their stored targets. */
-function trackedLinks(top: string, sha: string): readonly Link[] {
-  const listed = execFileSync("git", ["ls-tree", "-r", "-z", sha], {
-    cwd: top,
+/** Links in the template's tree (mode 120000), with their stored targets. */
+function trackedLinks(template: RepoTemplate): readonly Link[] {
+  const listed = execFileSync("git", ["ls-tree", "-r", "-z", template.tree], {
+    cwd: template.root,
     encoding: "utf-8",
     env: gitEnv(),
     maxBuffer: 256 * 1024 * 1024,
@@ -108,14 +112,14 @@ function trackedLinks(top: string, sha: string): readonly Link[] {
   return listed
     .split("\0")
     .filter((row) => row.startsWith("120000 "))
-    .map((row) => trackedLink(top, row));
+    .map((row) => trackedLink(template.root, row));
 }
 
-function trackedLink(top: string, row: string): Link {
+function trackedLink(root: string, row: string): Link {
   const [meta = "", path = ""] = row.split("\t");
   const object = meta.split(" ")[2] ?? "";
   const target = execFileSync("git", ["cat-file", "blob", object], {
-    cwd: top,
+    cwd: root,
     encoding: "utf-8",
     env: gitEnv(),
   });
@@ -132,20 +136,13 @@ function installLinks(top: string, rel: string): readonly Link[] {
   });
 }
 
-/** Where the link's own text points, against its directory, links not followed. */
-function lexical(top: string, link: Link): string {
-  return resolve(join(top, dirname(link.path)), link.target);
-}
-
-/** Where the link really lands in the checkout; its text when it dangles. */
-function landing(top: string, link: Link): string {
-  const full = join(top, link.path);
-  return existsSync(full) ? realpathSync(full) : lexical(top, link);
-}
-
-function within(top: string, path: string): boolean {
-  const rel = relative(top, path);
-  return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
+/** Absolute, or climbs past the root from the link's own directory. */
+function escapes(link: Link): boolean {
+  if (isAbsolute(link.target)) return true;
+  const landed = posix.normalize(
+    posix.join(posix.dirname(link.path), link.target),
+  );
+  return landed === ".." || landed.startsWith("../");
 }
 
 /**

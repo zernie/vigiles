@@ -77,49 +77,82 @@ describe("findInstalls", () => {
   });
 });
 
-describe("linksOutside", () => {
+/** `linksOutside` on the template of `dir` at HEAD, with `patch` applied. */
+function outside(
+  dir: string,
+  installs: readonly string[],
+  patch?: string,
+): readonly string[] {
+  const template = buildTemplate({
+    dir,
+    ref: "HEAD",
+    ...(patch === undefined ? {} : { patch }),
+  });
+  cleanup.push(template.root);
+  return linksOutside(template, dir, installs);
+}
+
+describe("linksOutside on install links", () => {
   it("reports absolute links and relative links past the root, and keeps links inside", () => {
-    const { dir, sha } = repo({ "packages/x/index.js": "x\n" });
+    const { dir } = repo({ "packages/x/index.js": "x\n" });
     mkdirSync(join(dir, "node_modules/@scope"), { recursive: true });
     symlinkSync("../../packages/x", join(dir, "node_modules/@scope/x"));
     symlinkSync("/etc", join(dir, "node_modules/abs"));
     symlinkSync("../../../outside", join(dir, "node_modules/@scope/escape"));
     // Guards: a workspace link into the world's own packages is fine; both escapes are not.
-    expect(
-      [...linksOutside(dir, sha, ["node_modules"])].sort((a, b) =>
-        a.localeCompare(b),
-      ),
-    ).toEqual([
+    expect(outside(dir, ["node_modules"])).toEqual([
       "node_modules/@scope/escape -> ../../../outside",
       "node_modules/abs -> /etc",
     ]);
   });
+
+  it("reports an absolute link into the checkout itself", () => {
+    const { dir } = repo({ "pkg/index.js": "p\n" });
+    mkdirSync(join(dir, "node_modules"));
+    symlinkSync(join(dir, "pkg"), join(dir, "node_modules/pkg"));
+    // Guards: copied as it is, an absolute target is the user's checkout from every trial.
+    expect(outside(dir, ["node_modules"])).toEqual([
+      `node_modules/pkg -> ${join(dir, "pkg")}`,
+    ]);
+  });
 });
 
-describe("linksOutside through links the world tracks", () => {
-  it("reports an install link whose target leaves the world through a tracked link, and the tracked link itself", () => {
-    const outside = makeTmpDir("outside-package");
-    cleanup.push(outside);
-    const { dir, sha } = repo(
-      { "a.txt": "a\n" },
-      { "linked-package": outside },
-    );
+describe("linksOutside on links the world tracks", () => {
+  it("reports the tracked link an install link leads through", () => {
+    const away = makeTmpDir("outside-package");
+    cleanup.push(away);
+    const { dir } = repo({ "pkg/index.js": "p\n" }, { "linked-package": away });
     mkdirSync(join(dir, "node_modules"));
     symlinkSync("../linked-package", join(dir, "node_modules/dep"));
-    // Guards: a lexical check of the install link alone passes this; a write through it lands outside.
-    expect(linksOutside(dir, sha, ["node_modules"])).toEqual([
-      `linked-package -> ${outside}`,
-      "node_modules/dep -> ../linked-package",
+    // Guards: the chain is closed by its one escaping link; the inside link alone is fine.
+    expect(outside(dir, ["node_modules"])).toEqual([
+      `linked-package -> ${away}`,
     ]);
   });
 
   it("reports a tracked link past the root with no install at all, and keeps one inside", () => {
-    const { dir, sha } = repo(
+    const { dir } = repo(
       { "docs/a.md": "a\n" },
       { up: "../../elsewhere", "docs/b.md": "a.md" },
     );
     // Guards: `git archive` keeps a tracked link, so it reaches out of every trial.
-    expect(linksOutside(dir, sha, [])).toEqual(["up -> ../../elsewhere"]);
+    expect(outside(dir, [])).toEqual(["up -> ../../elsewhere"]);
+  });
+
+  it("reports a link the patch adds, which the commit does not have", () => {
+    const { dir } = repo({ "a.txt": "a\n" });
+    const patch = [
+      "diff --git a/newlink b/newlink",
+      "new file mode 120000",
+      "--- /dev/null",
+      "+++ b/newlink",
+      "@@ -0,0 +1 @@",
+      "+/etc",
+      "\\ No newline at end of file",
+      "",
+    ].join("\n");
+    // Guards: the check reads the patched template, not the commit.
+    expect(outside(dir, [], patch)).toEqual(["newlink -> /etc"]);
   });
 });
 

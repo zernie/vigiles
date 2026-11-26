@@ -293,8 +293,8 @@ What each trial gets, and why:
 It is refused before the first trial, with a line saying what to change, when
 `fixture` is set beside it, when `cache` is not `"off"`, when the repo's
 `.vigilesrc.json` declares harnesses and none of them is the one `paid_runEval`
-drives, when a link the repo tracks, or one inside `node_modules`, leads outside the repo
-(followed through every link on the way), when the temp
+drives, when a link in the copy (one the repo tracks, one the patch adds, or one
+inside `node_modules`) is absolute or climbs out of the repo, when the temp
 directory is inside the repo, and when the temp disk cannot hold two copies per
 trial in flight.
 

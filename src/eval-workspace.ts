@@ -67,6 +67,7 @@ export function prepareWorkspace(
     ...(ws.patch === undefined ? {} : { patch: ws.patch }),
   });
   try {
+    refuseOutsideLinks(ctx.host, template, { top, installs });
     refuseLowDisk(ctx, template, { top, installs });
     const world = ctx.host.readWorld(template);
     const lockView = { tree: template.tree, deps: ws.deps.kind };
@@ -94,23 +95,22 @@ function checkedSource(
   const tmp = ctx.host.tmpRoot();
   if (!relative(top, tmp).startsWith(".."))
     refuse({ kind: "trial-dir-inside-repo", dir: tmp });
-  return { top, sha, installs: checkedInstalls(ws, ctx.host, { top, sha }) };
+  const installs =
+    ws.deps.kind === "none" ? [] : ctx.host.findInstalls(top, sha);
+  return { top, sha, installs };
 }
 
 /**
- * The installs to copy; refused when a link the world tracks, or one in an
- * install, leaves the world. Tracked links are copied whatever `deps` says.
+ * Refused when a link the trials would get leaves the world. Read on the
+ * patched template, not the commit: the patch can add a link.
  */
-function checkedInstalls(
-  ws: RepoWorkspace,
+function refuseOutsideLinks(
   host: WorkspaceHost,
-  at: { readonly top: string; readonly sha: string },
-): readonly string[] {
-  const installs =
-    ws.deps.kind === "none" ? [] : host.findInstalls(at.top, at.sha);
-  const links = host.linksOutside(at.top, at.sha, installs);
+  template: RepoTemplate,
+  at: { readonly top: string; readonly installs: readonly string[] },
+): void {
+  const links = host.linksOutside(template, at.top, at.installs);
   if (links.length > 0) refuse({ kind: "link-outside-world", links });
-  return installs;
 }
 
 /** The checks that need no commit: the key's neighbours and the directory. */

@@ -217,8 +217,8 @@ export interface WorkspaceHost {
   touchedPaths(base: TrialBase, cwd: string): TouchedSet;
   findInstalls(top: string, sha: string): readonly string[];
   linksOutside(
+    template: RepoTemplate,
     top: string,
-    sha: string,
     installs: readonly string[],
   ): readonly string[];
   copyInstalls(top: string, installs: readonly string[], dest: string): void;
