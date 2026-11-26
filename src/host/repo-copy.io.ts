@@ -29,7 +29,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
-import { join } from "node:path";
+import { basename, dirname, join, relative } from "node:path";
 import { makeTmpDir } from "../core/tmp-root.js";
 import {
   parseRawDiff,
@@ -159,8 +159,24 @@ export function recordTrialBase(
   git(at.cwd, [...shadow, "read-tree", template.tree]);
   git(at.cwd, [...shadow, "add", "-A"]);
   if (at.armPaths.length > 0)
-    git(at.cwd, [...shadow, "add", "-f", "--", ...at.armPaths]);
+    git(at.cwd, [
+      ...shadow,
+      "add",
+      "-f",
+      "--",
+      ...at.armPaths.map((p) => physicalPath(at.cwd, p)),
+    ]);
   return git(at.cwd, [...shadow, "write-tree"]).trim();
+}
+
+/**
+ * Where `path` really sits under `cwd`: git refuses a pathspec beyond a link,
+ * and an arm may write through a directory link the world tracks (the link
+ * check has already kept every such link inside the trial).
+ */
+function physicalPath(cwd: string, path: string): string {
+  const parent = realpathSync(join(cwd, dirname(path)));
+  return relative(realpathSync(cwd), join(parent, basename(path)));
 }
 
 /** A bare git dir that reads the template's objects through `alternates`. */

@@ -119,4 +119,25 @@ describe("readWorld", () => {
     // Guards: a large file is still listed, so a path check sees it, but not read.
     expect(world["big.bin"]).toBe("");
   });
+
+  it("reads an instruction file that is a link through to its target inside the world", () => {
+    const away = makeTmpDir("outside-file");
+    cleanup.push(away);
+    write(away, "secret.md", "not the world's\n");
+    const { dir } = repo(
+      { "docs/instructions.md": "the real rules\n" },
+      {
+        "CLAUDE.md": "docs/instructions.md",
+        "escape.md": join(away, "secret.md"),
+        "dangling.md": "nowhere.md",
+      },
+    );
+    const template = buildTemplate({ dir, ref: "HEAD" });
+    cleanup.push(template.root);
+    const world = readWorld(template);
+    // Guards: the harness reads the target, so the check must too; empty text would match any request (Codex, #585).
+    expect(world["CLAUDE.md"]).toBe("the real rules\n");
+    expect(world["escape.md"]).toBe("");
+    expect(world["dangling.md"]).toBe("");
+  });
 });

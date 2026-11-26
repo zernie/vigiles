@@ -11,14 +11,17 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   cpSync,
+  existsSync,
   lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   statfsSync,
+  statSync,
   type Dirent,
 } from "node:fs";
-import { join } from "node:path";
+import { isAbsolute, join, relative } from "node:path";
 import type { RepoTemplate } from "../core/workspace.js";
 import { gitEnv } from "./git-env.io.js";
 
@@ -146,13 +149,29 @@ export function readWorld(
     listed
       .split("\0")
       .filter((p) => p !== "")
-      .map((p) => [p, smallText(join(template.root, p))]),
+      .map((p) => [p, smallText(template.root, p)]),
   );
 }
 
-function smallText(full: string): string {
-  const st = lstatSync(full, { throwIfNoEntry: false });
-  return st?.isFile() === true && st.size <= WORLD_FILE_LIMIT
+function smallText(root: string, path: string): string {
+  const full = inWorld(root, path);
+  const st =
+    full === undefined ? undefined : statSync(full, { throwIfNoEntry: false });
+  return full !== undefined &&
+    st?.isFile() === true &&
+    st.size <= WORLD_FILE_LIMIT
     ? readFileSync(full, "utf-8")
     : "";
+}
+
+/**
+ * The real file behind `path`, followed through links the way the harness
+ * reads it, or undefined when it dangles or lands outside the world.
+ */
+function inWorld(root: string, path: string): string | undefined {
+  const full = join(root, path);
+  if (!existsSync(full)) return undefined;
+  const real = realpathSync(full);
+  const rel = relative(realpathSync(root), real);
+  return rel.startsWith("..") || isAbsolute(rel) ? undefined : real;
 }

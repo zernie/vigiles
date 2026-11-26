@@ -13,6 +13,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
   existsSync,
 } from "node:fs";
@@ -147,6 +148,23 @@ describe("recordTrialBase on arm files the world ignores", () => {
     write(trial.cwd, ".agent/notes.md", "edited by the agent\n");
     // Guards: without it the file is outside the base and the edit is silently not seen (Codex, #585).
     expect(paths(trial)).toEqual(["M .agent/notes.md"]);
+  });
+});
+
+describe("recordTrialBase on arm files under a linked directory", () => {
+  it("stages an arm file written through a directory link at its real path", () => {
+    const src = sourceRepo({ "config/keep.md": "k\n" });
+    const trial = startTrial(
+      src,
+      (cwd) => {
+        symlinkSync("config", join(cwd, "agentdir"));
+        write(cwd, "agentdir/notes.md", "arm\n");
+      },
+      ["agentdir/notes.md"],
+    );
+    write(trial.cwd, "config/notes.md", "edited by the agent\n");
+    // Guards: git refuses a pathspec beyond a link, which aborted the trial before the agent ran (Codex, #585).
+    expect(paths(trial)).toEqual(["M config/notes.md"]);
   });
 });
 
