@@ -3,10 +3,9 @@
  * tagged union and a one-line renderer. The workspace's own refusals stay in
  * `./workspace.ts`.
  */
-/** Why one file of the fix did not revert and could not be put back. */
+/** A file of the fix that changed after it, so its hunk does not revert at `head`. */
 export interface RevertConflict {
   readonly path: string;
-  readonly drift: "not-comment-only" | "language-not-supported" | "unparsable";
 }
 
 /** A refusal about the commits: found, single-parent, in line with `head`. */
@@ -223,9 +222,7 @@ function describeOutdated(o: Outdated): string {
   switch (o.why) {
     case "revert-conflict":
       return o.files
-        .map(
-          (f) => `${f.path} does not revert cleanly (${DRIFT_TEXT[f.drift]})`,
-        )
+        .map((f) => `${f.path} changed after the fix and does not revert`)
         .join("; ");
     case "build-fails-after-revert":
       return `the build exits ${String(o.exitCode)} on the reverted world`;
@@ -233,12 +230,6 @@ function describeOutdated(o: Outdated): string {
       return `the oracle passes without the fix: ${o.paths.join(", ")}`;
   }
 }
-
-const DRIFT_TEXT: Readonly<Record<RevertConflict["drift"], string>> = {
-  "not-comment-only": "changed in code, not only in comments",
-  "language-not-supported": "not a language whose comments vigiles reads",
-  unparsable: "does not parse",
-};
 
 /** `[true, false]` → `1/2`: how many runs passed. */
 const runs = (results: readonly boolean[]): string =>

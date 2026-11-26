@@ -6,7 +6,6 @@
  */
 import { escape, minimatch } from "minimatch";
 import { keys, sortBy, unique } from "remeda";
-import { commentOnlyDrift } from "./comment-only-drift.js";
 import type { PathRefusal, RevertConflict } from "./regression-case-refusal.js";
 
 /** A regression case as an eval spec declares it. */
@@ -191,60 +190,26 @@ export function pathRefusal(
   );
 }
 
-/** A reverted file whose own hunk did not reverse-apply at `head`. */
-export interface FailedRevert {
-  readonly path: string;
-  /** The file's text in the fix commit; undefined when it is not a file there. */
-  readonly atFix: string | undefined;
-  /** The file's text at `head`; undefined when it is not a file there. */
-  readonly atHead: string | undefined;
-}
-
 /** What the world does with the files that did not revert. */
 export type DriftVerdict =
   | {
       readonly kind: "kept";
       /** Markdown left as it is at `head`, listed in the report. */
       readonly markdownKeptAtHead: readonly string[];
-      /** Code changed since the fix only in comments: written as before the fix. */
-      readonly commentOnlyPutBack: readonly string[];
     }
   | { readonly kind: "outdated"; readonly files: readonly RevertConflict[] };
 
-type FileDrift =
-  | { readonly kind: "markdown" }
-  | { readonly kind: "put-back" }
-  | { readonly kind: "conflict"; readonly drift: RevertConflict["drift"] };
-
 /**
- * One file: Markdown is kept at `head`; JS/TS changed between the fix and
- * `head` only in comments is put back; anything else conflicts.
+ * The verdict over the reverted files whose own hunk did not reverse-apply at
+ * `head`: Markdown is kept at `head`; any other file changed after the fix, so
+ * the case is outdated. No file is read for whether it changed only in
+ * comments: a comment can be any tool's directive, and no list names them all.
  */
-export function fileDrift(f: FailedRevert): FileDrift {
-  if (isMarkdown(f.path)) return { kind: "markdown" };
-  if (f.atFix === undefined || f.atHead === undefined)
-    return { kind: "conflict", drift: "not-comment-only" };
-  const d = commentOnlyDrift(f.path, f.atFix, f.atHead);
-  return d.kind === "comment-only"
-    ? { kind: "put-back" }
-    : { kind: "conflict", drift: d.kind };
-}
-
-/** The verdict over every failed revert: outdated when any file conflicts. */
-export function driftVerdict(failed: readonly FailedRevert[]): DriftVerdict {
-  const read = failed.map((f) => ({ path: f.path, drift: fileDrift(f) }));
-  const files = read.flatMap(({ path, drift }) =>
-    drift.kind === "conflict" ? [{ path, drift: drift.drift }] : [],
-  );
-  const named = (kind: FileDrift["kind"]): readonly string[] =>
-    read.filter((r) => r.drift.kind === kind).map((r) => r.path);
+export function driftVerdict(failed: readonly string[]): DriftVerdict {
+  const files = failed.filter((p) => !isMarkdown(p)).map((path) => ({ path }));
   return files.length > 0
     ? { kind: "outdated", files }
-    : {
-        kind: "kept",
-        markdownKeptAtHead: named("markdown"),
-        commentOnlyPutBack: named("put-back"),
-      };
+    : { kind: "kept", markdownKeptAtHead: failed.filter(isMarkdown) };
 }
 
 /**

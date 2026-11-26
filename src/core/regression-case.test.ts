@@ -6,7 +6,6 @@ import {
   caseKeyView,
   defaultSource,
   driftVerdict,
-  fileDrift,
   matchesAny,
   pathRefusal,
   resolvedSource,
@@ -170,57 +169,23 @@ describe("pathRefusal", () => {
   });
 });
 
-const CODE_AT_FIX = "// old note\nexport const a = 1;\n";
-
-describe("fileDrift and driftVerdict", () => {
-  it("keeps Markdown at head and puts back code changed only in comments", () => {
-    const v = driftVerdict([
-      { path: "docs/x.md", atFix: "a", atHead: "b" },
-      {
-        path: "src/a.ts",
-        atFix: CODE_AT_FIX,
-        atHead: "// new note\nexport const a = 1;\n",
-      },
-    ]);
-    // Guards: neither file makes the case outdated, and each is listed for the report.
-    expect(v).toEqual({
+describe("driftVerdict", () => {
+  it("keeps Markdown at head and lists it for the report", () => {
+    // Guards: a Markdown file that did not revert does not make the case outdated.
+    expect(driftVerdict(["docs/x.md"])).toEqual({
       kind: "kept",
       markdownKeptAtHead: ["docs/x.md"],
-      commentOnlyPutBack: ["src/a.ts"],
     });
     // Guards: an empty failure list is not outdated.
     expect(driftVerdict([]).kind).toBe("kept");
   });
 
-  it("makes the case outdated naming only the files that conflict, each with its reason", () => {
-    const v = driftVerdict([
-      { path: "docs/x.md", atFix: "a", atHead: "b" },
-      { path: "src/a.ts", atFix: CODE_AT_FIX, atHead: "export const a = 2;\n" },
-      { path: "tool.py", atFix: "a", atHead: "b" },
-      { path: "src/b.ts", atFix: "const = ;", atHead: "const b = 1;" },
-    ]);
-    // Guards: a code change, an unread language and a parse error each refuse with their own drift.
-    expect(v).toEqual({
+  it("makes the case outdated naming every non-Markdown file, a comment change included", () => {
+    // Guards: no file is put back as "only comments changed": any drift in code refuses.
+    expect(driftVerdict(["docs/x.md", "src/a.ts", "tool.py"])).toEqual({
       kind: "outdated",
-      files: [
-        { path: "src/a.ts", drift: "not-comment-only" },
-        { path: "tool.py", drift: "language-not-supported" },
-        { path: "src/b.ts", drift: "unparsable" },
-      ],
+      files: [{ path: "src/a.ts" }, { path: "tool.py" }],
     });
-  });
-
-  it("reads a code file absent on either side as changed in code", () => {
-    const sides = [
-      [undefined, "x"],
-      ["x", undefined],
-    ] as const;
-    // Guards: a deleted or new file is never comment-only.
-    expect(
-      sides.map(([atFix, atHead]) =>
-        fileDrift({ path: "a.ts", atFix, atHead }),
-      ),
-    ).toEqual(Array(2).fill({ kind: "conflict", drift: "not-comment-only" }));
   });
 });
 

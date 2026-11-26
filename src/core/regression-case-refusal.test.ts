@@ -49,11 +49,7 @@ const SAMPLES: {
     {
       kind: "outdated",
       why: "revert-conflict",
-      files: [
-        { path: "MARK-f1", drift: "not-comment-only" },
-        { path: "MARK-f2", drift: "language-not-supported" },
-        { path: "MARK-f3", drift: "unparsable" },
-      ],
+      files: [{ path: "MARK-f1" }, { path: "MARK-f2" }],
     },
     { kind: "outdated", why: "build-fails-after-revert", exitCode: 97 },
     { kind: "outdated", why: "oracle-passes-without-fix", paths: ["MARK-o"] },
