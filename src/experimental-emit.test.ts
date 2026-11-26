@@ -2,8 +2,8 @@
  * Tests for the EXPERIMENTAL emit channel (src/experimental-emit.ts): the tool
  * derived from an `OutputContract`, the parse of an observed tool call, and the
  * assertion. Pure — no model, no MCP server; the paid measurement that this
- * surface exists to support lives in `mine`,
- * `vigiles/repro/experimental-emit-2026-08-13/`.
+ * surface exists to support is kept in the author's private measurement notes
+ * (run `experimental-emit-2026-08-13`).
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
