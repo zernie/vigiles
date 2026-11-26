@@ -397,7 +397,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 706 project files. */
+  /** 710 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -760,6 +760,10 @@ declare module "vigiles/generated" {
     | "src/core/railway.test.ts"
     | "src/core/refs.test.ts"
     | "src/core/refs.ts"
+    | "src/core/regression-case-refusal.test.ts"
+    | "src/core/regression-case-refusal.ts"
+    | "src/core/regression-case.test.ts"
+    | "src/core/regression-case.ts"
     | "src/core/repo-path.test.ts"
     | "src/core/repo-path.ts"
     | "src/core/role-event-fit.test.ts"
@@ -1834,6 +1838,10 @@ declare module "vigiles/spec" {
       | "src/core/railway.test.ts"
       | "src/core/refs.test.ts"
       | "src/core/refs.ts"
+      | "src/core/regression-case-refusal.test.ts"
+      | "src/core/regression-case-refusal.ts"
+      | "src/core/regression-case.test.ts"
+      | "src/core/regression-case.ts"
       | "src/core/repo-path.test.ts"
       | "src/core/repo-path.ts"
       | "src/core/role-event-fit.test.ts"
