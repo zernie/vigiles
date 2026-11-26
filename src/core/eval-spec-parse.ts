@@ -25,6 +25,7 @@ import {
   type ToolStub,
 } from "./stub-rules.js";
 import { planHome, type RunEnv } from "./run-env.js";
+import type { RepoWorkspace } from "./workspace.js";
 
 /** `stubs[0].rules[1].argv` from a zod issue path. */
 function pathText(root: string, path: readonly PropertyKey[]): string {
@@ -212,4 +213,34 @@ export function parseRunEnv(
       throw new Error(`${caller}: env.home.files: ${plan.reason}`);
   }
   return env;
+}
+
+// --- workspace -----------------------------------------------------------------
+
+const nonEmpty = z.string().refine((s) => s.trim() !== "", {
+  message: "must not be empty",
+});
+
+// Typed by the public interface, so the schema's output and `RepoWorkspace`
+// cannot drift apart without a tsc error.
+const repoWorkspace: Readonly<z.ZodType<RepoWorkspace>> = z.strictObject({
+  kind: z.literal("repo"),
+  dir: nonEmpty,
+  ref: nonEmpty,
+  patch: z.string().optional(),
+  deps: z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("node-modules") }),
+    z.strictObject({ kind: z.literal("none") }),
+  ]),
+});
+
+/** `experimental_workspace`, refused with a path-named line when malformed. */
+export function parseRepoWorkspace(
+  raw: unknown,
+  caller: string,
+): RepoWorkspace | undefined {
+  if (raw === undefined) return undefined;
+  const parsed = repoWorkspace.safeParse(raw);
+  if (!parsed.success) refuse(caller, "experimental_workspace", parsed.error);
+  return parsed.data;
 }

@@ -271,6 +271,7 @@ export interface EvalReports {
 export type EvalSpec<M extends Metrics = Metrics> = {
     readonly name?: string;
     readonly fixture?: Record<string, string>;
+    readonly experimental_workspace?: RepoWorkspace;
     readonly stubSkillBodies?: boolean;
     readonly task: string;
     readonly trials?: number;
@@ -565,10 +566,24 @@ export function readSkillContract(skillDir: string, options?: SkillContractOptio
 export function recordCheck(n?: number): void;
 
 // @public
+export interface RepoWorkspace {
+    readonly deps: {
+        readonly kind: "node-modules";
+    } | {
+        readonly kind: "none";
+    };
+    readonly dir: string;
+    readonly kind: "repo";
+    readonly patch?: string;
+    readonly ref: string;
+}
+
+// @public
 export interface RunContext extends Trace {
     // (undocumented)
     readonly cwd: string;
     readonly exitCode: number;
+    readonly experimental_workspace?: TrialWorkspaceView;
     sh(command: string): string;
     // (undocumented)
     readonly stdout: string;
@@ -814,6 +829,14 @@ export interface Trace {
     readonly subagents?: readonly SubagentTrace[];
     readonly toolCalls: readonly ToolCall[];
     readonly turns: number;
+}
+
+// @public
+export interface TrialWorkspaceView {
+    readonly arm: string;
+    readonly armPaths: readonly string[];
+    readonly baseTree: string;
+    readonly gitDir: string;
 }
 
 // @public (undocumented)
