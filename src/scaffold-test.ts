@@ -159,31 +159,32 @@ function skillScaffold(input: ScaffoldInput): string {
     `Starter trigger-rate eval for the \`${id}\` skill (recall + precision).`,
     `npx vigiles eval ${suggestedPath(input)}   # real model, on your subscription`,
   )}
-import { paid_measureTriggerRate, assertRates } from "vigiles/eval"; // paid_ = a real model runs
-import { check } from "vigiles";
+import { defineEval, check } from "vigiles";
+import { assertRates } from "vigiles/eval";
 import { fileURLToPath } from "node:url";
 ${note}
 // TODO: point at the plugin root (the dir holding .claude-plugin/ or skills/).
 const pluginDir = fileURLToPath(new URL("../../", import.meta.url));
 const skill = ${JSON.stringify(id)};
 
-const report = await paid_measureTriggerRate({
-  pluginDir,
-  stubSkillBodies: true, // firing is a frontmatter property — stub bodies, pay less
-  prompts: [
-    // TODO: >=5 varied prompts that SHOULD fire ${input.name} (recall).
-    "TODO: a realistic task that should trigger ${input.name}",
-  ],
-  irrelevantPrompts: [
-    // TODO: >=5 unrelated prompts that should NOT fire it (precision).
-    "TODO: an unrelated coding task",
-  ],
-  fired: check.skill(skill),
-  trials: Number(process.env.VIGILES_TRIALS || 1),
+// This file DESCRIBES the eval; \`vigiles eval\` runs it (a real model, so it costs).
+export default defineEval({
+  measureTriggerRate: {
+    pluginDir,
+    stubSkillBodies: true, // firing is a frontmatter property — stub bodies, pay less
+    prompts: [
+      // TODO: >=5 varied prompts that SHOULD fire ${input.name} (recall).
+      "TODO: a realistic task that should trigger ${input.name}",
+    ],
+    irrelevantPrompts: [
+      // TODO: >=5 unrelated prompts that should NOT fire it (precision).
+      "TODO: an unrelated coding task",
+    ],
+    fired: check.skill(skill),
+    trials: 1, // \`vigiles eval --trials=N\` overrides it
+  },
+  assert: (report) => assertRates(report, { min: 0.8, maxFalsePositive: 0.3 }),
 });
-
-console.log(\`fired \${report.rate.toFixed(2)} on relevant prompts, \${(report.falsePositiveRate ?? 0).toFixed(2)} on irrelevant ones\`);
-assertRates(report, { min: 0.8, maxFalsePositive: 0.3 });
 `;
 }
 

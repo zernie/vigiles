@@ -24,9 +24,10 @@ test("recognises jest and its worker", () => {
   assert.equal(foreignRunner("/repo/node_modules/.bin/jest"), "jest");
 });
 
-test("a direct `node <file>` run is NOT a foreign runner — that is how an eval is meant to run", () => {
-  // The quiet half, and the one that matters most: a guard that fires on the
-  // correct invocation is a guard someone deletes within a day.
+test("a direct `node <file>` run is NOT a foreign runner", () => {
+  // The quiet half: `vigiles eval` itself runs `node <program> <file>`, so this
+  // guard must stay silent there. A spawn outside any vigiles runner is refused
+  // by a different guard, `refuseOutsideRunner` (core/eval-load-phase.ts).
   assert.equal(foreignRunner("/repo/.claude/skills/foo/foo.eval.mjs"), null);
   assert.equal(foreignRunner("/repo/dist/cli.js"), null);
   assert.equal(foreignRunner(undefined), null);

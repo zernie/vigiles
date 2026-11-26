@@ -15,19 +15,19 @@ what it is for, typical calls, and every export. Signatures are in the
 - [The `Trace` model](#the-trace-model)
 - [Where the reference lives](#where-the-reference-lives)
 - [Imports &amp; harness selection](#imports--harness-selection)
-- [Migrating to v55](#migrating-to-v55), [v53](#migrating-to-v53), [v52](#migrating-to-v52), [v51](#migrating-to-v51), [the v50 assertion form](#migrating-to-the-v50-assertion-form)
+- [Migrating to v57](#migrating-to-v57), [v55](#migrating-to-v55), [v53](#migrating-to-v53), [v52](#migrating-to-v52), [v51](#migrating-to-v51), [the v50 assertion form](#migrating-to-the-v50-assertion-form)
 
 ## Picking a runner
 
 Four runners, keyed on the question you actually have. The first three are free
 and deterministic; only the last needs a model.
 
-| Your question                                                  | Runner                                     | Result              | Cost                |
-| -------------------------------------------------------------- | ------------------------------------------ | ------------------- | ------------------- |
-| does my **helper script** do what it claims?                   | `runScript`                                | `ScriptRunResult`   | free                |
-| does my **hook** block what it says it blocks?                 | `runHook`                                  | `HookRunResult`     | free                |
-| does the **assembled harness** behave (hooks+settings+skills)? | `runHarnessTest`                           | `HarnessTestResult` | free, needs the CLI |
-| does the **real model** pick my skill / do the job?            | `paid_measureTriggerRate` / `paid_runEval` | reports             | **paid**            |
+| Your question                                                  | Runner                                                  | Result              | Cost                |
+| -------------------------------------------------------------- | ------------------------------------------------------- | ------------------- | ------------------- |
+| does my **helper script** do what it claims?                   | `runScript`                                             | `ScriptRunResult`   | free                |
+| does my **hook** block what it says it blocks?                 | `runHook`                                               | `HookRunResult`     | free                |
+| does the **assembled harness** behave (hooks+settings+skills)? | `runHarnessTest`                                        | `HarnessTestResult` | free, needs the CLI |
+| does the **real model** pick my skill / do the job?            | `measureTriggerRate` / `runEval` evals (`vigiles eval`) | reports             | **paid**            |
 
 `runHarnessTest` is deterministic and **free** despite its `model:` field — those
 are _scripted_ turns (`ModelTurn[]`) served by a mock. Nothing reaches a real
@@ -142,6 +142,40 @@ import, so it **auto-detects** the harness from the repo. For the full
 adapter/import model and the capability matrix, see
 [`docs/harnesses.md`](harnesses.md).
 
+## Migrating to v57
+
+v57 spawns a real model only inside a vigiles runner: `npx vigiles eval <file>`,
+the consented half of `vigiles audit`, or the one programmatic door,
+`paid_runEval(defineEval({ … }))`. Anywhere else the spawn throws "vigiles
+refused to spawn a model … outside a vigiles runner". Before, a direct
+`paid_runEval(spec)` call returned a report and exited 0 on a broken trial while
+`vigiles eval` exited 1 for the same eval (vigiles#416); now both share one code path.
+`paid_runEval` takes an eval description (what `defineEval` returns), never
+throws on a failed run, returns `{ kind: "passed" | "failed" | "skipped" |
+"refused" }` (`passed` and `failed` carry `report`), and sets
+`process.exitCode` as `vigiles eval` would exit. There are no aliases.
+
+| Removed in v57                                                           | Write instead                                                                                                                                                              |
+| ------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `paid_runEval(spec)`                                                     | an eval file: `export default defineEval({ runEval: spec, assert })`, run by `npx vigiles eval <file>`; in a script, `paid_runEval(defineEval({ runEval: spec, assert }))` |
+| `paid_measureTriggerRate(spec, opts)`, incl. its `evalDriver` option     | `defineEval({ measureTriggerRate: spec, evalDriver, assert })` in a `*.eval.mjs` file                                                                                      |
+| `paid_measureSelectionMatrix(dir, opts)`                                 | `defineEval({ measureSelectionMatrix: { pluginDir: dir, ...opts }, assert })`; `assertNoCollision` stays on `vigiles/harness/claude-code`                                  |
+| a standalone `paid_judge(…)`, or `paid_judged(…)` with its default judge | call it inside an eval's `measure` or `checks`; outside a runner it refuses (an injected `judge` spawns nothing and still runs)                                            |
+| a top-level `await` of any runner in an eval file                        | `export default defineEval({ … })` (already refused at load)                                                                                                               |
+| `node <file>.eval.mjs`                                                   | `npx vigiles eval <file>`                                                                                                                                                  |
+
+```ts
+import { defineEval } from "vigiles";
+import { paid_runEval } from "vigiles/eval";
+
+const outcome = await paid_runEval(defineEval({ runEval: spec, assert }), {
+  trials: 3,
+});
+// outcome.kind: "passed" | "failed" | "skipped" | "refused"
+```
+
+A skip prints `SKIPPED: <reason>` and sets no exit code.
+
 ## Migrating to v55
 
 v55 makes `paid_runEval` the one task runner of `vigiles/eval`. `paid_measure`
@@ -155,8 +189,8 @@ takes it. There are no aliases.
 
 | Removed in v55                                                                                    | Write instead                                                                                                                               |
 | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| `paid_measure({ pluginDir, task, checks, … })`                                                    | `paid_runEval({ env, pluginDir, task, checks, … })` — no `arms`; read `report.arms.default`                                                 |
-| `paid_measureArms({ arms, task, checks, … })`                                                     | `paid_runEval({ env, arms, task, checks, … })`                                                                                              |
+| `paid_measure({ pluginDir, task, checks, … })`                                                    | `defineEval({ runEval: { env, pluginDir, task, checks, … } })` — no `arms`; read `report.arms.default` (v57: a bare spec is refused)        |
+| `paid_measureArms({ arms, task, checks, … })`                                                     | `defineEval({ runEval: { env, arms, task, checks, … } })`                                                                                   |
 | `defineEval({ measure: … })` / `defineEval({ measureArms: … })`                                   | `defineEval({ runEval: … })` — the same spec, plus `env`; `vigiles eval` names the rewrite for a file that still has the old key            |
 | the default `model: "sonnet"`                                                                     | `paid_runEval` defaults to `"haiku"`: set `model: "sonnet"` to keep measuring the same thing                                                |
 | no `env` (the run inherited your HOME and environment)                                            | `env` is required: `{ kind: "ephemeral" }`, or `{ kind: "inherit", reason }` for what the old runners did                                   |

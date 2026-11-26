@@ -147,7 +147,7 @@ const HARNESS_LITERALS = {
  * The CLI, and each package entry in `src/entries/` — an entry is where a
  * library user's import is assembled, which is the same job.
  */
-const CLI_ROOT = "src/{cli,cli-main,entries/*,entries/*/*}.ts";
+const CLI_ROOT = "src/{cli,cli-main,eval-program,entries/*,entries/*/*}.ts";
 const HOST_AND_HARNESS_ADAPTERS = "src/{adapters/*,host}";
 const IO_FILES = "src/{adapters/*,host}/*.io.ts";
 
@@ -683,6 +683,9 @@ export default [
       // `createRequire`: how an ES module loads a library lazily. It opens no
       // hole: what the returned `require` loads is still checked by name.
       "node:module",
+      // `AsyncLocalStorage`: the runner phase of the current async call chain
+      // (core/eval-load-phase.ts). It reads no file and starts no process.
+      "node:async_hooks",
     ],
     // Zod in the app layer: a public input that JavaScript callers reach (an
     // eval spec) is checked by ONE schema, the same way the domain checks the

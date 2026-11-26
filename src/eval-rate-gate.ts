@@ -60,7 +60,7 @@ export type ArmRateGate = RateGate &
  * FIRE on every trial"); `passK: 1` demands every check passed on EVERY trial.
  * A run scored with `measure(ctx)` has no checks, so it needs the `metric`.
  *
- * Over a {@link TriggerRateReport} (`paid_measureTriggerRate`): `min` gates
+ * Over a {@link TriggerRateReport} (a `measureTriggerRate` eval): `min` gates
  * recall, `maxFalsePositive` and `minPrecision` the precision side — see
  * {@link TriggerRateGate}. Replaces `assertTriggerRate` (v52).
  */

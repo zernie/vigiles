@@ -23,7 +23,7 @@
  * deterministic checks of hook *logic*, see `harness-test.ts`.
  */
 import { refuseUnderForeignRunner } from "./core/foreign-runner.js";
-import { refuseDuringEvalLoad } from "./core/eval-load-phase.js";
+import { refuseOutsideRunner } from "./core/eval-load-phase.js";
 import { spawn, execSync, type ChildProcess } from "node:child_process";
 import {
   mkdirSync,
@@ -602,7 +602,7 @@ export function effortRejection(out: RunOut): string | null {
 export function withEffortGuard(runner: AgentRunner): AgentRunner {
   // 🔴 DELIBERATELY NOT `async`. An `async` wrapper turns the wrapped runner's
   // SYNCHRONOUS throws into rejected promises, and the real runner refuses
-  // synchronously on purpose — `refuseDuringEvalLoad` / `refuseUnderForeignRunner`
+  // synchronously on purpose — `refuseUnderForeignRunner` / `refuseOutsideRunner`
   // stop a paid eval from billing when a foreign test runner collects it. Making
   // this `async` silently downgraded those refusals from "throws at the call" to
   // "returns a promise that rejects", which `assert.throws` cannot see and an
@@ -728,8 +728,8 @@ export function killOnAbort(
 /* v8 ignore start -- real claude subprocess; exercised by bench/, not the unit gate */
 /** The unguarded spawn itself; wrapped by {@link spawnAgent}, never bound raw. */
 function spawnAgentRaw(a: AgentRunArgs): Promise<RunOut> {
-  refuseDuringEvalLoad("spawning `claude`");
   refuseUnderForeignRunner("spawning `claude`");
+  refuseOutsideRunner("spawning `claude`");
   return new Promise((resolvePromise) => {
     const args = buildAgentArgs(a);
     const child = spawn(EVAL_RUNTIME.agentBinary, args, {
@@ -2227,8 +2227,9 @@ function workspaceOf(
   if (ws === undefined) return undefined;
   if (host === undefined)
     throw new Error(
-      "runEval: experimental_workspace runs through `paid_runEval` from vigiles/eval, " +
-        "not through an eval file's default export (vigiles#416)",
+      "runEval: experimental_workspace needs the host that copies a repository — " +
+        "run the eval with `vigiles eval <file>` or pass its description to `paid_runEval` " +
+        "from vigiles/eval (vigiles#586)",
     );
   return prepareWorkspace(ws, {
     host,

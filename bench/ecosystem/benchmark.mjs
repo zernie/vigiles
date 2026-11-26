@@ -34,7 +34,10 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { runEval } from "../../dist/eval.js";
+// A real model is spawned only inside a vigiles runner (vigiles#586): each run
+// goes through the programmatic door, which prints its report itself.
+import { defineEval } from "../../dist/entries/index.js";
+import { paid_runEval } from "../../dist/entries/eval.js";
 import { CODING_TASKS } from "../corpus/coding-tasks.mjs";
 import { selectSkills } from "./skills.mjs";
 
@@ -132,27 +135,36 @@ for (const skill of SKILLS) {
   for (const t of TASKS) {
     let report;
     try {
-      report = await runEval({
-        name: `ecosystem: ${skill.id}/${t.name}`,
-        env: { kind: "ephemeral" },
-        fixture: { ...t.files }, // both arms get the task seed
-        arms: {
-          baseline: {}, // task only
-          skill: skill.arm, // + SKILL.md (files) OR --plugin-dir (pluginDir)
-        },
-        task: t.task,
-        measure: (ctx) => ({
-          inputTokens: u(ctx, "inputTokens"),
-          outputTokens: u(ctx, "outputTokens"),
-          cacheTokens:
-            u(ctx, "cacheReadTokens") + u(ctx, "cacheCreationTokens"),
-          costUsd: u(ctx, "costUsd"), // the honest bill (cache ~0.1×, output 1×)
-          correct: t.check(ctx),
+      const outcome = await paid_runEval(
+        defineEval({
+          runEval: {
+            name: `ecosystem: ${skill.id}/${t.name}`,
+            env: { kind: "ephemeral" },
+            fixture: { ...t.files }, // both arms get the task seed
+            arms: {
+              baseline: {}, // task only
+              skill: skill.arm, // + SKILL.md (files) OR --plugin-dir (pluginDir)
+            },
+            task: t.task,
+            measure: (ctx) => ({
+              inputTokens: u(ctx, "inputTokens"),
+              outputTokens: u(ctx, "outputTokens"),
+              cacheTokens:
+                u(ctx, "cacheReadTokens") + u(ctx, "cacheCreationTokens"),
+              costUsd: u(ctx, "costUsd"), // the honest bill (cache ~0.1×, output 1×)
+              correct: t.check(ctx),
+            }),
+            trials,
+            model,
+            concurrency,
+          },
         }),
-        trials,
-        model,
-        concurrency,
-      });
+      );
+      if (!("report" in outcome) || outcome.report === undefined)
+        throw new Error(
+          `${outcome.kind}: ${outcome.message ?? outcome.reason}`,
+        );
+      report = outcome.report;
     } catch (e) {
       console.log(`    ${t.name.padEnd(15)} ERROR: ${e.message}`);
       continue;

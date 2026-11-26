@@ -6,6 +6,7 @@ import { execFileSync } from "node:child_process";
 import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import ts from "typescript";
 import {
   scaffoldTest,
   formatScaffolds,
@@ -24,6 +25,31 @@ function assertValidJs(content: string): void {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * The keys of the `defineEval({ … })` a generated file default-exports, or
+ * undefined when it exports no such call or awaits anything at the top level.
+ * Read from the syntax tree, so a comment or a string cannot pass for it.
+ */
+function describedKeys(content: string): (string | undefined)[] | undefined {
+  const sf = ts.createSourceFile(
+    "s.eval.mjs",
+    content,
+    ts.ScriptTarget.ES2022,
+    true,
+  );
+  const awaitsAtTop = sf.statements.some(
+    (st) => !ts.isExportAssignment(st) && st.getText().includes("await "),
+  );
+  const call = sf.statements.filter(ts.isExportAssignment).at(0)?.expression;
+  if (awaitsAtTop || call === undefined || !ts.isCallExpression(call))
+    return undefined;
+  const arg = call.arguments.at(0);
+  if (call.expression.getText() !== "defineEval" || arg === undefined)
+    return undefined;
+  if (!ts.isObjectLiteralExpression(arg)) return undefined;
+  return arg.properties.map((p) => p.name?.getText());
 }
 
 describe("scaffoldTest — hook (unit tier)", () => {
@@ -82,21 +108,22 @@ describe("scaffoldTest — skill (eval tier)", () => {
     expect(s.tier).toBe("eval");
   });
 
-  it("wires measureTriggerRate + the namespaced id + the precision gate", () => {
+  it("is an eval DESCRIPTION: a defineEval default export, nothing awaited at the top level", () => {
+    // Guards: vigiles#586 — the old scaffold ran the eval in its module body,
+    // so the file the user got from `init` was refused by the runner.
+    expect(describedKeys(scaffoldTest(input).content)).toEqual([
+      "measureTriggerRate",
+      "assert",
+    ]);
+  });
+
+  it("carries the namespaced id, the precision prompts and the rate gate", () => {
     const { content } = scaffoldTest(input);
-    expect(content).toContain('from "vigiles/eval"');
-    expect(content).toContain("paid_measureTriggerRate(");
     expect(content).toContain('"vigiles:strengthen"');
     expect(content).toContain("irrelevantPrompts");
     expect(content).toContain("assertRates(report, { min: 0.8");
-    // the report readers are on vigiles/eval; the formatters are not public
-    expect(content).toContain(
-      'import { paid_measureTriggerRate, assertRates } from "vigiles/eval"',
-    );
-    expect(content).not.toContain("formatTriggerRateReport");
-    // fired takes the check itself; the skillResolved predicate is gone
     expect(content).toContain("fired: check.skill(skill)");
-    expect(content).not.toContain("skillResolved");
+    expect(content).not.toContain("paid_");
   });
 
   it("falls back to a <plugin> placeholder when the plugin name is unknown", () => {

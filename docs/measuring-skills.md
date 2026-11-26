@@ -230,7 +230,9 @@ import {
   experimental_startServices,
   experimental_dockerRuntime,
 } from "vigiles/fixtures";
-// The eval driver DOES call a model — hence the other door, and the `paid_`.
+// The eval DOES call a model — hence the other door, and the `paid_`. It takes
+// an eval description (`defineEval`), and runs as `vigiles eval` would run it.
+import { defineEval } from "vigiles";
 import { paid_runEval } from "vigiles/eval";
 
 const svc = await experimental_startServices(
@@ -249,31 +251,36 @@ const svc = await experimental_startServices(
 );
 try {
   // runEval — it takes a measure(ctx) callback and an ephemeral `env`
-  await paid_runEval({
-    // migration.sql must be in the run FIXTURE for the agent to read it —
-    // a bare filename in the task doesn't materialize the file.
-    fixture: { "migration.sql": "ALTER TABLE users ADD COLUMN age int;" },
-    // single arm — a baseline arm would share this DB and leave `age` behind,
-    // crediting the skill for free (per-arm reset is a later increment).
-    arms: { skill: { pluginDir: "./skills/migrator" } },
-    // full connection string incl. password — an ephemeral env leaves no PGPASSWORD
-    task: `Apply migration.sql to postgresql://postgres:test@${svc.endpoints[0]}/app . Stop.`,
-    env: { kind: "ephemeral" }, // ⬅ recommended — scrub real creds from the run
-    measure: () => ({
-      // verify the REAL resulting DB state — R3's whole point
-      migrated: /(^|\n)age(\n|$)/.test(
-        svc.handles.db.exec(
-          "psql -U postgres -d app -tAc \"select column_name from information_schema.columns where table_name='users'\"",
-        ).stdout,
-      )
-        ? 1
-        : 0,
+  const outcome = await paid_runEval(
+    defineEval({
+      runEval: {
+        // migration.sql must be in the run FIXTURE for the agent to read it —
+        // a bare filename in the task doesn't materialize the file.
+        fixture: { "migration.sql": "ALTER TABLE users ADD COLUMN age int;" },
+        // single arm — a baseline arm would share this DB and leave `age` behind,
+        // crediting the skill for free (per-arm reset is a later increment).
+        arms: { skill: { pluginDir: "./skills/migrator" } },
+        // full connection string incl. password — an ephemeral env leaves no PGPASSWORD
+        task: `Apply migration.sql to postgresql://postgres:test@${svc.endpoints[0]}/app . Stop.`,
+        env: { kind: "ephemeral" }, // ⬅ recommended — scrub real creds from the run
+        measure: () => ({
+          // verify the REAL resulting DB state — R3's whole point
+          migrated: /(^|\n)age(\n|$)/.test(
+            svc.handles.db.exec(
+              "psql -U postgres -d app -tAc \"select column_name from information_schema.columns where table_name='users'\"",
+            ).stdout,
+          )
+            ? 1
+            : 0,
+        }),
+        // trials: 1 — per-RUN container lifecycle; a persistent side effect would
+        // make later trials pass for free until per-trial reset exists.
+        trials: 1,
+        model: "sonnet",
+      },
     }),
-    // trials: 1 — per-RUN container lifecycle; a persistent side effect would
-    // make later trials pass for free until per-trial reset exists.
-    trials: 1,
-    model: "sonnet",
-  });
+  );
+  // outcome.kind: "passed" | "failed" | "skipped" | "refused"
 } finally {
   await svc.teardown();
 }

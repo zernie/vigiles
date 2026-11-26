@@ -51,7 +51,7 @@ assertChecks(r, [
 ]);
 ```
 
-**Eval — absolute (`paid_runEval` with `checks` + `paid_judged`)** — testing _one_ skill, the usual case:
+**Eval — absolute (`runEval` with `checks` + `paid_judged`)** — testing _one_ skill, the usual case:
 score its output directly against a rubric. No on/off baseline — this is the
 "is it any good?" oracle (what promptfoo/DeepEval lead with), and the right
 default when there's nothing to compare against:
@@ -82,7 +82,7 @@ export default defineEval({
 
 Run it with `npx vigiles eval <file>` — never `node <file>`, which refuses.
 
-**Eval — relative (`paid_runEval` + `assertImproves({ significant: true })`)** — when the question is
+**Eval — relative (`runEval` + `assertImproves({ significant: true })`)** — when the question is
 _lift over no-skill_ (regression, or proving a change isn't noise): A/B the
 change on vs off and gate on significance, not eyeballing:
 

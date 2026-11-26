@@ -1098,7 +1098,7 @@ export function evalTierQuestion(kind: SurfaceKind): string | null {
       // 🔴 THE REMEDY NAMES THE DRIVER ARGUMENT, because a bare
       // `measureTriggerRate` is not this repo's measurement. The nudge is
       // layout-aware, so it reaches repos targeting a harness other than the
-      // eval tier's default — and `measureTriggerRate(spec)` falls back to that
+      // eval tier's default — and a `measureTriggerRate` eval falls back to that
       // DEFAULT driver. Following the old wording there did not fail: it
       // measured a different harness's trigger rate and reported it as a number.
       return (
@@ -1108,7 +1108,7 @@ export function evalTierQuestion(kind: SurfaceKind): string | null {
         `See the \`test-harness\` skill for which tier answers it ` +
         `(\`measureTriggerRate\`, plus \`irrelevantPrompts\` for the precision ` +
         `side). Pass your harness's driver — ` +
-        `\`measureTriggerRate(spec, { evalDriver })\` — because a bare call runs ` +
+        `\`defineEval({ measureTriggerRate: spec, evalDriver })\` — because a bare one runs ` +
         `the eval tier's DEFAULT harness, which may not be the one this repo ` +
         `targets.`
       );
@@ -1121,7 +1121,7 @@ export function evalTierQuestion(kind: SurfaceKind): string | null {
       // ⚠️ It does NOT offer `{ evalDriver }` here, and that is checked rather
       // than assumed: `runEval` hard-wires
       // `spawnAgent`, and `runEvalWith` is not exported from `vigiles/eval` —
-      // `measureTriggerRate` is the only public call with that seam. Suggesting
+      // a `measureTriggerRate` eval is the only description with that seam. Suggesting
       // an argument the function does not take is this finding's own defect.
       return (
         `A deterministic test covers it, but that test drove a SCRIPTED model. ` +

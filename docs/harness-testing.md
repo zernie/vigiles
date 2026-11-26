@@ -599,7 +599,7 @@ export default defineEval({
 ```
 
 Exactly one measurement — `runEval` · `measureTriggerRate` ·
-`measureSelectionMatrix` (the runner `paid_measureSelectionMatrix`), keyed by the runner's own name —
+`measureSelectionMatrix` (the collision matrix of `vigiles/harness/claude-code`), keyed by the runner's own name —
 plus two optional hooks: `skipIf()` returns a reason to skip (a loud `⊘ SKIPPED`,
 never a silent green) and `assert(report)` says what the report has to show.
 `vigiles eval` runs the measurement, prints the report with the right formatter,
@@ -614,7 +614,8 @@ description has nothing to run, which is a different kind of answer.
 
 Three consequences worth knowing up front:
 
-- **`node x.eval.mjs` now fails loudly** and tells you to run `vigiles eval`. It
+- **`node x.eval.mjs` now fails loudly** and tells you to run `vigiles eval`
+  (see [Migrating to v57](testing-api.md#migrating-to-v57)). It
   does not quietly do nothing, which would be the same defect in a new place.
 - **`node --check x.eval.mjs`** is the free syntax check. It never executes.
 - **`trials` comes from the spec**, and `vigiles eval --trials=N` overrides it.
@@ -627,7 +628,7 @@ is deletion. In `x.eval.mjs`, replace
 
 ```js
 const trials = Number(process.env.VIGILES_TRIALS || process.argv[2] || 3);
-const report = await paid_measureTriggerRate({ …spec…, trials });
+const report = await paid_measureTriggerRate({ …spec…, trials }); // removed in v57
 console.log(formatTriggerRateReport(report));
 if (report.n === 0) throw new Error("no runs executed");
 assertRates(report, { min: 0.8 });
@@ -644,11 +645,10 @@ export default defineEval({
 
 — dropping the `vigiles/eval` import, the trials line, the `format…` print and
 the `report.n === 0` check, because the runner now does all four. The key is the
-runner's own name (`runEval` · `measureTriggerRate` · `measureSelectionMatrix`, for
-`paid_measureSelectionMatrix`); declare exactly one. A capability probe that used to
-sit at the top of the file becomes `skipIf()`. `paid_measureSelectionMatrix`'s
+runner's own name (`runEval` · `measureTriggerRate` · `measureSelectionMatrix`); declare exactly one. A capability probe that used to
+sit at the top of the file becomes `skipIf()`. The old `paid_measureSelectionMatrix` call's
 directory argument becomes a `pluginDir` field, and
-`measureTriggerRate(spec, { evalDriver })`'s second argument becomes a top-level
+`paid_measureTriggerRate(spec, { evalDriver })`'s second argument becomes a top-level
 `evalDriver` key. Run with `vigiles eval x.eval.mjs`; a file left on the old
 shape fails with a message naming this section, never silently.
 

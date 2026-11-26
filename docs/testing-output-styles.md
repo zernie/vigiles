@@ -108,8 +108,8 @@ A style is not chosen by the model, so there is no trigger rate to measure
 and check every reply of each run.
 
 ```ts
-import { check } from "vigiles";
-import { experimental_outputStyleArms, paid_runEval } from "vigiles/eval";
+import { check, defineEval } from "vigiles";
+import { experimental_outputStyleArms } from "vigiles/eval";
 
 // Free: one run with the scripted model proves the style reaches the model,
 // then the arms are built from the FILE — no name typed by hand.
@@ -117,16 +117,18 @@ const arms = await experimental_outputStyleArms(
   ".claude/output-styles/status-footer.md",
 );
 
-// Paid: a real model, both arms.
-const report = await paid_runEval({
-  env: { kind: "ephemeral" },
-  arms,
-  task: "summarise README.md",
-  checks: [
-    check.turns({ matching: /\*\*Status\*\*/, max: 1 }), // one block per user message
-    check.output(/\*\*Status\*\*(?:\n- [^\n]*)+\s*$/), // …and the message ends with it
-  ],
-  trials: 10,
+// Paid: a real model, both arms — run by `npx vigiles eval <file>`.
+export default defineEval({
+  runEval: {
+    env: { kind: "ephemeral" },
+    arms,
+    task: "summarise README.md",
+    checks: [
+      check.turns({ matching: /\*\*Status\*\*/, max: 1 }), // one block per user message
+      check.output(/\*\*Status\*\*(?:\n- [^\n]*)+\s*$/), // …and the message ends with it
+    ],
+    trials: 10,
+  },
 });
 ```
 

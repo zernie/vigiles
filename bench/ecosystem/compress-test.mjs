@@ -24,7 +24,10 @@
  */
 import { readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { runEval } from "../../dist/eval.js";
+// A real model is spawned only inside a vigiles runner (vigiles#586): the run
+// goes through the programmatic door, which prints the report itself.
+import { defineEval } from "../../dist/entries/index.js";
+import { paid_runEval } from "../../dist/entries/eval.js";
 import { welchTTest } from "../../dist/stats.js";
 
 const here = (p) => fileURLToPath(new URL(p, import.meta.url));
@@ -83,20 +86,26 @@ console.log(
     `(claim: ~46% input-token cut).\n`,
 );
 
-const report = await runEval({
-  name: "caveman-compress: verbose vs compressed memory",
-  env: { kind: "ephemeral" },
-  fixture: {},
-  arms: {
-    verbose: { files: { "CLAUDE.md": verbose } },
-    compressed: { files: { "CLAUDE.md": caveman } },
-  },
-  task,
-  measure,
-  trials,
-  model,
-  concurrency,
-});
+const outcome = await paid_runEval(
+  defineEval({
+    runEval: {
+      name: "caveman-compress: verbose vs compressed memory",
+      env: { kind: "ephemeral" },
+      fixture: {},
+      arms: {
+        verbose: { files: { "CLAUDE.md": verbose } },
+        compressed: { files: { "CLAUDE.md": caveman } },
+      },
+      task,
+      measure,
+      trials,
+      model,
+      concurrency,
+    },
+  }),
+);
+if (!("report" in outcome) || outcome.report === undefined) process.exit();
+const report = outcome.report;
 
 const A = report.arms.verbose,
   B = report.arms.compressed;

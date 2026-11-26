@@ -1,9 +1,9 @@
 /**
- * Canonical example — a skill *selection-collision* eval (`paid_measureSelectionMatrix`).
+ * Canonical example — a skill *selection-collision* eval (`defineEval({ measureSelectionMatrix })`).
  *
  * Per-skill trigger-rate asks each skill in ISOLATION. It can't see the failure
  * that actually breaks a MULTI-skill plugin: one skill hijacking a SIBLING's
- * prompt. `paid_measureSelectionMatrix` installs the whole plugin, runs each skill's
+ * prompt. The selection matrix installs the whole plugin, runs each skill's
  * own prompts against the entire set, and records WHICH skill fired — an N×N
  * matrix whose diagonal is recall and whose off-diagonal mass is collision.
  * `assertNoCollision` gates it: fail the build when a sibling steals the prompt.
@@ -26,7 +26,7 @@ const pluginDir = fileURLToPath(
 
 export default defineEval({
   measureSelectionMatrix: {
-    // `paid_measureSelectionMatrix(dir, opts)` takes its directory positionally; a
+    // The old runner took its directory positionally; a
     // description has no argument positions, so the directory is a field.
     pluginDir,
     // no `prompts` → auto-derived from each skill's description (zero setup)

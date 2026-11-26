@@ -1,6 +1,6 @@
 /**
- * The eval REPORT shapes — what `paid_runEval` and `paid_measureTriggerRate`
- * return and what the readers take (`compare`, `assertRates`,
+ * The eval REPORT shapes — what the eval runners produce (an eval file's
+ * `assert` receives one) and what the readers take (`compare`, `assertRates`,
  * `assertRates`, a baseline).
  *
  * They live in core, not beside the runners in `src/eval.ts`, because more than

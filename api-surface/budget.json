@@ -10,7 +10,7 @@
       "grandfathered": []
     },
     "./eval": {
-      "ceiling": 10,
+      "ceiling": 9,
       "grandfathered": []
     },
     "./rule-proof": {
@@ -30,7 +30,7 @@
       "grandfathered": []
     },
     "./harness/claude-code": {
-      "ceiling": 10,
+      "ceiling": 9,
       "grandfathered": [
         "experimental_agent",
         "experimental_skill"

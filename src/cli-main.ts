@@ -43,6 +43,7 @@ import {
   type SessionShare,
 } from "./core/trifecta-fix.js";
 import { namesLine } from "./core/finding-groups.js";
+import { withVigilesRunner } from "./core/eval-load-phase.js";
 import {
   resolve,
   dirname,
@@ -10822,7 +10823,11 @@ export async function main(): Promise<void> {
           // sentence: the string here used to say "authenticate the `claude` CLI
           // or set ANTHROPIC_API_KEY" whatever harness the repo was on.
           if (modelAccess.kind !== "none") {
-            await runTriggerTier(targets[0], report, adapter, args);
+            // The consent opened the runner: a model may be spawned inside it
+            // and nowhere else (vigiles#586). Selection and adversarial run in it too.
+            await withVigilesRunner("audit-measure", () =>
+              runTriggerTier(targets[0], report, adapter, args),
+            );
           } else if (!quiet) {
             console.log(
               `\nℹ skill firing not measured — no model access (${modelAccess.fix}).`,
@@ -10856,11 +10861,16 @@ export async function main(): Promise<void> {
             // found". `DraftRunFailed` is thrown for exactly that; anything
             // else is a real bug and is left to propagate.
             try {
-              adoptabilityResult = await runAdoptabilityTier({
-                instructionContent: readFileSync(instrPath, "utf-8"),
-                basePath: root,
-                draft: draftWith((await adapter.liveDriver()).evalDriver),
-              });
+              const draft = draftWith((await adapter.liveDriver()).evalDriver);
+              adoptabilityResult = await withVigilesRunner(
+                "audit-measure",
+                () =>
+                  runAdoptabilityTier({
+                    instructionContent: readFileSync(instrPath, "utf-8"),
+                    basePath: root,
+                    draft,
+                  }),
+              );
               if (!quiet)
                 console.log(
                   "\n" +

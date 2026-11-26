@@ -14,7 +14,7 @@
  * Known neighbour it competes with, NOT asserted here: `landing-site` (see that
  * eval's header). Site prompts DO appear in this recall bank — the description
  * names `site/` explicitly — but no rendering prompt is asserted quiet for
- * `landing-site`; the overlap is a `paid_measureSelectionMatrix` question.
+ * `landing-site`; the overlap is a `measureSelectionMatrix` question.
  *
  *   npx vigiles eval examples/harness/dogfood/screenshot.trigger.eval.mjs
  *

@@ -19,7 +19,7 @@ calls a model, `vigiles/eval`). Claude Code is the
   - [Tier 0 — load the assembled machine](#tier-0--load-the-assembled-machine)
   - [Tier 1 — unit-test a hook (`runHook`)](#tier-1--unit-test-a-hook-runhook)
   - [Tier 2 — deterministic: fired _and_ landed (`runHarnessTest`)](#tier-2--deterministic-fired-and-landed-runharnesstest)
-  - [Tier 3 — eval: does the skill _trigger_? (`paid_measureTriggerRate`)](#tier-3--eval-does-the-skill-trigger-paid_measuretriggerrate)
+  - [Tier 3 — eval: does the skill _trigger_? (`measureTriggerRate`)](#tier-3--eval-does-the-skill-trigger-measuretriggerrate)
 - [Test the whole machine (`plugin`)](#test-the-whole-machine-plugin)
   - [Native install: testing skills (`pluginDir`)](#native-install-testing-skills-plugindir)
 - [The scripted Anthropic Messages mock (`scriptModel`)](#the-scripted-anthropic-messages-mock-scriptmodel)
@@ -122,7 +122,7 @@ sandbox). Pointing `pluginDir` at the whole untrusted plugin instead would run i
 confined under bubblewrap. Full file:
 [`examples/harness/oh-my-claudecode-deterministic.harness.mjs`](../examples/harness/oh-my-claudecode-deterministic.harness.mjs).
 
-### Tier 3 — eval: does the skill _trigger_? (`paid_measureTriggerRate`)
+### Tier 3 — eval: does the skill _trigger_? (`measureTriggerRate`)
 
 Wiring (Tier 0) proves a skill _resolves_; whether the **real model chooses** it
 from its description across varied phrasings is a property only a model can
@@ -149,11 +149,12 @@ This is the **one** tier that needs model auth, so — unlike Tiers 0–2 — it
 **not** run in CI. Full file:
 [`examples/harness/oh-my-claudecode-eval.eval.mjs`](../examples/harness/oh-my-claudecode-eval.eval.mjs).
 
-**Multi-skill plugin? Also gate _selection collision_.** `paid_measureTriggerRate`
+**Multi-skill plugin? Also gate _selection collision_.** `measureTriggerRate`
 tests one skill in isolation; for a plugin where several skills do similar things,
-`paid_measureSelectionMatrix` + `assertNoCollision` catch one skill hijacking a
+`defineEval({ measureSelectionMatrix: { pluginDir, … }, assert })` with
+`assertNoCollision` catches one skill hijacking a
 sibling's prompt. It's **Claude-Code-only** (it reads which skill the selector
-chose) — import it from `vigiles/harness/claude-code`, and see the
+chose) — `assertNoCollision` comes from `vigiles/harness/claude-code`, and see the
 [`vigiles/harness/claude-code` reference](api/harness-claude-code.md#catch-one-skill-stealing-a-siblings-prompts).
 
 ## Test the whole machine (`plugin`)

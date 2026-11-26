@@ -13,10 +13,11 @@
  *   node bench/ecosystem/trigger-rate.mjs         # neutral coding (expect ~0)
  *   TRIGGER=1 node bench/ecosystem/trigger-rate.mjs   # explicit "be brief" control
  */
-import {
-  measureTriggerRate,
-  formatTriggerRateReport,
-} from "../../dist/eval.js";
+// A real model is spawned only inside a vigiles runner (vigiles#586), so this
+// script runs its measurement through the programmatic door, which also prints
+// the report and sets the exit code on a failure.
+import { defineEval } from "../../dist/entries/index.js";
+import { paid_runEval } from "../../dist/entries/eval.js";
 
 const here = new URL("./skills/caveman-plugin", import.meta.url);
 const pluginDir = decodeURIComponent(here.pathname);
@@ -48,12 +49,15 @@ const fired = (t) =>
   );
 
 console.log(`\n=== caveman trigger-rate — ${label} ===`);
-const report = await measureTriggerRate({
-  name: `caveman-trigger-${process.env.TRIGGER ? "control" : "neutral"}`,
-  pluginDir,
-  prompts,
-  fired,
-  trials: Number(process.env.VIGILES_TRIALS || 3),
-  model: process.env.VIGILES_MODEL || "sonnet",
-});
-console.log(formatTriggerRateReport(report));
+await paid_runEval(
+  defineEval({
+    measureTriggerRate: {
+      name: `caveman-trigger-${process.env.TRIGGER ? "control" : "neutral"}`,
+      pluginDir,
+      prompts,
+      fired,
+      trials: Number(process.env.VIGILES_TRIALS || 3),
+      model: process.env.VIGILES_MODEL || "sonnet",
+    },
+  }),
+);

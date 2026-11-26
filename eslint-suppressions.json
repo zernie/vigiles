@@ -2403,11 +2403,6 @@
       "count": 2
     }
   },
-  "src/core/eval-load-phase.ts": {
-    "functional/no-let": {
-      "count": 1
-    }
-  },
   "src/core/eval-skill-files.ts": {
     "functional/immutable-data": {
       "count": 1
@@ -5069,31 +5064,10 @@
     }
   },
   "src/eval-entry.ts": {
-    "@typescript-eslint/consistent-type-assertions": {
-      "count": 8
-    },
-    "functional/no-let": {
-      "count": 1
-    },
     "functional/prefer-immutable-types": {
       "count": 1
     },
-    "max-lines-per-function": {
-      "count": 1
-    },
     "max-params": {
-      "count": 2
-    },
-    "max-statements": {
-      "count": 1
-    },
-    "no-restricted-globals": {
-      "count": 7
-    },
-    "sonarjs/cognitive-complexity": {
-      "count": 1
-    },
-    "sonarjs/different-types-comparison": {
       "count": 1
     }
   },
@@ -5239,6 +5213,11 @@
     },
     "sonarjs/no-redundant-optional": {
       "count": 1
+    }
+  },
+  "src/eval-run.ts": {
+    "@typescript-eslint/consistent-type-assertions": {
+      "count": 7
     }
   },
   "src/eval.test.ts": {

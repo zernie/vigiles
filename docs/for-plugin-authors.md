@@ -68,10 +68,10 @@ npx vigiles audit ./my-plugin --prompts=prompts.json
 
 **The selection-collision matrix** runs each skill's own prompts against your _whole_ skill set and records which skill actually fired. The diagonal is recall (the right skill fired); off-diagonal mass means a **sibling hijacked the prompt** — two skills so alike the model picks the wrong one. It's the behavioral confirmation of the deterministic [description-overlap](#1-scan-a-draft-for-structural-health) finding, and it's body-stubbed (the skill's procedure never runs), so it measures _selection_ cheaply. Most valuable when several skills do similar things.
 
-**For automation / CI** (no human to consent), drive the primitives directly in a test:
+**For automation / CI** (no human to consent), declare the measurement in a `*.eval.mjs` file and run it with `npx vigiles eval`:
 
-- **`measureTriggerRate`** — recall across varied prompts, plus precision when you supply irrelevant ones, so a too-broad description that hijacks unrelated work fails too. Pair with `assertRates(report, { min, maxFalsePositive })`.
-- **`paid_measureSelectionMatrix`** — the selection-collision matrix as an assertable value: prompts are auto-derived from your descriptions (zero setup), or supply your own. Pair with `assertNoCollision({ maxOffDiagonal })` to **fail the build when one skill hijacks a sibling's prompt**. It's Claude-Code-only (import from `vigiles/harness/claude-code`), since it reads which skill the selector chose.
+- **`defineEval({ measureTriggerRate })`** — recall across varied prompts, plus precision when you supply irrelevant ones, so a too-broad description that hijacks unrelated work fails too. Pair with `assertRates(report, { min, maxFalsePositive })`.
+- **`defineEval({ measureSelectionMatrix: { pluginDir, … } })`** — the selection-collision matrix as an assertable value: prompts are auto-derived from your descriptions (zero setup), or supply your own. Pair with `assertNoCollision({ maxOffDiagonal })` to **fail the build when one skill hijacks a sibling's prompt**. It's Claude-Code-only (`assertNoCollision` is on `vigiles/harness/claude-code`), since it reads which skill the selector chose.
 
 That's the designed path for testing skills in a script. See [measuring skills](measuring-skills.md) and the [testing API](testing-api.md).
 

@@ -32,7 +32,7 @@
  * ⚠️ **The prefix slightly OVERSTATES the cost, and that is a deliberate trade
  * rather than an oversight.** `paid_judged` takes an injectable judge:
  * `paid_judged(rubric, { judge: myFn })` calls no model and spends nothing — only
- * the DEFAULT judge bills. `paid_measureTriggerRate` and friends likewise accept
+ * the DEFAULT judge bills. a `measureTriggerRate` eval likewise accepts
  * an injected `evalDriver`. The strictly accurate prefix would be `metered_`, but
  * it reads a beat slower, and a warning that is not absorbed at a glance is not a
  * warning. Clarity wins; the imprecision is recorded here and on each symbol
@@ -68,45 +68,70 @@
  * name has one door. Import `type { EvalReport } from "vigiles"`.
  *
  * Harness-specific eval drivers are not here either — `paid_codexEvalDriver` lives
- * on `vigiles/harness/codex`, and `paid_measureSelectionMatrix` / `assertNoCollision` on
+ * on `vigiles/harness/codex`, and `measureSelectionMatrix` / `assertNoCollision` on
  * `vigiles/harness/claude-code`, because those surfaces are chosen by harness.
  */
-import type { Metrics } from "../core/eval-aggregate.js";
-import type { EvalReport } from "../core/eval-report.js";
-import { runEvalOnHost, type EvalSpec } from "../eval.js";
+import { withVigilesRunner } from "../core/eval-load-phase.js";
+import type { EvalDefinition, EvalKind } from "../eval-define.js";
+import { trialsOverride } from "../eval-entry.js";
+import {
+  publicExitCodeOf,
+  runDefinition,
+  type EvalOutcome,
+} from "../eval-run.js";
 import { repoCopyHost } from "../host/workspace-host.io.js";
 
-// --- the runners: each one drives a real model ---
+// --- the runner: the programmatic door to what `vigiles eval` runs ---
 
 /**
- * Run a task N times per configuration with a real model and score each trial —
- * by `checks` (the `check.*` vocabulary, 0/1 each) or by `measure(ctx)` (your
- * own metrics). One configuration (no `arms`, an arm named `"default"`) or
- * several compared as an A/B. Spends money. The one task runner of
- * `vigiles/eval` since v55, when the two checks-scored runners folded into it
- * (docs/testing-api.md, "Migrating to v55").
+ * Run one eval DESCRIPTION — the value `defineEval({ … })` returns, which an
+ * eval file default-exports — exactly as `vigiles eval` runs that file: the
+ * same report printed, the same failures, the same `assert`. Spends money.
  *
- * Here the `paid_` prefix is exact: it always drives the real `claude` CLI.
+ * It never throws on a failed run. It returns how the run ended, and on a
+ * failure or a refusal it also sets `process.exitCode` to the code `vigiles eval`
+ * would exit with, so a script that ignores the result still fails (vigiles#416:
+ * the old spec-taking call returned a report and exited 0 on a broken trial).
+ * A skip sets no exit code; it prints `SKIPPED: <reason>` and returns `skipped`.
+ *
+ * Since vigiles#586 this is the ONE way to run an eval outside the CLI: a model is
+ * spawned only inside a vigiles runner, so the old `paid_runEval(spec)` and
+ * `paid_measureTriggerRate(spec)` calls refuse. Wrap the spec instead:
+ * `paid_runEval(defineEval({ runEval: spec }))`.
  *
  * @public
  */
-export function paid_runEval<M extends Metrics>(
-  spec: EvalSpec<M>,
-): Promise<EvalReport> {
-  // The composition: the real agent runner plus the host adapter that copies
-  // a repo for `experimental_workspace`.
-  return runEvalOnHost(spec, repoCopyHost);
+export function paid_runEval(
+  definition: { [K in EvalKind]: EvalDefinition<K> }[EvalKind],
+  options: { readonly trials?: number } = {},
+): Promise<EvalOutcome> {
+  return withVigilesRunner("eval-programmatic", async () => {
+    const outcome = await runDefinition(definition, {
+      label: "paid_runEval",
+      trials: options.trials ?? trialsOverride(process.env["VIGILES_TRIALS"]),
+      // The composition: the host adapter that copies a repo for `experimental_workspace`.
+      host: repoCopyHost,
+      notADescription: notADescription,
+    });
+    if (outcome.kind === "failed" || outcome.kind === "refused")
+      // The door's contract, at the composition root: the caller's script fails
+      // without its process being ended under it, as Vitest's `startVitest` does.
+      // eslint-disable-next-line functional/immutable-data
+      process.exitCode = publicExitCodeOf(outcome);
+    return outcome;
+  });
 }
 
-/**
- * Measure whether a skill's description actually FIRES (recall + precision) by
- * running real prompts against a real model. Spends money.
- *
- * ⚠️ `paid_` overstates slightly: an injected `evalDriver` replaces the billed
- * path, and `stubSkillBodies` makes the default path much cheaper without making
- * it free. The DEFAULT path bills.
- */
-export { measureTriggerRate as paid_measureTriggerRate } from "../eval.js";
+/** The refusal for a value that is not a description: the v-next migration. */
+function notADescription(why: string): string {
+  return (
+    `✗ paid_runEval: ${why}\n` +
+    `  paid_runEval takes the description an eval file exports, not a spec (vigiles#586):\n` +
+    `      import { defineEval } from "vigiles";\n` +
+    `      await paid_runEval(defineEval({ runEval: { …the spec you passed… } }));\n` +
+    `  See docs/testing-api.md § Migrating to v57.`
+  );
+}
 
 /**
  * The model-graded judge (harness-agnostic — grades text against a rubric).
@@ -133,6 +158,9 @@ export { judged as paid_judged } from "../check.js";
  * default. Naming it here is how you pass it explicitly; using it spends money.
  */
 export { claudeEvalDriver as paid_claudeEvalDriver } from "../eval.js";
+
+/** How a `paid_runEval` run ended: `passed`, `failed`, `skipped` or `refused`. */
+export type { EvalOutcome } from "../eval-run.js";
 
 // --- reading the report: free, so unprefixed ---
 export { compare, assertNoRegression } from "../eval-readers.js";

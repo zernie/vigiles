@@ -191,7 +191,7 @@ describe("boundaries — a package entry is a composition root", () => {
     expect(config.settings["boundaries/files"]).toContainEqual(
       expect.objectContaining({
         category: "root",
-        pattern: "src/{cli,cli-main,entries/*,entries/*/*}.ts",
+        pattern: "src/{cli,cli-main,eval-program,entries/*,entries/*/*}.ts",
       }),
     );
   });

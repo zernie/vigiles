@@ -292,7 +292,7 @@ function isReportList(
 
 /**
  * Gate a skill/behaviour's *activation*, over a `TriggerRateReport` from
- * `paid_measureTriggerRate` — reached as `assertRates(report, gate)`. `min`
+ * a `measureTriggerRate` eval — reached as `assertRates(report, gate)`. `min`
  * gates recall (fires when it should). With irrelevant prompts measured,
  * `maxFalsePositive` gates the precision side (does NOT fire when it shouldn't)
  * and `minPrecision` gates `firedRight / firedTotal` — so a too-broad

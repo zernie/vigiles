@@ -145,15 +145,15 @@ test("the no-spend window is CLOSED while the file is imported, and open after",
 });
 
 test("a HALF-migrated file — a description plus a leftover top-level runner call — refuses instead of billing", () => {
-  // The planted defect. `refuseDuringEvalLoad` is what the four real spawn
+  // The planted defect. `refuseOutsideRunner` is what the four real spawn
   // doors call as their first statement (asserted in core/eval-load-phase.test.ts),
   // so calling it here is the same door without any chance of a real spawn.
   const f = standin(
     "half.eval.mjs",
-    `import { refuseDuringEvalLoad } from "${DIST}/core/eval-load-phase.js";\n` +
+    `import { refuseOutsideRunner } from "${DIST}/core/eval-load-phase.js";\n` +
       `import { defineEval } from "${DIST}/entries/index.js";\n` +
       `import { writeFileSync } from "node:fs";\n` +
-      `refuseDuringEvalLoad("measureTriggerRate");\n` +
+      `refuseOutsideRunner("measureTriggerRate");\n` +
       `writeFileSync(new URL("./SPENT", import.meta.url), "spent");\n` +
       // 🔴 `skipIf` is a SAFETY BELT for this test, not decoration. When this
       // test is run under a MUTATION that neuters the guard, the entry proceeds
