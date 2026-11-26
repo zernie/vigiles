@@ -32,8 +32,8 @@
  *     WITHOUT a separate server process is untested, and the answer changes what
  *     this surface should look like.
  *  4. **The runtime does not enforce `required`.** Measured: Claude Code accepted a
- *     call omitting three declared-required fields (raw proof in `mine`,
- *     `vigiles/repro/output-contract-2026-08-13/mcp-arm/schema-probe-emitted.jsonl`).
+ *     call omitting three declared-required fields (raw proof kept in the
+ *     author's private measurement notes, run `output-contract-2026-08-13`).
  *     `inputSchema` is DESCRIPTION for the model, not a runtime gate — which is
  *     exactly why `experimental_parseEmitted` re-validates on the receiving side
  *     and why "the API validates it for you" must not be claimed.
