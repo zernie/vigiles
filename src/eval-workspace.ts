@@ -184,7 +184,10 @@ export function recordView(
   at: { readonly gitDir: string; readonly cwd: string },
   arm: { readonly name: string; readonly paths: readonly string[] },
 ): TrialWorkspaceView {
-  const baseTree = ws.host.recordTrialBase(ws.template, at);
+  const baseTree = ws.host.recordTrialBase(ws.template, {
+    ...at,
+    armPaths: arm.paths,
+  });
   return { arm: arm.name, gitDir: at.gitDir, baseTree, armPaths: arm.paths };
 }
 

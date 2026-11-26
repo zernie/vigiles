@@ -76,7 +76,11 @@ interface Trial {
   readonly view: { readonly gitDir: string; readonly baseTree: string };
 }
 
-function startTrial(src: string, before?: (cwd: string) => void): Trial {
+function startTrial(
+  src: string,
+  before?: (cwd: string) => void,
+  armPaths: readonly string[] = [],
+): Trial {
   const template = buildTemplate({ dir: src, ref: "HEAD" });
   cleanup.push(template.root);
   const cwd = makeTmpDir("trial");
@@ -85,7 +89,7 @@ function startTrial(src: string, before?: (cwd: string) => void): Trial {
   before?.(cwd);
   const gitDir = makeTmpDir("trial-base");
   cleanup.push(gitDir);
-  const baseTree = recordTrialBase(template, { gitDir, cwd });
+  const baseTree = recordTrialBase(template, { gitDir, cwd, armPaths });
   return { template, cwd, view: { gitDir, baseTree } };
 }
 
@@ -126,6 +130,49 @@ describe("recordTrialBase + touchedPaths", () => {
     write(trial.cwd, "src/a.js", "a fixed\n");
     // Guards: an unseeded shadow index would drop dist/gen.js silently.
     expect(paths(trial)).toEqual(["M dist/gen.js", "M src/a.js"]);
+  });
+});
+
+describe("recordTrialBase on arm files the world ignores", () => {
+  it("puts an ignored arm file in the base, so an edit to it is in the touched set", () => {
+    const src = sourceRepo({ ".gitignore": ".agent/\n", "a.txt": "a\n" });
+    const trial = startTrial(
+      src,
+      (cwd) => {
+        write(cwd, ".agent/notes.md", "arm\n");
+      },
+      [".agent/notes.md"],
+    );
+    expect(paths(trial)).toEqual([]);
+    write(trial.cwd, ".agent/notes.md", "edited by the agent\n");
+    // Guards: without it the file is outside the base and the edit is silently not seen (Codex, #585).
+    expect(paths(trial)).toEqual(["M .agent/notes.md"]);
+  });
+});
+
+describe("workspace git against the caller's git environment", () => {
+  const keys = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"] as const;
+  const saved = keys.map((k) => process.env[k]);
+  afterEach(() => {
+    keys.forEach((k, i) => {
+      const v = saved[i];
+      if (v === undefined) Reflect.deleteProperty(process.env, k);
+      else process.env[k] = v;
+    });
+  });
+
+  it("never writes the caller's index or repository when GIT_INDEX_FILE and GIT_DIR point at it", () => {
+    const src = sourceRepo({ "a.txt": "a\n" });
+    const index = join(src, ".git", "index");
+    const before = readFileSync(index);
+    process.env.GIT_INDEX_FILE = index;
+    process.env.GIT_DIR = join(src, ".git");
+    process.env.GIT_WORK_TREE = src;
+    const trial = startTrial(src);
+    write(trial.cwd, "a.txt", "agent edit\n");
+    expect(paths(trial)).toEqual(["M a.txt"]);
+    // Guards: the source checkout's index is byte-identical after a whole trial (Codex, #585).
+    expect(readFileSync(index).equals(before)).toBe(true);
   });
 });
 

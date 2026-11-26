@@ -207,12 +207,17 @@ export interface WorkspaceHost {
   cloneTemplate(template: RepoTemplate, dest: string): void;
   /**
    * Record `cwd`'s tree into the empty dir `gitDir` (seeded from the template
-   * tree, so files it tracks stay tracked under an ignored path); returns the
+   * tree, so files it tracks stay tracked under an ignored path; the
+   * `armPaths`, relative to `cwd`, go in even when ignored); returns the
    * tree id.
    */
   recordTrialBase(
     template: RepoTemplate,
-    at: { readonly gitDir: string; readonly cwd: string },
+    at: {
+      readonly gitDir: string;
+      readonly cwd: string;
+      readonly armPaths: readonly string[];
+    },
   ): string;
   touchedPaths(base: TrialBase, cwd: string): TouchedSet;
   findInstalls(top: string, sha: string): readonly string[];

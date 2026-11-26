@@ -142,16 +142,24 @@ export function cloneTemplate(template: RepoTemplate, dest: string): void {
  * Record the trial's tree before the agent starts, into `gitDir` (an empty
  * dir beside the trial): a bare git dir whose objects are borrowed from the
  * template, its index seeded from the template tree, then everything in the
- * trial dir staged on top. Returns the tree id.
+ * trial dir staged on top, and the arm's own files forced in past
+ * `.gitignore` (an ignored file outside the base would hide every later edit
+ * to it). Returns the tree id.
  */
 export function recordTrialBase(
   template: RepoTemplate,
-  at: { readonly gitDir: string; readonly cwd: string },
+  at: {
+    readonly gitDir: string;
+    readonly cwd: string;
+    readonly armPaths: readonly string[];
+  },
 ): string {
   initShadow(at.gitDir, template);
   const shadow = [`--git-dir=${at.gitDir}`, `--work-tree=${at.cwd}`];
   git(at.cwd, [...shadow, "read-tree", template.tree]);
   git(at.cwd, [...shadow, "add", "-A"]);
+  if (at.armPaths.length > 0)
+    git(at.cwd, [...shadow, "add", "-f", "--", ...at.armPaths]);
   return git(at.cwd, [...shadow, "write-tree"]).trim();
 }
 
