@@ -13,7 +13,7 @@
  * matcher structurally can't catch, a false positive, or a mis-wired protocol —
  * NOT merely "the compiled one enumerates more clauses".
  */
-import { test } from "vitest";
+import { test, beforeAll } from "vitest";
 import assert from "node:assert/strict";
 import { writeFileSync, chmodSync } from "node:fs";
 import { resolve } from "node:path";
@@ -28,23 +28,42 @@ import {
 import { assertChecks } from "./check.js";
 import { runHook } from "./run-hook.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
+import { experimental_loadHook as loadHook } from "./load-hook.js";
+import type { AnyHook } from "./core/hook-program.js";
+
+// Built once: each `disasters()` call generates and proves every spelling (~1.5 s).
+const ALL = disasters();
 
 // The shipped guard's secret rule is `touches(["~/.ssh", …])`, a MENTION
 // matcher by design (an over-inclusive denylist), so it also blocks
 // `echo 'cat ~/.ssh/id_rsa'`. Its look-alikes are left out; every other one
 // must pass.
-const SAFE_GUARD_HARMLESS = disasters().harmless.filter(
-  (t) => t.of !== "read-ssh-key",
-);
+const SAFE_GUARD_SET = {
+  ...ALL,
+  harmless: ALL.harmless.filter((t) => t.of !== "read-ssh-key"),
+};
+
+/** The seven seeds alone: what every per-id assertion below reads. */
+const SEEDS = { ...ALL, spellings: [], harmless: [] };
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
-const COMPILED = `node ${CLI} hook-runtime run-program ${resolve(
+const GUARD_FILE = resolve(
   REPO_ROOT,
   "examples",
   "harness",
   "safe-bash-guard.hook.mjs",
-)}`;
+);
+/** The compiled guard as its hook config wires it: the shipped runtime. */
+const COMPILED = `node ${CLI} hook-runtime run-program ${GUARD_FILE}`;
+
+// The same guard as a hook object, for the full battery: deciding ~175 cases
+// in-process instead of one CLI launch each. The per-win tests above it spawn
+// COMPILED, because what they show (the exit code, the stdin path) is the wiring.
+let compiledHook: AnyHook;
+beforeAll(async () => {
+  compiledHook = await loadHook(GUARD_FILE);
+});
 
 /** Write an executable shell guard to a tmp dir; return `bash <path>`. */
 function shellGuard(dir: string, name: string, body: string): string {
@@ -56,7 +75,7 @@ function shellGuard(dir: string, name: string, body: string): string {
 
 const blockedIds = (cmd: string, opts: RunGuardrailOptions = {}): Set<string> =>
   new Set(
-    runGuardrail(cmd, disasters({ harmless: [], spellings: [] }), opts)
+    runGuardrail(cmd, SEEDS, opts)
       .rows.filter((r) => r.blocked)
       .map((r) => r.event.id),
   );
@@ -144,14 +163,18 @@ exit 0
 `,
     );
     assert.ok(
-      unblockedDisasters(
-        runGuardrail(guard, disasters(), { cwd: dir }).rows,
-      ).some((r) => r.event.id === "force-push"),
+      unblockedDisasters(runGuardrail(guard, SEEDS, { cwd: dir }).rows).some(
+        (r) => r.event.id === "force-push",
+      ),
       "exit-1 guard does NOT actually block (false confidence)",
     );
-    // The compiled guard never picks the exit code — it's emitted (exit 2).
-    const compiled = blockedIds(COMPILED, { cwd: REPO_ROOT });
-    assert.ok(compiled.has("force-push"));
+    // The compiled guard never picks the exit code — the runtime emits exit 2.
+    const forcePush = runGuardrail(COMPILED, SEEDS, {
+      cwd: REPO_ROOT,
+    }).rows.find((r) => r.event.id === "force-push");
+    // Guards: the wired runtime blocks by the exit code Claude Code honours.
+    assert.equal(forcePush?.blocked, true);
+    assert.equal(forcePush.exitCode, 2);
   } finally {
     cleanupTmpDir(dir);
   }
@@ -184,13 +207,10 @@ exit 0
     assert.deepEqual([...got].sort(), ["force-push", "rm-rf"]);
     // The compiled guard blocks every disaster in the battery (no throw).
     assertChecks(
-      runGuardrail(COMPILED, disasters({ harmless: SAFE_GUARD_HARMLESS }), {
-        cwd: REPO_ROOT,
-      }),
+      runGuardrail(compiledHook, SAFE_GUARD_SET, { cwd: REPO_ROOT }),
       [guardrail()],
     );
   } finally {
     cleanupTmpDir(dir);
   }
-  // ~175 CLI launches with the spellings on by default (measured 26s alone).
-}, 240_000);
+});

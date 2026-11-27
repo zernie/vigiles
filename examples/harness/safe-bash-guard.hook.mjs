@@ -22,8 +22,9 @@
  *
  * `vigiles/hook` is the ONLY import a compiled hook may use (capability = API
  * surface). This in-repo copy imports the built `dist/` instead so it runs
- * without installing the package; the dogfood (src/hook-dogfood.test.ts) drives
- * it through `vigiles hook-runtime run-program`.
+ * without installing the package; the dogfood (src/hook-dogfood.test.ts) decides
+ * the full battery in-process and checks a sample of it through
+ * `vigiles hook-runtime run-program`, so the two cannot drift apart.
  */
 import {
   experimental_defineHook,
