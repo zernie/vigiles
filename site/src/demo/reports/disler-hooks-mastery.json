@@ -1,6 +1,6 @@
 {
   "meta": {
-    "schemaVersion": 2,
+    "schemaVersion": 4,
     "tool": "vigiles",
     "kind": "audit",
     "vigilesVersion": "0.0.0-semantically-released",
@@ -8,8 +8,8 @@
     "dir": "claude-code-hooks-mastery"
   },
   "score": {
-    "overall": 75,
-    "grade": "C",
+    "overall": 81,
+    "grade": "B",
     "categories": [
       {
         "key": "Truthfulness",
@@ -19,63 +19,106 @@
       },
       {
         "key": "Triggering",
-        "score": 100,
+        "score": null,
         "weight": 1,
-        "findings": []
+        "findings": ["no skill read — nothing whose triggering could be scored"]
       },
       {
         "key": "Structure",
-        "score": 85,
+        "score": 100,
         "weight": 1,
-        "findings": ["1 hook on an unknown event (never fire)"]
+        "findings": ["2 agent(s) inherit all tools (no contract) (advisory)"]
       },
       {
         "key": "Safety",
-        "score": 90,
+        "score": 81,
         "weight": 1,
         "findings": [
-          "1 unit can read data, reach the web, and run commands — the \"lethal trifecta\", so a prompt injection could exfiltrate secrets"
+          "10 of 19 units can read data, reach the web, and run commands — the \"lethal trifecta\", so a prompt injection could exfiltrate secrets",
+          "team:builder, team:validator: no `tools:` line, so every session tool is inherited → list the tools it needs in `tools:`, leaving out one leg"
+        ],
+        "groups": [
+          {
+            "problem": "no `tools:` line, so every session tool is inherited",
+            "edit": "list the tools it needs in `tools:`, leaving out one leg",
+            "names": ["team:builder", "team:validator"]
+          }
         ]
       },
       {
         "key": "Tested",
-        "score": 88,
+        "score": 19,
         "weight": 1,
         "advisory": true,
-        "findings": ["4 surfaces with no vigiles test/eval"]
+        "findings": [
+          "27 surfaces with no vigiles harness (deterministic, free)"
+        ]
+      },
+      {
+        "key": "Evaluated",
+        "score": null,
+        "weight": 1,
+        "advisory": true,
+        "notMeasured": true,
+        "findings": [
+          "27 surfaces never measured with a real model",
+          "not measured — run `npx vigiles audit` interactively to measure, or add a `*.eval.mjs` (`export default defineEval({ measureTriggerRate: … })`, vigiles)"
+        ]
       }
     ],
-    "empty": false
+    "empty": false,
+    "instructionsOnly": false
   },
   "verdict": {
-    "sentence": "One fix away from a B.",
-    "grade": "C",
-    "pointsToNextGrade": 5,
-    "fixesToNextGrade": 1,
-    "perRecommendation": [
-      {
-        "index": 0,
-        "pointsIfFixed": 15
-      }
-    ]
+    "sentence": "B — 10 units can read data, reach the web, and run commands — the \"lethal trifecta\", so a prompt injection could exfiltrate secrets; fixing every deterministic finding still lands below an A.",
+    "grade": "B",
+    "pointsToNextGrade": 9,
+    "fixesToNextGrade": null,
+    "perRecommendation": []
   },
-  "recommendations": [
-    {
-      "surface": "Setup",
-      "action": "fix",
-      "rationale": "Unknown hook event \"Setup\" — a hook here never fires. Valid events: PreToolUse, PostToolUse, UserPromptSubmit, Notification, Stop, SubagentStop, PreCompact, SessionStart, SessionEnd. Did you mean \"Stop\"?",
-      "fix": "Change the hook event \"Setup\" to \"Stop\" — the harness doesn't define \"Setup\", so the hook never fires.",
-      "detector": "hook-events",
-      "confidence": "likely"
-    }
-  ],
+  "recommendations": [],
   "inventory": {
     "skills": 0,
-    "agents": 4,
+    "agents": 19,
     "hooks": 13,
     "commands": 21,
+    "outputStyles": 8,
     "mcp": false,
-    "untested": 4
+    "untested": 27,
+    "untestedHarness": 27,
+    "unevaluated": 27,
+    "coverageEvidence": {
+      "executed": 0,
+      "colocated": 0,
+      "configured": 0
+    }
+  },
+  "contextCost": {
+    "alwaysLoaded": {
+      "unit": "chars",
+      "total": 0,
+      "parts": [
+        {
+          "part": "instructions",
+          "kind": "counted",
+          "total": 0,
+          "files": [
+            {
+              "path": "CLAUDE.md",
+              "size": 0
+            }
+          ]
+        },
+        {
+          "part": "output-style",
+          "kind": "none"
+        },
+        {
+          "part": "skill-listing",
+          "kind": "none"
+        }
+      ]
+    }
   },
   "adoptable": {
     "surfaces": [

@@ -1,6 +1,6 @@
 {
   "meta": {
-    "schemaVersion": 2,
+    "schemaVersion": 4,
     "tool": "vigiles",
     "kind": "audit",
     "vigilesVersion": "0.0.0-semantically-released",
@@ -19,13 +19,13 @@
       },
       {
         "key": "Triggering",
-        "score": 100,
+        "score": null,
         "weight": 1,
-        "findings": []
+        "findings": ["no skill read — nothing whose triggering could be scored"]
       },
       {
         "key": "Structure",
-        "score": 92,
+        "score": 89,
         "weight": 1,
         "findings": ["1 unavailable agent tool (typo / never-available)"]
       },
@@ -34,7 +34,7 @@
         "score": 90,
         "weight": 1,
         "findings": [
-          "1 unit can read data, reach the web, and run commands — the \"lethal trifecta\", so a prompt injection could exfiltrate secrets"
+          "1 of 1 unit can read data, reach the web, and run commands — the \"lethal trifecta\", so a prompt injection could exfiltrate secrets"
         ]
       },
       {
@@ -42,10 +42,22 @@
         "score": 97,
         "weight": 1,
         "advisory": true,
-        "findings": ["1 untested surface"]
+        "findings": ["1 surface with no vigiles harness (deterministic, free)"]
+      },
+      {
+        "key": "Evaluated",
+        "score": null,
+        "weight": 1,
+        "advisory": true,
+        "notMeasured": true,
+        "findings": [
+          "1 surface never measured with a real model",
+          "not measured — run `npx vigiles audit` interactively to measure, or add a `*.eval.mjs` (`export default defineEval({ measureTriggerRate: … })`, vigiles)"
+        ]
       }
     ],
-    "empty": false
+    "empty": false,
+    "instructionsOnly": false
   },
   "verdict": {
     "sentence": "One fix away from an A.",
@@ -75,13 +87,42 @@
     "hooks": 0,
     "commands": 0,
     "mcp": false,
-    "untested": 1
+    "untested": 1,
+    "untestedHarness": 1,
+    "unevaluated": 1,
+    "coverageEvidence": {
+      "executed": 0,
+      "colocated": 0,
+      "configured": 0
+    }
+  },
+  "contextCost": {
+    "alwaysLoaded": {
+      "unit": "chars",
+      "total": 0,
+      "parts": [
+        {
+          "part": "instructions",
+          "kind": "counted",
+          "total": 0,
+          "files": []
+        },
+        {
+          "part": "output-style",
+          "kind": "none"
+        },
+        {
+          "part": "skill-listing",
+          "kind": "none"
+        }
+      ]
+    }
   },
   "adoptable": {
     "surfaces": [
       {
-        "path": "agents/tester.md",
-        "command": "npx vigiles init --target=agents/tester.md"
+        "path": "test/dogfood/madappgang-frontend@6097ad4/agents/tester.md",
+        "command": "npx vigiles init --target=test/dogfood/madappgang-frontend@6097ad4/agents/tester.md"
       }
     ],
     "createAllCommand": "npx vigiles init"

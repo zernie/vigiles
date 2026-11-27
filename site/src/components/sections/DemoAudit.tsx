@@ -39,11 +39,14 @@ type Featured = {
   repo?: string;
 };
 
-// A real F → C → B → A scale on repos people recognize — so the default shows
-// vigiles CATCHING something (not a wall of A's that reads as "everything's fine"),
-// and the A at the end proves the grade is earnable. davila7 (F) leads: its skills/
-// dir is hidden inside .claude-plugin/ where the harness can't load it, and two
-// subagents list a tool that doesn't exist — "valid files, silently broken".
+// A real low-to-high scale on repos people recognize (C → B → B → A as graded
+// on 2026-11-27) — so the default shows vigiles CATCHING something (not a wall
+// of A's that reads as "everything's fine"), and the A at the end proves the
+// grade is earnable. davila7 (C) leads: a functional dir sits inside
+// .claude-plugin/ where the harness can't load it, and three subagents have
+// frontmatter that is not valid YAML, so their `tools:` is unread and every tool
+// is inherited — "valid files, silently broken". The grades are whatever today's
+// `vigiles audit --json` prints; never hand-edit a baked report.
 const FEATURED: Featured[] = [
   {
     slug: "davila7/claude-code-templates",

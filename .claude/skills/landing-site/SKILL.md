@@ -86,9 +86,10 @@ changes — it's the design doc, not just a style guide. Each is a decision that
 real iteration to reach; don't silently undo one.
 
 - **THE DEFAULT DEMO MUST SHOW A CATCH — lead with a real low grade, never a wall of
-  A's.** The `FEATURED` chips are a genuine **F → C → B → A** scale on RECOGNIZABLE
-  repos (currently davila7/claude-code-templates F, disler/claude-code-hooks-mastery
-  C, madappgang B, obra/superpowers A). WHY it must be this way: real popular plugins
+  A's.** The `FEATURED` chips are a genuine low-to-high scale on RECOGNIZABLE
+  repos (graded 2026-11-27: davila7/claude-code-templates C, disler/claude-code-hooks-mastery
+  B, madappgang B, obra/superpowers A). The letters are whatever today's CLI prints —
+  regrade them when the engine changes, and never write a grade into copy. WHY it must be this way: real popular plugins
   mostly grade **A/B on the deterministic axis the browser can run** — the dramatic
   failures (skills don't fire, descriptions collide) live in the **model-gated
   trigger-rate tier the browser CAN'T run** — so a clean-looking default argues
