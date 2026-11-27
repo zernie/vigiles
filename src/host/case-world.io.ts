@@ -3,29 +3,39 @@
  * the user's repository that the world is built from. The host adapter of
  * core's `CaseWorldHost` port; the pure rules are `src/core/case-world.ts`.
  *
- * Nothing here writes into the user's repository, its index or its objects
- * (the P0 of this file; a test hashes the whole checkout around each call):
+ * Nothing here writes into the user's repository, its index or its objects,
+ * and nothing it names runs (the P0 of this file; a test hashes the whole
+ * checkout around each call, and plants a hook and an fsmonitor):
  *
+ * - every object read runs in a throwaway bare repository whose object store
+ *   borrows the user's through `objects/info/alternates`. The user's config,
+ *   hooks, `core.fsmonitor`, attributes, promisor remotes and replace refs
+ *   stay in a repository git is never pointed at, so none of them can run or
+ *   change a read; only `gitDir`, the object format and the partial-clone
+ *   test read the user's repository itself, and those run nothing;
  * - every git call runs without the user's global and system config
- *   (`./git-env.io.ts`), and diffs run with `--no-ext-diff --no-textconv`,
- *   so a repo's own `diff.external` or a textconv driver never runs;
- * - a working-copy file is hashed with `--no-filters` and without `-w`, so
- *   no clean filter runs and no object is written;
+ *   (`./git-env.io.ts`), and diffs run with `--no-ext-diff --no-textconv`;
+ * - a working-copy file is read by node and hashed from stdin, so no clean
+ *   filter runs and, without `-w`, no object is written;
  * - a reverse patch is checked with `apply --check --cached` against a
  *   throwaway index in a temp dir, read from `head`; `--check` writes
  *   nothing;
  * - paths are passed with `--literal-pathspecs`, so a `*` or a `:(glob)` in
- *   a file name is a name;
- * - the repo's own config can still change a diff's text or what `apply`
- *   accepts, so every option it could set is given explicitly (prefixes,
- *   `--no-relative`, `--whitespace=nowarn`).
+ *   a file name is a name.
  *
  * Patches are made with `--binary --full-index --no-renames`: a binary file
  * then reverses like any other, and a rename is a delete plus an add.
  */
 import { spawnSync } from "node:child_process";
-import { lstatSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import {
+  copyFileSync,
+  existsSync,
+  lstatSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname, join } from "node:path";
 import {
   parseFixPaths,
   parseTreeEntries,
@@ -42,23 +52,29 @@ interface Run {
   readonly out: string;
 }
 
-function run(
-  cwd: string,
-  args: readonly string[],
-  extra: Readonly<NodeJS.ProcessEnv> = {},
-): Run {
+interface RunOptions {
+  readonly env?: Readonly<NodeJS.ProcessEnv>;
+  readonly input?: string | Buffer;
+}
+
+function run(cwd: string, args: readonly string[], opts: RunOptions = {}): Run {
   const r = spawnSync("git", ["--literal-pathspecs", ...args], {
     cwd,
     encoding: "utf-8",
-    env: { ...gitEnv(), ...extra },
+    env: { ...gitEnv(), ...opts.env },
+    input: opts.input,
     maxBuffer: 256 * 1024 * 1024,
   });
   return { ok: r.status === 0, out: r.stdout };
 }
 
 /** Stdout of a git call that must succeed; throws with its args otherwise. */
-function must(cwd: string, args: readonly string[]): string {
-  const r = run(cwd, args);
+function must(
+  cwd: string,
+  args: readonly string[],
+  opts: RunOptions = {},
+): string {
+  const r = run(cwd, args, opts);
   if (!r.ok) throw new Error(`git ${args.join(" ")} failed in ${cwd}`);
   return r.out;
 }
@@ -76,6 +92,41 @@ const PATCH = [...DIFF, "--binary", "--full-index", "--no-renames"] as const;
 
 function gitDir(top: string): string {
   return must(top, ["rev-parse", "--absolute-git-dir"]).trim();
+}
+
+/**
+ * `fn` run in a throwaway bare repository that reads `top`'s objects, removed
+ * after. It shares the object format and the shallow list (so a missing
+ * parent is still missing, not a traversal error), and nothing else.
+ */
+function withIsolated<T>(top: string, fn: (iso: string) => T): T {
+  const dir = makeTmpDir("case-read");
+  try {
+    return fn(initIsolated(top, join(dir, "read.git")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+/** A bare repository at `iso` with `top`'s object format, objects and shallow list. */
+function initIsolated(top: string, iso: string): string {
+  const format = must(top, ["rev-parse", "--show-object-format"]).trim();
+  must(dirname(iso), [
+    "init",
+    "-q",
+    "--bare",
+    `--object-format=${format}`,
+    iso,
+  ]);
+  const common = must(top, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir",
+  ]).trim();
+  writeFileSync(join(iso, "objects/info/alternates"), `${common}/objects\n`);
+  const shallow = join(common, "shallow");
+  if (existsSync(shallow)) copyFileSync(shallow, join(iso, "shallow"));
+  return iso;
 }
 
 /**
@@ -107,13 +158,15 @@ function isPartialClone(top: string): boolean {
  * history.
  */
 function parents(top: string, commit: string): readonly string[] | undefined {
-  const r = run(top, ["cat-file", "commit", commit]);
-  if (!r.ok) return undefined;
-  const ps = headerParents(r.out);
-  // A parent missing from a shallow clone: the fix cannot be diffed.
-  return ps.every((p) => run(top, ["cat-file", "-e", `${p}^{commit}`]).ok)
-    ? ps
-    : undefined;
+  return withIsolated(top, (iso) => {
+    const r = run(iso, ["cat-file", "commit", commit]);
+    if (!r.ok) return undefined;
+    const ps = headerParents(r.out);
+    // A parent missing from a shallow clone: the fix cannot be diffed.
+    return ps.every((p) => run(iso, ["cat-file", "-e", `${p}^{commit}`]).ok)
+      ? ps
+      : undefined;
+  });
 }
 
 /** The `parent <id>` lines of a commit object's header (git's object format, ended by a blank line). */
@@ -126,11 +179,14 @@ function headerParents(object: string): readonly string[] {
 }
 
 function isAncestor(top: string, ancestor: string, of: string): boolean {
-  return run(top, ["merge-base", "--is-ancestor", ancestor, of]).ok;
+  return withIsolated(
+    top,
+    (iso) => run(iso, ["merge-base", "--is-ancestor", ancestor, of]).ok,
+  );
 }
 
 function fixPaths(top: string, commit: string): readonly FixPath[] {
-  const z = must(top, [
+  const args = [
     "diff",
     ...DIFF,
     "--no-renames",
@@ -138,19 +194,23 @@ function fixPaths(top: string, commit: string): readonly FixPath[] {
     "-z",
     `${commit}^`,
     commit,
-  ]);
-  return parseFixPaths(z);
+  ];
+  return parseFixPaths(withIsolated(top, (iso) => must(iso, args)));
 }
 
 function treeEntries(top: string, sha: string): readonly TreeEntry[] {
-  return parseTreeEntries(must(top, ["ls-tree", "-r", "-z", sha]));
+  const z = withIsolated(top, (iso) => must(iso, ["ls-tree", "-r", "-z", sha]));
+  return parseTreeEntries(z);
 }
 
 function workingBlob(top: string, path: string): string | undefined {
   const full = join(top, path);
   if (lstatSync(full, { throwIfNoEntry: false })?.isFile() !== true)
     return undefined;
-  const r = run(top, ["hash-object", "--no-filters", "--", path]);
+  const input = readFileSync(full);
+  const r = withIsolated(top, (iso) =>
+    run(iso, ["hash-object", "--no-filters", "--stdin"], { input }),
+  );
   return r.ok ? r.out.trim() : undefined;
 }
 
@@ -166,50 +226,50 @@ function revertPatches(
     readonly paths: readonly string[];
   },
 ): RevertPatches {
-  return withHeadIndex(top, at.head, (index) => {
-    const patches = at.paths.map((path) => {
-      const patch = reverseOf(top, at.commit, path);
-      return { path, patch, applies: checks(top, index, patch) };
-    });
-    return {
-      patch: patches
-        .filter((p) => p.applies)
-        .map((p) => p.patch)
-        .join(""),
-      failed: patches.filter((p) => !p.applies).map((p) => p.path),
-    };
-  });
+  return withIsolated(top, (iso) =>
+    withHeadIndex(iso, at.head, (index) => {
+      const patches = at.paths.map((path) => {
+        const patch = reverseOf(iso, at.commit, path);
+        return { path, patch, applies: checks(iso, index, patch) };
+      });
+      return {
+        patch: patches
+          .filter((p) => p.applies)
+          .map((p) => p.patch)
+          .join(""),
+        failed: patches.filter((p) => !p.applies).map((p) => p.path),
+      };
+    }),
+  );
 }
 
 /** The fix's own change to `path`, reversed. */
-function reverseOf(top: string, commit: string, path: string): string {
-  return must(top, ["diff", ...PATCH, commit, `${commit}^`, "--", path]);
+function reverseOf(iso: string, commit: string, path: string): string {
+  return must(iso, ["diff", ...PATCH, commit, `${commit}^`, "--", path]);
 }
 
 /** An index of `head` in a temp dir, removed after `fn`; the repo's own index is never read or written. */
 function withHeadIndex<T>(
-  top: string,
+  iso: string,
   head: string,
   fn: (index: string) => T,
 ): T {
   const dir = makeTmpDir("case-index");
   try {
     const index = join(dir, "index");
-    const r = run(top, ["read-tree", head], { GIT_INDEX_FILE: index });
-    if (!r.ok) throw new Error(`git read-tree ${head} failed in ${top}`);
+    must(iso, ["read-tree", head], { env: { GIT_INDEX_FILE: index } });
     return fn(index);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 }
 
-function checks(top: string, index: string, patch: string): boolean {
-  const r = spawnSync(
-    "git",
+function checks(iso: string, index: string, patch: string): boolean {
+  return run(
+    iso,
     ["apply", "--check", "--cached", "--binary", "--whitespace=nowarn", "-"],
-    { cwd: top, env: { ...gitEnv(), GIT_INDEX_FILE: index }, input: patch },
-  );
-  return r.status === 0;
+    { env: { GIT_INDEX_FILE: index }, input: patch },
+  ).ok;
 }
 
 /** A diff from `head` to the empty tree over `paths`: their deletion. */
@@ -219,19 +279,17 @@ function removalPatch(
   paths: readonly string[],
 ): string {
   if (paths.length === 0) return "";
-  const empty = emptyTree(top);
-  return must(top, ["diff", ...PATCH, head, empty, "--", ...paths]);
+  return withIsolated(top, (iso) => {
+    const empty = emptyTree(iso);
+    return must(iso, ["diff", ...PATCH, head, empty, "--", ...paths]);
+  });
 }
 
 /** The empty tree's id in this repository's hash, computed, never written. */
-function emptyTree(top: string): string {
-  const r = spawnSync("git", ["hash-object", "-t", "tree", "--stdin"], {
-    cwd: top,
-    encoding: "utf-8",
-    env: gitEnv(),
+function emptyTree(iso: string): string {
+  return must(iso, ["hash-object", "-t", "tree", "--stdin"], {
     input: "",
-  });
-  return r.stdout.trim();
+  }).trim();
 }
 
 /** The host adapter of core's `CaseWorldHost` port. */

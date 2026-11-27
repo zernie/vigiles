@@ -221,36 +221,54 @@ describe("caseWorldHost: the world patch", () => {
   });
 });
 
-/** An executable hook that leaves `marker` if git ever runs it. */
-function plantHook(dir: string, marker: string): void {
-  write(dir, "post-index-change", `#!/bin/sh\ntouch '${marker}'\n`);
-  chmodSync(join(dir, "post-index-change"), 0o755);
+/** An executable that leaves `marker` and fails, if git ever runs it. */
+function plantScript(path: string, marker: string): string {
+  write(path, "", `#!/bin/sh\ntouch '${marker}'\nexit 1\n`);
+  chmodSync(path, 0o755);
+  return path;
 }
 
-describe("caseWorldHost: the user's hooks", () => {
-  const revert = (f: Fixture) =>
-    host.revertPatches(f.repo, {
-      commit: f.fix,
-      head: f.head,
-      paths: ["src/add.mjs"],
-    });
+/** Every read the adapter makes, each on the fixture. */
+function everyRead(f: Fixture): void {
+  host.parents(f.repo, f.fix);
+  host.isAncestor(f.repo, f.fix, f.head);
+  host.fixPaths(f.repo, f.fix);
+  host.treeEntries(f.repo, f.head);
+  host.workingBlob(f.repo, "README.md");
+  host.removalPatch(f.repo, f.head, ["ISSUE.md"]);
+  const at = { commit: f.fix, head: f.head, paths: ["src/add.mjs"] };
+  expect(host.revertPatches(f.repo, at).failed).toEqual([]);
+}
 
+describe("caseWorldHost: code the user's repository names", () => {
   it.each([
-    ["in .git/hooks", (f: Fixture) => join(f.repo, ".git/hooks")],
     [
-      "under core.hooksPath",
+      "a hook in .git/hooks",
       (f: Fixture) => {
-        const dir = tmp("case-world-hooks");
-        git(f.repo, "config", "core.hooksPath", dir);
-        return dir;
+        plantScript(join(f.repo, ".git/hooks/post-index-change"), f.marker);
       },
     ],
-  ])("runs no hook %s while it checks the patch", (_where, hooksDir) => {
+    [
+      "a hook under core.hooksPath",
+      (f: Fixture) => {
+        const dir = tmp("case-world-hooks");
+        plantScript(join(dir, "post-index-change"), f.marker);
+        git(f.repo, "config", "core.hooksPath", dir);
+      },
+    ],
+    [
+      "a core.fsmonitor command",
+      (f: Fixture) => {
+        const script = join(tmp("case-world-fsmonitor"), "monitor.sh");
+        git(f.repo, "config", "core.fsmonitor", plantScript(script, f.marker));
+      },
+    ],
+  ])("runs no %s on any read", (_what, plant) => {
     const f = fixture();
-    plantHook(hooksDir(f), f.marker);
+    plant(f);
     const before = treeHash(f.repo);
-    expect(revert(f).failed).toEqual([]);
-    // Guards: the temp index is written, and post-index-change fires on an index write.
+    everyRead(f);
+    // Guards: the throwaway index is written, and an index write fires these.
     expect(existsSync(f.marker)).toBe(false);
     expect(treeHash(f.repo)).toBe(before);
   });
