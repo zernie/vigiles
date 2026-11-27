@@ -17,17 +17,24 @@ const TEST_OUTPUT = `  ✗ expected the hook to block PreToolUse, but it allowed
 // prompts, fired, trials).
 const EVAL_SNIPPET = `import { defineEval, check } from "vigiles";
 
-const pluginDir = "./plugins/superpowers";
-
+// Asked for test-first work, does
+// the model pick the TDD skill?
 export default defineEval({
   measureTriggerRate: {
-    pluginDir,
+    pluginDir: "./plugins/superpowers",
+    // Skill bodies become stubs: this
+    // scores the CHOICE, not the work.
     stubSkillBodies: true,
+    // Ten phrasings of one request.
     prompts: [
       "Implement a stack class in stack.js. Use TDD.",
-      // ...9 more phrasings
+      "Fix the off-by-one in paginate(); add a regression test first.",
+      // ...8 more
     ],
+    // A hit: this skill was invoked.
     fired: check.skill("superpowers:test-driven-development"),
+    // 10 prompts × 3 = 30 runs. The
+    // report lists each missed prompt.
     trials: 3,
   },
 });`;
