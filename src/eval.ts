@@ -198,6 +198,7 @@ import {
   shapeEvalSpec,
   type EvalShape,
 } from "./eval-spec-shape.js";
+import { runEffect } from "./effect-run.js";
 
 /**
  * The harness the eval tier spawns. ONE binding on purpose: the paid tier is
@@ -1777,32 +1778,6 @@ export async function runPool<T, R>(
       { concurrency: Math.max(1, concurrency) },
     ),
   );
-}
-
-type EffectModule = typeof import("effect");
-
-/**
- * Run the Effect program `build` returns; `signal`, when given, interrupts it.
- * Rejects with the program's own error, not Effect's wrapper: callers match on it.
- *
- * `effect` loads here, by a dynamic import kept on purpose: it is ESM-only, and
- * the CommonJS copy this package ships for Jest is loaded by Jest's own module
- * system, which cannot `require` ESM. Loading it on first use also keeps it out
- * of every import that never runs an eval.
- */
-async function runEffect<A>(
-  build: (
-    fx: Readonly<EffectModule>,
-  ) => Readonly<import("effect").Effect.Effect<A, unknown>>,
-  signal?: Readonly<AbortSignal>,
-): Promise<A> {
-  const fx = await import("effect");
-  const exit = await fx.Effect.runPromiseExit(
-    build(fx),
-    signal === undefined ? undefined : { signal },
-  );
-  if (fx.Exit.isSuccess(exit)) return exit.value;
-  throw fx.Cause.squash(exit.cause);
 }
 
 /** One unit of work: a single trial of a single arm. */

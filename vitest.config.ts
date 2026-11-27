@@ -87,6 +87,7 @@ export default defineConfig({
         "src/host/git-env.io.ts",
         "src/host/regression-case.io.ts",
         "src/core/case-scoring.ts",
+        "src/eval-regression-case.ts",
         "src/eval-check-report.ts",
         "src/eval-rate-gate.ts",
         "src/eval-spec-shape.ts",
