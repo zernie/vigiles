@@ -175,3 +175,18 @@ export function refuseOutsideRunner(what: string): void {
   if (state === undefined) throw new Error(outsideRunnerRefusal(what));
   if (state.loading) throw new Error(evalLoadRefusal(what));
 }
+
+/**
+ * Refuse a user command (a regression case's build or test) unless a runner
+ * is active and no eval file is loading: the sibling of
+ * {@link refuseOutsideRunner}, worded for commands. Call it outside any `try`
+ * that swallows.
+ */
+export function refuseCommandOutsideRunner(what: string): void {
+  const state = current();
+  if (state === undefined || state.loading)
+    throw new Error(
+      `vigiles refused to run ${what}: ${state === undefined ? "outside a vigiles runner" : "while an eval file was being IMPORTED"}.\n` +
+        `  A regression case runs your build and tests only inside \`npx vigiles eval <file>\` or \`paid_runEval\`, never on import.`,
+    );
+}
