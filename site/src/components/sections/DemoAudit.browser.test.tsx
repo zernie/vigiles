@@ -160,6 +160,19 @@ describe("DemoAudit — the model-gated row invents no numbers", () => {
   });
 });
 
+describe("DemoAudit — the page keeps its own title", () => {
+  it("an embedded example report never renames the browser tab", async () => {
+    document.title = "vigiles — page title";
+    render(<DemoAudit />);
+    await screen.findByText("Show everything");
+    // Guards: the full report under "Show everything" mounts on page load, and
+    // a full report sets document.title to its grade unless told not to — the
+    // tab once read "vigiles — C (76) · claude-code-templates".
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.title).toBe("vigiles — page title");
+  });
+});
+
 describe("DemoAudit — the in-frame edge states", () => {
   const cases: {
     name: string;

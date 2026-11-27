@@ -604,6 +604,7 @@ export function DemoAudit({
               <div className="mt-6">
                 <Report
                   variant="full"
+                  ownsTitle={false}
                   showFooter={false}
                   data={frameReport(frameView)}
                 />
