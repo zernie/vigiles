@@ -184,6 +184,7 @@ describe("carryRows over a directory a file replaces", () => {
     const dest = tmp("case-dest");
     write(dest, "src/config/arm.js", "arm-owned\n");
     write(dest, "src/gone/old.js", "old\n");
+    mkdirSync(join(dest, "src/gone/empty/deeper"), { recursive: true });
     const file = { kind: "file", mode: "100644", blob } as const;
     const refused = carryRows(
       gitDir,
@@ -199,6 +200,7 @@ describe("carryRows over a directory a file replaces", () => {
       "arm-owned\n",
     );
     expect(refused).toBe(1);
+    // Guards: directories left empty under a replaced one are pruned like git does, at any depth.
     expect(readFileSync(join(dest, "src/gone"), "utf-8")).toBe("file now\n");
   });
 });

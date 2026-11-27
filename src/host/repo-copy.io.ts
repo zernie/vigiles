@@ -26,6 +26,7 @@
 import { execFileSync, spawnSync } from "node:child_process";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readFileSync,
   realpathSync,
@@ -163,11 +164,7 @@ export function recordTrialBase(
   const shadow = [`--git-dir=${at.gitDir}`, `--work-tree=${at.cwd}`];
   git(at.cwd, [...shadow, "read-tree", template.tree]);
   git(at.cwd, [...shadow, "add", "-A"]);
-  const staged = at.armPaths.map((p) => physicalPath(at.cwd, p));
-  if (staged.length > 0) git(at.cwd, [...shadow, "add", "-f", "--", ...staged]);
-  const armPaths = [
-    ...new Set([...staged, ...staged.map((p) => canonicalPath(at.cwd, p))]),
-  ];
+  const armPaths = stageArmPaths(shadow, at.cwd, at.armPaths);
   const baseTree = git(at.cwd, [...shadow, "write-tree"]).trim();
   recordIgnored(at.gitDir, shadow, at.cwd);
   return { baseTree, armPaths };
@@ -224,7 +221,9 @@ function ignoredNew(
  * check has already kept every such link inside the trial).
  */
 function physicalPath(cwd: string, path: string): string {
-  const parent = realpathSync(join(cwd, dirname(path)));
+  const dir = join(cwd, dirname(path));
+  if (!existsSync(dir)) return path;
+  const parent = realpathSync(dir);
   return relative(realpathSync(cwd), join(parent, basename(path)));
 }
 
@@ -237,6 +236,27 @@ function canonicalPath(cwd: string, path: string): string {
   const full = join(cwd, path);
   if (!existsSync(full)) return path;
   return relative(realpathSync(cwd), realpathSync(full));
+}
+
+/**
+ * Stage the arm-owned paths even where `.gitignore` hides them, and return
+ * each as staged and where writing it lands. A path the arm deleted is
+ * already staged as deleted by `add -A`, so only what still exists is added.
+ */
+function stageArmPaths(
+  shadow: readonly string[],
+  cwd: string,
+  paths: readonly string[],
+): readonly string[] {
+  const staged = paths.map((p) => physicalPath(cwd, p));
+  const present = staged.filter((p) => entryAt(join(cwd, p)));
+  if (present.length > 0) git(cwd, [...shadow, "add", "-f", "--", ...present]);
+  return [...new Set([...staged, ...staged.map((p) => canonicalPath(cwd, p))])];
+}
+
+/** Something sits at `path`, a dangling link included. */
+function entryAt(path: string): boolean {
+  return lstatSync(path, { throwIfNoEntry: false }) !== undefined;
 }
 
 /** A bare git dir that reads the template's objects through `alternates`. */

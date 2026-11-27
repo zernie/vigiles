@@ -202,6 +202,20 @@ describe("recordTrialBase on an arm file that is itself a link", () => {
       ["arm.js", "config/notes.js"],
     );
   });
+
+  it("keeps an arm path the arm deleted, since nothing is there to resolve", () => {
+    const src = sourceRepo({ "gone.js": "base\n", "old/x.js": "base\n" });
+    const trial = startTrial(
+      src,
+      (cwd) => {
+        rmSync(join(cwd, "gone.js"));
+        rmSync(join(cwd, "old"), { recursive: true });
+      },
+      ["gone.js", "old/x.js"],
+    );
+    // Guards: an arm that deletes a file, or its whole directory, still owns that path instead of crashing the trial.
+    expect(trial.view.armPaths).toEqual(["gone.js", "old/x.js"]);
+  });
 });
 
 describe("workspace git against the caller's git environment", () => {
