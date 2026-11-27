@@ -720,6 +720,15 @@ export default [
     files: ["src/**/*.ts"],
     ignores: [CLI_ROOT, IO_FILES, "src/**/*.test.ts"],
   }),
+  // The terminal is the machine too: `ioGlobals` already keeps `process` out of
+  // this scope, and `console.*` reaches the same stdout/stderr by another door
+  // (#607). Old hits are grandfathered in `eslint-suppressions.json`, which fails
+  // the lint when one stops occurring, so the list only shrinks.
+  {
+    files: ["src/**/*.ts"],
+    ignores: [CLI_ROOT, IO_FILES, "src/**/*.test.ts"],
+    rules: { "no-console": "error" },
+  },
   ...harnessFences,
   ...ruleIdFences,
   groupNameFence,
