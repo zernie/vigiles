@@ -32,7 +32,6 @@ import {
   runPool,
   killOnAbort,
   refuseCancelled,
-  isRateLimited,
   measureTriggerRateWith,
   measureTriggerRate,
   packageSkillsDir,
@@ -2617,36 +2616,6 @@ test("runPool maps with bounded concurrency, preserving order", async () => {
   assert.equal(maxInFlight, 2); // never exceeded, did reach the limit
 });
 
-test("isRateLimited detects rate-limit / overload in either stream", () => {
-  assert.ok(
-    isRateLimited({ code: 1, stdout: "", stderr: "Error: 429 happened" }),
-  );
-  assert.ok(isRateLimited({ code: 1, stdout: "overloaded_error" }));
-  assert.ok(isRateLimited({ code: 1, stdout: "rate limit exceeded" }));
-  assert.ok(isRateLimited({ code: 1, stdout: "rate-limited, backing off" }));
-  assert.ok(!isRateLimited({ code: 0, stdout: "all good" }));
-});
-
-test("isRateLimited ignores the CLI's informational rate_limit_event telemetry", () => {
-  // Verbatim from a real `claude -p --output-format stream-json` run, 2026-08-13
-  // (examples/experimental-emit/records/rate-limit-event.json). The CLI emits
-  // this on EVERY run. `/rate.?limit/` matched it, because `.` matches `_`, so
-  // every eval trial retried `retries + 1` times and only the last attempt's cost
-  // was ever counted against `maxCostUsd` — measured at 8 model runs for 2 trials.
-  const telemetry =
-    '{"type":"rate_limit_event","rate_limit_info":{"status":"allowed",' +
-    '"resetsAt":1786648200,"rateLimitType":"five_hour","overageStatus":"rejected",' +
-    '"overageDisabledReason":"org_level_disabled","isUsingOverage":false}}';
-  assert.ok(!isRateLimited({ code: 0, stdout: telemetry }));
-  // A real limit still retries — the API reports it under a different name.
-  assert.ok(
-    isRateLimited({
-      code: 1,
-      stdout: `${telemetry}\n{"error":{"type":"rate_limit_error"}}`,
-    }),
-  );
-});
-
 test("runEvalWith retries a rate-limited run, then succeeds", async () => {
   let calls = 0;
   const runner = (): Promise<{ code: number; stdout: string }> => {
@@ -2671,6 +2640,40 @@ test("runEvalWith retries a rate-limited run, then succeeds", async () => {
   );
   assert.equal(calls, 2); // retried once
   assert.equal(report.arms.only?.metrics.turns, 1);
+});
+
+test("runEvalWith keeps a finished run that read a file about rate limits", async () => {
+  let calls = 0;
+  const read = JSON.stringify({
+    type: "user",
+    message: {
+      content: [
+        {
+          type: "tool_result",
+          content: "if (status === 429) retry(); // overloaded",
+        },
+      ],
+    },
+  });
+  const runner = (): Promise<{ code: number; stdout: string }> => {
+    calls++;
+    const done = JSON.stringify({ type: "result", num_turns: 1, result: "ok" });
+    return Promise.resolve({ code: 0, stdout: `${read}\n${done}` });
+  };
+  await runEvalWith(
+    {
+      env: INHERIT,
+      arms: { only: {} },
+      task: "t",
+      trials: 1,
+      spacingSec: 0,
+      retryBackoffMs: 0,
+      measure: () => ({ ok: true }),
+    },
+    runner,
+  );
+  // Guards: the attempt is scored, not discarded and run again.
+  assert.equal(calls, 1);
 });
 
 test("runEvalWith gives up after rateLimitRetries=0 (no retry)", async () => {

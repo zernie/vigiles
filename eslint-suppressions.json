@@ -5266,7 +5266,7 @@
       "count": 15
     },
     "functional/prefer-immutable-types": {
-      "count": 36
+      "count": 35
     },
     "local/no-harness-names": {
       "count": 18

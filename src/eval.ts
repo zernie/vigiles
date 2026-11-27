@@ -170,6 +170,8 @@ import {
   seedTrial,
   type PreparedWorkspace,
 } from "./eval-workspace.js";
+import { isRateLimited } from "./eval-rate-limit.js";
+export { isRateLimited };
 import { makeTmpDir } from "./core/tmp-root.js";
 import type { ContextEvidence } from "./core/context-evidence.js";
 import { startContextCapture } from "./eval-context.js";
@@ -1746,32 +1748,6 @@ function unansweredCalls(
       stubs.map((s) => s.name),
     ),
   ].filter((c) => isUnanswered(c.outcome));
-}
-
-// A signal in the captured streams that the model call was rate-limited /
-// overloaded — worth a backoff + retry rather than counting as a real sample.
-//
-// 🔴 The separator is `[ -]?`, NOT `.?`, and that is load-bearing. Claude Code's
-// stream-json emits an INFORMATIONAL `{"type":"rate_limit_event","rate_limit_info":
-// {"status":"allowed",…}}` line on EVERY run (captured verbatim in
-// examples/experimental-emit/records/rate-limit-event.json). `rate.?limit` matched
-// `rate_limit_event`, because `.` matches `_` — so every trial looked rate-limited,
-// every trial was retried `retries + 1` = 4 times, and only the LAST attempt's cost
-// reached `maxCostUsd`. Measured 2026-08-13: 2 trials → 8 model runs, a budget cap
-// of $0.60 crossed at roughly $3, and the run reported one trial. `[ -]?` cannot
-// match `_`, so the telemetry line is no longer a match; a REAL limit still is,
-// because the API reports it as `rate_limit_error` / 429 / "overloaded".
-//
-// Known boundary, stated rather than hidden: a `rate_limit_event` whose `status`
-// is a rejection is no longer a match either. It never was one on its merits — the
-// old pattern fired on the event's NAME regardless of status, so status-aware
-// detection has never existed here.
-const RATE_LIMIT_RE =
-  /rate[ -]?limit(?:ed)?\b|rate_limit_error|\b429\b|overloaded|too many requests/i;
-
-/** Whether a run's captured output looks like a rate-limit / overload. Pure. */
-export function isRateLimited(out: RunOut): boolean {
-  return RATE_LIMIT_RE.test(`${out.stderr ?? ""}\n${out.stdout}`);
 }
 
 /** A runner that retries rate-limited attempts, running `beforeAttempt` before each one. */
