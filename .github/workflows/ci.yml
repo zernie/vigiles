@@ -312,9 +312,8 @@ jobs:
           # Sanity-check that bwrap can now actually namespace:
           bwrap --unshare-all --ro-bind / / true && echo "bwrap confinement: OK" || echo "bwrap confinement: STILL BLOCKED (tests will skip)"
 
-      - name: Build
-        run: npm run build
-
+      # No separate Build step: `npm run coverage` is `npm run build && vitest run
+      # --coverage`, so a Build step here compiled everything twice (~20 s, #603).
       # This is the whole job now, and it used to be about half of it. Measured
       # on run 31631013102 (ubuntu-latest), `test` was CI's SOLE long pole at
       # 554 s while check/site/e2e/harness each finished inside 2 min on their
