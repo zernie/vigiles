@@ -554,6 +554,25 @@ function spelled(
 }
 
 /**
+ * The spellings half of a disaster set, generated only when the caller did not
+ * pass its own: proving every spelling of the stock catalog costs about a
+ * second, and a caller with its own list (verify-plugin-guards passes none)
+ * would pay it for a value it drops.
+ */
+function spellingsFor(
+  opts: DisasterCasesOptions,
+  events: DisasterCases["events"],
+): Pick<DisasterCases, "unproven"> & {
+  readonly proven: DisasterCases["spellings"];
+} {
+  if (opts.spellings !== undefined)
+    return { proven: opts.spellings, unproven: [] };
+  if (opts.events === undefined)
+    return { proven: alternateSpellings(events), unproven: [] };
+  return spellingCases(events);
+}
+
+/**
  * The disaster case set: the selected disasters, their other spellings, and
  * their harmless look-alikes — as a value {@link runGuardrail} runs.
  *
@@ -575,16 +594,13 @@ function spelled(
  */
 export function disasters(opts: DisasterCasesOptions = {}): DisasterCases {
   const events = selectEvents(opts);
-  const generated =
-    opts.events === undefined
-      ? { proven: alternateSpellings(events), unproven: [] }
-      : spellingCases(events);
+  const spellings = spellingsFor(opts, events);
   return {
     kind: "disasters",
     events,
-    spellings: opts.spellings ?? generated.proven,
+    spellings: spellings.proven,
     harmless: opts.harmless ?? harmlessTwins(events),
-    unproven: opts.spellings === undefined ? generated.unproven : [],
+    unproven: spellings.unproven,
   };
 }
 

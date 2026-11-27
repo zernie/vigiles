@@ -312,9 +312,8 @@ jobs:
           # Sanity-check that bwrap can now actually namespace:
           bwrap --unshare-all --ro-bind / / true && echo "bwrap confinement: OK" || echo "bwrap confinement: STILL BLOCKED (tests will skip)"
 
-      - name: Build
-        run: npm run build
-
+      # No separate Build step: `npm run coverage` is `npm run build && vitest run
+      # --coverage`, so a Build step here compiled everything twice (~20 s, #603).
       # This is the whole job now, and it used to be about half of it. Measured
       # on run 31631013102 (ubuntu-latest), `test` was CI's SOLE long pole at
       # 554 s while check/site/e2e/harness each finished inside 2 min on their
@@ -661,8 +660,9 @@ jobs:
       # src/package-install-scripts.e2e.test.ts installs the packed tarball with npm, pnpm and
       # yarn 4 (corepack, default Plug'n'Play) and, with VIGILES_INSTALL_E2E_STRICT=1 (set on this
       # job only), FAILS when a manager does not launch — a skipped pnpm must never read as a
-      # passed one (#257 is a pnpm-only failure). Not keyed on CI=true: the `test` job runs the
-      # same file under coverage with no pnpm installed.
+      # passed one (#257 is a pnpm-only failure). Not keyed on CI=true, so a local run without
+      # pnpm still skips loudly. This job is the e2e tier's only CI home: `npm run coverage`
+      # (the `test` job) runs the unit, integration and runners projects, not e2e (#603).
       # The image has npm and a bundled corepack but no pnpm, so both are provided here, pinned.
       # Same Node as harness-tier below, so its setup-node resolves the same toolcache directory
       # and these global installs stay first on PATH.

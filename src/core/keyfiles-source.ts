@@ -9,7 +9,8 @@
  *
  * Pure: the file walk that feeds it is `src/deprecated-key-files.ts`.
  */
-import ts from "typescript";
+import type TS from "typescript";
+import { ts } from "./typescript-lazy.js";
 
 import { measureKeyFiles, type KeyFilesUsage } from "./keyfiles.js";
 
@@ -21,7 +22,7 @@ const UNMEASURED = (entries: number): KeyFilesUsage => ({
 });
 
 /** A literal key or value: `"a"`, `'a'`, `` `a` `` (and, for a key only, `a`). */
-function literalText(node: ts.Node): string | undefined {
+function literalText(node: TS.Node): string | undefined {
   return ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)
     ? node.text
     : undefined;
@@ -29,7 +30,7 @@ function literalText(node: ts.Node): string | undefined {
 
 /** One `path: "description"` pair, or `undefined` when either side is not literal. */
 function literalEntry(
-  prop: Readonly<ts.ObjectLiteralElementLike>,
+  prop: Readonly<TS.ObjectLiteralElementLike>,
 ): readonly [string, string] | undefined {
   if (!ts.isPropertyAssignment(prop)) return undefined;
   const key = ts.isIdentifier(prop.name)
@@ -45,7 +46,7 @@ function literalEntry(
  * compiles to a line), its size is not guessed.
  */
 function measureLiteral(
-  obj: Readonly<ts.ObjectLiteralExpression>,
+  obj: Readonly<TS.ObjectLiteralExpression>,
 ): KeyFilesUsage {
   const pairs = obj.properties.filter(ts.isPropertyAssignment);
   const literal = obj.properties
@@ -57,7 +58,7 @@ function measureLiteral(
 }
 
 /** The usage a node declares, if it is a `keyFiles` property. */
-function usageAt(node: ts.Node): KeyFilesUsage | undefined {
+function usageAt(node: TS.Node): KeyFilesUsage | undefined {
   if (ts.isShorthandPropertyAssignment(node))
     return node.name.text === "keyFiles" ? UNMEASURED(0) : undefined;
   if (!ts.isPropertyAssignment(node)) return undefined;
@@ -71,7 +72,7 @@ function usageAt(node: ts.Node): KeyFilesUsage | undefined {
 }
 
 /** Depth-first: the first `keyFiles` property under `node`. */
-function firstUsage(node: ts.Node): KeyFilesUsage | undefined {
+function firstUsage(node: TS.Node): KeyFilesUsage | undefined {
   return (
     usageAt(node) ??
     ts.forEachChild(node, (child) => firstUsage(child)) ??
