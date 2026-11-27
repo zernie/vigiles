@@ -28,6 +28,9 @@ const skill = "vigiles:test-harness";
 
 export default defineEval({
   measureTriggerRate: {
+    // Named so `vigiles eval --update` writes a committed lock; the landing
+    // site renders its evals section from that lock (site/scripts/gen-eval-fixture.mjs).
+    name: "vigiles-test-harness-trigger-rate",
     pluginDir,
     stubSkillBodies: true, // trigger = frontmatter only; stub the body to stop at selection
     // SHOULD fire — harness-testing requests in varied phrasings (>= 10, the
