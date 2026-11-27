@@ -691,10 +691,16 @@ type ConfigLoader = (ruleName: string) => ConfigEnabledStatus;
  * Memoize a per-project load by `basePath`; a load that throws is cached as
  * null, so a missing tool is asked once per run, not once per reference.
  */
+/** Every per-project memo below, so one run's reads can be dropped before the next. */
+// eslint-disable-next-line functional/prefer-immutable-types -- a registry filled at module load.
+const BASE_PATH_MEMOS: Map<string, unknown>[] = [];
+
 function memoByBasePath<T>(
   load: (basePath: string) => T | null,
 ): (basePath: string) => T | null {
   const cache = new Map<string, T | null>();
+  // eslint-disable-next-line functional/immutable-data -- registered once, at module load.
+  BASE_PATH_MEMOS.push(cache);
   return (basePath: string): T | null => {
     if (!cache.has(basePath)) {
       try {
@@ -1470,6 +1476,19 @@ function getCedarPolicies(
 
 /** @internal */ export function clearCedarCache(): void {
   CEDAR_POLICY_CACHE.clear();
+}
+
+/**
+ * Drop every linter config and policy this process has read, so the next
+ * in-process CLI run reads the project afresh, as a new process would.
+ * @internal
+ */
+export function clearLinterCaches(): void {
+  BASE_PATH_MEMOS.forEach((m) => {
+    // eslint-disable-next-line functional/immutable-data -- emptying a cache is its purpose.
+    m.clear();
+  });
+  clearCedarCache();
 }
 
 /** @internal */ function tryCedarPolicy(

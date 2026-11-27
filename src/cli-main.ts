@@ -424,7 +424,7 @@ import {
   evaluateSkillPreToolUse,
   gateLabel,
 } from "./adapters/claude-code/skill-runtime.js";
-import { checkLinterRule } from "./core/linters.js";
+import { checkLinterRule, clearLinterCaches } from "./core/linters.js";
 import { claudeAvailable } from "./harness-test.js";
 import {
   discoverScripts,
@@ -748,12 +748,18 @@ function compareBase(args: readonly string[], root: string): BaseAudit {
   const copy = copyBaseTree(root, decided.ref);
   if (copy.kind === "failed") return { kind: "unavailable", why: copy.why };
   try {
-    return parseBaseAudit(
-      auditCopy(copy.root, placeInRepo(root), process.argv[1] ?? ""),
-    );
+    return parseBaseAudit(auditCopy(copy.root, placeInRepo(root), ownBin()));
   } finally {
     cleanupTmpDir(copy.root);
   }
+}
+
+/**
+ * The vigiles bin beside this module. Not `process.argv[1]`: under `run(argv)` in
+ * another program (a test runner) that is the host's entry, not vigiles.
+ */
+function ownBin(): string {
+  return resolve(import.meta.dirname, "cli.js");
 }
 
 type AnySpec = ClaudeSpec | SkillSpec | AgentSpec | Railway;
@@ -10221,6 +10227,8 @@ function exitCodeOf(value: typeof process.exitCode): ExitCode {
 function endRunState(): void {
   dropHost();
   lastSpecLoadFailure = null;
+  // A config read in this run must not answer the next one (a fresh bin reads it again).
+  clearLinterCaches();
 }
 
 /**

@@ -120,13 +120,13 @@ function enterCapture(env: Env): {
   };
 }
 
+type Run = (argv: readonly string[]) => Promise<unknown>;
+
 /**
  * Load `run` from the build. Read as `unknown` and checked, because a dynamic
  * import of a path is untyped and the host imports no app module.
  */
-async function loadRun(): Promise<
-  (argv: readonly string[]) => Promise<unknown>
-> {
+async function loadRun(): Promise<Run> {
   const mod: unknown = await import(BUILT_MAIN);
   const run: unknown = Reflect.get(Object(mod), "run");
   if (typeof run !== "function")
@@ -136,6 +136,26 @@ async function loadRun(): Promise<
     return end;
   };
 }
+
+/**
+ * Load the CLI once and keep what loading it did to `PATH` (the linter module
+ * adds tool directories at import) for the runs alone: the caller's `PATH` is put
+ * back, and each run sees the one a fresh bin would have.
+ */
+async function loadOnce(): Promise<{
+  readonly run: Run;
+  readonly path: string | undefined;
+}> {
+  const before = process.env.PATH;
+  try {
+    const run = await loadRun();
+    return { run, path: process.env.PATH };
+  } finally {
+    setEnv("PATH", before);
+  }
+}
+
+const LOADED = loadOnce();
 
 /** Read `run`'s `{ kind, code }` into the result's two fields. */
 function endOf(value: unknown): {
@@ -170,8 +190,8 @@ export async function runCliInProcess(
   argv: readonly string[],
   opts: { readonly cwd?: string; readonly env?: Env } = {},
 ): Promise<CliResult> {
-  const run = await loadRun();
-  const { out, err, undo } = enterCapture(opts.env ?? {});
+  const { run, path } = await LOADED;
+  const { out, err, undo } = enterCapture({ PATH: path, ...opts.env });
   try {
     if (opts.cwd !== undefined) process.chdir(opts.cwd);
     const ended = await run(argv).then(endOf, (e: unknown) =>
