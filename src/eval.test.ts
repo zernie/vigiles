@@ -317,6 +317,38 @@ test("measureTriggerRateWith aggregates per-prompt and overall trigger rate", as
   assert.ok(formatTriggerRateReport(report).includes("trigger-rate: 67%"));
 });
 
+test("measureTriggerRateWith pauses between runs and sets, not after the last run", async () => {
+  const starts: number[] = [];
+  const runner = (): Promise<{ code: number; stdout: string }> => {
+    starts.push(performance.now());
+    return Promise.resolve({
+      code: 0,
+      stdout: JSON.stringify({ type: "result", num_turns: 1 }),
+    });
+  };
+  await measureTriggerRateWith(
+    {
+      pluginDir: "/some/plugin",
+      stubSkillBodies: false,
+      prompts: ["fire one"],
+      irrelevantPrompts: ["ignore this"],
+      minPrompts: 1,
+      minDistance: 0,
+      fired: (t) => usedTool(t, "Skill"),
+      trials: 1,
+      spacingSec: 0.4,
+    },
+    runner,
+  );
+  const done = performance.now();
+  const [first, last] = [starts[0] ?? 0, starts.at(-1) ?? 0];
+  assert.equal(starts.length, 2);
+  // Guards: the last run of the relevant set still pauses before the irrelevant set.
+  assert.ok(last - first >= 350, `gap ${String(last - first)} ms`);
+  // Guards: no pause after the final run of the measurement.
+  assert.ok(done - last < 300, `tail ${String(done - last)} ms`);
+});
+
 test("formatTriggerRateReport prints an EXPERIMENTAL caveat only when flagged", () => {
   const base = {
     rate: 0.5,
@@ -2722,6 +2754,32 @@ test("runEvalWith honors concurrency and inter-run spacing", async () => {
     runner,
   );
   assert.equal(maxInFlight, 3); // 6 units, 3 in flight at once
+});
+
+test("runEvalWith pauses between trials and not after the last one", async () => {
+  const stream = JSON.stringify({ type: "result", num_turns: 1, result: "ok" });
+  const starts: number[] = [];
+  const runner = (): Promise<{ code: number; stdout: string }> => {
+    starts.push(performance.now());
+    return Promise.resolve({ code: 0, stdout: stream });
+  };
+  await runEvalWith(
+    {
+      env: INHERIT,
+      arms: { a: {} },
+      task: "t",
+      trials: 2,
+      spacingSec: 0.4,
+      measure: () => ({ ok: true }),
+    },
+    runner,
+  );
+  const done = performance.now();
+  const [first, last] = [starts[0] ?? 0, starts.at(-1) ?? 0];
+  // Guards: the rate-limit pause still separates two consecutive trials.
+  assert.ok(last - first >= 350, `gap ${String(last - first)} ms`);
+  // Guards: no pause after the last trial (it cost the caller 4 s by default).
+  assert.ok(done - last < 300, `tail ${String(done - last)} ms`);
 });
 
 test("runEvalWith aborts when maxCostUsd is exceeded", async () => {

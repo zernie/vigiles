@@ -188,3 +188,23 @@ test("a family that cannot prove a rewrite throws by default and is counted when
   assert.deepEqual(lenient.proven, []);
   assert.deepEqual(lenient.unproven, ["git push origin main"]);
 });
+
+test("the stock spellings of a seed are built once and served frozen", () => {
+  const first = equivalentSpellings(SEED);
+  // Guards: a repeat ask is served from the memo, not rebuilt (~0.1 s per seed).
+  assert.equal(equivalentSpellings(SEED), first);
+  // Guards: a caller cannot change what the next caller is served.
+  assert.ok(Object.isFrozen(first) && Object.isFrozen(first.proven));
+  assert.throws(() => (first.proven as string[]).push("rm -rf /"));
+  assert.ok(first.proven.length > 0);
+});
+
+test("a caller's own families are never served from the stock memo", () => {
+  equivalentSpellings(SEED); // the stock entry exists
+  const bogus = [{ name: "bogus", rewrite: () => ["git push origin main"] }];
+  // Guards: the memo is keyed by seed only, so it must not answer for other families.
+  assert.deepEqual(equivalentSpellings(SEED, { families: bogus }).unproven, [
+    "git push origin main",
+  ]);
+  assert.deepEqual(equivalentSpellings(SEED, { families: [] }).proven, []);
+});

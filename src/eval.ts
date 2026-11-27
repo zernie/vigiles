@@ -2426,10 +2426,16 @@ async function runResolvedEval(
   // `concurrency` caps. Reserving each cap at start would hold the line but
   // serialize the pool behind the first trial; needs its own design.
   let stopped: "budget" | "unanswered" | undefined;
+  // Units the pool has not handed out yet. The spacing pause sits BETWEEN
+  // trials, so a trial after which no unit is left (or the run has stopped)
+  // returns at once instead of making the caller wait out one more pause.
+  // eslint-disable-next-line functional/no-let -- the pool's one shared count, set once before the pool and decremented as each unit is handed out
+  let pending = 0;
   const worker = async (
     unit: Unit,
     signal: Readonly<AbortSignal>,
   ): Promise<UnitResult> => {
+    pending -= 1;
     if (stopped !== undefined) return { armName: unit.armName, skipped: true };
     // The run's own cap: the budget not yet charged. Past it the CLI ends the
     // turn and reports its cost; a run killed first is charged the cap.
@@ -2453,7 +2459,8 @@ async function runResolvedEval(
     if (spec.maxCostUsd !== undefined && charged >= spec.maxCostUsd)
       stopped = "budget";
     else if (unanswered.length > 0) stopped = stopped ?? "unanswered";
-    if (spacing > 0) await sleep(spacing);
+    if (spacing > 0 && pending > 0 && stopped === undefined)
+      await sleep(spacing);
     return {
       armName: unit.armName,
       skipped: false,
@@ -2493,6 +2500,7 @@ async function runResolvedEval(
       const cases = await casesOf(spec, concurrency);
       try {
         const units = buildUnits(plansOf(spec, cases), spec.arms, trials);
+        pending = units.length;
         const results = await runPool(units, concurrency, worker);
         return evalReport(spec, {
           trials,
@@ -2716,8 +2724,8 @@ export interface TriggerRateSpec {
   /**
    * How many runs to execute in parallel across the whole prompts × trials grid.
    * Default 1 (serial, the politest to rate limits). Raise it to cut wall-clock on
-   * a large prompt set or roster sweep — the `spacingSec` pause still applies per
-   * run, so it stays best-effort polite. Mirrors `EvalSpec.concurrency`.
+   * a large prompt set or roster sweep — the `spacingSec` pause still applies
+   * between runs, so it stays best-effort polite. Mirrors `EvalSpec.concurrency`.
    */
   readonly concurrency?: number;
 }
@@ -3177,13 +3185,18 @@ interface TriggerRunConfig {
   readonly parse: ModelOutputParser;
   /** Detect an errored/rate-limited turn (excluded from the rate, not a miss). */
   readonly runError?: (out: RunOut) => string | null;
+  /** Another prompt set runs after this one, so this set's last run still pauses. */
+  readonly followed?: boolean;
 }
+
+/** A trigger set's config: whether a run follows the one ending, so the pause sits only between runs. */
+type TriggerSetConfig = TriggerRunConfig & { readonly more: () => boolean };
 
 /** Run one prompt set × trials through `runner`, aggregating fired counts. */
 /** Run one trigger trial in a throwaway cwd (fixture seeded) → fired 0/1. */
 async function runTriggerTrial(
   prompt: string,
-  cfg: TriggerRunConfig,
+  cfg: TriggerSetConfig,
   runner: AgentRunner,
 ): Promise<{ fired: number; errored: boolean; usage: EvalUsage }> {
   const cwd = makeTmpDir("trigger");
@@ -3213,7 +3226,7 @@ async function runTriggerTrial(
     };
   } finally {
     rmSync(cwd, { recursive: true, force: true });
-    await sleep(cfg.spacing);
+    if (cfg.more()) await sleep(cfg.spacing);
   }
 }
 
@@ -3237,9 +3250,16 @@ async function runTriggerSet(
   const jobs = prompts.flatMap((prompt, promptIndex) =>
     Array.from({ length: cfg.trials }, () => ({ prompt, promptIndex })),
   );
-  const outcomes = await runPool(jobs, cfg.concurrency, (job) =>
-    runTriggerTrial(job.prompt, cfg, runner),
-  );
+  // eslint-disable-next-line functional/no-let -- the pool's one shared count of jobs not yet handed out, decremented as each starts
+  let pending = jobs.length;
+  const setCfg: TriggerSetConfig = {
+    ...cfg,
+    more: () => cfg.followed === true || pending > 0,
+  };
+  const outcomes = await runPool(jobs, cfg.concurrency, (job) => {
+    pending -= 1;
+    return runTriggerTrial(job.prompt, setCfg, runner);
+  });
   // Re-aggregate per prompt, preserving input order; errored runs don't count.
   const firedBy = new Array<number>(prompts.length).fill(0);
   const trialsBy = new Array<number>(prompts.length).fill(0);
@@ -3373,7 +3393,11 @@ export async function measureTriggerRateWith(
         lock,
       },
       async () => {
-        const relevant = await runTriggerSet(spec.prompts, cfg, runner);
+        const relevant = await runTriggerSet(
+          spec.prompts,
+          { ...cfg, followed: (spec.irrelevantPrompts?.length ?? 0) > 0 },
+          runner,
+        );
         const base: TriggerRateReport = {
           rate: relevant.n > 0 ? relevant.fired / relevant.n : 0,
           n: relevant.n,

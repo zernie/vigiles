@@ -424,15 +424,46 @@ export function equivalentCommands(
 export function equivalentSpellings(
   seed: string,
   opts: { readonly families?: readonly Family[] } = {},
-): {
+): Spellings {
+  // Only the stock families are memoized: their output is a pure function of
+  // the seed, and a caller's own families may be anything.
+  if (opts.families !== undefined) return spellingsOf(seed, opts.families);
+  const known = STOCK_SPELLINGS.get(seed);
+  if (known !== undefined) return known;
+  const made = freezeSpellings(spellingsOf(seed, FAMILIES));
+  // eslint-disable-next-line functional/immutable-data -- the memo's one write per seed; an entry is frozen and never replaced
+  STOCK_SPELLINGS.set(seed, made);
+  return made;
+}
+
+/** The rewrites of a seed, sorted into proven and unproven; see {@link equivalentSpellings}. */
+interface Spellings {
   readonly proven: readonly string[];
   readonly unproven: readonly string[];
   readonly family: readonly string[];
-} {
+}
+
+/**
+ * The stock families' spellings, one entry per seed, for the life of the
+ * process. Building them parses every candidate (~0.1 s per seed), and the
+ * guard battery asks again for the same seeds on every run. Bounded by the
+ * distinct seeds a process asks about; the stock catalog has seven. Entries are
+ * frozen, so a caller cannot change what the next caller is served.
+ */
+const STOCK_SPELLINGS = new Map<string, Spellings>();
+
+const freezeSpellings = (s: Spellings): Spellings =>
+  Object.freeze({
+    proven: Object.freeze([...s.proven]),
+    unproven: Object.freeze([...s.unproven]),
+    family: Object.freeze([...s.family]),
+  });
+
+function spellingsOf(seed: string, families: readonly Family[]): Spellings {
   if (gateReading(seed).leaves.length === 0)
     return { proven: [], unproven: [], family: [] };
   // First family to produce a candidate names it; the seed itself is not one.
-  const made = (opts.families ?? FAMILIES)
+  const made = families
     .flatMap((f) => f.rewrite(seed).map((c) => [c, f.name] as const))
     .filter(([c]) => c !== seed);
   const all = made.filter(([c], i) => made.findIndex(([d]) => d === c) === i);
