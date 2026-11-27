@@ -14,6 +14,7 @@ const SAMPLES: {
   "head-not-a-commit": [{ kind: "head-not-a-commit", head: "MARK-head" }],
   "commit-not-in-history": [{ kind: "commit-not-in-history" }],
   "merge-commit": [{ kind: "merge-commit", parents: 3 }],
+  "partial-clone": [{ kind: "partial-clone" }],
   "commit-not-ancestor-of-head": [
     { kind: "commit-not-ancestor-of-head", head: "MARK-head" },
   ],

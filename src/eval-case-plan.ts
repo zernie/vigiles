@@ -61,6 +61,7 @@ export function planWorld(
 ): Planned | Refused {
   const head = host.resolveCommit(top, spec.head);
   const history = historyRefusal(spec.head, {
+    partialClone: host.isPartialClone(top),
     head,
     parents: host.parents(top, spec.commit),
     isAncestor: (h) => host.isAncestor(top, spec.commit, h),

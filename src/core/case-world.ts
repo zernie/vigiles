@@ -39,6 +39,8 @@ export interface RevertPatches {
 export interface CaseWorldHost {
   /** The git dir of the work tree at `top`, where its objects are read. */
   gitDir(top: string): string;
+  /** A partial clone: git fetches a missing object into it on the first read that needs one. */
+  isPartialClone(top: string): boolean;
   /** The parents of `commit`; undefined when it or a parent is not in the repository. */
   parents(top: string, commit: string): readonly string[] | undefined;
   isAncestor(top: string, ancestor: string, of: string): boolean;
@@ -72,8 +74,28 @@ export function parseTreeEntries(z: string): readonly TreeEntry[] {
     });
 }
 
+/**
+ * Parse `git diff --name-status -z` with renames off: `<status>` NUL `<path>`
+ * NUL per entry. Any status but A/M/D/T means the diff was not the one asked
+ * for, and is thrown rather than read as one of them.
+ */
+export function parseFixPaths(z: string): readonly FixPath[] {
+  const parts = z.split("\0");
+  return Array.from({ length: Math.floor(parts.length / 2) }, (_, i) => ({
+    status: fixStatus(parts[2 * i] ?? ""),
+    path: parts[2 * i + 1] ?? "",
+  }));
+}
+
+function fixStatus(s: string): FixPath["status"] {
+  if (s === "A" || s === "M" || s === "D" || s === "T") return s;
+  throw new Error(`unexpected git name-status entry: ${s}`);
+}
+
 /** The facts about the two commits a history refusal reads. */
 export interface HistoryFacts {
+  /** Reading the fix's files would fetch them into the user's object store. */
+  readonly partialClone: boolean;
   /** `head` resolved, or undefined when it is not a commit. */
   readonly head: string | undefined;
   readonly parents: readonly string[] | undefined;
@@ -86,6 +108,7 @@ export function historyRefusal(
   declaredHead: string,
   facts: HistoryFacts,
 ): HistoryRefusal | undefined {
+  if (facts.partialClone) return { kind: "partial-clone" };
   if (facts.head === undefined)
     return { kind: "head-not-a-commit", head: declaredHead };
   if (facts.parents === undefined) return { kind: "commit-not-in-history" };

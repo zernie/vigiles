@@ -221,6 +221,82 @@ describe("caseWorldHost: the world patch", () => {
   });
 });
 
+/** An executable hook that leaves `marker` if git ever runs it. */
+function plantHook(dir: string, marker: string): void {
+  write(dir, "post-index-change", `#!/bin/sh\ntouch '${marker}'\n`);
+  chmodSync(join(dir, "post-index-change"), 0o755);
+}
+
+describe("caseWorldHost: the user's hooks", () => {
+  const revert = (f: Fixture) =>
+    host.revertPatches(f.repo, {
+      commit: f.fix,
+      head: f.head,
+      paths: ["src/add.mjs"],
+    });
+
+  it.each([
+    ["in .git/hooks", (f: Fixture) => join(f.repo, ".git/hooks")],
+    [
+      "under core.hooksPath",
+      (f: Fixture) => {
+        const dir = tmp("case-world-hooks");
+        git(f.repo, "config", "core.hooksPath", dir);
+        return dir;
+      },
+    ],
+  ])("runs no hook %s while it checks the patch", (_where, hooksDir) => {
+    const f = fixture();
+    plantHook(hooksDir(f), f.marker);
+    const before = treeHash(f.repo);
+    expect(revert(f).failed).toEqual([]);
+    // Guards: the temp index is written, and post-index-change fires on an index write.
+    expect(existsSync(f.marker)).toBe(false);
+    expect(treeHash(f.repo)).toBe(before);
+  });
+});
+
+/** A `--filter=blob:none` clone of the fixture: the fix's old blobs are not in it. */
+function partialClone(f: Fixture): string {
+  git(f.repo, "config", "uploadpack.allowFilter", "true");
+  const partial = tmp("case-world-partial");
+  execFileSync("git", [
+    "clone",
+    "-q",
+    "--filter=blob:none",
+    `file://${f.repo}`,
+    partial,
+  ]);
+  return partial;
+}
+
+describe("caseWorldHost: a partial clone", () => {
+  it("fetches no missing blob into it, and fails loudly instead", () => {
+    const f = fixture();
+    const partial = partialClone(f);
+    const before = treeHash(partial);
+    const at = { commit: f.fix, head: f.head, paths: ["src/add.mjs"] };
+    expect(() => host.revertPatches(partial, at)).toThrow(Error);
+    // Guards: GIT_NO_LAZY_FETCH; without it the diff adds packs to .git/objects.
+    expect(treeHash(partial)).toBe(before);
+  });
+
+  it("names a clone made with a filter, and only such a clone", () => {
+    const f = fixture();
+    const partial = partialClone(f);
+    expect(host.isPartialClone(partial)).toBe(true);
+    expect(host.isPartialClone(f.repo)).toBe(false);
+    // Guards: either of git's two marks makes a clone partial, alone.
+    git(f.repo, "config", "extensions.partialclone", "up");
+    expect(host.isPartialClone(f.repo)).toBe(true);
+    git(f.repo, "config", "--unset", "extensions.partialclone");
+    git(f.repo, "config", "remote.up.promisor", "false");
+    expect(host.isPartialClone(f.repo)).toBe(false);
+    git(f.repo, "config", "remote.up.promisor", "true");
+    expect(host.isPartialClone(f.repo)).toBe(true);
+  });
+});
+
 describe("caseWorldHost: the working copy", () => {
   it("hashes a working file without writing its object", () => {
     const f = fixture();

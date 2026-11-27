@@ -27,6 +27,7 @@ import { spawnSync } from "node:child_process";
 import { lstatSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import {
+  parseFixPaths,
   parseTreeEntries,
   type CaseWorldHost,
   type RevertPatches,
@@ -78,6 +79,28 @@ function gitDir(top: string): string {
 }
 
 /**
+ * git's own test for a promisor remote: the `partialclone` extension, or any
+ * remote with `promisor` set (a `--filter` clone of git 2.43 writes only the
+ * second). A git without `GIT_NO_LAZY_FETCH` fetches into such a repository
+ * on the first missing blob, so the plan refuses it before reading one.
+ */
+function isPartialClone(top: string): boolean {
+  if (run(top, ["config", "--get", "extensions.partialclone"]).ok) return true;
+  const promisors = run(top, [
+    "config",
+    "-z",
+    "--type=bool",
+    "--get-regexp",
+    String.raw`^remote\..*\.promisor$`,
+  ]);
+  // `-z` prints each entry as `<key>\n<value>\0`; `--type=bool` canonicalises the value.
+  return (
+    promisors.ok &&
+    promisors.out.split("\0").some((entry) => entry.endsWith("\ntrue"))
+  );
+}
+
+/**
  * The parents the commit object itself names. Not `rev-list --parents`: a
  * shallow clone grafts its boundary commits to look parentless, and a fix
  * read that way would be refused as a merge commit instead of as missing
@@ -116,17 +139,7 @@ function fixPaths(top: string, commit: string): readonly FixPath[] {
     `${commit}^`,
     commit,
   ]);
-  const parts = z.split("\0");
-  return Array.from({ length: Math.floor(parts.length / 2) }, (_, i) => ({
-    status: fixStatus(parts[2 * i] ?? ""),
-    path: parts[2 * i + 1] ?? "",
-  }));
-}
-
-function fixStatus(s: string): FixPath["status"] {
-  if (s === "A" || s === "M" || s === "D" || s === "T") return s;
-  /* v8 ignore next -- `--no-renames` between two commits prints only A/M/D/T */
-  throw new Error(`unexpected git name-status entry: ${s}`);
+  return parseFixPaths(z);
 }
 
 function treeEntries(top: string, sha: string): readonly TreeEntry[] {
@@ -224,6 +237,7 @@ function emptyTree(top: string): string {
 /** The host adapter of core's `CaseWorldHost` port. */
 export const caseWorldHost: CaseWorldHost = {
   gitDir,
+  isPartialClone,
   parents,
   isAncestor,
   fixPaths,

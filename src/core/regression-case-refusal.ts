@@ -10,6 +10,7 @@ export interface RevertConflict {
 
 /** A refusal about the commits: found, single-parent, in line with `head`. */
 export type HistoryRefusal =
+  | { readonly kind: "partial-clone" }
   | { readonly kind: "head-not-a-commit"; readonly head: string }
   | { readonly kind: "commit-not-in-history" }
   | { readonly kind: "merge-commit"; readonly parents: number }
@@ -116,6 +117,7 @@ type GroupOf<K extends RegressionCaseRefusal["kind"]> = {
 /** Every kind → its group. tsc refuses a kind left out or put in the wrong group. */
 const GROUP_OF: { readonly [K in RegressionCaseRefusal["kind"]]: GroupOf<K> } =
   {
+    "partial-clone": "history",
     "head-not-a-commit": "history",
     "commit-not-in-history": "history",
     "merge-commit": "history",
@@ -159,6 +161,8 @@ export function describeRegressionCaseRefusal(
 
 function describeHistory(r: HistoryRefusal): string {
   switch (r.kind) {
+    case "partial-clone":
+      return "the repository is a partial clone, so reading the fix would fetch its files into it; use a clone made without --filter";
     case "head-not-a-commit":
       return `head ${r.head} is not a commit in the repository`;
     case "commit-not-in-history":

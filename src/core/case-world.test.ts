@@ -11,6 +11,7 @@ import {
   goldEditRows,
   goldRows,
   historyRefusal,
+  parseFixPaths,
   parseTreeEntries,
   removedPaths,
   symptomRefusal,
@@ -43,14 +44,39 @@ describe("parseTreeEntries", () => {
   });
 });
 
+describe("parseFixPaths", () => {
+  it("reads each status and path, a path with a tab included", () => {
+    expect(
+      parseFixPaths("M\0src/a\tb.ts\0A\0t.test.ts\0D\0old\0T\0link\0"),
+    ).toEqual([
+      { status: "M", path: "src/a\tb.ts" },
+      { status: "A", path: "t.test.ts" },
+      { status: "D", path: "old" },
+      { status: "T", path: "link" },
+    ]);
+    expect(parseFixPaths("")).toEqual([]);
+  });
+
+  it("throws on a status a renames-off diff never prints", () => {
+    // Guards: a rename read as an edit would revert the wrong path.
+    expect(() => parseFixPaths("R100\0a\0b\0")).toThrow(Error);
+  });
+});
+
 describe("historyRefusal", () => {
-  const ok = { head: "h", parents: ["p"], isAncestor: () => true };
+  const ok = {
+    partialClone: false,
+    head: "h",
+    parents: ["p"],
+    isAncestor: () => true,
+  };
 
   it("passes a single-parent ancestor of head", () => {
     expect(historyRefusal("main", ok)).toBeUndefined();
   });
 
   it.each([
+    [{ ...ok, partialClone: true, head: undefined }, { kind: "partial-clone" }],
     [
       { ...ok, head: undefined },
       { kind: "head-not-a-commit", head: "main" },

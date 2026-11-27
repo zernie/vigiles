@@ -252,6 +252,45 @@ describe("qualifyCase: refusals", () => {
   });
 });
 
+describe("qualifyCase: a partial clone", () => {
+  it("refuses a partial clone and fetches nothing into it", async () => {
+    const r = fixture();
+    git(r.repo, "config", "uploadpack.allowFilter", "true");
+    const partial = tmp("case-qualify-partial");
+    execFileSync("git", [
+      "clone",
+      "-q",
+      "--filter=blob:none",
+      `file://${r.repo}`,
+      partial,
+    ]);
+    const before = treeHash(partial);
+    const { host, roots } = recording();
+    const p = { ...r, repo: partial };
+    expect(await qualify(host, p, spec(p))).toEqual({
+      kind: "refused",
+      refusal: { kind: "partial-clone" },
+    });
+    // Guards: the fix's old blobs are missing here; a diff would fetch them into .git.
+    expect(treeHash(partial)).toBe(before);
+    expect(roots).toEqual([]);
+  });
+});
+
+describe("qualifyCase: installs", () => {
+  it("refuses an install whose links leave the world, and removes it", async () => {
+    const r = fixture();
+    const { host, roots } = recording({
+      linksOutside: () => ["node_modules/x"],
+    });
+    expect(await qualify(host, r)).toEqual({
+      kind: "refused",
+      refusal: { kind: "deps-link-outside-world", links: ["node_modules/x"] },
+    });
+    expect(roots.map(existsSync)).toEqual([false]);
+  });
+});
+
 describe("qualifyCase: faults", () => {
   it("removes the world when a control throws", async () => {
     const r = fixture();

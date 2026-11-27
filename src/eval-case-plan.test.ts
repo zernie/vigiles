@@ -58,6 +58,7 @@ function stub(over: Partial<PlanHost> = {}): PlanHost {
   return {
     ...repoCopyHost,
     ...caseWorldHost,
+    isPartialClone: () => false,
     resolveCommit: () => HEAD,
     parents: () => ["p".repeat(40)],
     isAncestor: () => true,
@@ -179,6 +180,11 @@ describe("planWorld: installs", () => {
 
 describe("planWorld: refusal order", () => {
   it.each([
+    [
+      "a partial clone",
+      { isPartialClone: () => true },
+      { kind: "partial-clone" },
+    ],
     [
       "an unresolved head",
       { resolveCommit: () => undefined },
