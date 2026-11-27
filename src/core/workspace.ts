@@ -220,11 +220,20 @@ export class ShadowUnhealthyError extends Error {
   override readonly name = "ShadowUnhealthyError";
 }
 
+/**
+ * What stayed out of the touched set: nothing, the paths git left unstaged
+ * (a directory ends in `/`), or a failed staging that listed no path.
+ */
+export type Unstaged =
+  | { readonly kind: "none" }
+  | { readonly kind: "paths"; readonly paths: readonly string[] }
+  | { readonly kind: "unknown"; readonly detail: string };
+
 /** What the agent changed against its base. */
 export interface TouchedSet {
   readonly rows: readonly TouchedRow[];
-  /** Some path could not be staged (a nested repo without a commit). */
-  readonly unstaged: boolean;
+  /** What `add -A` could not stage (a nested repo without a commit). */
+  readonly unstaged: Unstaged;
   /**
    * Ignored entries (`ls-files --others --ignored --directory`) present now
    * and not at the base: new files no scorer sees. A new file inside an

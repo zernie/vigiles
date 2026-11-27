@@ -7,6 +7,7 @@ import {
   defaultSource,
   driftVerdict,
   inSource,
+  mayHoldSource,
   pathRefusal,
   resolvedSource,
   splitFix,
@@ -120,6 +121,30 @@ describe("defaultSource", () => {
     expect(resolvedSource(undefined, split)).toEqual(
       defaultSource(["src/a.ts"]),
     );
+  });
+});
+
+describe("mayHoldSource", () => {
+  const declared = { kind: "declared", globs: ["src/**/*.ts"] } as const;
+
+  it.each([
+    ["a default dir root holds a directory under it", "src/nest/", true],
+    ["a default dir root holds nothing outside it", "scratch/", false],
+    ["a file root holds no directory", "a.ts/", false],
+  ])("%s", (_, entry, held) => {
+    const source = defaultSource(["src/a.ts", "a.ts"]);
+    // Guards: an unstaged directory unscores a trial only where it may hold a carried edit.
+    expect(mayHoldSource(entry, source)).toBe(held);
+  });
+
+  it.each([
+    ["a directory a glob can match beneath", "src/nest/", true],
+    ["a directory no glob can reach", "lib/nest/", false],
+    ["a file, judged as itself", "src/a.ts", true],
+    ["a file the glob does not match", "src/a.js", false],
+  ])("for declared globs: %s", (_, entry, held) => {
+    // Guards: the match is minimatch's own partial mode, the carry's matcher, never git's pathspec (fable G1).
+    expect(mayHoldSource(entry, declared)).toBe(held);
   });
 });
 

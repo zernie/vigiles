@@ -12,7 +12,7 @@ import {
   type ScoringRun,
   type TreeOutcome,
 } from "./case-scoring.js";
-import type { TouchedRow, TouchedSet } from "./workspace.js";
+import type { TouchedRow, TouchedSet, Unstaged } from "./workspace.js";
 
 const BLOB = "b".repeat(40);
 const file = (path: string): TouchedRow => ({
@@ -25,7 +25,10 @@ const RULES: CarryRules = {
   source: { kind: "declared", globs: ["src/**"] },
   armPaths: ["notes.md", "plugin"],
 };
-const set = (rows: readonly TouchedRow[], unstaged = false): TouchedSet => ({
+const set = (
+  rows: readonly TouchedRow[],
+  unstaged: Unstaged = { kind: "none" },
+): TouchedSet => ({
   rows,
   unstaged,
   ignoredNewFiles: 0,
@@ -45,12 +48,33 @@ describe("carryVerdict", () => {
     });
   });
 
-  it("never scores a touched set that could not be fully staged", () => {
+  it.each([
+    ["a directory inside source", "src/nest/"],
+    ["a file inside source", "src/b.ts"],
+  ])("never scores a set that left %s unstaged", (_, entry) => {
+    const unstaged: Unstaged = { kind: "paths", paths: ["scratch/", entry] };
     // Guards: what was not staged is state outside the scored tree, so the trial is unscored, not scored on the part that staged.
-    expect(carryVerdict(set([file("src/a.ts")], true), RULES)).toEqual({
+    expect(carryVerdict(set([file("src/a.ts")], unstaged), RULES)).toEqual({
       kind: "integrity",
       why: "unstaged",
     });
+  });
+
+  it("never scores a set whose staging failed without naming a path", () => {
+    const unstaged: Unstaged = { kind: "unknown", detail: "fatal" };
+    // Guards: an unnamed failure may hide anything, so it fails toward unscored.
+    expect(carryVerdict(set([], unstaged), RULES).kind).toBe("integrity");
+  });
+
+  it("scores a set whose unstaged entries all lie outside source and the tests", () => {
+    const unstaged: Unstaged = {
+      kind: "paths",
+      paths: ["scratch/", "test/nest/"],
+    };
+    // Guards: silent on correct — a `git init scratch/` outside source no longer unscores the trial (fable G1).
+    expect(carryVerdict(set([file("src/a.ts")], unstaged), RULES).kind).toBe(
+      "carry",
+    );
   });
 
   it("an edit under tests.run or tests.data is edited-tests, whatever else is carried", () => {

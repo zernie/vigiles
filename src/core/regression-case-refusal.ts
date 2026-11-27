@@ -36,6 +36,12 @@ export type DepsRefusal =
       readonly kind: "deps-unsupported";
       readonly why: "no-node-modules" | "no-lockfile";
     }
+  | {
+      readonly kind: "deps-unsupported";
+      readonly why: "nested-lockfile";
+      /** The directory that holds the lockfile: add it to `deps.roots`. */
+      readonly dir: string;
+    }
   | { readonly kind: "host-install-not-at-head"; readonly lockfile: string }
   | {
       readonly kind: "deps-link-outside-world";
@@ -184,13 +190,24 @@ function describePaths(r: PathRefusal): string {
 function describeDeps(r: DepsRefusal): string {
   switch (r.kind) {
     case "deps-unsupported":
-      return r.why === "no-node-modules"
-        ? 'deps is "node-modules" but the checkout has no node_modules to copy'
-        : 'deps is "node-modules" but the checkout has no lockfile';
+      return describeUnsupported(r);
     case "host-install-not-at-head":
       return `${r.lockfile} in the working copy differs from head's; reinstall at head or bump head`;
     case "deps-link-outside-world":
       return `links in the installs that leave the copy: ${r.links.join(", ")}`;
+  }
+}
+
+function describeUnsupported(
+  r: Extract<DepsRefusal, { kind: "deps-unsupported" }>,
+): string {
+  switch (r.why) {
+    case "no-node-modules":
+      return 'deps is "node-modules" but the checkout has no node_modules to copy';
+    case "no-lockfile":
+      return 'deps is "node-modules" but a root in deps.roots has no lockfile';
+    case "nested-lockfile":
+      return `${r.dir} has its own lockfile under a declared root; add "${r.dir}" to deps.roots`;
   }
 }
 

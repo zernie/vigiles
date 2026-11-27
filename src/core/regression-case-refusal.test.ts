@@ -32,6 +32,7 @@ const SAMPLES: {
   "deps-unsupported": [
     { kind: "deps-unsupported", why: "no-node-modules" },
     { kind: "deps-unsupported", why: "no-lockfile" },
+    { kind: "deps-unsupported", why: "nested-lockfile", dir: "MARK-dir" },
   ],
   "host-install-not-at-head": [
     { kind: "host-install-not-at-head", lockfile: "MARK-lock" },

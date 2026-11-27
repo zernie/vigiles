@@ -254,7 +254,7 @@ describe("touchedPaths on trees only the agent made", () => {
     write(trial.cwd, "scratch/x.txt", "x\n");
     const set = touchedPaths(trial.view, trial.cwd);
     // Guards: a commit-less nested repo makes `add -A` exit 128; that is the agent's tree, not a fault.
-    expect(set.unstaged).toBe(true);
+    expect(set.unstaged).toEqual({ kind: "paths", paths: ["scratch/"] });
     expect(set.rows.map((r) => `${r.status} ${r.path}`)).toContain(
       "M README.md",
     );
