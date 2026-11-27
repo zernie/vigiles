@@ -1,0 +1,150 @@
+{
+  "version": 1,
+  "name": "vigiles-test-harness-trigger-rate",
+  "inputsHash": "6f028114ecae4ce0",
+  "model": "sonnet",
+  "harnessVersionKey": "2.1",
+  "evalApiVersion": 1,
+  "builtAt": "2026-11-27T16:48:07.266Z",
+  "report": {
+    "rate": 0.7333333333333333,
+    "n": 30,
+    "perPrompt": [
+      {
+        "prompt": "Write a test that my PreToolUse hook blocks `git commit --no-verify`.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      },
+      {
+        "prompt": "Does my SessionStart hook actually inject context into the model? Add a test.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      },
+      {
+        "prompt": "Check that my skill triggers across different prompts.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      },
+      {
+        "prompt": "Verify my Stop hook fires when the agent finishes a turn.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      },
+      {
+        "prompt": "I want to know if my CLAUDE.md rule actually changes the agent's behavior — measure it.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      },
+      {
+        "prompt": "Set up an eval comparing my hook switched on versus off.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      },
+      {
+        "prompt": "Prove my settings.json permissions really block the Write tool.",
+        "fired": 0,
+        "trials": 3,
+        "rate": 0
+      },
+      {
+        "prompt": "How reliably does my subagent get dispatched? Measure the trigger rate.",
+        "fired": 1,
+        "trials": 3,
+        "rate": 0.3333333333333333
+      },
+      {
+        "prompt": "Confirm the injected context from my hook reaches the model.",
+        "fired": 0,
+        "trials": 3,
+        "rate": 0
+      },
+      {
+        "prompt": "Add a deterministic check that my PostToolUse hook runs the formatter.",
+        "fired": 3,
+        "trials": 3,
+        "rate": 1
+      }
+    ],
+    "competitors": 5,
+    "namespace": "vigiles",
+    "usage": {
+      "totalCostUsd": 5.189334999999999,
+      "meanCostUsd": 0.08648891666666665,
+      "meanDurationMs": 10448.633333333333,
+      "totalInputTokens": 312,
+      "totalOutputTokens": 44180,
+      "totalCacheCreationTokens": 1072801,
+      "totalCacheReadTokens": 4478944
+    },
+    "falsePositiveRate": 0,
+    "precision": 1,
+    "perIrrelevant": [
+      {
+        "prompt": "Rename the variable `foo` to `bar` in utils.ts.",
+        "fired": 0,
+        "trials": 3,
+        "rate": 0
+      },
+      {
+        "prompt": "Add a dark-mode toggle to the settings page.",
+        "fired": 0,
+        "trials": 3,
+        "rate": 0
+      },
+      {
+        "prompt": "Why is this regex throwing? Fix it.",
+        "fired": 0,
+        "trials": 3,
+        "rate": 0
+      },
+      {
+        "prompt": "Convert this callback-based code to async/await.",
+        "fired": 0,
+        "trials": 3,
+        "rate": 0
+      },
+      {
+        "prompt": "Write a SQL migration to add an index on users.email.",
+        "fired": 0,
+        "trials": 3,
+        "rate": 0
+      },
+      {
+        "prompt": "Bump the lodash dependency and fix the breaking changes.",
+        "fired": 0,
+        "trials": 3,
+        "rate": 0
+      },
+      {
+        "prompt": "Implement pagination for the search results endpoint.",
+        "fired": 0,
+        "trials": 3,
+        "rate": 0
+      },
+      {
+        "prompt": "Refactor this 200-line function into smaller pieces.",
+        "fired": 0,
+        "trials": 3,
+        "rate": 0
+      },
+      {
+        "prompt": "Add input validation to the signup form.",
+        "fired": 0,
+        "trials": 3,
+        "rate": 0
+      },
+      {
+        "prompt": "Fix the off-by-one error in the date picker.",
+        "fired": 0,
+        "trials": 3,
+        "rate": 0
+      }
+    ]
+  }
+}
