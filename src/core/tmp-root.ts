@@ -34,7 +34,7 @@
  * platform can hold the fix in place. What holds it is the regression test beside
  * this file, which builds its own symlink rather than relying on the platform's.
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -59,4 +59,66 @@ export function makeTmpDir(suffix: string = "test"): string {
  */
 export function cleanupTmpDir(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
+}
+
+/** What removing one tree did: it is gone, or it is still on disk, and why. */
+export type TreeRemoval =
+  | { readonly kind: "removed"; readonly path: string }
+  | {
+      readonly kind: "left-behind";
+      readonly path: string;
+      /** The errno code (`ENOTEMPTY`, `EBUSY`), else the message; `recreated` when the delete worked and the dir came back. */
+      readonly reason: string;
+    };
+
+/** The two file-system calls {@link removeTree} makes; replaced in tests. */
+export interface RemoveTreeFs {
+  readonly rm: (path: string) => void;
+  readonly exists: (path: string) => boolean;
+}
+
+const REAL_FS: RemoveTreeFs = {
+  // Node's own retry (ENOTEMPTY, EBUSY, EPERM), linear backoff. Kept short:
+  // `rmSync` sleeps synchronously, so a long budget stalls every other trial.
+  rm: (path) => {
+    rmSync(path, {
+      recursive: true,
+      force: true,
+      maxRetries: 3,
+      retryDelay: 50,
+    });
+  },
+  exists: existsSync,
+};
+
+/**
+ * Remove a tree and say what happened, never throwing. For a dir something
+ * else may still be writing to: a process the agent started that outlived it.
+ */
+export function removeTree(
+  path: string,
+  fs: Partial<RemoveTreeFs> = {},
+): TreeRemoval {
+  const { rm, exists } = { ...REAL_FS, ...fs };
+  const failure = failureOf(() => {
+    rm(path);
+  });
+  if (failure !== undefined)
+    return { kind: "left-behind", path, reason: failure };
+  // A writer still running can rebuild the dir between the delete and here.
+  return exists(path)
+    ? { kind: "left-behind", path, reason: "recreated" }
+    : { kind: "removed", path };
+}
+
+/** The errno code (else the message) of what `run` threw; undefined when it returned. */
+function failureOf(run: () => void): string | undefined {
+  try {
+    run();
+    return undefined;
+  } catch (e) {
+    return e instanceof Error && "code" in e && typeof e.code === "string"
+      ? e.code
+      : String(e);
+  }
 }

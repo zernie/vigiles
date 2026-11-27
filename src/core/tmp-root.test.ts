@@ -10,6 +10,7 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -19,7 +20,7 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { makeTmpDir, cleanupTmpDir } from "./tmp-root.js";
+import { makeTmpDir, cleanupTmpDir, removeTree } from "./tmp-root.js";
 
 test("makeTmpDir returns a path with no symlink left in it", () => {
   const dir = makeTmpDir("tmp-root");
@@ -100,4 +101,44 @@ test("a harness's OWN symlink is still testable — the fix does not swallow it"
   } finally {
     cleanupTmpDir(dir);
   }
+});
+
+test("removeTree deletes a real tree and reports it removed", () => {
+  const dir = makeTmpDir("tmp-root-remove");
+  mkdirSync(join(dir, "nested"));
+  assert.deepEqual(removeTree(dir), { kind: "removed", path: dir });
+  // Guards: "removed" is claimed only for a tree that is really gone.
+  assert.equal(existsSync(dir), false);
+});
+
+test("removeTree never throws: a delete that fails is reported with its code", () => {
+  const busy = (): never => {
+    throw Object.assign(new Error("directory not empty"), {
+      code: "ENOTEMPTY",
+    });
+  };
+  // Guards: a throw here would replace a trial score already computed (#626).
+  assert.deepEqual(removeTree("/nowhere", { rm: busy }), {
+    kind: "left-behind",
+    path: "/nowhere",
+    reason: "ENOTEMPTY",
+  });
+});
+
+test("a failure without an errno code is still reported, by its message", () => {
+  const odd = (): never => {
+    throw new Error("odd failure");
+  };
+  // Guards: a non-errno failure is not silently read as a success.
+  assert.equal(removeTree("/nowhere", { rm: odd }).kind, "left-behind");
+});
+
+test("a tree recreated right after a delete that succeeded is not claimed removed", () => {
+  const outcome = removeTree("/nowhere", { rm: () => {}, exists: () => true });
+  // Guards: a writer still running can rebuild the dir between delete and return.
+  assert.deepEqual(outcome, {
+    kind: "left-behind",
+    path: "/nowhere",
+    reason: "recreated",
+  });
 });

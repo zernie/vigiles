@@ -144,12 +144,8 @@ import {
   serializeIntercepts,
   INTERCEPT_TOOLS_ENV,
 } from "./tool-intercept.js";
-import {
-  readStubCalls,
-  removeStubDir,
-  resetStubCalls,
-  writeStubDir,
-} from "./tool-stub.js";
+import { readStubCalls, resetStubCalls, writeStubDir } from "./tool-stub.js";
+import { removeTrialDirs } from "./trial-cleanup.js";
 import {
   isUnanswered,
   unloggedMisses,
@@ -1076,7 +1072,7 @@ export async function runSkillSelectionTrial(args: {
     const trace = makeContext(cwd, out, args.parse ?? parseClaudeRun);
     return { fired: whichSkillsFired(trace), errored: false };
   } finally {
-    rmSync(cwd, { recursive: true, force: true });
+    removeTrialDirs([cwd]); // never throws (#626)
   }
 }
 
@@ -1630,11 +1626,18 @@ async function executeTrial(
     };
   } finally {
     observed.dispose();
-    rmSync(cwd, { recursive: true, force: true });
-    rmSync(home, { recursive: true, force: true });
-    if (stubDir !== undefined) removeStubDir(stubDir);
-    if (baseDir !== undefined)
-      rmSync(baseDir, { recursive: true, force: true });
+    // Never throws: an agent's leftover process must not cost the score
+    // computed above (#626). The credential copy goes first, so it is gone
+    // even when its `home` stays behind.
+    removeTrialDirs([
+      ...(EVAL_RUNTIME.runEnv?.keepHomeFiles ?? []).map((rel) =>
+        join(home, rel),
+      ),
+      cwd,
+      home,
+      stubDir?.root,
+      baseDir,
+    ]);
   }
 }
 
@@ -3212,7 +3215,7 @@ async function runTriggerTrial(
       usage: ctx.usage,
     };
   } finally {
-    rmSync(cwd, { recursive: true, force: true });
+    removeTrialDirs([cwd]); // never throws (#626)
     await sleep(cfg.spacing);
   }
 }
