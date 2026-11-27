@@ -38,6 +38,9 @@
     }
   },
   "src/action-major-tag.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "max-lines-per-function": {
       "count": 1
     },
@@ -53,6 +56,9 @@
   },
   "src/action-yml.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "boundaries/dependencies": {
       "count": 1
     },
     "max-lines": {
@@ -256,6 +262,9 @@
     }
   },
   "src/adapters/claude-code/always-loaded-lint.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "max-lines": {
       "count": 1
     },
@@ -281,6 +290,9 @@
     }
   },
   "src/adapters/claude-code/context-check.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "sonarjs/assertions-in-tests": {
       "count": 1
     }
@@ -348,6 +360,9 @@
     }
   },
   "src/adapters/claude-code/hand-written-hooks.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-rule-ids": {
       "count": 4
     }
@@ -394,6 +409,9 @@
     }
   },
   "src/adapters/claude-code/hook-runner-exists.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-rule-ids": {
       "count": 2
     }
@@ -445,6 +463,9 @@
     }
   },
   "src/adapters/claude-code/instruction-imports.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "max-lines-per-function": {
       "count": 1
     }
@@ -454,12 +475,20 @@
       "count": 19
     }
   },
+  "src/adapters/claude-code/on-demand-lint.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/adapters/claude-code/output-style-arms.test.ts": {
     "max-lines-per-function": {
       "count": 2
     }
   },
   "src/adapters/claude-code/output-style-user-default.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "sonarjs/no-empty-test-file": {
       "count": 1
     }
@@ -503,6 +532,11 @@
   },
   "src/adapters/claude-code/request-capture.io.ts": {
     "sonarjs/different-types-comparison": {
+      "count": 1
+    }
+  },
+  "src/adapters/claude-code/run-env.test.ts": {
+    "boundaries/dependencies": {
       "count": 1
     }
   },
@@ -681,6 +715,9 @@
     }
   },
   "src/adapters/claude-code/untested-output-style.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-rule-ids": {
       "count": 5
     }
@@ -691,6 +728,9 @@
     }
   },
   "src/adapters/codex/always-loaded-lint.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "max-lines-per-function": {
       "count": 1
     },
@@ -769,6 +809,11 @@
       "count": 1
     }
   },
+  "src/adapters/codex/harness-test.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/adapters/codex/hook-protocol.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 3
@@ -806,6 +851,11 @@
       "count": 1
     }
   },
+  "src/adapters/codex/instruction-imports.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/adapters/codex/layout.ts": {
     "sonarjs/todo-tag": {
       "count": 1
@@ -814,6 +864,9 @@
   "src/adapters/codex/mock-model.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 2
+    },
+    "boundaries/dependencies": {
+      "count": 1
     },
     "max-lines-per-function": {
       "count": 1
@@ -848,12 +901,20 @@
       "count": 1
     }
   },
+  "src/adapters/codex/on-demand-lint.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/adapters/codex/runtime.ts": {
     "functional/prefer-immutable-types": {
       "count": 2
     }
   },
   "src/adapters/codex/skill-listing-delivery.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "sonarjs/no-empty-test-file": {
       "count": 1
     }
@@ -978,6 +1039,9 @@
   },
   "src/audit-bundle-frame.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "boundaries/dependencies": {
       "count": 1
     },
     "local/no-harness-names": {
@@ -1305,12 +1369,28 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
     },
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-harness-names": {
       "count": 4
     }
   },
+  "src/cli-audit-compare.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
+  "src/cli-audit-summary.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/cli-compile-gate.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "boundaries/dependencies": {
       "count": 1
     },
     "local/no-rule-ids": {
@@ -1320,6 +1400,9 @@
   "src/cli-coverage-record.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 3
+    },
+    "boundaries/dependencies": {
+      "count": 1
     },
     "local/no-harness-names": {
       "count": 15
@@ -1389,12 +1472,23 @@
       "count": 1
     }
   },
+  "src/cli-help.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/cli-init-rerun.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "sonarjs/slow-regex": {
       "count": 1
     }
   },
   "src/cli-init-skill-links.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "sonarjs/no-alphabetical-sort": {
       "count": 2
     }
@@ -1497,6 +1591,9 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 2
     },
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-harness-names": {
       "count": 13
     },
@@ -1504,8 +1601,16 @@
       "count": 7
     }
   },
+  "src/cli-on-demand-limit.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/cli-untested-options.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "boundaries/dependencies": {
       "count": 1
     },
     "local/no-harness-names": {
@@ -1518,6 +1623,9 @@
   "src/cli.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 16
+    },
+    "boundaries/dependencies": {
+      "count": 1
     },
     "local/no-harness-names": {
       "count": 54
@@ -1588,6 +1696,14 @@
   },
   "src/comparison-snapshot.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
+  "src/compile-agent-cli.test.ts": {
+    "boundaries/dependencies": {
       "count": 1
     }
   },
@@ -2585,6 +2701,9 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 1
     },
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-harness-names": {
       "count": 2
     },
@@ -3316,6 +3435,9 @@
     }
   },
   "src/core/linters.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-harness-names": {
       "count": 1
     },
@@ -4195,6 +4317,9 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 19
     },
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-harness-names": {
       "count": 15
     },
@@ -4344,6 +4469,9 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 2
     },
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "max-lines-per-function": {
       "count": 1
     },
@@ -4423,6 +4551,9 @@
     }
   },
   "src/core/test-selection.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "max-lines-per-function": {
       "count": 2
     },
@@ -4759,6 +4890,9 @@
     }
   },
   "src/deprecated-key-files.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-rule-ids": {
       "count": 7
     }
@@ -4806,6 +4940,9 @@
     }
   },
   "src/doc-refs-rule.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-rule-ids": {
       "count": 4
     }
@@ -4972,6 +5109,21 @@
       "count": 3
     }
   },
+  "src/eval-case-qualify.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
+  "src/eval-cases-lock.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
+  "src/eval-cases.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/eval-check-report.ts": {
     "local/no-harness-names": {
       "count": 1
@@ -5023,6 +5175,9 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 4
     },
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "no-restricted-syntax": {
       "count": 1
     },
@@ -5059,6 +5214,9 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 5
     },
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "max-lines-per-function": {
       "count": 1
     }
@@ -5074,6 +5232,9 @@
   "src/eval-file-shape.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 4
+    },
+    "boundaries/dependencies": {
+      "count": 1
     },
     "complexity": {
       "count": 1
@@ -5115,6 +5276,9 @@
     }
   },
   "src/eval-injected-driver-guard.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-harness-names": {
       "count": 12
     },
@@ -5186,6 +5350,9 @@
     }
   },
   "src/eval-node-test-guard.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "sonarjs/no-empty-test-file": {
       "count": 1
     }
@@ -5215,14 +5382,32 @@
       "count": 1
     }
   },
+  "src/eval-regression-case.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/eval-run.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 7
     }
   },
+  "src/eval-stubs.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
+  "src/eval-workspace.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/eval.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 19
+    },
+    "boundaries/dependencies": {
+      "count": 1
     },
     "complexity": {
       "count": 1
@@ -5316,8 +5501,16 @@
       "count": 1
     }
   },
+  "src/examples-syntax.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/exclude-cli.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "boundaries/dependencies": {
       "count": 1
     },
     "complexity": {
@@ -5381,6 +5574,9 @@
     }
   },
   "src/export-surface.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "max-lines-per-function": {
       "count": 1
     },
@@ -5392,6 +5588,9 @@
     }
   },
   "src/fs-walk.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-harness-names": {
       "count": 11
     }
@@ -5409,6 +5608,9 @@
   },
   "src/guardrail-check.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "boundaries/dependencies": {
       "count": 1
     },
     "max-lines": {
@@ -5430,6 +5632,9 @@
     }
   },
   "src/guardrail-target-repo.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "max-lines-per-function": {
       "count": 1
     },
@@ -5479,6 +5684,9 @@
   "src/harness-resolve.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 2
+    },
+    "boundaries/dependencies": {
+      "count": 1
     }
   },
   "src/harness-test.test.ts": {
@@ -5597,6 +5805,9 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 2
     },
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-harness-names": {
       "count": 15
     }
@@ -5639,6 +5850,9 @@
   "src/hook-install.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 2
+    },
+    "boundaries/dependencies": {
+      "count": 1
     },
     "local/no-harness-names": {
       "count": 40
@@ -5723,8 +5937,16 @@
       "count": 1
     }
   },
+  "src/hook-lazy-providers.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/hook-load-wedge.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "boundaries/dependencies": {
       "count": 1
     },
     "local/no-harness-names": {
@@ -5754,6 +5976,11 @@
       "count": 1
     }
   },
+  "src/hook-nested-shell-oracle.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/hook-oss-comparison.test.ts": {
     "sonarjs/no-alphabetical-sort": {
       "count": 1
@@ -5761,6 +5988,9 @@
   },
   "src/hook-runtime-graph.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "boundaries/dependencies": {
       "count": 1
     },
     "local/no-harness-names": {
@@ -5818,6 +6048,9 @@
     }
   },
   "src/hook-stale-stamp.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "max-params": {
       "count": 2
     },
@@ -5831,6 +6064,9 @@
   "src/hook-state-runtime.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 3
+    },
+    "boundaries/dependencies": {
+      "count": 1
     },
     "local/no-harness-names": {
       "count": 7
@@ -5880,6 +6116,9 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 6
     },
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-harness-names": {
       "count": 16
     },
@@ -5898,6 +6137,11 @@
       "count": 1
     }
   },
+  "src/host/case-world.io.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/host/changed-files.io.ts": {
     "max-lines-per-function": {
       "count": 1
@@ -5909,7 +6153,30 @@
       "count": 1
     }
   },
+  "src/host/installs.io.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
+  "src/host/link-probe.io.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
+  "src/host/regression-case.io.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
+  "src/host/repo-copy.io.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    }
+  },
   "src/host/rule-proof.io.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "max-lines": {
       "count": 1
     },
@@ -6019,12 +6286,18 @@
     }
   },
   "src/lethal-trifecta-session.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "sonarjs/slow-regex": {
       "count": 1
     }
   },
   "src/lint-bundle-frames.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "boundaries/dependencies": {
       "count": 1
     },
     "local/no-harness-names": {
@@ -6044,6 +6317,9 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 3
     },
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-harness-names": {
       "count": 2
     },
@@ -6052,6 +6328,11 @@
     },
     "sonarjs/slow-regex": {
       "count": 2
+    }
+  },
+  "src/load-hook.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
     }
   },
   "src/load-hook.ts": {
@@ -6105,6 +6386,9 @@
   "src/local-files.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 2
+    },
+    "boundaries/dependencies": {
+      "count": 1
     },
     "local/no-harness-names": {
       "count": 6
@@ -6273,6 +6557,9 @@
     }
   },
   "src/overrides-cli.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-rule-ids": {
       "count": 9
     }
@@ -6725,6 +7012,9 @@
     }
   },
   "src/scaffold-test.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "max-lines-per-function": {
       "count": 1
     },
@@ -6819,6 +7109,9 @@
   "src/scan-cli.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
       "count": 11
+    },
+    "boundaries/dependencies": {
+      "count": 1
     },
     "local/no-harness-names": {
       "count": 48
@@ -7184,6 +7477,9 @@
     }
   },
   "src/self-command-refs.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "max-lines-per-function": {
       "count": 1
     },
@@ -7270,6 +7566,9 @@
     "@typescript-eslint/consistent-type-assertions": {
       "count": 5
     },
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "max-lines-per-function": {
       "count": 2
     },
@@ -7292,6 +7591,9 @@
     }
   },
   "src/session-handoff-check.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-harness-names": {
       "count": 1
     }
@@ -7549,6 +7851,9 @@
     }
   },
   "src/spec-loader.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-harness-names": {
       "count": 2
     },
@@ -7557,6 +7862,9 @@
     }
   },
   "src/spec-refs-surfaces.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "local/no-rule-ids": {
       "count": 2
     }
@@ -7795,6 +8103,9 @@
     }
   },
   "src/tool-stub.test.ts": {
+    "boundaries/dependencies": {
+      "count": 1
+    },
     "sonarjs/slow-regex": {
       "count": 1
     }
@@ -7817,6 +8128,9 @@
   },
   "src/untested-bundle-root.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
+      "count": 1
+    },
+    "boundaries/dependencies": {
       "count": 1
     },
     "local/no-harness-names": {

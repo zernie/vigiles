@@ -690,6 +690,7 @@ export default [
     cliRoot: CLI_ROOT,
     app: "src/*.ts",
     tests: "src/**/*.test.ts",
+    slowTests: "src/**/*.{integration,e2e}.test.ts",
     io: IO_FILES,
     rules: `${RULES_DIR}/*.ts`,
     ruleset: RULE_SET_FILES,

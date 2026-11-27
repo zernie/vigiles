@@ -172,6 +172,15 @@ export const IO_MODULES = [
   "readline/promises",
 ].flatMap((m) => [m, `node:${m}`]);
 
+/**
+ * Node modules that start another process or open a network connection. A test
+ * that imports one is not a unit test: it is named for its tier
+ * (`*.integration.test.ts` or `*.e2e.test.ts`, the `slowTests` pattern).
+ */
+export const PROCESS_MODULES = ["child_process", "net", "http", "https"].flatMap(
+  (m) => [m, `node:${m}`],
+);
+
 /** Libraries the domain and ports may use: types, pure path arithmetic, hashing, collections. */
 export const PURE_LIBRARIES = [
   "ts-essentials",
@@ -205,7 +214,9 @@ const APP = { file: { categories: "app" } };
 const ROOT = { file: { categories: "root" } };
 const RULESET = { file: { categories: "ruleset" } };
 const RULE = { file: { categories: "rule" } };
-const TEST = { file: { categories: "test" } };
+/** Every test, of any tier. `test` alone is a unit test once `slowTests` is set. */
+const TEST = { file: { categories: ["test", "slow-test"] } };
+const UNIT_TEST = { file: { categories: "test" } };
 
 /** Who may import whom: the domain knows only itself, an adapter never another adapter. */
 /**
@@ -225,7 +236,7 @@ const knowledgePolicies = (domainLibraries, appLibraries) => [
     allow: { to: { module: { origin: ORIGINS } } },
   },
   {
-    from: { file: { categories: "test" } },
+    from: TEST,
     allow: {
       to: [
         { element: { type: "*" } },
@@ -295,8 +306,22 @@ const effectPolicies = (ioPattern) => [
     message: `{{ dependency.source }} is I/O in a file that is not ${ioPattern}. Take a port instead, and do the I/O in an adapter's io file or the root.`,
   },
   {
-    from: { file: { categories: ["io", "test", "root"] } },
+    from: { file: { categories: ["io", "test", "slow-test", "root"] } },
     allow: { to: { module: { origin: "core", source: IO_MODULES } } },
+  },
+];
+
+/**
+ * A unit test starts no process and opens no connection: the vitest `unit`
+ * project promises that, and nothing else held it. Placed after the effects
+ * allow, because the last matching policy wins.
+ */
+const unitTestPolicies = [
+  {
+    from: UNIT_TEST,
+    disallow: { to: { module: { origin: "core", source: PROCESS_MODULES } } },
+    message:
+      "{{ dependency.source }} starts a process or opens a connection, so this is not a unit test. Drive the code in-process (the CLI through run(argv)), or name the file *.integration.test.ts.",
   },
 ];
 
@@ -322,6 +347,7 @@ const element = (type, pattern, extra = {}) =>
  * @property {string} cliRoot       the composition root: the only non-test file that may wire anything to anything
  * @property {string} app           the flat application files, e.g. "src/*.ts"
  * @property {string} tests         test files
+ * @property {string} [slowTests]   the tests that may start a process or open a connection, e.g. "src/**\/*.{integration,e2e}.test.ts"; when set, every other test is a unit test and may not
  * @property {string} io            files allowed to do I/O, e.g. "src/adapters/*\/*.io.ts"
  * @property {string} [rules]       rule module files, e.g. "src/rules/*.ts" — an outer layer beside the adapters
  * @property {string} [ruleset]     the rule-layer files that assemble the set, e.g. "src/rules/{index,groups}.ts"; only the root imports them
@@ -362,6 +388,10 @@ export const layers = (o) => ({
     "boundaries/files": [
       { category: "root", pattern: o.cliRoot, exclusive: true },
       { category: "app", pattern: o.app },
+      // Before `test`, and exclusive: a slow test is not also a unit test.
+      ...(o.slowTests === undefined
+        ? []
+        : [{ category: "slow-test", pattern: o.slowTests, exclusive: true }]),
       { category: "test", pattern: o.tests },
       { category: "io", pattern: o.io },
       // The set before the rules, and exclusive: `index.ts` is the set, not a rule.
@@ -391,6 +421,7 @@ export const layers = (o) => ({
             : rulePolicies(o.domainLibraries ?? PURE_LIBRARIES)),
           ...(o.extraAllows ?? []),
           ...effectPolicies(o.io),
+          ...(o.slowTests === undefined ? [] : unitTestPolicies),
         ],
       },
     ],
