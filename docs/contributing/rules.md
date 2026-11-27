@@ -165,6 +165,18 @@ Run `npm run fmt:check` before committing. Inline code spans in markdown need su
 
 The gate set is ONE COMMAND — `npm run check` — never a list you retype. It builds, runs the read-only checks in parallel, then the file-WRITING ones serially, and names whatever failed; `node scripts/check.mjs --list` prints the commands without running them. THEN READ ITS LAST LINE. `check` covers ONE of CI's jobs and PRINTS the ones it does not (`NOT covered here — N more CI job(s)`, rendered from `CI_JOBS_NOT_COVERED` in `scripts/check.mjs`, which `scripts/check-covers-ci.test.ts` binds to `ci.yml` so a NEW job is a failing test rather than a silent omission). Decide FROM THAT OUTPUT which of the jobs it names your change touches, and run those too. Do NOT restate either list — not here, not in a doc, not in a prompt: the second copy is the one that goes stale, and this rule exists because copies did. MEASURED 2026-09-07 — three sessions in one day reported the gates green off a hand-written five-command list, and not one of them ran the 14 deterministic harness tests, a separate CI job that list never named. A remembered list cannot notice a job it does not know about; a printed one can. WHAT SURVIVES from that list and still applies: (a) run the gates LAST, after the final edit, on a tree nobody is touching — a gate that linted a half-written file failed on a state that never existed; (b) take the exit code WITHOUT a pipe (`cmd > /tmp/log 2>&1; RC=$?`), because `cmd | tail` reports `tail`'s status, which is how a red suite once shipped green; (c) REPORT WHICH GATES YOU RAN, BY NAME, with their exit codes — `the gates are green` is indistinguishable from `I ran a subset`, and a tier that could not run is named as SKIPPED, loudly (`no-silent-skips`), never folded into a pass. A MUTATION run obeys the same rule: run the mutant against the WHOLE relevant suite AND prove the patch landed (grep the mutated source) before reading a green as evidence — a green mutation whose patch never applied carries zero information. The executable form is `.claude/skills/ship-a-feature/` (`--gate` runs `npm run check` on a hash-frozen tree).
 
+## test-time-goal
+
+Test time is a goal we track, not a gate: nothing fails on it. The CI `test` job and a local `npm test` each aim at **5 minutes wall-clock or less**. We get there step by step, and each step says what it measured.
+
+Why it matters: every fix round on a pull request waits for the `test` job, so the suite's wall-clock is the floor under how fast any change can land.
+
+What this asks of a change:
+
+- **Know the cost of what you add.** A test that spawns the built CLI, a compiled hook, git or another real binary costs a process start every time it runs; a pure in-process test costs almost nothing. Pick the tier with `pick-the-test-tier`, and keep one real spawn per command, enough to prove its argv, exit code and output, with the rest of its cases in process.
+- **Say it when you move the number.** A pull request that makes the suite noticeably slower or faster says so with the measured before and after (vitest's `Duration` line, or the job's step time), not with a guess.
+- **Measure before optimising.** Rank files by duration with `vitest run --reporter=json` before changing anything; the slowest few files usually dominate.
+
 ## pick-the-test-tier
 
 A new check goes in the CHEAPEST tier that can decide it — cost rises steeply, and each tier is only worth what the one below cannot reach.
