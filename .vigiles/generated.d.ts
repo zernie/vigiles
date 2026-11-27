@@ -5,7 +5,7 @@
 
 declare module "vigiles/generated" {
 
-  /** 360 enabled eslint rules (via flat config (v9+/v10), plugins: @eslint-community/eslint-comments, @typescript-eslint, boundaries, functional, local, sonarjs). */
+  /** 361 enabled eslint rules (via flat config (v9+/v10), plugins: @eslint-community/eslint-comments, @typescript-eslint, boundaries, functional, local, sonarjs). */
   export type EslintRule = 
     | "@eslint-community/eslint-comments/no-restricted-disable"
     | "@eslint-community/eslint-comments/no-unlimited-disable"
@@ -104,6 +104,7 @@ declare module "vigiles/generated" {
     | "no-class-assign"
     | "no-compare-neg-zero"
     | "no-cond-assign"
+    | "no-console"
     | "no-const-assign"
     | "no-constant-binary-expression"
     | "no-constant-condition"
@@ -1219,6 +1220,7 @@ declare module "vigiles/spec" {
       | "no-class-assign"
       | "no-compare-neg-zero"
       | "no-cond-assign"
+      | "no-console"
       | "no-const-assign"
       | "no-constant-binary-expression"
       | "no-constant-condition"
