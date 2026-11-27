@@ -232,18 +232,28 @@ describe("scoreTree drops what must not be carried", () => {
 });
 
 describe("scoreTree leaves an untrustworthy tree unscored", () => {
-  it("a fix beside a nested repo without a commit is unscored, not solved", async () => {
-    const world = caseWorld();
-    const agent = (cwd: string): void => {
+  const nestedRepo =
+    (dir: string) =>
+    (cwd: string): void => {
       fix(cwd);
-      mkdirSync(join(cwd, "scratch"));
-      git(join(cwd, "scratch"), "init", "-q");
-      write(cwd, "scratch/x.txt", "x\n");
+      mkdirSync(join(cwd, dir), { recursive: true });
+      git(join(cwd, dir), "init", "-q");
+      write(cwd, `${dir}/x.txt`, "x\n");
     };
-    // Guards: what could not be staged is not scored on what could.
-    expect(await score(world, agent)).toEqual({
+
+  it("a fix beside a nested repo without a commit inside source is unscored, not solved", async () => {
+    // Guards: what could not be staged inside source is not scored on what could.
+    expect(await score(caseWorld(), nestedRepo("src/scratch"))).toEqual({
       kind: "integrity",
       why: "unstaged",
+    });
+  });
+
+  it("a nested repo outside source does not unscore a fix", async () => {
+    // Guards: silent on correct — an edit scoring never carries cannot unscore the trial (fable G1).
+    expect(await score(caseWorld(), nestedRepo("scratch"))).toMatchObject({
+      kind: "scored",
+      metrics: { solved: true },
     });
   });
 

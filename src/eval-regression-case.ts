@@ -17,7 +17,8 @@
  * 5. The build, then each oracle path, as separate scoring processes.
  *
  * Trial calls are serialised: two suites never run at once (fixed ports,
- * shared temp paths), whatever the trial concurrency.
+ * shared temp paths), whatever the trial concurrency. One {@link scoringLock}
+ * per run is shared by the controls and every case's scorer.
  */
 import {
   caseScore,
@@ -215,14 +216,15 @@ export interface ScoredTrial {
 }
 
 /**
- * The scorer of a case's trials, serialised by one lock. Rejects (a vigiles
- * wiring fault, never an agent outcome) on a trial without its workspace view.
+ * The scorer of a case's trials, serialised by `lock` (the run's one lock;
+ * a fresh one when none is given). Rejects (a vigiles wiring fault, never an
+ * agent outcome) on a trial without its workspace view.
  */
 export function caseScorer(
   host: CaseHost,
   world: ScoringWorld,
+  lock: ScoringLock = scoringLock(),
 ): (trial: ScoredTrial) => Promise<CaseScore> {
-  const lock = oneAtATime();
   return (trial) => {
     const view = trial.experimental_workspace;
     if (view === undefined)
@@ -236,12 +238,15 @@ export function caseScorer(
   };
 }
 
+/** Runs `fn` alone: no other holder of the same lock runs meanwhile. */
+export type ScoringLock = <T>(fn: () => Promise<T>) => Promise<T>;
+
 /**
  * Run each `fn` holding the one permit of a semaphore, so two suites never
  * run at once. `effect` loads lazily (see `src/effect-run.ts`), so the
- * semaphore is made on the first import, once per scorer.
+ * semaphore is made on the first import, once per lock.
  */
-function oneAtATime(): <T>(fn: () => Promise<T>) => Promise<T> {
+export function scoringLock(): ScoringLock {
   const permit = import("effect").then(({ Semaphore }) =>
     Semaphore.makeUnsafe(1),
   );

@@ -41,6 +41,7 @@ import {
   type RepoTemplate,
   type TouchedSet,
   type TrialBase,
+  type Unstaged,
 } from "../core/workspace.js";
 import { exportTree } from "./base-tree.io.js";
 import { gitEnv, IDENTITY } from "./git-env.io.js";
@@ -280,8 +281,9 @@ export function touchedPaths(base: TrialBase, cwd: string): TouchedSet {
     encoding: "utf-8",
     env: gitEnv(),
   });
-  const unstaged = add.status !== 0;
-  if (unstaged) assertShadowHealthy(base, cwd, add.stderr);
+  if (add.status !== 0) assertShadowHealthy(base, cwd, add.stderr);
+  const unstaged: Unstaged =
+    add.status === 0 ? { kind: "none" } : leftUnstaged(shadow, cwd, add.stderr);
   const raw = git(cwd, [
     ...shadow,
     "diff-index",
@@ -296,6 +298,33 @@ export function touchedPaths(base: TrialBase, cwd: string): TouchedSet {
     unstaged,
     ignoredNewFiles: ignoredNew(base, shadow, cwd),
   };
+}
+
+/**
+ * What a failed `add -A --ignore-errors` left out: the entries still
+ * untracked or modified in the shadow (ignored files are not staged on
+ * purpose, so not listed). An untracked directory is one entry ending in
+ * `/`. Judging them is core's (`carryVerdict`), with the same minimatch as
+ * the carry, never git pathspec magic.
+ */
+function leftUnstaged(
+  shadow: readonly string[],
+  cwd: string,
+  stderr: string,
+): Unstaged {
+  const listed = git(cwd, [
+    ...shadow,
+    "ls-files",
+    "-z",
+    "--others",
+    "--modified",
+    "--exclude-standard",
+    "--directory",
+  ]);
+  const paths = [...new Set(listed.split("\0").filter((p) => p !== ""))];
+  return paths.length > 0
+    ? { kind: "paths", paths }
+    : { kind: "unknown", detail: stderr.trim() };
 }
 
 /**

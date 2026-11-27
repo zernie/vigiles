@@ -28,7 +28,13 @@ export interface RegressionCaseSpec {
   readonly build:
     | { readonly kind: "command"; readonly argv: readonly string[] }
     | { readonly kind: "none"; readonly reason: string };
-  readonly deps: { readonly kind: "node-modules" } | { readonly kind: "none" };
+  readonly deps:
+    | {
+        readonly kind: "node-modules";
+        /** Directories whose lockfile keys the installs under them. Default `["."]`. */
+        readonly roots?: readonly string[];
+      }
+    | { readonly kind: "none" };
   /** What the agent is told: only a file committed at `head`. */
   readonly symptom: { readonly kind: "file"; readonly path: string };
   /** Paths whose edits are carried into scoring. Default: {@link defaultSource}. */
@@ -143,6 +149,24 @@ function inRoot(path: string, root: SourceRoot): boolean {
     case "file":
       return path === root.path;
   }
+}
+
+/**
+ * Could `entry` hold a path inside `source`? A file is judged as itself; a
+ * directory (it ends in `/`, as `git ls-files --directory` prints it) when a
+ * default root contains it or a declared glob can match beneath it.
+ */
+export function mayHoldSource(entry: string, source: Source): boolean {
+  if (!entry.endsWith("/")) return inSource(entry, source);
+  return source.kind === "default"
+    ? inSource(entry, source)
+    : mayMatchBeneath(entry, source.globs);
+}
+
+/** Could a glob of `globs` match a path beneath the directory `entry`? */
+function mayMatchBeneath(entry: string, globs: readonly string[]): boolean {
+  const dir = entry.slice(0, -1);
+  return globs.some((g) => minimatch(dir, g, { dot: true, partial: true }));
 }
 
 /** The `source` a case scores with: the declared one, else the default. */

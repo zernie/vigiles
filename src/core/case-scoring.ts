@@ -8,15 +8,21 @@
  * The P0 this module guards is a case scored solved when it was not. Every
  * rule here fails toward "not scored" or "dropped", never toward a score:
  *
- * - a touched set that could not be fully staged is never scored;
+ * - a touched set is never scored when what git could not stage may lie
+ *   inside `source`, or git named nothing;
  * - an edit under test territory forces `solved: false`;
  * - only regular files and deletions inside `source` are carried; a symlink,
  *   a gitlink or any other entry, an edit on a path the arm wrote, and an
  *   edit outside `source` are dropped and counted;
  * - a timeout is `solved: false`.
  */
-import { inSource, matchesAny, type Source } from "./regression-case.js";
-import type { TouchedRow, TouchedSet } from "./workspace.js";
+import {
+  inSource,
+  matchesAny,
+  mayHoldSource,
+  type Source,
+} from "./regression-case.js";
+import type { TouchedRow, TouchedSet, Unstaged } from "./workspace.js";
 
 /** How one scoring process ended. A command that could not start exits 127. */
 export type ScoringRun =
@@ -87,12 +93,31 @@ export type CarryVerdict =
 
 /** Judge an agent's touched set (scoreTree steps 1-3 of the #416 design). */
 export function carryVerdict(set: TouchedSet, rules: CarryRules): CarryVerdict {
-  if (set.unstaged) return { kind: "integrity", why: "unstaged" };
+  if (hidesScoredPath(set.unstaged, rules))
+    return { kind: "integrity", why: "unstaged" };
   const kept = set.rows.filter((row) => carried(row, rules));
   const droppedEdits = set.rows.length - kept.length;
   return set.rows.some((row) => matchesAny(row.path, rules.territory))
     ? { kind: "edited-tests", droppedEdits }
     : { kind: "carry", kept, droppedEdits };
+}
+
+/**
+ * Did staging leave out an entry that may hold a carried path? An entry
+ * outside `source` is an edit scoring never carries, so it changes nothing.
+ * Test territory needs no check: scoring runs the tests as the scoring
+ * template has them, so an unstaged test edit cannot reach a score. A
+ * failure that named no path may be anywhere.
+ */
+function hidesScoredPath(unstaged: Unstaged, rules: CarryRules): boolean {
+  switch (unstaged.kind) {
+    case "none":
+      return false;
+    case "unknown":
+      return true;
+    case "paths":
+      return unstaged.paths.some((p) => mayHoldSource(p, rules.source));
+  }
 }
 
 function carried(row: TouchedRow, rules: CarryRules): boolean {

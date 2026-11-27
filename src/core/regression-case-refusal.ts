@@ -10,6 +10,7 @@ export interface RevertConflict {
 
 /** A refusal about the commits: found, single-parent, in line with `head`. */
 export type HistoryRefusal =
+  | { readonly kind: "partial-clone" }
   | { readonly kind: "head-not-a-commit"; readonly head: string }
   | { readonly kind: "commit-not-in-history" }
   | { readonly kind: "merge-commit"; readonly parents: number }
@@ -35,6 +36,12 @@ export type DepsRefusal =
   | {
       readonly kind: "deps-unsupported";
       readonly why: "no-node-modules" | "no-lockfile";
+    }
+  | {
+      readonly kind: "deps-unsupported";
+      readonly why: "nested-lockfile";
+      /** The directory that holds the lockfile: add it to `deps.roots`. */
+      readonly dir: string;
     }
   | { readonly kind: "host-install-not-at-head"; readonly lockfile: string }
   | {
@@ -110,6 +117,7 @@ type GroupOf<K extends RegressionCaseRefusal["kind"]> = {
 /** Every kind → its group. tsc refuses a kind left out or put in the wrong group. */
 const GROUP_OF: { readonly [K in RegressionCaseRefusal["kind"]]: GroupOf<K> } =
   {
+    "partial-clone": "history",
     "head-not-a-commit": "history",
     "commit-not-in-history": "history",
     "merge-commit": "history",
@@ -153,6 +161,8 @@ export function describeRegressionCaseRefusal(
 
 function describeHistory(r: HistoryRefusal): string {
   switch (r.kind) {
+    case "partial-clone":
+      return "the repository is a partial clone, so reading the fix would fetch its files into it; use a clone made without --filter";
     case "head-not-a-commit":
       return `head ${r.head} is not a commit in the repository`;
     case "commit-not-in-history":
@@ -184,13 +194,24 @@ function describePaths(r: PathRefusal): string {
 function describeDeps(r: DepsRefusal): string {
   switch (r.kind) {
     case "deps-unsupported":
-      return r.why === "no-node-modules"
-        ? 'deps is "node-modules" but the checkout has no node_modules to copy'
-        : 'deps is "node-modules" but the checkout has no lockfile';
+      return describeUnsupported(r);
     case "host-install-not-at-head":
       return `${r.lockfile} in the working copy differs from head's; reinstall at head or bump head`;
     case "deps-link-outside-world":
       return `links in the installs that leave the copy: ${r.links.join(", ")}`;
+  }
+}
+
+function describeUnsupported(
+  r: Extract<DepsRefusal, { kind: "deps-unsupported" }>,
+): string {
+  switch (r.why) {
+    case "no-node-modules":
+      return 'deps is "node-modules" but the checkout has no node_modules to copy';
+    case "no-lockfile":
+      return 'deps is "node-modules" but a root in deps.roots has no lockfile';
+    case "nested-lockfile":
+      return `${r.dir} has its own lockfile under a declared root; add "${r.dir}" to deps.roots`;
   }
 }
 
