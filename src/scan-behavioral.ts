@@ -90,6 +90,8 @@ export interface ProbeOptions {
   readonly model?: string;
   readonly minPrompts?: number;
   readonly minDistance?: number;
+  /** Seconds between model runs (default 4, the eval's own default); a test with a fake driver passes 0. */
+  readonly spacingSec?: number;
   /** Which harness drives it — the adapter itself, not its name (default
    *  {@link defaultAdapter}). A reference-only adapter reports `available: false`. */
   readonly adapter?: HarnessAdapter;
@@ -233,6 +235,7 @@ async function probeSkill(
         minDistance: ctx.opts.minDistance,
         model: ctx.opts.model,
         concurrency: ctx.opts.concurrency,
+        spacingSec: ctx.opts.spacingSec,
         fired: ctx.live.firedFor(name, ctx.plugin),
       },
       { evalDriver: ctx.live.evalDriver },

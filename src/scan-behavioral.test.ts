@@ -123,7 +123,7 @@ test("probePluginTriggersWith probes only model-invocable described skills", asy
       },
     },
     fakeProbe,
-    { minPrompts: 1, minDistance: 0 },
+    { minPrompts: 1, minDistance: 0, spacingSec: 0 },
   );
 
   const byName = Object.fromEntries(report.results.map((r) => [r.skill, r]));
@@ -154,7 +154,7 @@ test("probePluginTriggersWith carries the driver's EXPERIMENTAL caveat (Codex); 
     dir,
     { foo: { prompts: ["fire one", "fire two", "fire three"] } },
     codexish,
-    { minPrompts: 1, minDistance: 0 },
+    { minPrompts: 1, minDistance: 0, spacingSec: 0 },
   );
   assert.match(report.experimental ?? "", /experimental/i);
   const out = formatBehavioralReport(report);
@@ -176,6 +176,7 @@ test("probePluginTriggersWith reports a thin prompt set per-skill, not a crash",
     dir,
     { foo: { prompts: ["fire once"] } },
     fakeProbe,
+    { spacingSec: 0 },
   );
   const foo = report.results.find((r) => r.skill === "foo");
   assert.equal(foo?.measured, false);
@@ -359,7 +360,7 @@ test("trigger: stubbed all-zero on a hooked plugin relabels as unmeasured", asyn
     dir,
     { foo: { prompts: ["a foo", "b foo"] } }, // baz → no prompts (unmeasured)
     silentStubProbe,
-    { minPrompts: 1, minDistance: 0 },
+    { minPrompts: 1, minDistance: 0, spacingSec: 0 },
   );
   const foo = rep.results.find((r) => r.skill === "foo");
   assert.equal(foo?.measured, false); // 0% recall artifact → not a real measurement
