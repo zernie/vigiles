@@ -1,9 +1,12 @@
 # Measuring skills & plugins — does it actually help?
 
 > The README has the pitch (the only way to put a real number on cost); this is
-> the full guide. vigiles is the only harness tool that can A/B a
-> skill, plugin, model, or rule change on **real coding tasks** and tell you
-> whether it moved the needle — on your **Claude subscription**, not metered API.
+> the full guide. vigiles A/Bs a skill, plugin, model, or rule change on **real
+> coding tasks** and tells you whether it moved the needle — on your **Claude
+> subscription**, not metered API. Other tools A/B a skill or a plugin too
+> (`claude plugin eval`, `@vercel/agent-eval`). Here an arm can be your harness
+> as it ships — the project's own `CLAUDE.md`, hooks and settings — which
+> `claude plugin eval` does not load.
 
 The agentic-coding ecosystem runs on vibes: "65% fewer tokens," "3× faster," "the best skills" — stars and zero measurement. vigiles answers the only question that matters: _does this actually help **my** repo, and at what cost?_
 
