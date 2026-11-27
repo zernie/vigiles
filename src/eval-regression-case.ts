@@ -30,6 +30,7 @@ import {
   type TreeOutcome,
 } from "./core/case-scoring.js";
 import { refuseCommandOutsideRunner } from "./core/eval-load-phase.js";
+import type { Source } from "./core/regression-case.js";
 import { makeTmpDir } from "./core/tmp-root.js";
 import { runEffect } from "./effect-run.js";
 import {
@@ -54,8 +55,8 @@ export interface ScoringWorld {
   readonly oracle: readonly string[];
   /** `tests.run` ∪ `tests.data`. */
   readonly territory: readonly string[];
-  /** The resolved `source`. */
-  readonly source: readonly string[];
+  /** The resolved `source`: declared globs, or the default literal roots. */
+  readonly source: Source;
   readonly build:
     | { readonly kind: "command"; readonly argv: readonly string[] }
     | { readonly kind: "none"; readonly reason: string };

@@ -15,7 +15,7 @@
  *   edit outside `source` are dropped and counted;
  * - a timeout is `solved: false`.
  */
-import { matchesAny } from "./regression-case.js";
+import { inSource, matchesAny, type Source } from "./regression-case.js";
 import type { TouchedRow, TouchedSet } from "./workspace.js";
 
 /** How one scoring process ended. A command that could not start exits 127. */
@@ -66,8 +66,8 @@ export type TreeOutcome =
 export interface CarryRules {
   /** `tests.run` ∪ `tests.data`. */
   readonly territory: readonly string[];
-  /** The resolved `source`. */
-  readonly source: readonly string[];
+  /** The resolved `source`: declared globs, or the default literal roots. */
+  readonly source: Source;
   /** Paths (or directories) the arm wrote: their edits are the arm's. */
   readonly armPaths: readonly string[];
 }
@@ -99,7 +99,7 @@ function carried(row: TouchedRow, rules: CarryRules): boolean {
   return (
     carriesContent(row) &&
     !onArmPath(row.path, rules.armPaths) &&
-    matchesAny(row.path, rules.source)
+    inSource(row.path, rules.source)
   );
 }
 

@@ -94,7 +94,7 @@ function caseWorld(host: CaseHost = HOST): ScoringWorld {
     installs: [],
     oracle: ["test/add.test.mjs"],
     territory: ["test/**/*.test.mjs", "test/fixtures/**"],
-    source: ["src/**"],
+    source: { kind: "declared", globs: ["src/**"] },
     build: { kind: "command", argv: [process.execPath, "-e", "0"] },
     testCommand: [process.execPath, "runner.mjs"],
     timeoutMs: 30_000,

@@ -22,7 +22,7 @@ const file = (path: string): TouchedRow => ({
 });
 const RULES: CarryRules = {
   territory: ["**/*.test.ts", "test/**"],
-  source: ["src/**"],
+  source: { kind: "declared", globs: ["src/**"] },
   armPaths: ["notes.md", "plugin"],
 };
 const set = (rows: readonly TouchedRow[], unstaged = false): TouchedSet => ({
@@ -92,6 +92,37 @@ describe("carryVerdict drops", () => {
     expect(verdict).toEqual({
       kind: "carry",
       kept: [file("src/a.ts")],
+      droppedEdits: 3,
+    });
+  });
+});
+
+describe("carryVerdict with the default source", () => {
+  it("matches a default root literally, so a directory named like a glob carries only itself", () => {
+    const rules: CarryRules = {
+      ...RULES,
+      source: {
+        kind: "default",
+        roots: [
+          { kind: "dir", dir: "{app,lib}" },
+          { kind: "file", path: "[t].json" },
+        ],
+      },
+    };
+    const verdict = carryVerdict(
+      set([
+        file("{app,lib}/x.ts"),
+        file("app/x.ts"),
+        file("lib/x.ts"),
+        file("[t].json"),
+        file("t.json"),
+      ]),
+      rules,
+    );
+    // Guards: a fix's own directory `{app,lib}` read as a glob would carry edits in `app/` and `lib/`, outside source.
+    expect(verdict).toEqual({
+      kind: "carry",
+      kept: [file("{app,lib}/x.ts"), file("[t].json")],
       droppedEdits: 3,
     });
   });
