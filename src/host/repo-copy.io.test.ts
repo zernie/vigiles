@@ -74,7 +74,11 @@ function sourceRepo(
 interface Trial {
   readonly template: RepoTemplate;
   readonly cwd: string;
-  readonly view: { readonly gitDir: string; readonly baseTree: string };
+  readonly view: {
+    readonly gitDir: string;
+    readonly baseTree: string;
+    readonly armPaths: readonly string[];
+  };
 }
 
 function startTrial(
@@ -90,8 +94,8 @@ function startTrial(
   before?.(cwd);
   const gitDir = makeTmpDir("trial-base");
   cleanup.push(gitDir);
-  const baseTree = recordTrialBase(template, { gitDir, cwd, armPaths });
-  return { template, cwd, view: { gitDir, baseTree } };
+  const base = recordTrialBase(template, { gitDir, cwd, armPaths });
+  return { template, cwd, view: { gitDir, ...base } };
 }
 
 const paths = (trial: Trial): string[] =>
@@ -165,6 +169,20 @@ describe("recordTrialBase on arm files under a linked directory", () => {
     write(trial.cwd, "config/notes.md", "edited by the agent\n");
     // Guards: git refuses a pathspec beyond a link, which aborted the trial before the agent ran (Codex, #585).
     expect(paths(trial)).toEqual(["M config/notes.md"]);
+  });
+
+  it("returns the arm paths where it staged them, so they match what git later reports", () => {
+    const src = sourceRepo({ "config/keep.md": "k\n" });
+    const trial = startTrial(
+      src,
+      (cwd) => {
+        symlinkSync("config", join(cwd, "agentdir"));
+        write(cwd, "agentdir/notes.md", "arm\n");
+      },
+      ["agentdir/notes.md"],
+    );
+    // Guards: a logical arm path would miss the physical row and let the arm's file carry into scoring.
+    expect(trial.view.armPaths).toEqual(["config/notes.md"]);
   });
 });
 

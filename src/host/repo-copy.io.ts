@@ -148,7 +148,7 @@ export function cloneTemplate(template: RepoTemplate, dest: string): void {
  * template, its index seeded from the template tree, then everything in the
  * trial dir staged on top, and the arm's own files forced in past
  * `.gitignore` (an ignored file outside the base would hide every later edit
- * to it). Returns the tree id.
+ * to it). Returns the tree id and the arm paths as staged.
  */
 export function recordTrialBase(
   template: RepoTemplate,
@@ -157,22 +157,17 @@ export function recordTrialBase(
     readonly cwd: string;
     readonly armPaths: readonly string[];
   },
-): string {
+): { readonly baseTree: string; readonly armPaths: readonly string[] } {
   initShadow(at.gitDir, template);
   const shadow = [`--git-dir=${at.gitDir}`, `--work-tree=${at.cwd}`];
   git(at.cwd, [...shadow, "read-tree", template.tree]);
   git(at.cwd, [...shadow, "add", "-A"]);
-  if (at.armPaths.length > 0)
-    git(at.cwd, [
-      ...shadow,
-      "add",
-      "-f",
-      "--",
-      ...at.armPaths.map((p) => physicalPath(at.cwd, p)),
-    ]);
-  const tree = git(at.cwd, [...shadow, "write-tree"]).trim();
+  const armPaths = at.armPaths.map((p) => physicalPath(at.cwd, p));
+  if (armPaths.length > 0)
+    git(at.cwd, [...shadow, "add", "-f", "--", ...armPaths]);
+  const baseTree = git(at.cwd, [...shadow, "write-tree"]).trim();
   recordIgnored(at.gitDir, shadow, at.cwd);
-  return tree;
+  return { baseTree, armPaths };
 }
 
 /** Keep the ignored entries present before the agent, beside the base. */

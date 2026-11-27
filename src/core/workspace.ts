@@ -54,7 +54,8 @@ export interface TrialWorkspaceView {
   /**
    * Paths where this trial's world differs from the workspace by
    * construction (the arm's files, `settings.json`, a materialised plugin):
-   * an edit there is the arm's, not the agent's.
+   * an edit there is the arm's, not the agent's. Each is where the file
+   * really sits (a directory link on the way resolved), as git reports it.
    */
   readonly armPaths: readonly string[];
 }
@@ -254,7 +255,8 @@ export interface WorkspaceHost {
    * Record `cwd`'s tree into the empty dir `gitDir` (seeded from the template
    * tree, so files it tracks stay tracked under an ignored path; the
    * `armPaths`, relative to `cwd`, go in even when ignored); returns the
-   * tree id.
+   * tree id and the arm paths where they were staged (a directory link on
+   * the way resolved), which is how git reports them later.
    */
   recordTrialBase(
     template: RepoTemplate,
@@ -263,7 +265,7 @@ export interface WorkspaceHost {
       readonly cwd: string;
       readonly armPaths: readonly string[];
     },
-  ): string;
+  ): { readonly baseTree: string; readonly armPaths: readonly string[] };
   touchedPaths(base: TrialBase, cwd: string): TouchedSet;
   findInstalls(top: string, sha: string): readonly string[];
   linksOutside(
