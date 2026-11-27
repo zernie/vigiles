@@ -185,8 +185,10 @@ function scored(
 export interface RegressionCaseHost {
   /**
    * Write the kept rows into `dest`: a file's blob from `gitDir`, a deletion
-   * removed. Returns how many rows it refused because a directory on their
-   * way in is a link or a file; the caller counts them as dropped edits.
+   * removed, nothing removed recursively. Returns how many rows it refused
+   * (a directory on their way in is a link or a file, or a file would replace
+   * a directory that still holds entries); the caller counts them as dropped
+   * edits.
    */
   carryRows(gitDir: string, rows: readonly TouchedRow[], dest: string): number;
   /** Links under `root` (not followed) that would reach out of it, as `path -> target`. */

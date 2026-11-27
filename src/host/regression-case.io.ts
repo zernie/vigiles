@@ -20,8 +20,11 @@
 import { execFileSync, spawn } from "node:child_process";
 import {
   chmodSync,
+  existsSync,
   lstatSync,
   mkdirSync,
+  readdirSync,
+  rmdirSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -43,31 +46,60 @@ function gitBytes(cwd: string, args: readonly string[]): Buffer {
 }
 
 /**
- * Write the kept rows into `dest`: deletions first (a file may replace a
- * directory the agent emptied), then each file's blob with its exec bit.
- * A row whose way into `dest` passes a link or a file is refused, not
- * followed: checked before the deletions and again before the writes, since
- * a kept deletion may remove the link. Returns how many rows were refused.
+ * Write the kept rows into `dest`: deletions first, then each file's blob
+ * with its exec bit. Nothing is removed recursively, as in git: a file
+ * replaces a directory only once the kept deletions emptied it, so a
+ * descendant the verdict dropped is never deleted on the way. A row whose
+ * way into `dest` passes a link or a file is refused, not followed: checked
+ * before the deletions and again before the writes, since a kept deletion
+ * may remove the link. Returns how many rows were refused.
  */
 export function carryRows(
   gitDir: string,
   rows: readonly TouchedRow[],
   dest: string,
 ): number {
-  const refusedDeletes = rows.filter(
-    (row) => row.entry.kind !== "file" && !openWay(dest, row.path),
-  ).length;
-  rows
-    .filter((row) => openWay(dest, row.path))
-    .forEach((row) => {
-      rmSync(join(dest, row.path), { recursive: true, force: true });
-    });
+  const deletes = rows.filter((row) => row.entry.kind !== "file");
+  const removed = deletes.filter(
+    (row) => openWay(dest, row.path) && removeEntry(join(dest, row.path)),
+  );
   const files = rows.filter((row) => row.entry.kind === "file");
-  const writable = files.filter((row) => openWay(dest, row.path));
+  const writable = files.filter(
+    (row) => openWay(dest, row.path) && clearFor(join(dest, row.path)),
+  );
   writable.forEach((row) => {
     writeRow(gitDir, row, dest);
   });
-  return refusedDeletes + files.length - writable.length;
+  return deletes.length - removed.length + files.length - writable.length;
+}
+
+/** Remove a file or link at `path` (never a directory); true unless a directory is there. */
+function removeEntry(path: string): boolean {
+  const stat = lstatSync(path, { throwIfNoEntry: false });
+  if (stat?.isDirectory() === true) return false;
+  rmSync(path, { force: true });
+  return true;
+}
+
+/**
+ * Make `path` writable as a file: a file or link there is removed (a write
+ * must not follow it), a directory only when nothing but empty directories
+ * is left in it. False when a directory still holds an entry.
+ */
+function clearFor(path: string): boolean {
+  if (removeEntry(path)) return true;
+  pruneEmpty(path);
+  return !existsSync(path);
+}
+
+/** Remove the empty directories under `dir`, then `dir` itself if empty. */
+function pruneEmpty(dir: string): void {
+  readdirSync(dir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .forEach((entry) => {
+      pruneEmpty(join(dir, entry.name));
+    });
+  if (readdirSync(dir).length === 0) rmdirSync(dir);
 }
 
 /** Every directory between `dest` and `path` is a real directory or not there yet. */

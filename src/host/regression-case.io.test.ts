@@ -178,6 +178,31 @@ describe("carryRows when the way in changes", () => {
   });
 });
 
+describe("carryRows over a directory a file replaces", () => {
+  it("keeps what the verdict dropped under it, and replaces one the kept rows emptied", () => {
+    const { gitDir, blob } = blobIn("file now\n");
+    const dest = tmp("case-dest");
+    write(dest, "src/config/arm.js", "arm-owned\n");
+    write(dest, "src/gone/old.js", "old\n");
+    const file = { kind: "file", mode: "100644", blob } as const;
+    const refused = carryRows(
+      gitDir,
+      [
+        { status: "A", path: "src/config", entry: file },
+        { status: "D", path: "src/gone/old.js", entry: { kind: "absent" } },
+        { status: "A", path: "src/gone", entry: file },
+      ],
+      dest,
+    );
+    // Guards: a kept file over a directory never deletes a descendant the verdict dropped (Codex, #596).
+    expect(readFileSync(join(dest, "src/config/arm.js"), "utf-8")).toBe(
+      "arm-owned\n",
+    );
+    expect(refused).toBe(1);
+    expect(readFileSync(join(dest, "src/gone"), "utf-8")).toBe("file now\n");
+  });
+});
+
 /**
  * Whether `pid` still runs. A killed process whose parent is gone can stay a
  * zombie under a container's PID 1 that never reaps; a zombie runs nothing.
