@@ -15,6 +15,8 @@
 
 ## RESUME HERE
 
+**#603 (CI `test` job ~14 min → goal ≤ 5), triage in flight, no code changed yet.** The goal is now guidance (`test-time-goal` in `CLAUDE.md`, not a gate). Measured: the test step went 7:41 (2026-11-23) → 14:25 (2026-11-25), lining up with #534 (`"type": "module"`); one `node dist/cli.js --help` costs ~600 ms, ~400 ms of it importing `typescript` statically through `src/cli-main.ts` → `src/core/compile-generator.ts`; 83 test files that spawn the built CLI take 77 % of the summed test time, all in the vitest `unit` project. Next: confirm the #534 cause on a before/after build, then a plan with measured savings per step.
+
 **#416 point 2 (regression cases), in flight.** PR1 = #585 (draft): `experimental_workspace` on `paid_runEval`, which runs each trial in a sealed copy of the repo with a parent-held base record (`src/core/workspace.ts` port, `src/host/{repo-copy,installs,git-env}.io.ts`). Next: Codex findings, then PR2 = the `vigiles/regression-case` entry + scoring (with a `Size:` line). 8 unit tests fail in this container: 3 fail on clean `main` too, 5 need the real agent binary (not rerun on `main`).
 
 **`vigiles.sh` is LIVE** 🎉 — landing at `/`, TypeDoc docs at `/api`, valid TLS. Site auto-deploys
