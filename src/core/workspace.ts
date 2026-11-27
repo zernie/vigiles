@@ -54,7 +54,9 @@ export interface TrialWorkspaceView {
   /**
    * Paths where this trial's world differs from the workspace by
    * construction (the arm's files, `settings.json`, a materialised plugin):
-   * an edit there is the arm's, not the agent's.
+   * an edit there is the arm's, not the agent's. Each is where the file
+   * really sits, as git reports it: as staged, and where writing it lands
+   * (every link resolved, the last one included).
    */
   readonly armPaths: readonly string[];
 }
@@ -127,15 +129,28 @@ export function harnessRefusal(
     : { kind: "harness-not-driven", declared, driven };
 }
 
+/**
+ * The new side of a touched path, read from its git mode. Only `file` has
+ * content a scorer may carry; `absent` is a deletion.
+ */
+export type TouchedEntry =
+  | {
+      readonly kind: "file";
+      readonly mode: "100644" | "100755";
+      /** The blob id of the new content, in the trial's base git dir. */
+      readonly blob: string;
+    }
+  | { readonly kind: "absent" }
+  | { readonly kind: "symlink" }
+  | { readonly kind: "gitlink" }
+  | { readonly kind: "other"; readonly mode: string };
+
 /** One path of a trial's touched set. */
 export interface TouchedRow {
   readonly status: "A" | "M" | "D" | "T";
   readonly path: string;
-  /** The new side is a gitlink (a nested repo with a commit): no content is carried. */
-  readonly gitlink: boolean;
+  readonly entry: TouchedEntry;
 }
-
-const GITLINK = "160000";
 
 /**
  * Read `git diff-index --raw -z --no-renames` output. Each entry is
@@ -156,7 +171,24 @@ function rawRow(head: string, path: string): TouchedRow {
   if (!isStatus(status)) {
     throw new Error(`unexpected git raw diff entry: ${head}`);
   }
-  return { status, path, gitlink: fields[1] === GITLINK };
+  /* v8 ignore next -- a row with a valid status has all five fields */
+  return { status, path, entry: entryOf(fields[1] ?? "", fields[3] ?? "") };
+}
+
+function entryOf(mode: string, blob: string): TouchedEntry {
+  switch (mode) {
+    case "100644":
+    case "100755":
+      return { kind: "file", mode, blob };
+    case "000000":
+      return { kind: "absent" };
+    case "120000":
+      return { kind: "symlink" };
+    case "160000":
+      return { kind: "gitlink" };
+    default:
+      return { kind: "other", mode };
+  }
 }
 
 function isStatus(s: string | undefined): s is TouchedRow["status"] {
@@ -179,11 +211,26 @@ export interface TrialBase {
   readonly baseTree: string;
 }
 
+/**
+ * The trial's base record cannot be read or written, so the touched set is
+ * unknown. The one fault {@link WorkspaceHost.touchedPaths} throws on purpose:
+ * a scorer leaves such a trial unscored, and lets every other throw through.
+ */
+export class ShadowUnhealthyError extends Error {
+  override readonly name = "ShadowUnhealthyError";
+}
+
 /** What the agent changed against its base. */
 export interface TouchedSet {
   readonly rows: readonly TouchedRow[];
   /** Some path could not be staged (a nested repo without a commit). */
   readonly unstaged: boolean;
+  /**
+   * Ignored entries (`ls-files --others --ignored --directory`) present now
+   * and not at the base: new files no scorer sees. A new file inside an
+   * ignored directory that already existed at the base is not counted.
+   */
+  readonly ignoredNewFiles: number;
 }
 
 /**
@@ -209,7 +256,8 @@ export interface WorkspaceHost {
    * Record `cwd`'s tree into the empty dir `gitDir` (seeded from the template
    * tree, so files it tracks stay tracked under an ignored path; the
    * `armPaths`, relative to `cwd`, go in even when ignored); returns the
-   * tree id.
+   * tree id and the arm paths where they were staged (a directory link on
+   * the way resolved), which is how git reports them later.
    */
   recordTrialBase(
     template: RepoTemplate,
@@ -218,7 +266,7 @@ export interface WorkspaceHost {
       readonly cwd: string;
       readonly armPaths: readonly string[];
     },
-  ): string;
+  ): { readonly baseTree: string; readonly armPaths: readonly string[] };
   touchedPaths(base: TrialBase, cwd: string): TouchedSet;
   findInstalls(top: string, sha: string): readonly string[];
   linksOutside(

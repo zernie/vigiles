@@ -397,7 +397,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 710 project files. */
+  /** 714 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -605,6 +605,8 @@ declare module "vigiles/generated" {
     | "src/core/bash-lookalikes.ts"
     | "src/core/capability-diff.test.ts"
     | "src/core/capability-diff.ts"
+    | "src/core/case-scoring.test.ts"
+    | "src/core/case-scoring.ts"
     | "src/core/cedar.test.ts"
     | "src/core/changed-base.test.ts"
     | "src/core/changed-base.ts"
@@ -958,6 +960,8 @@ declare module "vigiles/generated" {
     | "src/host/installs.io.ts"
     | "src/host/link-probe.io.test.ts"
     | "src/host/link-probe.io.ts"
+    | "src/host/regression-case.io.test.ts"
+    | "src/host/regression-case.io.ts"
     | "src/host/repo-copy.io.test.ts"
     | "src/host/repo-copy.io.ts"
     | "src/host/rule-proof.io.test.ts"
@@ -1683,6 +1687,8 @@ declare module "vigiles/spec" {
       | "src/core/bash-lookalikes.ts"
       | "src/core/capability-diff.test.ts"
       | "src/core/capability-diff.ts"
+      | "src/core/case-scoring.test.ts"
+      | "src/core/case-scoring.ts"
       | "src/core/cedar.test.ts"
       | "src/core/changed-base.test.ts"
       | "src/core/changed-base.ts"
@@ -2036,6 +2042,8 @@ declare module "vigiles/spec" {
       | "src/host/installs.io.ts"
       | "src/host/link-probe.io.test.ts"
       | "src/host/link-probe.io.ts"
+      | "src/host/regression-case.io.test.ts"
+      | "src/host/regression-case.io.ts"
       | "src/host/repo-copy.io.test.ts"
       | "src/host/repo-copy.io.ts"
       | "src/host/rule-proof.io.test.ts"
