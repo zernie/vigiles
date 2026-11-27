@@ -1459,6 +1459,12 @@
     "max-statements": {
       "count": 87
     },
+    "no-console": {
+      "count": 336
+    },
+    "no-restricted-globals": {
+      "count": 156
+    },
     "no-restricted-syntax": {
       "count": 1
     },
@@ -4929,6 +4935,11 @@
   "src/entries/CLAUDE.md.spec.ts": {
     "sonarjs/no-empty-test-file": {
       "count": 1
+    }
+  },
+  "src/entries/eval.ts": {
+    "no-restricted-globals": {
+      "count": 2
     }
   },
   "src/entries/spec.ts": {

@@ -161,6 +161,14 @@ const HARNESS_LITERALS = {
  * library user's import is assembled, which is the same job.
  */
 const CLI_ROOT = "src/{cli,cli-main,eval-program,entries/*,entries/*/*}.ts";
+
+/**
+ * The bins: the only non-io files that may touch `process` and `console`. Narrower
+ * than CLI_ROOT on purpose: `cli-main.ts` wires adapters (a root's job) but also
+ * holds every verb's logic, and exempting it left its machine calls unchecked
+ * (#607). Its existing ones are grandfathered in `eslint-suppressions.json`.
+ */
+const MACHINE_ROOT = "src/{cli,eval-program}.ts";
 const HOST_AND_HARNESS_ADAPTERS = "src/{adapters/*,host}";
 const IO_FILES = "src/{adapters/*,host}/*.io.ts";
 
@@ -718,15 +726,15 @@ export default [
   }),
   ioGlobals({
     files: ["src/**/*.ts"],
-    ignores: [CLI_ROOT, IO_FILES, "src/**/*.test.ts"],
+    ignores: [MACHINE_ROOT, IO_FILES, "src/**/*.test.ts"],
   }),
-  // The terminal is the machine too: `ioGlobals` already keeps `process` out of
-  // this scope, and `console.*` reaches the same stdout/stderr by another door
-  // (#607). Old hits are grandfathered in `eslint-suppressions.json`, which fails
-  // the lint when one stops occurring, so the list only shrinks.
+  // The terminal is the machine too: `ioGlobals` bans `process` and `fetch`, and
+  // `console.*` reaches the same stdout/stderr by another door (#607). Old hits
+  // are grandfathered in `eslint-suppressions.json`, which fails the lint when
+  // one stops occurring, so the list only shrinks.
   {
     files: ["src/**/*.ts"],
-    ignores: [CLI_ROOT, IO_FILES, "src/**/*.test.ts"],
+    ignores: [MACHINE_ROOT, IO_FILES, "src/**/*.test.ts"],
     rules: { "no-console": "error" },
   },
   ...harnessFences,
