@@ -1,4 +1,11 @@
-import { useEffect, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { Copy, Check } from "lucide-react";
 import { Term, useCopy } from "@/components/Term";
 
@@ -50,16 +57,52 @@ function AuditLine({ line }: { line: string }): ReactNode {
 }
 
 const WORDS = ["Claude Code", "Codex"] as const;
-const SWAP_MS = 2600;
-const FADE_MS = 350;
+const SWAP_MS = 2800;
+const FADE_MS = 280;
+const WIDTH_MS = 500;
+const EASE = "cubic-bezier(0.22, 1, 0.36, 1)";
 
-/** The headline's harness name: cross-fades Claude Code ⇄ Codex, still when
- *  the visitor prefers reduced motion. */
+/** A hidden copy of a word, laid out on one line, read only for its width. */
+const MEASURE: CSSProperties = {
+  position: "absolute",
+  left: 0,
+  top: 0,
+  visibility: "hidden",
+  whiteSpace: "nowrap",
+};
+
+const reducedMotion = () =>
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+/** The headline's harness name: Claude Code ⇄ Codex, still when the visitor
+ *  prefers reduced motion.
+ *
+ *  The slot's WIDTH is animated, not left to reflow: each word is measured
+ *  (hidden copies, re-measured when fonts load or the viewport changes the
+ *  clamp() size), and the slot eases between the two widths, so " setup." glides
+ *  instead of jumping and the line never re-wraps. The old word fades out first;
+ *  the new one fades in while the width moves, clipped horizontally so a wider
+ *  word is revealed as the slot opens rather than overlapping " setup.". */
 function SwapWord() {
   const [i, setI] = useState(0);
   const [out, setOut] = useState(false);
+  const [widths, setWidths] = useState<readonly number[]>([]);
+  const measure = useRef<(HTMLSpanElement | null)[]>([]);
+
+  useLayoutEffect(() => {
+    const read = () =>
+      setWidths(
+        measure.current.map((el) => el?.getBoundingClientRect().width ?? 0),
+      );
+    read();
+    const ro = new ResizeObserver(read);
+    for (const el of measure.current) if (el) ro.observe(el);
+    void document.fonts?.ready.then(read);
+    return () => ro.disconnect();
+  }, []);
+
   useEffect(() => {
-    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    if (reducedMotion()) return;
     let fade: number | undefined;
     const tick = window.setInterval(() => {
       setOut(true);
@@ -73,11 +116,42 @@ function SwapWord() {
       window.clearTimeout(fade);
     };
   }, []);
+
+  const width = widths[i];
+  // Inline, not utility classes: these three are the behaviour, not the look
+  // (they hold where no stylesheet is loaded, e.g. the browser tests).
+  const slot: CSSProperties = {
+    display: "inline-block",
+    position: "relative",
+    whiteSpace: "nowrap",
+    verticalAlign: "bottom",
+    overflowX: "clip",
+    width,
+    transition: reducedMotion() ? undefined : `width ${WIDTH_MS}ms ${EASE}`,
+  };
+  const word: CSSProperties = {
+    display: "inline-block",
+    opacity: out ? 0 : 1,
+    transform: out ? "translateY(-0.12em)" : "none",
+    transition: reducedMotion()
+      ? undefined
+      : `opacity ${FADE_MS}ms ease-out, transform ${FADE_MS}ms ease-out`,
+  };
   return (
-    <span
-      className={`inline-block text-accent transition-[opacity,transform] duration-[350ms] motion-reduce:transition-none ${out ? "translate-y-[0.25em] opacity-0" : ""}`}
-    >
-      {WORDS[i]}
+    <span data-testid="swap-word" className="text-accent" style={slot}>
+      <span style={word}>{WORDS[i]}</span>
+      {WORDS.map((w, k) => (
+        <span
+          key={w}
+          aria-hidden
+          ref={(el) => {
+            measure.current[k] = el;
+          }}
+          style={MEASURE}
+        >
+          {w}
+        </span>
+      ))}
     </span>
   );
 }
@@ -123,7 +197,9 @@ export function Hero() {
       <div className="mx-auto max-w-[860px] pt-8 text-center sm:pt-[104px]">
         <h1 className="mb-4 text-[clamp(36px,7vw,88px)] sm:mb-6 font-bold leading-[1.02] tracking-[-0.045em]">
           Lint and test your <br />
-          <SwapWord /> setup.
+          <span style={{ whiteSpace: "nowrap" }}>
+            <SwapWord /> setup.
+          </span>
         </h1>
         <p className="mx-auto mb-7 max-w-[560px] text-base sm:mb-9 sm:text-lg leading-[1.45] text-muted-foreground sm:text-[21px]">
           Skills that never fire. Hooks that never block. Rules that point at

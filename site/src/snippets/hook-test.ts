@@ -1,8 +1,11 @@
 import { assertChecks, check, runHook } from "vigiles";
 
-// The guard your plugin already ships.
+// Does my force-push guard still
+// block? The one your plugin ships.
 const guard = "./hooks/block-force-push.sh";
 
+// The event Claude Code would send.
+// No model, no key: just the hook.
 const blocked = runHook(guard, {
   hook_event_name: "PreToolUse",
   tool_name: "Bash",

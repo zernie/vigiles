@@ -71,3 +71,25 @@ test("the landing page never bleeds past a 390px viewport", async ({
   await expectNoPageOverflow(page);
   await expectPreBlocksWrap(page);
 });
+
+// The code blocks wrap on purpose (see CodeBlock.tsx), which is fine for a long
+// string but turns an explanatory comment into two half-lines that read as noise
+// on a phone. A comment is prose we write, so we keep it short enough to fit.
+test("a code comment fits on one line at 390px", async ({ page }) => {
+  await page.goto("/");
+  const lines = await page.evaluate(() =>
+    [...document.querySelectorAll("pre > div")]
+      .filter((line) => (line as HTMLElement).offsetParent !== null)
+      .filter((line) => (line.textContent ?? "").trim().startsWith("//"))
+      .map((line) => ({
+        text: (line.textContent ?? "").trim(),
+        rows:
+          line.getBoundingClientRect().height /
+          parseFloat(getComputedStyle(line).lineHeight),
+      })),
+  );
+  // Guards: a selector that matches nothing would pass while checking nothing.
+  expect(lines.length).toBeGreaterThan(0);
+  // Guards: a comment line that wraps into two rows on a phone.
+  expect(lines.filter((l) => l.rows > 1.5).map((l) => l.text)).toEqual([]);
+});
