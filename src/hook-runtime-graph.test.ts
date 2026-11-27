@@ -507,3 +507,21 @@ export default experimental_defineReact({
     expect(has(graphOf(["--help"]), "node_modules/remeda")).toBe(true);
   });
 });
+
+describe("typescript loads on first use, not at CLI start (#603)", () => {
+  // `typescript` is a 9 MB CommonJS file. A top-level value import of it from an
+  // ES module cost every CLI start ~330 ms, `--help` included, while most verbs
+  // never parse TypeScript. src/core/typescript-lazy.ts defers it and an ESLint
+  // ban keeps product code from importing it eagerly; this pair pins the graph.
+  test("--help does not load typescript", () => {
+    expect(
+      has(graphOf(["--help"]), "node_modules/typescript/"),
+      "a CLI start pulled typescript. Import `ts` from src/core/typescript-lazy.ts; " +
+        "see docs/contributing/rules.md#hook-startup-cost-is-watched.",
+    ).toBe(false);
+  });
+
+  test("a verb that parses TypeScript DOES load it — the absence above is real", () => {
+    expect(has(graphOf(["lint"]), "node_modules/typescript/")).toBe(true);
+  });
+});

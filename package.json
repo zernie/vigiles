@@ -124,7 +124,7 @@
     "build": "tsc && node scripts/build-cjs.mjs && node scripts/build-config-schema.mjs && node scripts/build-report.mjs",
     "build:core": "tsc",
     "test": "npm run build && vitest run",
-    "coverage": "npm run build && vitest run --coverage",
+    "coverage": "npm run build && vitest run --coverage --project unit --project integration --project runners",
     "lint": "eslint src/ packages/report-view/src",
     "fmt": "prettier --write .",
     "fmt:check": "prettier --check .",

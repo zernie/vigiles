@@ -1,4 +1,4 @@
-<!-- vigiles:sha256:d7a558d2e137270d compiled from CLAUDE.md.spec.ts -->
+<!-- vigiles:sha256:36adf81dd42ee94a compiled from CLAUDE.md.spec.ts -->
 
 # CLAUDE.md
 
@@ -237,6 +237,10 @@ BUILD + TOOLING + GENERATED:
 ### Pick The Test Tier
 
 **Guidance only** — A new check goes in the cheapest tier that can decide it: unit, then harness, then eval; the full map is in `CONTRIBUTING.md`. [Details](docs/contributing/rules.md#pick-the-test-tier)
+
+### Test Time Goal
+
+**Guidance only** — Test time is a goal we track, not a gate: the CI `test` job and a local `npm test` each aim at 5 minutes wall-clock or less, reached step by step. [Details](docs/contributing/rules.md#test-time-goal)
 
 ### Conventional Commits
 

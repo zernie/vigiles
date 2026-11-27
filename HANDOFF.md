@@ -15,6 +15,8 @@
 
 ## RESUME HERE
 
+**#603 (CI `test` job ~14 min → goal ≤ 5): step A in #605 (draft), plan A → D → E → B.** The goal is guidance (`test-time-goal`, this branch, no PR yet). Confirmed on a before/after build: #534 made each CLI start ~250–330 ms slower by importing `typescript` eagerly; #605 loads it through `src/core/typescript-lazy.ts` and bans value imports of it in product code (`--help` 574 → 238 ms). CLI-spawning test files are 77 % of summed test time. Next: read #605 CI time + Codex; then D (double build in `npm run coverage`, duplicate e2e in the `test` job), E (`disasters()` in `src/guardrail-check.ts:576-588` builds its default lists even when the caller passes them), B (one real spawn per command, the rest in-process).
+
 **#416 point 2 (regression cases), in flight.** PR1 = #585 (draft): `experimental_workspace` on `paid_runEval`, which runs each trial in a sealed copy of the repo with a parent-held base record (`src/core/workspace.ts` port, `src/host/{repo-copy,installs,git-env}.io.ts`). Next: Codex findings, then PR2 = the `vigiles/regression-case` entry + scoring (with a `Size:` line). 8 unit tests fail in this container: 3 fail on clean `main` too, 5 need the real agent binary (not rerun on `main`).
 
 **`vigiles.sh` is LIVE** 🎉 — landing at `/`, TypeDoc docs at `/api`, valid TLS. Site auto-deploys
