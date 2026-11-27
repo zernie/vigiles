@@ -36,6 +36,7 @@ import { knownFlagsFor } from "./cli-flag-check.js";
 import { adoptInstructionFileRemedy } from "./core/instruction-remedies.js";
 import { z } from "zod";
 import { RULES } from "./rules/index.js";
+import { runCliInProcess, type CliResult } from "./host/cli-in-process.io.js";
 import { AUDIT_SCHEMA_VERSION } from "./audit-report.js";
 
 /** The part of `audit --json` the adoption tests read — parsed, not cast. */
@@ -73,11 +74,11 @@ const ungradedBlocks = z.object({
 const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 const VENDOR = resolve(import.meta.dirname, "..", "test/dogfood");
 
-function run(
+async function run(
   args: string,
   cwd?: string,
   env?: Readonly<Record<string, string>>,
-): { stdout: string; stderr: string; exitCode: number } {
+): Promise<CliResult> {
   // A default `audit` writes vigiles-report.html + vigiles-report.json into cwd —
   // suppress both here so the test run never drops an artifact in the repo root.
   // The dedicated write tests exercise those paths explicitly in a tmp cwd.
@@ -85,26 +86,9 @@ function run(
     args.startsWith("audit ") && !args.includes("--json")
       ? `${args}${args.includes("--no-html") ? "" : " --no-html"}${args.includes("--no-json") ? "" : " --no-json"}`
       : args;
-  try {
-    const stdout = execSync(`node ${CLI} ${a}`, {
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 30000,
-      cwd,
-      env: env === undefined ? undefined : { ...process.env, ...env },
-    });
-    return { stdout, stderr: "", exitCode: 0 };
-  } catch (e: unknown) {
-    const err = e as { stdout?: string; stderr?: string; status?: number };
-    return {
-      stdout: err.stdout ?? "",
-      stderr: err.stderr ?? "",
-      exitCode: err.status ?? 1,
-    };
-  }
+  return runCliInProcess(a.split(/\s+/).filter(Boolean), { cwd, env });
 }
 
-/** The vendored plugin DIR whose name starts with `prefix` (SHA-suffix agnostic). */
 function vendored(prefix: string): string {
   const match = readdirSync(VENDOR, { withFileTypes: true }).find(
     (d) => d.isDirectory() && d.name.startsWith(prefix),
@@ -116,16 +100,16 @@ function vendored(prefix: string): string {
 // --- Dogfood: real Claude Code OSS plugins -------------------------------------
 
 describe("scan e2e — Claude Code (dogfood real OSS)", () => {
-  it("reports a real multi-surface plugin (oh-my-claudecode)", () => {
-    const r = run(`audit ${vendored("oh-my-claudecode")}`);
+  it("reports a real multi-surface plugin (oh-my-claudecode)", async () => {
+    const r = await run(`audit ${vendored("oh-my-claudecode")}`);
     assert.equal(r.exitCode, 0, "scan is read-only — always exits 0");
     assert.match(r.stdout, /Detected harness: claude-code/);
     assert.match(r.stdout, /Skills \(\d+\)/);
     assert.match(r.stdout, /MCP servers: yes/); // it ships an MCP server
   });
 
-  it("flags an inherits-all agent in a real plugin (wshobson-accessibility)", () => {
-    const r = run(`audit ${vendored("wshobson-accessibility")}`);
+  it("flags an inherits-all agent in a real plugin (wshobson-accessibility)", async () => {
+    const r = await run(`audit ${vendored("wshobson-accessibility")}`);
     assert.equal(r.exitCode, 0);
     assert.match(r.stdout, /Detected harness: claude-code/);
     // ships an agent with no `tools:` line → the inherits-all footgun
@@ -251,8 +235,8 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("CC instruction-only repo: detects claude-code + reports the instruction file", () => {
-    const r = run(`audit ${join(root, "normal")}`);
+  it("CC instruction-only repo: detects claude-code + reports the instruction file", async () => {
+    const r = await run(`audit ${join(root, "normal")}`);
     assert.equal(r.exitCode, 0);
     assert.match(r.stdout, /Detected harness: claude-code/);
     assert.match(
@@ -272,8 +256,8 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.doesNotMatch(r.stdout, /no structural issues found/);
   });
 
-  it("Codex repo: detects codex, reports AGENTS.md + skill + TOML MCP", () => {
-    const r = run(`audit ${join(root, "codex")}`);
+  it("Codex repo: detects codex, reports AGENTS.md + skill + TOML MCP", async () => {
+    const r = await run(`audit ${join(root, "codex")}`);
     assert.equal(r.exitCode, 0);
     assert.match(r.stdout, /Detected harness: codex/);
     assert.match(
@@ -302,11 +286,11 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
    * Both halves are asserted here: the sentence is gone, and the repo is now
    * consent-ELIGIBLE, which is the thing the gate actually denied.
    */
-  it("#263: a Codex repo's instruction file is adoptability-eligible, and nothing is deferred to a follow-up", () => {
+  it("#263: a Codex repo's instruction file is adoptability-eligible, and nothing is deferred to a follow-up", async () => {
     // `--no-interactive` keeps this a deterministic read: no consent prompt, no
     // model call, no `codex` binary needed. The eligibility is still observable,
     // because it decides whether the executing-checks nudge prints at all.
-    const r = run(`audit ${join(root, "codexadopt")} --no-interactive`);
+    const r = await run(`audit ${join(root, "codexadopt")} --no-interactive`);
     assert.equal(r.exitCode, 0);
     assert.match(r.stdout, /Detected harness: codex/);
 
@@ -324,11 +308,11 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.match(r.stdout, /AGENTS\.md/);
   });
 
-  it("Codex repo: `lint` runs the layout-driven rules (shell hooks, untested) and reports subagent n/a", () => {
+  it("Codex repo: `lint` runs the layout-driven rules (shell hooks, untested) and reports subagent n/a", async () => {
     // `lint` operates on cwd, so run it INSIDE the fixture. Proves the
     // deterministic rules use the resolved Codex adapter (layout + dialect), not a
     // hard-coded Claude Code default.
-    const r = run("lint", join(root, "codexlint"));
+    const r = await run("lint", join(root, "codexlint"));
 
     // The hook loaded from TOML [hooks] is one vigiles did not write: the
     // shell-hooks rules ran for Codex and named it.
@@ -345,8 +329,8 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.match(r.stdout, /n\/a — codex has no subagents/);
   });
 
-  it("mixed repo: warns it matches both harnesses, and --harness overrides", () => {
-    const auto = run(`audit ${join(root, "mixed")}`);
+  it("mixed repo: warns it matches both harnesses, and --harness overrides", async () => {
+    const auto = await run(`audit ${join(root, "mixed")}`);
     assert.equal(auto.exitCode, 0);
     assert.match(auto.stdout, /Detected harness: claude-code/);
     // The ambiguity notice now flows through the SAME resolveHarnessSelection
@@ -354,13 +338,13 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     // the config key / --harness override.
     assert.match(auto.stdout, /repo matches claude-code, codex/);
 
-    const forced = run(`audit ${join(root, "mixed")} --harness=codex`);
+    const forced = await run(`audit ${join(root, "mixed")} --harness=codex`);
     assert.match(forced.stdout, /Detected harness: codex/);
     assert.doesNotMatch(forced.stdout, /repo matches/); // override silences it
   });
 
-  it("an unknown --harness fails with a clean message, not a stack trace (dogfood C2)", () => {
-    const r = run(`audit ${join(root, "normal")} --harness=bogus`);
+  it("an unknown --harness fails with a clean message, not a stack trace (dogfood C2)", async () => {
+    const r = await run(`audit ${join(root, "normal")} --harness=bogus`);
     assert.equal(r.exitCode, 2);
     assert.match(r.stderr, /Unknown harness "bogus"/);
     assert.match(r.stderr, /claude-code, codex/); // lists the known harnesses
@@ -368,12 +352,12 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.doesNotMatch(r.stderr, /^\s+at .+\(.*\)/m);
   });
 
-  it("honors the .vigilesrc.json `harnesses` key (audit no longer ignores config)", () => {
+  it("honors the .vigilesrc.json `harnesses` key (audit no longer ignores config)", async () => {
     // dogfood A: this repo auto-detects as claude-code (only a CLAUDE.md), but
     // config declares codex. Audit must scan as codex — before the fix it
     // ignored the declaration and reported claude-code. Config resolves from the
     // cwd (like `lint`), so run audit from INSIDE the fixture.
-    const r = run("audit .", join(root, "cfgharness"));
+    const r = await run("audit .", join(root, "cfgharness"));
     // Exit 2, not 0: scanned AS CODEX this fixture holds no AGENTS.md and no
     // codex surface, so there is nothing to measure — which `audit` now reports
     // as a distinct outcome instead of a silent grade F at exit 0. The harness
@@ -393,11 +377,11 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
    * and having it reach discovery. Both halves of the check live here — the
    * symptom without the file, the fix with it, same tree otherwise.
    */
-  it("#240: `.ai/` skills are NAMED without config, and GRADED once declared", () => {
+  it("#240: `.ai/` skills are NAMED without config, and GRADED once declared", async () => {
     // Half one — no config. The tree is found and reported rather than silently
     // skipped, which is the part of #240 worth having on its own ("a scan that
     // opened no skill … should say so instead of grading it 100").
-    const bare = run(`audit ${join(root, "vlad240")}`);
+    const bare = await run(`audit ${join(root, "vlad240")}`);
     assert.match(bare.stdout, /Surfaces no harness reads/);
     assert.match(bare.stdout, /\.ai\/skills\//);
     // …and it points at the fix rather than only at moving the files.
@@ -407,7 +391,7 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
 
     // Half two — the SAME tree plus one config file. Config resolves from cwd,
     // so run from inside the fixture the way a user does.
-    const cfg = run("audit .", join(root, "vlad240cfg"));
+    const cfg = await run("audit .", join(root, "vlad240cfg"));
     assert.match(cfg.stdout, /alpha/);
     assert.match(cfg.stdout, /beta/);
     // The instruction file belongs to the OTHER declared harness and is still
@@ -417,8 +401,8 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.doesNotMatch(cfg.stdout, /Surfaces no harness reads/);
   });
 
-  it("marketplace root: expands members into a ranked leaderboard", () => {
-    const r = run(`audit ${join(root, "mp")}`);
+  it("marketplace root: expands members into a ranked leaderboard", async () => {
+    const r = await run(`audit ${join(root, "mp")}`);
     assert.equal(r.exitCode, 0);
     assert.match(r.stdout, /2 plugins detected → leaderboard mode/);
     assert.match(
@@ -429,11 +413,11 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.match(r.stdout, /beta/);
   });
 
-  it("marketplace --json emits a versioned leaderboard envelope (not a bare array)", () => {
+  it("marketplace --json emits a versioned leaderboard envelope (not a bare array)", async () => {
     // Regression: the leaderboard path used to print a raw, unversioned array,
     // inconsistent with the single-plugin AuditReport contract. Now it's a
     // versioned object with a `kind:"leaderboard"` discriminant + `plugins[]`.
-    const r = run(`audit ${join(root, "mp")} --json`);
+    const r = await run(`audit ${join(root, "mp")} --json`);
     assert.equal(r.exitCode, 0);
     const j = JSON.parse(r.stdout) as {
       meta: { tool: string; kind: string; schemaVersion: number };
@@ -447,7 +431,7 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.equal(j.plugins.length, 2);
   });
 
-  it("curated marketplace (all external members): reports honestly, not 'empty'", () => {
+  it("curated marketplace (all external members): reports honestly, not 'empty'", async () => {
     // obra/superpowers-marketplace, anthropics/claude-plugins-community shape —
     // every member is an external git/url plugin, nothing on disk.
     mk(
@@ -460,7 +444,7 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
         ],
       }),
     );
-    const r = run(`audit ${join(root, "curated")}`);
+    const r = await run(`audit ${join(root, "curated")}`);
     // Exit 2, not 0. This directory was NOT measured, and this repo's own rule
     // is that 1 means "I measured, and it's bad" while 2 means "I could not do
     // what you asked". At exit 0 an unscanned repo was byte-indistinguishable
@@ -473,7 +457,7 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.doesNotMatch(out, /nothing was loaded/);
   });
 
-  it("a directory that is BOTH a plugin and an external-member marketplace is still audited", () => {
+  it("a directory that is BOTH a plugin and an external-member marketplace is still audited", async () => {
     // nyldn/claude-octopus shape: `.claude-plugin/` holds a `marketplace.json`
     // whose only member points at a url, AND a `plugin.json` naming this very
     // directory — which also ships real surfaces. The marketplace listing is a
@@ -495,7 +479,7 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
       "selfmarket/agents/worker.md",
       "---\nname: worker\ndescription: A worker subagent used by this fixture.\ntools: Read\n---\nbody\n",
     );
-    const r = run(`audit ${join(root, "selfmarket")}`);
+    const r = await run(`audit ${join(root, "selfmarket")}`);
     assert.equal(r.exitCode, 0);
     // The surfaces are reported, and a grade is produced.
     assert.match(r.stdout, /Agents \(1\)/);
@@ -504,8 +488,8 @@ describe("scan e2e — artificial cc/codex/mixed/marketplace", () => {
     assert.doesNotMatch(r.stdout + r.stderr, /nothing to audit/i);
   });
 
-  it("--json emits the versioned AuditReport (harness + inventory)", () => {
-    const r = run(`audit ${join(root, "codex")} --json`);
+  it("--json emits the versioned AuditReport (harness + inventory)", async () => {
+    const r = await run(`audit ${join(root, "codex")} --json`);
     assert.equal(r.exitCode, 0);
     const report = JSON.parse(r.stdout) as {
       meta: { schemaVersion: number; harness: string };
@@ -544,8 +528,8 @@ describe("audit default — folds the deterministic fix into the report", () => 
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("the default report carries the health score + the ranked FIX with the detector + one-line fix", () => {
-    const r = run(`audit ${join(root, "demo")}`);
+  it("the default report carries the health score + the ranked FIX with the detector + one-line fix", async () => {
+    const r = await run(`audit ${join(root, "demo")}`);
     assert.equal(r.exitCode, 0);
     assert.match(r.stdout, /Harness health: [A-F] \(\d+\/100\)/);
     assert.match(r.stdout, /\[FIX\] rev/);
@@ -553,8 +537,8 @@ describe("audit default — folds the deterministic fix into the report", () => 
     assert.match(r.stdout, /change the tool "Reed" to "Read"/);
   });
 
-  it("--json emits the versioned AuditReport (the upload/CI contract)", () => {
-    const r = run(`audit ${join(root, "demo")} --json`);
+  it("--json emits the versioned AuditReport (the upload/CI contract)", async () => {
+    const r = await run(`audit ${join(root, "demo")} --json`);
     assert.equal(r.exitCode, 0);
     const report = JSON.parse(r.stdout) as {
       meta: { schemaVersion: number; tool: string; dir: string };
@@ -649,8 +633,8 @@ describe("audit → adoption — adoptable-surfaces nudge + JSON data", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("the terminal audit prints the adoptable-surfaces nudge + a behavioral nudge", () => {
-    const r = run(`audit ${join(root, "demo")}`);
+  it("the terminal audit prints the adoptable-surfaces nudge + a behavioral nudge", async () => {
+    const r = await run(`audit ${join(root, "demo")}`);
     assert.equal(r.exitCode, 0);
     // The adoption nudge — value-framed (why a spec), with the per-surface command.
     assert.match(r.stdout, /could be spec-managed/);
@@ -661,8 +645,8 @@ describe("audit → adoption — adoptable-surfaces nudge + JSON data", () => {
     assert.match(r.stdout, /measureTriggerRate/);
   });
 
-  it("--json carries adoptable surfaces + commands (no nudge text)", () => {
-    const r = run(`audit ${join(root, "demo")} --json`);
+  it("--json carries adoptable surfaces + commands (no nudge text)", async () => {
+    const r = await run(`audit ${join(root, "demo")} --json`);
     assert.equal(r.exitCode, 0);
     const report = JSON.parse(r.stdout) as {
       adoptable?: {
@@ -717,15 +701,15 @@ describe("audit → every hand-written instruction file, nested included", () =>
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("--json counts exactly the hand-written ones", () => {
-    const r = run(`audit ${root} --json`);
+  it("--json counts exactly the hand-written ones", async () => {
+    const r = await run(`audit ${root} --json`);
     const report = adoptableReport.parse(JSON.parse(r.stdout));
     const paths = (report.adoptable?.surfaces ?? []).map((s) => s.path).sort();
     assert.deepEqual(paths, [...handWritten].sort());
   });
 
-  it("the terminal lists each one and names how to adopt it", () => {
-    const r = run(`audit ${root}`);
+  it("the terminal lists each one and names how to adopt it", async () => {
+    const r = await run(`audit ${root}`);
     for (const rel of handWritten)
       assert.match(r.stdout, new RegExp(`• ${rel.replace(".", "\\.")}\\n`));
     assert.doesNotMatch(r.stdout, /• opt\/CLAUDE\.md/);
@@ -771,7 +755,7 @@ export default experimental_agent({
     if (dir) rmSync(dir, { recursive: true, force: true });
   });
 
-  it("emits harness.gen.ts over a dir of specs (exit 0)", () => {
+  it("emits harness.gen.ts over a dir of specs (exit 0)", async () => {
     writeFileSync(join(dir, "planner.spec.ts"), PLANNER);
     writeFileSync(join(dir, "implementer.spec.ts"), IMPLEMENTER);
     writeFileSync(
@@ -781,7 +765,7 @@ export default railway({ name: "ship", steps: [delegate("planner"), delegate("im
 `,
     );
     const out = join(dir, "harness.gen.ts");
-    const r = run(`generate harness ${dir} ${out}`, REPO);
+    const r = await run(`generate harness ${dir} ${out}`, REPO);
     assert.equal(r.exitCode, 0, r.stdout);
     assert.ok(existsSync(out));
     const gen = readFileSync(out, "utf-8");
@@ -790,12 +774,12 @@ export default railway({ name: "ship", steps: [delegate("planner"), delegate("im
     assert.match(gen, /_edge_0: KnownAgentName<"planner", AgentName, "ship">/);
     assert.match(gen, /export const harnessCapabilities =/);
     // --check on the just-written file is a no-op (up to date)
-    const chk = run(`generate harness ${dir} ${out} --check`, REPO);
+    const chk = await run(`generate harness ${dir} ${out} --check`, REPO);
     assert.equal(chk.exitCode, 0);
     assert.match(chk.stdout, /up to date/);
   });
 
-  it("exits non-zero on a duplicate agent name", () => {
+  it("exits non-zero on a duplicate agent name", async () => {
     const dupDir = mkdtempSync(join(REPO, ".tmp-genh-dup-"));
     try {
       writeFileSync(join(dupDir, "a.spec.ts"), PLANNER);
@@ -803,7 +787,7 @@ export default railway({ name: "ship", steps: [delegate("planner"), delegate("im
         join(dupDir, "b.spec.ts"),
         PLANNER.replace("Break the request", "A second planner colliding"),
       );
-      const r = run(
+      const r = await run(
         `generate harness ${dupDir} ${join(dupDir, "harness.gen.ts")}`,
         REPO,
       );
@@ -845,12 +829,12 @@ export default railway({ name: "ship", steps: [delegate("planner"), delegate("im
     return dir;
   }
 
-  it("refreshes a STALE harness.gen.ts on compile", () => {
+  it("refreshes a STALE harness.gen.ts on compile", async () => {
     const dir = seed();
     try {
       const out = join(dir, "harness.gen.ts");
       writeFileSync(out, "// stale\n");
-      const r = run("compile", dir);
+      const r = await run("compile", dir);
       assert.equal(r.exitCode, 0, r.stdout);
       const gen = readFileSync(out, "utf-8");
       assert.match(gen, /export const registry =/);
@@ -861,10 +845,10 @@ export default railway({ name: "ship", steps: [delegate("planner"), delegate("im
     }
   });
 
-  it("does NOT create harness.gen.ts when absent (opt-in)", () => {
+  it("does NOT create harness.gen.ts when absent (opt-in)", async () => {
     const dir = seed();
     try {
-      const r = run("compile", dir);
+      const r = await run("compile", dir);
       assert.equal(r.exitCode, 0, r.stdout);
       assert.ok(!existsSync(join(dir, "harness.gen.ts")));
     } finally {
@@ -900,10 +884,10 @@ describe("scan --capability-diff e2e", () => {
     };
   }
 
-  it("flags a widened blast radius and exits 0 by default (informational)", () => {
+  it("flags a widened blast radius and exits 0 by default (informational)", async () => {
     const { before, after, root } = versions();
     try {
-      const r = run(`audit ${after} --capability-diff=${before}`);
+      const r = await run(`audit ${after} --capability-diff=${before}`);
       assert.equal(r.exitCode, 0, "widening is informational by default");
       assert.match(r.stdout, /WIDENED/);
       assert.match(r.stdout, /side-effecting: Bash/);
@@ -912,10 +896,10 @@ describe("scan --capability-diff e2e", () => {
     }
   });
 
-  it("exits 1 on a widening with --fail-on-widen (the opt-in CI gate)", () => {
+  it("exits 1 on a widening with --fail-on-widen (the opt-in CI gate)", async () => {
     const { before, after, root } = versions();
     try {
-      const r = run(
+      const r = await run(
         `audit ${after} --capability-diff=${before} --fail-on-widen`,
       );
       assert.equal(r.exitCode, 1);
@@ -924,10 +908,10 @@ describe("scan --capability-diff e2e", () => {
     }
   });
 
-  it("reports no change when the surface is identical", () => {
+  it("reports no change when the surface is identical", async () => {
     const { after, root } = versions();
     try {
-      const r = run(
+      const r = await run(
         `audit ${after} --capability-diff=${after} --fail-on-widen`,
       );
       assert.equal(r.exitCode, 0, "no widening → no gate trip");
@@ -1038,8 +1022,8 @@ describe("scan default output — health score header", () => {
     rmSync(root, { recursive: true, force: true });
   });
 
-  it("prints a Harness health: <grade> (<score>/100) line before the report", () => {
-    const r = run(`audit ${root}`);
+  it("prints a Harness health: <grade> (<score>/100) line before the report", async () => {
+    const r = await run(`audit ${root}`);
     assert.equal(r.exitCode, 0);
     // The score header must appear.
     assert.match(r.stdout, /Harness health: [A-F] \(\d+\/100\)/);
@@ -1047,8 +1031,8 @@ describe("scan default output — health score header", () => {
     assert.match(r.stdout, /Scan:/);
   });
 
-  it("score header is absent under --json (machine output)", () => {
-    const r = run(`audit ${root} --json`);
+  it("score header is absent under --json (machine output)", async () => {
+    const r = await run(`audit ${root} --json`);
     assert.equal(r.exitCode, 0);
     assert.doesNotMatch(r.stdout, /Harness health:/);
     // But the JSON still parses as the versioned AuditReport.
@@ -1056,12 +1040,12 @@ describe("scan default output — health score header", () => {
     assert.ok(report.meta.dir, "json has meta.dir");
   });
 
-  it("a plain (headless) audit is a deterministic read — nothing executes", () => {
+  it("a plain (headless) audit is a deterministic read — nothing executes", async () => {
     // A plain audit is a READ; the executing checks (live MCP + skill firing) are
     // opt-in. `root` ships a skill, so a headless run nudges toward them but runs
     // nothing. There is no safety battery in `audit` at all (it's a testing-API
     // capability now), so its section never appears.
-    const r = run(`audit ${root}`);
+    const r = await run(`audit ${root}`);
     assert.equal(r.exitCode, 0);
     assert.doesNotMatch(r.stdout, /Safety battery/);
     assert.match(r.stdout, /Executing checks/);
@@ -1143,13 +1127,13 @@ describe("lint scopes surface checks to an explicit directory (P0-2)", () => {
     rmSync(repo, { recursive: true, force: true });
   });
 
-  it("lint pkgA reports pkgA's typo'd subagent tool", () => {
-    const r = run("lint pkgA", repo);
+  it("lint pkgA reports pkgA's typo'd subagent tool", async () => {
+    const r = await run("lint pkgA", repo);
     assert.match(r.stdout, /Reat/, "the scoped dir's own issue is reported");
   });
 
-  it("lint pkgB does NOT leak pkgA's issue (scoped away)", () => {
-    const r = run("lint pkgB", repo);
+  it("lint pkgB does NOT leak pkgA's issue (scoped away)", async () => {
+    const r = await run("lint pkgB", repo);
     assert.ok(
       !/Reat/.test(r.stdout),
       "a surface outside the passed dir must never enter the report",
@@ -1191,8 +1175,8 @@ describe("a skill ref that resolves only from the repo root is a note (#382)", (
     if (skillsDir === null) continue;
     const harness = `--harness=${adapter.name}`;
 
-    it(`${adapter.name}: audit prints the note, not a missing resource`, () => {
-      const r = run(`audit ${harness}`, makeRepo(skillsDir, true));
+    it(`${adapter.name}: audit prints the note, not a missing resource`, async () => {
+      const r = await run(`audit ${harness}`, makeRepo(skillsDir, true));
       assert.match(
         r.stdout,
         /ℹ \S+SKILL\.md:5: rca: bundled resource "scripts\/leak\.py" resolves only from the repo root/,
@@ -1204,8 +1188,8 @@ describe("a skill ref that resolves only from the repo root is a note (#382)", (
       assert.doesNotMatch(r.stdout, /is referenced but missing/);
     });
 
-    it(`${adapter.name}: audit --json carries the note in the ungraded block`, () => {
-      const r = run(`audit ${harness} --json`, makeRepo(skillsDir, true));
+    it(`${adapter.name}: audit --json carries the note in the ungraded block`, async () => {
+      const r = await run(`audit ${harness} --json`, makeRepo(skillsDir, true));
       const blocks = ungradedBlocks
         .parse(JSON.parse(r.stdout))
         .ungraded?.flatMap((g) => g.rules);
@@ -1232,8 +1216,8 @@ describe("a skill ref that resolves only from the repo root is a note (#382)", (
       );
     });
 
-    it(`${adapter.name}: lint at "error" passes on the note and annotates it as a notice`, () => {
-      const r = run(`lint ${harness}`, makeRepo(skillsDir, true), {
+    it(`${adapter.name}: lint at "error" passes on the note and annotates it as a notice`, async () => {
+      const r = await run(`lint ${harness}`, makeRepo(skillsDir, true), {
         GITHUB_ACTIONS: "true",
       });
       assert.equal(r.exitCode, 0, r.stdout);
@@ -1246,8 +1230,8 @@ describe("a skill ref that resolves only from the repo root is a note (#382)", (
       assert.doesNotMatch(r.stdout, /::error/);
     });
 
-    it(`${adapter.name}: lint at "error" still fails when the file exists nowhere`, () => {
-      const r = run(`lint ${harness}`, makeRepo(skillsDir, false));
+    it(`${adapter.name}: lint at "error" still fails when the file exists nowhere`, async () => {
+      const r = await run(`lint ${harness}`, makeRepo(skillsDir, false));
       assert.notEqual(r.exitCode, 0, r.stdout);
       assert.match(
         r.stdout,
@@ -1275,19 +1259,22 @@ describe("the rule map follows the ungraded switch", () => {
   });
   const routing = z.object({ ruleRouting: z.unknown().optional() });
 
-  it("a default audit prints no rule map and its JSON has no ruleRouting", () => {
-    assert.doesNotMatch(run("audit", dir).stdout, /Rule map|⚙ \d+ custom/);
-    const json: unknown = JSON.parse(run("audit --json", dir).stdout);
+  it("a default audit prints no rule map and its JSON has no ruleRouting", async () => {
+    assert.doesNotMatch(
+      (await run("audit", dir)).stdout,
+      /Rule map|⚙ \d+ custom/,
+    );
+    const json: unknown = JSON.parse((await run("audit --json", dir)).stdout);
     assert.equal(routing.parse(json).ruleRouting, undefined);
   });
 
-  it("an ungraded-enabled audit prints the rule map and carries ruleRouting", () => {
+  it("an ungraded-enabled audit prints the rule map and carries ruleRouting", async () => {
     assert.match(
-      run("audit --preset=experimental", dir).stdout,
+      (await run("audit --preset=experimental", dir)).stdout,
       /Rule map \[experimental\]/,
     );
     const json: unknown = JSON.parse(
-      run("audit --json --preset=experimental", dir).stdout,
+      (await run("audit --json --preset=experimental", dir)).stdout,
     );
     assert.notEqual(routing.parse(json).ruleRouting, undefined);
   });
@@ -1336,31 +1323,31 @@ describe("the experimental rule group (skill-resource-resolves)", () => {
     const skillsDir = skillsHome(adapter.layout);
     if (skillsDir === null) continue;
     const harness = `--harness=${adapter.name}`;
-    const graderOf = (args: string, dir: string) =>
+    const graderOf = async (args: string, dir: string) =>
       graded.parse(
-        JSON.parse(run(`audit ${harness} --json ${args}`, dir).stdout),
+        JSON.parse((await run(`audit ${harness} --json ${args}`, dir)).stdout),
       );
 
-    it(`${adapter.name}: off by default — lint and audit say nothing, the score is untouched`, () => {
+    it(`${adapter.name}: off by default — lint and audit say nothing, the score is untouched`, async () => {
       const dir = makeRepo(skillsDir, true);
-      const lint = run(`lint ${harness}`, dir);
+      const lint = await run(`lint ${harness}`, dir);
       assert.equal(lint.exitCode, 0, lint.stdout);
       assert.doesNotMatch(lint.stdout, /bundled resource/);
-      const audit = run(`audit ${harness}`, dir);
+      const audit = await run(`audit ${harness}`, dir);
       assert.doesNotMatch(audit.stdout, /references\/notes\.md/);
       assert.doesNotMatch(audit.stdout, /Experimental — not graded/);
       const json: unknown = JSON.parse(
-        run(`audit ${harness} --json`, dir).stdout,
+        (await run(`audit ${harness} --json`, dir)).stdout,
       );
       assert.equal(ungradedBlocks.parse(json).ungraded, undefined);
       assert.deepEqual(
         graded.parse(json),
-        graderOf("", makeRepo(skillsDir, false)),
+        await graderOf("", makeRepo(skillsDir, false)),
       );
     });
 
-    it(`${adapter.name}: --preset=experimental turns it on at warn — lint reports and exits 0`, () => {
-      const r = run(
+    it(`${adapter.name}: --preset=experimental turns it on at warn — lint reports and exits 0`, async () => {
+      const r = await run(
         `lint ${harness} --preset=experimental`,
         makeRepo(skillsDir, true),
       );
@@ -1371,16 +1358,18 @@ describe("the experimental rule group (skill-resource-resolves)", () => {
       );
     });
 
-    it(`${adapter.name}: audit --preset=experimental shows the not-graded block, score unmoved`, () => {
+    it(`${adapter.name}: audit --preset=experimental shows the not-graded block, score unmoved`, async () => {
       const dir = makeRepo(skillsDir, true);
-      const text = run(`audit ${harness} --preset=experimental`, dir).stdout;
+      const text = (await run(`audit ${harness} --preset=experimental`, dir))
+        .stdout;
       assert.match(text, /Experimental — not graded:/);
       assert.match(
         text,
         /✗ \S+SKILL\.md:5: pdf: bundled resource "references\/notes\.md" is referenced but missing/,
       );
       const json: unknown = JSON.parse(
-        run(`audit ${harness} --json --preset=experimental`, dir).stdout,
+        (await run(`audit ${harness} --json --preset=experimental`, dir))
+          .stdout,
       );
       assert.deepEqual(
         ungradedBlocks
@@ -1390,48 +1379,51 @@ describe("the experimental rule group (skill-resource-resolves)", () => {
       );
       assert.deepEqual(
         graded.parse(json),
-        graderOf("--preset=experimental", makeRepo(skillsDir, false)),
+        await graderOf("--preset=experimental", makeRepo(skillsDir, false)),
       );
     });
 
-    it(`${adapter.name}: a config entry turns it on with no flag`, () => {
+    it(`${adapter.name}: a config entry turns it on with no flag`, async () => {
       const dir = makeRepo(skillsDir, true, {
         rules: { "skill-resource-resolves": "warn" },
       });
-      const lint = run(`lint ${harness}`, dir);
+      const lint = await run(`lint ${harness}`, dir);
       assert.equal(lint.exitCode, 0, lint.stdout);
       assert.match(lint.stdout, /is referenced but missing/);
       assert.match(
-        run(`audit ${harness}`, dir).stdout,
+        (await run(`audit ${harness}`, dir)).stdout,
         /Experimental — not graded:/,
       );
       const viaExtends = makeRepo(skillsDir, true, {
         extends: "vigiles:experimental",
       });
       assert.match(
-        run(`lint ${harness}`, viaExtends).stdout,
+        (await run(`lint ${harness}`, viaExtends)).stdout,
         /is referenced but missing/,
       );
     });
 
-    it(`${adapter.name}: an explicit "off" in rules beats --preset=experimental`, () => {
+    it(`${adapter.name}: an explicit "off" in rules beats --preset=experimental`, async () => {
       const dir = makeRepo(skillsDir, true, {
         rules: { "skill-resource-resolves": "off" },
       });
-      const r = run(`lint ${harness} --preset=experimental`, dir);
+      const r = await run(`lint ${harness} --preset=experimental`, dir);
       assert.doesNotMatch(r.stdout, /bundled resource/);
     });
   }
 
-  it("an unknown preset is refused, exit 2, naming the valid ones", () => {
-    const r = run(`lint --preset=strict`, makeRepo("skills", true));
+  it("an unknown preset is refused, exit 2, naming the valid ones", async () => {
+    const r = await run(`lint --preset=strict`, makeRepo("skills", true));
     assert.equal(r.exitCode, 2);
     assert.match(r.stderr, /--preset: unknown preset "strict"/);
     assert.match(r.stderr, /Known: recommended, experimental\./);
   });
 
-  it("--preset is a flag of audit and lint only", () => {
-    const r = run(`compile --preset=experimental`, makeRepo("skills", true));
+  it("--preset is a flag of audit and lint only", async () => {
+    const r = await run(
+      `compile --preset=experimental`,
+      makeRepo("skills", true),
+    );
     assert.equal(r.exitCode, 2);
     assert.match(r.stderr, /unknown flag "--preset=experimental"/);
   });
@@ -1466,8 +1458,8 @@ describe("lint of a foreign repo does not satisfy target refs from the caller's 
     rmSync(target, { recursive: true, force: true });
   });
 
-  it("flags the target's missing scripts/foo.py (not satisfied by the caller's copy)", () => {
-    const r = run(`lint ${target}`, caller);
+  it("flags the target's missing scripts/foo.py (not satisfied by the caller's copy)", async () => {
+    const r = await run(`lint ${target}`, caller);
     assert.match(
       r.stdout,
       /foo\.py/,
@@ -1477,7 +1469,7 @@ describe("lint of a foreign repo does not satisfy target refs from the caller's 
 });
 
 describe("audit share-link only for a whole-repo audit (Codex review)", () => {
-  it("suppresses the share link for a SUBDIRECTORY audit (parent origin ≠ audited target)", () => {
+  it("suppresses the share link for a SUBDIRECTORY audit (parent origin ≠ audited target)", async () => {
     const root = mkdtempSync(join(tmpdir(), "scan-sharelink-"));
     try {
       // A git repo with a github origin; the plugin lives in a subdir.
@@ -1496,12 +1488,12 @@ describe("audit share-link only for a whole-repo audit (Codex review)", () => {
       );
 
       // Whole-repo audit (target IS the git toplevel) → the share link is shown.
-      const whole = run("audit .", root);
+      const whole = await run("audit .", root);
       assert.match(whole.stdout, /Share this grade → .*foo\/bar/);
 
       // Subdir audit → git origin belongs to the PARENT, so the owner/repo link
       // would rerun a different audit → suppressed.
-      const sub = run("audit plugin", root);
+      const sub = await run("audit plugin", root);
       assert.doesNotMatch(sub.stdout, /Share this grade/);
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -1518,8 +1510,8 @@ describe("audit share-link only for a whole-repo audit (Codex review)", () => {
 // they had suppressed.
 
 describe("unknown flags are refused, not swallowed", () => {
-  it("audit: an unknown flag stops the run with a non-zero exit and names it", () => {
-    const r = run("audit --this-flag-does-not-exist");
+  it("audit: an unknown flag stops the run with a non-zero exit and names it", async () => {
+    const r = await run("audit --this-flag-does-not-exist");
     assert.equal(r.exitCode, 2, r.stdout + r.stderr);
     assert.match(r.stderr, /unknown flag "--this-flag-does-not-exist"/);
     assert.doesNotMatch(
@@ -1529,13 +1521,13 @@ describe("unknown flags are refused, not swallowed", () => {
     );
   });
 
-  it("audit: a TYPO of a real flag suggests the real one", () => {
-    const r = run("audit --no-htlm");
+  it("audit: a TYPO of a real flag suggests the real one", async () => {
+    const r = await run("audit --no-htlm");
     assert.equal(r.exitCode, 2);
     assert.match(r.stderr, /Did you mean `--no-html`\?/);
   });
 
-  it("the hole is closed on every verb, not only audit", () => {
+  it("the hole is closed on every verb, not only audit", async () => {
     // Run from a THROWAWAY cwd. If this guard ever regresses, `init
     // --definitely-not-a-flag` runs a real `vigiles init`, which writes specs, a
     // workflow and a config into whatever directory the test happened to be in —
@@ -1543,7 +1535,7 @@ describe("unknown flags are refused, not swallowed", () => {
     const sandbox = mkdtempSync(join(tmpdir(), "scan-flags-"));
     try {
       for (const verb of ["lint", "test", "eval", "compile", "eject", "init"]) {
-        const r = run(`${verb} --definitely-not-a-flag`, sandbox);
+        const r = await run(`${verb} --definitely-not-a-flag`, sandbox);
         assert.equal(
           r.exitCode,
           2,
@@ -1556,11 +1548,11 @@ describe("unknown flags are refused, not swallowed", () => {
     }
   });
 
-  it("real flags still work (the fix must not over-reject)", () => {
+  it("real flags still work (the fix must not over-reject)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "scan-flagok-"));
     try {
       writeFileSync(join(dir, "CLAUDE.md"), "# repo\nRun `npm test`.\n");
-      const audit = run(`audit ${dir} --no-open --harness=claude-code`);
+      const audit = await run(`audit ${dir} --no-open --harness=claude-code`);
       assert.equal(audit.exitCode, 0, audit.stdout + audit.stderr);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -1569,8 +1561,8 @@ describe("unknown flags are refused, not swallowed", () => {
 });
 
 describe("`vigiles <verb> --help` prints help instead of running the verb", () => {
-  it("audit --help does not audit", () => {
-    const r = run("audit --help");
+  it("audit --help does not audit", async () => {
+    const r = await run("audit --help");
     assert.equal(r.exitCode, 0, r.stderr);
     assert.match(r.stdout, /vigiles audit \[dir\.\.\.\]/);
     assert.match(r.stdout, /^Flags: /m);
@@ -1581,13 +1573,13 @@ describe("`vigiles <verb> --help` prints help instead of running the verb", () =
     );
   });
 
-  it("every verb answers --help", () => {
+  it("every verb answers --help", async () => {
     // Same throwaway cwd for the same reason: a regression here means the verb
     // RUNS, and `init` running is a side effect on whatever dir we are in.
     const sandbox = mkdtempSync(join(tmpdir(), "scan-help-"));
     try {
       for (const verb of ["init", "compile", "eject", "lint", "test", "eval"]) {
-        const r = run(`${verb} --help`, sandbox);
+        const r = await run(`${verb} --help`, sandbox);
         assert.equal(r.exitCode, 0, `${verb} --help: ${r.stderr}`);
         assert.match(r.stdout, new RegExp(`vigiles ${verb}`));
       }
@@ -1602,10 +1594,10 @@ describe("`nothing to audit here` is a distinct outcome, not a grade of F", () =
   // value, so the PATH became the positional scan dir, the audit ran over a
   // directory with no harness, and printed `skills: 0`, grade F, EXIT 0. That is
   // indistinguishable from a real audit of a repo that scores badly.
-  it("an empty target exits non-zero and says there was nothing to measure", () => {
+  it("an empty target exits non-zero and says there was nothing to measure", async () => {
     const root = mkdtempSync(join(tmpdir(), "scan-empty-"));
     try {
-      const r = run(`audit ${root}`);
+      const r = await run(`audit ${root}`);
       assert.equal(r.exitCode, 2, r.stdout + r.stderr);
       assert.match(r.stderr, /nothing to audit in/);
       assert.match(r.stderr, /NOT a grade/);
@@ -1619,13 +1611,13 @@ describe("`nothing to audit here` is a distinct outcome, not a grade of F", () =
     }
   });
 
-  it("a real-but-bad harness still grades, and still exits 0", () => {
+  it("a real-but-bad harness still grades, and still exits 0", async () => {
     // The other side of the distinction: `audit` remains a read, so a repo that
     // scores badly is NOT an error — only "there was nothing here" is.
     const root = mkdtempSync(join(tmpdir(), "scan-bad-"));
     try {
       writeFileSync(join(root, "CLAUDE.md"), "# repo\nSee docs/nope.md\n");
-      const r = run(`audit ${root}`);
+      const r = await run(`audit ${root}`);
       assert.equal(r.exitCode, 0, r.stdout + r.stderr);
       assert.doesNotMatch(r.stderr, /nothing to audit/);
     } finally {
@@ -1633,10 +1625,10 @@ describe("`nothing to audit here` is a distinct outcome, not a grade of F", () =
     }
   });
 
-  it("--json still emits the report for an empty target (machine contract kept)", () => {
+  it("--json still emits the report for an empty target (machine contract kept)", async () => {
     const root = mkdtempSync(join(tmpdir(), "scan-empty-json-"));
     try {
-      const r = run(`audit --json ${root}`);
+      const r = await run(`audit --json ${root}`);
       assert.equal(r.exitCode, 2);
       const parsed = JSON.parse(r.stdout) as { score: { empty: boolean } };
       assert.equal(parsed.score.empty, true);
@@ -1645,13 +1637,13 @@ describe("`nothing to audit here` is a distinct outcome, not a grade of F", () =
     }
   });
 
-  it("a path that does not EXIST says so, instead of 'no surface was found'", () => {
+  it("a path that does not EXIST says so, instead of 'no surface was found'", async () => {
     // A directory that isn't there and a directory with nothing in it are
     // different facts, and only one of them is about the repo's harness. The
     // exit code was already 2; the wording made a typo'd dir in a multi-dir
     // leaderboard run read as a legitimately empty repo.
     const missing = join(tmpdir(), "vigiles-definitely-absent-xyz123");
-    const r = run(`audit ${missing}`);
+    const r = await run(`audit ${missing}`);
     assert.equal(r.exitCode, 2, r.stdout + r.stderr);
     assert.match(r.stderr, /does not exist/);
     assert.doesNotMatch(
@@ -1663,11 +1655,11 @@ describe("`nothing to audit here` is a distinct outcome, not a grade of F", () =
 });
 
 describe("the flag registry and the help text can't drift apart", () => {
-  it("every flag the help text advertises is accepted by some verb", () => {
+  it("every flag the help text advertises is accepted by some verb", async () => {
     // The registry is derived from what the HANDLERS read. This is the other
     // direction: a flag we document but forgot to register would now be
     // rejected in a user's face, so fail here instead.
-    const help = run("--help").stdout;
+    const help = (await run("--help")).stdout;
     const advertised = new Set(help.match(/--[a-z][a-z0-9-]*/g) ?? []);
     // Top-level, handled before dispatch (not a verb flag).
     advertised.delete("--version");
@@ -1701,7 +1693,7 @@ describe("audit carries the coverage caveats, not just lint", () => {
   const skill = (name: string): string =>
     `---\nname: ${name}\ndescription: A skill ${name} that does varied work across many different cases here\n---\n\n# ${name}\n`;
 
-  it("names a test file still carrying the retired `vigiles:covers` marker", () => {
+  it("names a test file still carrying the retired `vigiles:covers` marker", async () => {
     const root = mkdtempSync(join(tmpdir(), "audit-caveat-"));
     try {
       mkdirSync(join(root, ".claude/skills/foo"), { recursive: true });
@@ -1710,7 +1702,7 @@ describe("audit carries the coverage caveats, not just lint", () => {
         join(root, ".claude/skills/foo/foo.harness.mjs"),
         "// vigiles:covers skills/foo\n",
       );
-      const r = run(`audit ${root}`);
+      const r = await run(`audit ${root}`);
       assert.match(r.stdout, /still carry the retired `vigiles:covers` marker/);
       assert.match(r.stdout, /foo\.harness\.mjs/);
     } finally {
@@ -1718,7 +1710,7 @@ describe("audit carries the coverage caveats, not just lint", () => {
     }
   });
 
-  it("says nothing extra about coverage when there is nothing to say", () => {
+  it("says nothing extra about coverage when there is nothing to say", async () => {
     const root = mkdtempSync(join(tmpdir(), "audit-caveat-clean-"));
     try {
       mkdirSync(join(root, ".claude/skills/foo"), { recursive: true });
@@ -1727,7 +1719,7 @@ describe("audit carries the coverage caveats, not just lint", () => {
         join(root, ".claude/skills/foo/foo.harness.mjs"),
         "console.log('ok');\n",
       );
-      const r = run(`audit ${root}`);
+      const r = await run(`audit ${root}`);
       assert.doesNotMatch(r.stdout, /vigiles:covers/);
       assert.doesNotMatch(r.stdout, /measured, but not this version/);
     } finally {
@@ -1743,7 +1735,7 @@ describe("audit carries the coverage caveats, not just lint", () => {
  * render" is the reasoning that lost the other two caveats for a release.
  */
 describe("a newly added coverage caveat reaches audit through the shared list", () => {
-  it("names a `<surface>.test.*` sitting beside an untested skill", () => {
+  it("names a `<surface>.test.*` sitting beside an untested skill", async () => {
     const root = mkdtempSync(join(tmpdir(), "audit-retired-suffix-"));
     try {
       mkdirSync(join(root, ".claude/skills/foo"), { recursive: true });
@@ -1755,7 +1747,7 @@ describe("a newly added coverage caveat reaches audit through the shared list", 
         join(root, ".claude/skills/foo/foo.test.mjs"),
         "// a skill test, misnamed\n",
       );
-      const r = run(`audit ${root}`);
+      const r = await run(`audit ${root}`);
       assert.match(r.stdout, /foo\.test\.mjs/);
       assert.match(r.stdout, /vitest\/jest/);
     } finally {
@@ -1772,12 +1764,12 @@ describe("audit → a rule that is off shows nothing", () => {
   const hookRule = RULES.find(
     (r) => "legacy" in r && r.legacy.scanField === "handWrittenHooks",
   );
-  const withRule = (severity: string): string => {
+  const withRule = async (severity: string): Promise<string> => {
     writeFileSync(
       join(dir, ".vigilesrc.json"),
       JSON.stringify({ rules: { [hookRule?.id ?? ""]: severity } }),
     );
-    return run("audit . --no-interactive", dir).stdout;
+    return (await run("audit . --no-interactive", dir)).stdout;
   };
 
   beforeAll(() => {
@@ -1798,12 +1790,12 @@ describe("audit → a rule that is off shows nothing", () => {
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("a hook line vigiles did not write is shown when its rule is on…", () => {
+  it("a hook line vigiles did not write is shown when its rule is on…", async () => {
     expect(hookRule).toBeDefined();
-    expect(withRule("warn")).toMatch(/guard\.sh.*vigiles did not write/);
+    expect(await withRule("warn")).toMatch(/guard\.sh.*vigiles did not write/);
   });
 
-  it("…and not shown when the rule is off", () => {
-    expect(withRule("off")).not.toMatch(/vigiles did not write/);
+  it("…and not shown when the rule is off", async () => {
+    expect(await withRule("off")).not.toMatch(/vigiles did not write/);
   });
 });

@@ -1517,7 +1517,7 @@
   },
   "src/cli.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 16
+      "count": 15
     },
     "local/no-harness-names": {
       "count": 54
@@ -6818,7 +6818,7 @@
   },
   "src/scan-cli.test.ts": {
     "@typescript-eslint/consistent-type-assertions": {
-      "count": 11
+      "count": 10
     },
     "local/no-harness-names": {
       "count": 48

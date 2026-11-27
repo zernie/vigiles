@@ -302,6 +302,8 @@ describe("gate 1: every export carries a release tag", () => {
             "--target",
             "es2022",
             "--strict",
+            // Skip checking lib .d.ts files (4 s -> 0.7 s); the fixture's own .ts is still checked and emitted.
+            "--skipLibCheck",
             "--outDir",
             join(dir, "dist"),
             join(dir, "src", "a.ts"),

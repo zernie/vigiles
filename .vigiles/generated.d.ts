@@ -397,7 +397,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 739 project files. */
+  /** 741 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -557,6 +557,7 @@ declare module "vigiles/generated" {
     | "src/cli-init-skill-links.test.ts"
     | "src/cli-install.e2e.test.ts"
     | "src/cli-main-roots.test.ts"
+    | "src/cli-main.test.ts"
     | "src/cli-main.ts"
     | "src/cli-nudge-config.test.ts"
     | "src/cli-on-demand-limit.test.ts"
@@ -977,6 +978,7 @@ declare module "vigiles/generated" {
     | "src/host/case-world.io.test.ts"
     | "src/host/case-world.io.ts"
     | "src/host/changed-files.io.ts"
+    | "src/host/cli-in-process.io.ts"
     | "src/host/eval-engine.io.test.ts"
     | "src/host/eval-engine.io.ts"
     | "src/host/folder-instructions.io.ts"
@@ -1664,6 +1666,7 @@ declare module "vigiles/spec" {
       | "src/cli-init-skill-links.test.ts"
       | "src/cli-install.e2e.test.ts"
       | "src/cli-main-roots.test.ts"
+      | "src/cli-main.test.ts"
       | "src/cli-main.ts"
       | "src/cli-nudge-config.test.ts"
       | "src/cli-on-demand-limit.test.ts"
@@ -2084,6 +2087,7 @@ declare module "vigiles/spec" {
       | "src/host/case-world.io.test.ts"
       | "src/host/case-world.io.ts"
       | "src/host/changed-files.io.ts"
+      | "src/host/cli-in-process.io.ts"
       | "src/host/eval-engine.io.test.ts"
       | "src/host/eval-engine.io.ts"
       | "src/host/folder-instructions.io.ts"

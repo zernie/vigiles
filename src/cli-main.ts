@@ -424,7 +424,7 @@ import {
   evaluateSkillPreToolUse,
   gateLabel,
 } from "./adapters/claude-code/skill-runtime.js";
-import { checkLinterRule } from "./core/linters.js";
+import { checkLinterRule, clearLinterCaches } from "./core/linters.js";
 import { claudeAvailable } from "./harness-test.js";
 import {
   discoverScripts,
@@ -653,7 +653,7 @@ function refuseSingleOverMany(single: boolean, dirs: readonly string[]): void {
     `--single audits ONE directory as one harness, but ${String(dirs.length)} were given. ` +
       `Drop --single for a leaderboard, or pass a single directory.`,
   );
-  process.exit(2);
+  stopRun(2);
 }
 
 /** `--compare` only modifies the md summary; on its own it would be silently ignored. */
@@ -662,7 +662,7 @@ function refuseCompareWithoutMd(args: readonly string[], md: boolean): void {
   console.error(
     "--compare compares the --format=md summary with a base; pass --format=md with it.",
   );
-  process.exit(2);
+  stopRun(2);
 }
 
 /** `--format=` / `--json` / `--md` as two booleans, or exit 2 on a contradiction. */
@@ -673,7 +673,7 @@ function auditOutput(args: readonly string[]): {
   const parsed = parseAuditFormat(args);
   if (parsed.kind === "refused") {
     console.error(`✗ vigiles audit: ${parsed.message}`);
-    process.exit(2);
+    stopRun(2);
   }
   return { json: parsed.format === "json", md: parsed.format === "md" };
 }
@@ -748,12 +748,18 @@ function compareBase(args: readonly string[], root: string): BaseAudit {
   const copy = copyBaseTree(root, decided.ref);
   if (copy.kind === "failed") return { kind: "unavailable", why: copy.why };
   try {
-    return parseBaseAudit(
-      auditCopy(copy.root, placeInRepo(root), process.argv[1] ?? ""),
-    );
+    return parseBaseAudit(auditCopy(copy.root, placeInRepo(root), ownBin()));
   } finally {
     cleanupTmpDir(copy.root);
   }
+}
+
+/**
+ * The vigiles bin beside this module. Not `process.argv[1]`: under `run(argv)` in
+ * another program (a test runner) that is the host's entry, not vigiles.
+ */
+function ownBin(): string {
+  return resolve(import.meta.dirname, "cli.js");
 }
 
 type AnySpec = ClaudeSpec | SkillSpec | AgentSpec | Railway;
@@ -7522,7 +7528,7 @@ async function handleGenerate(
       console.error(
         "Usage: vigiles generate <types|schema|harness> [out] [--check]",
       );
-      process.exit(2);
+      stopRun(2);
   }
 }
 
@@ -7573,7 +7579,7 @@ function handleGenerateTypes(args: string[], restArgs: string[]): void {
       console.log(
         `\n✗ ${outPath} does not exist. Run \`vigiles generate types\` to create it.`,
       );
-      process.exit(1);
+      stopRun(1);
     }
     const existing = readFileSync(fullOut, "utf-8");
     // Normalize for formatter differences (trailing whitespace, blank lines)
@@ -7590,7 +7596,7 @@ function handleGenerateTypes(args: string[], restArgs: string[]): void {
       console.log(
         `\n✗ ${outPath} is stale. Run \`vigiles generate types\` to update.`,
       );
-      process.exit(1);
+      stopRun(1);
     }
     return;
   }
@@ -7625,7 +7631,7 @@ function handleGenerateSchema(args: string[], restArgs: string[]): void {
       console.log(
         `\n✗ ${outPath} does not exist. Run \`vigiles generate schema\` to create it.`,
       );
-      process.exit(1);
+      stopRun(1);
     }
     const existing = readFileSync(fullOut, "utf-8");
     if (existing.trim() === result.json.trim()) {
@@ -7634,7 +7640,7 @@ function handleGenerateSchema(args: string[], restArgs: string[]): void {
       console.log(
         `\n✗ ${outPath} is stale. Run \`vigiles generate schema\` to update.`,
       );
-      process.exit(1);
+      stopRun(1);
     }
     return;
   }
@@ -7757,7 +7763,7 @@ async function handleGenerateHarness(
   if (result.duplicate) {
     console.log(`\n✗ ${result.duplicate.message}`);
     console.log(`::error::${result.duplicate.message}`);
-    process.exit(2);
+    stopRun(2);
   }
 
   if (checkOnly) {
@@ -7765,7 +7771,7 @@ async function handleGenerateHarness(
       console.log(
         `\n✗ ${outPath} does not exist. Run \`vigiles generate harness\` to create it.`,
       );
-      process.exit(1);
+      stopRun(1);
     }
     const existing = readFileSync(fullOut, "utf-8");
     const normalize = (s: string): string =>
@@ -7781,7 +7787,7 @@ async function handleGenerateHarness(
       console.log(
         `\n✗ ${outPath} is stale. Run \`vigiles generate harness\` to update.`,
       );
-      process.exit(1);
+      stopRun(1);
     }
     return;
   }
@@ -7840,7 +7846,7 @@ function resolveEvalLockEnv(args: string[]): Record<string, string> {
     console.error(
       "vigiles eval: --check and --update are mutually exclusive (one verifies, one records).",
     );
-    process.exit(2);
+    stopRun(2);
   }
   const env: Record<string, string> = {};
   if (wantCheck) env.VIGILES_EVAL_LOCK = "check";
@@ -7870,7 +7876,7 @@ function refuseEvalCheckWithoutLocks(
     `✗ vigiles eval --check: ${String(evalCount)} eval file(s) have no recorded result — no eval lock is committed, so there is nothing to verify the current inputs against.\n` +
       "  Run `vigiles eval --update` locally (on your subscription) and commit the lock(s).",
   );
-  process.exit(1);
+  stopRun(1);
 }
 
 /**
@@ -8158,7 +8164,7 @@ async function handleRunScripts(
       `✗ vigiles ${kind}: --min=${String(minRequired)} but only ${String(files.length)} ${kind} file(s) matched — ` +
         "evals never executed (check the paths/globs, or that the run was reached).",
     );
-    process.exit(1);
+    stopRun(1);
   }
 
   if (files.length === 0) {
@@ -8182,7 +8188,7 @@ async function handleRunScripts(
     // `--min=0` do nothing.)
     if (minFlag === undefined) {
       console.error(emptyMatchMessage(kind, restArgs, defaultGlob));
-      process.exit(1);
+      stopRun(1);
     }
     console.log(`No ${defaultGlob} files found.`);
     return;
@@ -8209,7 +8215,7 @@ async function handleRunScripts(
         "  → name the eval(s):    vigiles eval path/to/x.eval.mjs\n" +
         "  → or opt in to all:    vigiles eval --all",
     );
-    process.exit(2);
+    stopRun(2);
   }
   if (runDecision.kind === "confirm") {
     const ok = await promptYesNo(
@@ -8291,9 +8297,9 @@ async function handleRunScripts(
         `The calls are listed above; add a rule for each, and no lock was written. ` +
         `(Exit ${String(UNANSWERED_STUB_VERB_EXIT)}; the file itself exited ${String(UNANSWERED_STUB_EXIT_CODE)}.)`,
     );
-    process.exit(UNANSWERED_STUB_VERB_EXIT);
+    stopRun(UNANSWERED_STUB_VERB_EXIT);
   }
-  if (anyFailed(results)) process.exit(1);
+  if (anyFailed(results)) stopRun(1);
 
   // 🔴 A SKIP THE AUTHOR NEVER DECLARED IS NOT A SKIP — and the discriminator was
   // already sitting in the result. `skip()` exits 77 (`SKIP_EXIT_CODE`); a script
@@ -8327,9 +8333,9 @@ async function handleRunScripts(
         `  If a missing dependency is expected here, import it dynamically and call skip() — ` +
         `a declared skip stays green.`,
     );
-    process.exit(1);
+    stopRun(1);
   }
-  if (belowFloor) process.exit(1);
+  if (belowFloor) stopRun(1);
 
   // `--no-skip`: in a context that ASSERTS the capability is present (a CI job),
   // a skipped tier is untested surface — fail loudly instead of passing green.
@@ -8339,7 +8345,7 @@ async function handleRunScripts(
       `\n✗ --no-skip: ${String(n)} tier(s) SKIPPED — untested surface here. ` +
         "Install the missing capability (e.g. the `claude` CLI) or scope the run.",
     );
-    process.exit(1);
+    stopRun(1);
   }
 }
 
@@ -8359,7 +8365,7 @@ function changedRef(cwd: string, flag: string): string | undefined {
   const parsed = parseChangedRef(flag.slice("--changed=".length));
   if (parsed.kind === "error") {
     console.error(`✗ vigiles test: ${parsed.message}`);
-    process.exit(2);
+    stopRun(2);
   }
   return parsed.ref;
 }
@@ -8384,7 +8390,7 @@ function narrowToChanged(
   const changed = changedSince(cwd, ref);
   if (changed.kind === "error") {
     console.error(`✗ vigiles test: ${changed.message}`);
-    process.exit(2);
+    stopRun(2);
   }
   // Real path on every side: git and TypeScript's resolver both report one, and
   // a symlinked cwd (macOS /tmp) would otherwise match nothing.
@@ -8652,7 +8658,7 @@ function printUsage(command: string | undefined): void {
     // the second, and the unknown-FLAG path (cli-flag-check.ts) already exits 2.
     // A script telling "found problems" from "could not start" by exit code read
     // a mistyped command as a finding.
-    process.exit(2);
+    stopRun(2);
   }
 }
 
@@ -8739,13 +8745,13 @@ function eventRoot(raw: string): { readonly cwd?: unknown } {
 function runSkillCommand(target: string | undefined): void {
   if (!target) {
     console.error("Usage: vigiles hook-runtime run-skill <SKILL.md>");
-    process.exit(2);
+    stopRun(2);
   }
   const root = runtimeRoot();
   const path = resolve(root, target);
   if (!existsSync(path)) {
     console.error(`Not found: ${target}`);
-    process.exit(2);
+    stopRun(2);
   }
   const gates = parseSkillGates(readFileSync(path, "utf-8"));
   if (gates.steps.length === 0 && !gates.result) {
@@ -8774,7 +8780,7 @@ function runSkillCommand(target: string | undefined): void {
         ? "the result gate"
         : `step ${String(report.blockedAt)}`;
     console.log(`\n✗ Blocked at ${where} — fix it before the skill is done.`);
-    process.exit(2);
+    stopRun(2);
   }
 }
 
@@ -8792,14 +8798,14 @@ function skillHookCommand(): void {
     return;
   }
   console.error(decision.message);
-  process.exit(2);
+  stopRun(2);
 }
 
 /** Mark a skill active so the Stop hook enforces its result gate. */
 function skillStartCommand(target: string | undefined): void {
   if (!target) {
     console.error("Usage: vigiles hook-runtime skill-start <SKILL.md>");
-    process.exit(2);
+    stopRun(2);
   }
   const root = runtimeRoot();
   setActiveSkill(root, target);
@@ -8856,7 +8862,7 @@ function skillToolHookCommand(): void {
   );
   if (!decision.allow) {
     console.error(decision.message);
-    process.exit(2);
+    stopRun(2);
   }
 }
 
@@ -8944,7 +8950,7 @@ function agentHookCommand(): void {
       cwd,
     );
     console.error(decision.message);
-    process.exit(2);
+    stopRun(2);
   }
 }
 
@@ -8968,7 +8974,7 @@ function interceptToolHookCommand(): void {
   const decision = interceptHookDecision(raw, intercepts);
   if (decision.intercept) {
     console.error(decision.denyReason);
-    process.exit(2);
+    stopRun(2);
   }
 }
 
@@ -8990,7 +8996,7 @@ function guardHookCommand(): void {
   const { decision } = runGuardHook(runtimeRoot(eventRoot(raw)), raw);
   if (!decision.allow) {
     console.error(decision.reason ?? "Blocked by a vigiles guard.");
-    process.exit(2);
+    stopRun(2);
   }
 }
 
@@ -8998,7 +9004,7 @@ function guardHookCommand(): void {
 function agentStartCommand(target: string | undefined): void {
   if (!target) {
     console.error("Usage: vigiles hook-runtime agent-start <agents/<name>.md>");
-    process.exit(2);
+    stopRun(2);
   }
   pushActiveAgent(runtimeRoot(), target);
   console.log(`Active agent: ${target}`);
@@ -9073,7 +9079,7 @@ export async function handleHookRuntime(
           `These are emitted into your hooks config by \`vigiles compile\` — ` +
           `you don't run them by hand.`,
       );
-      process.exit(2);
+      stopRun(2);
   }
 }
 
@@ -9104,7 +9110,7 @@ function actionHookCommand(): void {
   const decision = evaluateAction(event, loadActionGates(root), root);
   if (!decision.allow) {
     console.error(decision.message);
-    process.exit(2);
+    stopRun(2);
   }
 }
 
@@ -9274,7 +9280,7 @@ async function refsHookCommand(): Promise<void> {
     // Opt-in (`unmarked-refs: "error"`): exit 2 feeds stderr to the model.
     console.error(`vigiles: fix the code references in ${target}:`);
     for (const m of issues) console.error(`  ✗ ${m}`);
-    process.exit(2);
+    stopRun(2);
   }
 
   // Default ("warn"): a non-blocking nudge injected into the agent's context.
@@ -10044,16 +10050,15 @@ async function askOnce(q: string): Promise<string> {
  * re-expressed from the root first (`PATH_ARGUMENTS` says which arguments are
  * paths). `hook-runtime` is exempt: its cwd and argv come from the harness.
  */
-function enterProjectRoot(): {
+function enterProjectRoot(typed: readonly string[]): {
   readonly command: string;
   readonly projectRoot: string;
   readonly args: string[];
 } {
-  const typed = process.argv.slice(2);
   const [command = "", ...rest] = typed;
   const invocationDir = process.cwd();
   if (!runsFromProjectRoot(command))
-    return { command, projectRoot: invocationDir, args: typed };
+    return { command, projectRoot: invocationDir, args: [...typed] };
   const projectRoot = findProjectRoot(invocationDir, existsSync);
   const args = [
     command,
@@ -10116,7 +10121,7 @@ function loadRunConfig(
   );
   if (!presetFlag.ok) {
     console.error(`✗ ${presetFlag.message}`);
-    process.exit(2);
+    stopRun(2);
   }
   return applyConfigFlags(
     loadConfig(projectRoot, { presets: presetFlag.presets }),
@@ -10174,8 +10179,120 @@ function auditScan(
   return applyRules(RULES, RULE_GROUPS, framed, scan);
 }
 
+/** What a CLI run exits with: 0 ok, 1 "ran, and found a problem", 2 "could not do what you asked". */
+export type ExitCode = 0 | 1 | 2;
+
+/**
+ * How a CLI run ended (#607). Two separate facts, so a tagged union, not a code:
+ * `stopped` means a verb asked to end the process AT ONCE — what `process.exit`
+ * did, open handles and all — and the bin must still do exactly that; `finished`
+ * means the verb returned, and the process may end on its own once its handles
+ * close. Collapsing them would turn every old `process.exit` into a natural exit,
+ * and a verb with a live handle would hang where it used to stop.
+ */
+export type RunEnd =
+  | { readonly kind: "stopped"; readonly code: ExitCode }
+  | { readonly kind: "finished"; readonly code: ExitCode };
+
+/** Thrown by `stopRun` and caught by `run` alone. */
+class RunStopped extends Error {
+  constructor(readonly code: ExitCode) {
+    super(`vigiles run stopped with exit code ${String(code)}`);
+  }
+}
+
+/**
+ * End this CLI run now. The CLI's stand-in for `process.exit`, so an in-process
+ * caller gets the code back instead of losing its own process.
+ */
+function stopRun(code: ExitCode): never {
+  throw new RunStopped(code);
+}
+
+/**
+ * Read the code a verb left in `process.exitCode` (five verbs report that way and
+ * keep running, e.g. `audit --fail-on-widen`). No verb sets anything but 1 or 2;
+ * an unknown value reads as 2, "could not do what you asked", never as 0.
+ */
+function exitCodeOf(value: typeof process.exitCode): ExitCode {
+  if (value === undefined || value === 0) return 0;
+  return value === 1 ? 1 : 2;
+}
+
+/**
+ * State a run leaves in this module, dropped when it ends so the next in-process
+ * run starts as a fresh process would: the spec host was spawned with the last
+ * run's cwd and env (#607 review, P0-3).
+ */
+function endRunState(): void {
+  dropHost();
+  lastSpecLoadFailure = null;
+  // A config read in this run must not answer the next one (a fresh bin reads it again).
+  clearLinterCaches();
+}
+
+/**
+ * Run the CLI on `argv` (the words after `vigiles`) inside this process and say
+ * how it ended. It leaves the process as it found it: `process.exitCode`, the
+ * working directory (a verb may `chdir` to the project root) and the spec host.
+ * Tests call it to skip a Node start per assertion; the bin calls it via `main`.
+ */
+export async function run(argv: readonly string[]): Promise<RunEnd> {
+  const before = enterRun();
+  try {
+    await runVerb(argv);
+    return { kind: "finished", code: exitCodeOf(process.exitCode) };
+  } catch (e) {
+    if (e instanceof RunStopped) return { kind: "stopped", code: e.code };
+    throw e;
+  } finally {
+    leaveRun(before);
+  }
+}
+
+/** What `run` found on the process and puts back when it ends. */
+type ProcessBefore = {
+  readonly exitCode: typeof process.exitCode;
+  readonly cwd: string;
+};
+
+/** Note the process state, then clear the exit code so this run reads only its own. */
+function enterRun(): ProcessBefore {
+  const before = { exitCode: process.exitCode, cwd: process.cwd() };
+  setExitCode(undefined);
+  return before;
+}
+
+/** Put the process back as `enterRun` found it and drop this run's module state. */
+function leaveRun(before: ProcessBefore): void {
+  setExitCode(before.exitCode);
+  process.chdir(before.cwd);
+  endRunState();
+}
+
+/**
+ * The one write of `process.exitCode`: the exit code is process state by Node's
+ * design, and `run` must save, clear and restore it around a verb.
+ */
+function setExitCode(code: typeof process.exitCode): void {
+  // eslint-disable-next-line functional/immutable-data -- Node keeps the exit code only on `process`.
+  process.exitCode = code;
+}
+
+/** The bin's entry: run on the real argv, then end the process the way the verb asked. */
 export async function main(): Promise<void> {
-  const { command, projectRoot, args } = enterProjectRoot();
+  const end = await run(process.argv.slice(2));
+  switch (end.kind) {
+    case "stopped":
+      return process.exit(end.code);
+    case "finished":
+      setExitCode(end.code);
+      return;
+  }
+}
+
+async function runVerb(argv: readonly string[]): Promise<void> {
+  const { command, projectRoot, args } = enterProjectRoot(argv);
 
   // `--version` / `-v` / `version` prints the version number, not the help
   // banner — so `npx vigiles --version` reports e.g. `3.0.0`.
@@ -10205,7 +10322,7 @@ export async function main(): Promise<void> {
       // is bad" (lint findings, a failing harness script); 2 means "I could not
       // do what you asked" (the top-level error handler, `eval`'s refusal,
       // `generate` with an unknown kind). A misspelled flag is the second.
-      process.exit(2);
+      stopRun(2);
     }
   }
 
@@ -10263,7 +10380,7 @@ export async function main(): Promise<void> {
       ) {
         console.log("No .spec.ts or .vigiles/hooks/ hook files found.");
         console.log("Run `vigiles init` to create one.");
-        process.exit(0);
+        stopRun(0);
       }
       let valid = true;
       // Refused files FIRST and on stderr: they are the news in this run, and a
@@ -10310,7 +10427,7 @@ export async function main(): Promise<void> {
         console.log("Compilation complete.");
       } else {
         console.log("Compilation complete with errors.");
-        process.exit(1);
+        stopRun(1);
       }
       break;
     }
@@ -10328,7 +10445,7 @@ export async function main(): Promise<void> {
       annotateLintForGitHub(report, flags);
       const exitCode = lintExitCode(report);
       if (exitCode !== 0) {
-        process.exit(exitCode);
+        stopRun(exitCode);
       }
       break;
     }
@@ -10672,7 +10789,7 @@ export async function main(): Promise<void> {
               ),
             );
           console.error(formatNothingToAudit(root, adapter.name, market));
-          process.exit(2);
+          stopRun(2);
         }
         const plan = optimize(gradedView(report));
         // The deterministic READ leads: rings + report + fixes + nudges print

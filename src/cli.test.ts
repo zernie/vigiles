@@ -18,6 +18,7 @@ import {
 import { dirname, join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { execSync } from "node:child_process";
+import { runCliInProcess } from "./host/cli-in-process.io.js";
 
 import { summaryText } from "./cli-main.js";
 import { findKeyFilesInSpecSource } from "./core/keyfiles-source.js";
@@ -33,28 +34,13 @@ const STARTER = starterHarnessName(
 
 const CLI = resolve(import.meta.dirname, "..", "dist", "cli.js");
 
-function run(
+/** Run the CLI in this process (#607): one Node start per file, not per assertion. */
+async function run(
   args: string,
   cwd: string,
   env?: Record<string, string>,
-): { stdout: string; stderr: string; exitCode: number } {
-  try {
-    const stdout = execSync(`node ${CLI} ${args}`, {
-      cwd,
-      encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
-      timeout: 30000,
-      env: env ? { ...process.env, ...env } : process.env,
-    });
-    return { stdout, stderr: "", exitCode: 0 };
-  } catch (e: unknown) {
-    const err = e as { stdout?: string; stderr?: string; status?: number };
-    return {
-      stdout: err.stdout ?? "",
-      stderr: err.stderr ?? "",
-      exitCode: err.status ?? 1,
-    };
-  }
+): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  return runCliInProcess(args.split(/\s+/).filter(Boolean), { cwd, env });
 }
 
 // ---------------------------------------------------------------------------
@@ -72,15 +58,15 @@ describe("CLI: vigiles init", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should create CLAUDE.md.spec.ts by default", () => {
-    const { stdout, exitCode } = run("init --no-plugin", tmpDir);
+  it("should create CLAUDE.md.spec.ts by default", async () => {
+    const { stdout, exitCode } = await run("init --no-plugin", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(stdout.includes("Created CLAUDE.md.spec.ts"));
     assert.ok(existsSync(join(tmpDir, "CLAUDE.md.spec.ts")));
   });
 
-  it("scaffolds a spec that imports ONLY what it uses (no unused-vars under strict ESLint)", () => {
-    run("init --target=LINTSAFE.md", tmpDir);
+  it("scaffolds a spec that imports ONLY what it uses (no unused-vars under strict ESLint)", async () => {
+    await run("init --target=LINTSAFE.md", tmpDir);
     const content = readFileSync(join(tmpDir, "LINTSAFE.md.spec.ts"), "utf-8");
     // The live import must bring in only `claude` (the one symbol the scaffold
     // uses); enforce/guidance appear solely in a COMMENTED import. A strict
@@ -93,8 +79,8 @@ describe("CLI: vigiles init", () => {
     );
   });
 
-  it("scaffolds a spec without the deprecated keyFiles field", () => {
-    run("init --target=NOKEYFILES.md", tmpDir);
+  it("scaffolds a spec without the deprecated keyFiles field", async () => {
+    await run("init --target=NOKEYFILES.md", tmpDir);
     const content = readFileSync(
       join(tmpDir, "NOKEYFILES.md.spec.ts"),
       "utf-8",
@@ -104,23 +90,23 @@ describe("CLI: vigiles init", () => {
     assert.equal(findKeyFilesInSpecSource(content), null);
   });
 
-  it("should not overwrite existing spec", () => {
+  it("should not overwrite existing spec", async () => {
     // Already created in previous test. `--full`: a bare re-run on an adopted
     // repo is the minimal one and never reaches the spec step (#338).
-    const { stdout } = run("init --full --no-plugin", tmpDir);
+    const { stdout } = await run("init --full --no-plugin", tmpDir);
     assert.ok(stdout.includes("already exists"));
   });
 
-  it("should create AGENTS.md.spec.ts with --target flag", () => {
-    const { stdout, exitCode } = run("init --target=AGENTS.md", tmpDir);
+  it("should create AGENTS.md.spec.ts with --target flag", async () => {
+    const { stdout, exitCode } = await run("init --target=AGENTS.md", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(stdout.includes("Created AGENTS.md.spec.ts"));
     const content = readFileSync(join(tmpDir, "AGENTS.md.spec.ts"), "utf-8");
     assert.ok(content.includes('target: "AGENTS.md"'));
   });
 
-  it("should create custom target spec", () => {
-    const { exitCode } = run("init --target=CODEX.md", tmpDir);
+  it("should create custom target spec", async () => {
+    const { exitCode } = await run("init --target=CODEX.md", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(existsSync(join(tmpDir, "CODEX.md.spec.ts")));
     const content = readFileSync(join(tmpDir, "CODEX.md.spec.ts"), "utf-8");
@@ -143,15 +129,15 @@ describe("CLI: vigiles compile", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should report when no specs are found", () => {
-    const { stdout, exitCode } = run("compile", tmpDir);
+  it("should report when no specs are found", async () => {
+    const { stdout, exitCode } = await run("compile", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(
       stdout.includes("No .spec.ts or .vigiles/hooks/ hook files found"),
     );
   });
 
-  it("should compile a spec", () => {
+  it("should compile a spec", async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), "vigiles-compile-"));
     writeFileSync(
       join(tmpDir, "package.json"),
@@ -162,13 +148,13 @@ describe("CLI: vigiles compile", () => {
       join(tmpDir, "CLAUDE.md.spec.ts"),
       `import { instructionFile, guidance } from "${specSrc}";\nexport default instructionFile({ rules: { r: guidance("test") } });\n`,
     );
-    const { stdout, exitCode } = run("compile CLAUDE.md.spec.ts", tmpDir);
+    const { stdout, exitCode } = await run("compile CLAUDE.md.spec.ts", tmpDir);
     assert.equal(exitCode, 0, stdout);
     assert.ok(stdout.includes("CLAUDE.md.spec.ts"));
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should compile agent + railway specs and resolve delegate targets", () => {
+  it("should compile agent + railway specs and resolve delegate targets", async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), "vigiles-compile-railway-"));
     writeFileSync(
       join(tmpDir, "package.json"),
@@ -187,7 +173,7 @@ describe("CLI: vigiles compile", () => {
         `const { railway, delegate } = experimental_agent;\n` +
         `export default railway({ name: "flow", steps: [delegate("worker")] });\n`,
     );
-    const { stdout, exitCode } = run(
+    const { stdout, exitCode } = await run(
       "compile worker.md.spec.ts flow.md.spec.ts",
       tmpDir,
     );
@@ -201,7 +187,7 @@ describe("CLI: vigiles compile", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should fail when a railway delegates to an unknown agent", () => {
+  it("should fail when a railway delegates to an unknown agent", async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), "vigiles-compile-railway-bad-"));
     writeFileSync(
       join(tmpDir, "package.json"),
@@ -214,13 +200,13 @@ describe("CLI: vigiles compile", () => {
         `const { railway, delegate } = experimental_agent;\n` +
         `export default railway({ name: "flow", steps: [delegate("ghost")] });\n`,
     );
-    const { stdout, exitCode } = run("compile flow.md.spec.ts", tmpDir);
+    const { stdout, exitCode } = await run("compile flow.md.spec.ts", tmpDir);
     assert.equal(exitCode, 1, stdout);
     assert.ok(stdout.includes("unknown agent"), stdout);
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should compile subdirectory spec to same directory", () => {
+  it("should compile subdirectory spec to same directory", async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), "vigiles-compile-subdir-"));
     writeFileSync(
       join(tmpDir, "package.json"),
@@ -233,7 +219,7 @@ describe("CLI: vigiles compile", () => {
       join(subDir, "CLAUDE.md.spec.ts"),
       `import { instructionFile, guidance } from "${specSrc}";\nexport default instructionFile({ rules: { r: guidance("test") } });\n`,
     );
-    const { stdout, exitCode } = run(
+    const { stdout, exitCode } = await run(
       "compile examples/CLAUDE.md.spec.ts",
       tmpDir,
     );
@@ -250,7 +236,7 @@ describe("CLI: vigiles compile", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should not clobber root spec output when compiling all specs", () => {
+  it("should not clobber root spec output when compiling all specs", async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), "vigiles-compile-noclobber-"));
     writeFileSync(
       join(tmpDir, "package.json"),
@@ -271,7 +257,7 @@ describe("CLI: vigiles compile", () => {
       `import { instructionFile, guidance } from "${specSrc}";\nexport default instructionFile({ rules: { "sub-rule": guidance("from subdir") } });\n`,
     );
 
-    const { stdout, exitCode } = run("compile", tmpDir);
+    const { stdout, exitCode } = await run("compile", tmpDir);
     assert.equal(exitCode, 0, stdout);
 
     // Root CLAUDE.md should come from root spec
@@ -311,14 +297,14 @@ describe("CLI: vigiles lint", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should report when no instruction files are found", () => {
-    const { stdout, exitCode } = run("lint", tmpDir);
+  it("should report when no instruction files are found", async () => {
+    const { stdout, exitCode } = await run("lint", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(stdout.includes("No compiled instruction files found"));
   });
 
-  it("should include coverage and strengthen output", () => {
-    const { stdout } = run("lint", tmpDir);
+  it("should include coverage and strengthen output", async () => {
+    const { stdout } = await run("lint", tmpDir);
     // lint runs discover + strengthen in addition to verification
     assert.ok(
       stdout.includes("coverage") ||
@@ -327,7 +313,7 @@ describe("CLI: vigiles lint", () => {
     );
   });
 
-  it("default lint integrity-checks a compiled subagent (dogfood E2)", () => {
+  it("default lint integrity-checks a compiled subagent (dogfood E2)", async () => {
     // A compiled agents/<name>.md carries a vigiles hash, but the default glob
     // only matched CLAUDE/AGENTS/SKILL — so a hand-edit of a compiled subagent
     // slipped past lint. A tampered compiled agent must now be flagged.
@@ -339,7 +325,7 @@ describe("CLI: vigiles lint", () => {
         join(dir, "agents", "reviewer.md"),
         "<!-- vigiles:sha256:deadbeef compiled from agents/reviewer.md.spec.ts -->\n---\nname: reviewer\n---\nedited body\n",
       );
-      const { stdout, exitCode } = run("lint", dir);
+      const { stdout, exitCode } = await run("lint", dir);
       assert.match(stdout, /agents\/reviewer\.md/);
       assert.match(stdout, /hash mismatch|modified directly/);
       assert.equal(exitCode, 2, "a tampered compiled subagent fails lint");
@@ -348,7 +334,7 @@ describe("CLI: vigiles lint", () => {
     }
   });
 
-  it("should detect duplicate rules via NCD", () => {
+  it("should detect duplicate rules via NCD", async () => {
     const dupDir = mkdtempSync(join(tmpdir(), "vigiles-lint-dup-"));
     try {
       writeFileSync(
@@ -368,7 +354,7 @@ export default instructionFile({
 });
 `,
       );
-      const { stdout } = run("lint", dupDir);
+      const { stdout } = await run("lint", dupDir);
       // Should detect the two logger rules as near-duplicates
       assert.ok(
         stdout.includes("near-duplicate") || stdout.includes("duplicate"),
@@ -379,7 +365,7 @@ export default instructionFile({
     }
   });
 
-  it("should skip inline verification for spec-managed files", () => {
+  it("should skip inline verification for spec-managed files", async () => {
     // A file with a sibling .spec.ts (and compiled-from header) must
     // not run inline verification, so literal vigiles:enforce snippets
     // in prose cannot trip lint when the file is spec-managed.
@@ -410,14 +396,14 @@ export default instructionFile({
       );
 
       // Compile first so CLAUDE.md has a valid hash.
-      const compileResult = run("compile", specDir);
+      const compileResult = await run("compile", specDir);
       assert.equal(
         compileResult.exitCode,
         0,
         `compile failed: ${compileResult.stdout}`,
       );
 
-      const { stdout, exitCode } = run("lint CLAUDE.md", specDir);
+      const { stdout, exitCode } = await run("lint CLAUDE.md", specDir);
       // Should NOT surface the bogus rule as an inline error.
       assert.ok(
         !stdout.includes("total-nonsense"),
@@ -434,7 +420,7 @@ export default instructionFile({
     }
   });
 
-  it("emits a per-line GitHub annotation for a broken doc ref (PR inline)", () => {
+  it("emits a per-line GitHub annotation for a broken doc ref (PR inline)", async () => {
     // The dogfooded GitHub Action surfaces lint findings INLINE on the PR diff
     // via `::error file=,line=::` workflow annotations. A broken `file()` ref in
     // a markdown code block must produce one (it carries file+line) — this is
@@ -452,20 +438,21 @@ export default instructionFile({
       );
       const cfg = join(dir, ".vigilesrc.json");
       writeFileSync(cfg, '{"rules":{"doc-refs":"error"}}');
-      const { stdout } = run("lint", dir, { GITHUB_ACTIONS: "true" });
+      const { stdout } = await run("lint", dir, { GITHUB_ACTIONS: "true" });
       // The annotation names the file and the exact line (4) of the bad ref.
       assert.match(stdout, /::error file=.*doc\.md,line=4::/);
       assert.match(stdout, /File not found/);
 
       // At "warn" the same finding annotates as a warning, not an error.
       writeFileSync(cfg, '{"rules":{"doc-refs":"warn"}}');
-      const warned = run("lint", dir, { GITHUB_ACTIONS: "true" }).stdout;
+      const warned = (await run("lint", dir, { GITHUB_ACTIONS: "true" }))
+        .stdout;
       assert.match(warned, /::warning file=.*doc\.md,line=4::/);
 
       // And with the rule at its DEFAULT (absent), nothing is annotated at all —
       // the pass does not run.
       rmSync(cfg, { force: true });
-      const off = run("lint", dir, { GITHUB_ACTIONS: "true" }).stdout;
+      const off = (await run("lint", dir, { GITHUB_ACTIONS: "true" })).stdout;
       assert.ok(
         !/doc\.md,line=4/.test(off),
         `doc-refs is off by default; it must annotate nothing, got:\n${off}`,
@@ -506,7 +493,7 @@ describe("E2E: inline enforcement", () => {
     rmSync(inlineDir, { recursive: true, force: true });
   });
 
-  it("verifies valid inline enforce rules and exits clean", () => {
+  it("verifies valid inline enforce rules and exits clean", async () => {
     writeFileSync(
       join(inlineDir, "CLAUDE.md"),
       `# Project
@@ -516,7 +503,7 @@ describe("E2E: inline enforcement", () => {
 All output goes through logger.ts.
 `,
     );
-    const { stdout, exitCode } = run("lint CLAUDE.md", inlineDir);
+    const { stdout, exitCode } = await run("lint CLAUDE.md", inlineDir);
     assert.ok(
       stdout.includes("eslint/no-console"),
       `Expected rule in output, got: ${stdout.slice(0, 600)}`,
@@ -525,7 +512,7 @@ All output goes through logger.ts.
     assert.equal(exitCode, 0, `Expected clean exit, got ${String(exitCode)}`);
   });
 
-  it("flags a typo'd inline rule with a closest-match suggestion", () => {
+  it("flags a typo'd inline rule with a closest-match suggestion", async () => {
     writeFileSync(
       join(inlineDir, "CLAUDE.md"),
       `# Project
@@ -535,7 +522,7 @@ All output goes through logger.ts.
 Some prose.
 `,
     );
-    const { stdout, exitCode } = run("lint CLAUDE.md", inlineDir);
+    const { stdout, exitCode } = await run("lint CLAUDE.md", inlineDir);
     assert.ok(
       stdout.includes("no-consol"),
       `Expected typo'd rule in output, got: ${stdout.slice(0, 600)}`,
@@ -547,7 +534,7 @@ Some prose.
     assert.equal(exitCode, 2, `Expected exit 2 on inline error`);
   });
 
-  it("ignores inline markers inside fenced code blocks", () => {
+  it("ignores inline markers inside fenced code blocks", async () => {
     writeFileSync(
       join(inlineDir, "CLAUDE.md"),
       `# Docs
@@ -563,7 +550,7 @@ Real rule:
 <!-- vigiles:enforce eslint/no-console "outside fence" -->
 `,
     );
-    const { stdout, exitCode } = run("lint CLAUDE.md", inlineDir);
+    const { stdout, exitCode } = await run("lint CLAUDE.md", inlineDir);
     // The bogus rule inside the fence must NOT appear as an error
     assert.ok(
       !stdout.includes("totally-bogus"),
@@ -576,12 +563,12 @@ Real rule:
     assert.equal(exitCode, 0);
   });
 
-  it("reports inline errors in --json output", () => {
+  it("reports inline errors in --json output", async () => {
     writeFileSync(
       join(inlineDir, "CLAUDE.md"),
       `<!-- vigiles:enforce eslint/fake-rule-xyz "bad" -->`,
     );
-    const { stdout, exitCode } = run("lint --json CLAUDE.md", inlineDir);
+    const { stdout, exitCode } = await run("lint --json CLAUDE.md", inlineDir);
     const report = JSON.parse(stdout) as {
       inlineErrors: number;
       inlineRules: number;
@@ -591,12 +578,15 @@ Real rule:
     assert.equal(exitCode, 2);
   });
 
-  it("reports inline rules in --summary output", () => {
+  it("reports inline rules in --summary output", async () => {
     writeFileSync(
       join(inlineDir, "CLAUDE.md"),
       `<!-- vigiles:enforce eslint/fake-rule-xyz "bad" -->`,
     );
-    const { stdout, exitCode } = run("lint --summary CLAUDE.md", inlineDir);
+    const { stdout, exitCode } = await run(
+      "lint --summary CLAUDE.md",
+      inlineDir,
+    );
     assert.ok(
       stdout.includes("inline"),
       `Expected 'inline' in summary, got: ${stdout}`,
@@ -613,7 +603,7 @@ Real rule:
     assert.equal(summaryText(["1 stale"], 1), "1 stale");
   });
 
-  it("does NOT satisfy require-instructions-spec via inline rules (narrow rule)", () => {
+  it("does NOT satisfy require-instructions-spec via inline rules (narrow rule)", async () => {
     // Inline mode is a valid Level-0 on-ramp, but `require-instructions-spec` is
     // NARROW — only a `.spec.ts` satisfies it (the name says "spec"). So an
     // inline-only CLAUDE.md still gets the default-warn nudge; an inline user
@@ -625,7 +615,7 @@ Real rule:
 # Project
 `,
     );
-    const { stdout } = run("lint CLAUDE.md", inlineDir);
+    const { stdout } = await run("lint CLAUDE.md", inlineDir);
     assert.ok(
       stdout.includes("require-instructions-spec"),
       `inline must NOT satisfy the narrow require-instructions-spec, got: ${stdout.slice(0, 600)}`,
@@ -660,7 +650,7 @@ describe("E2E: frontmatter mode is DISABLED (kept in code, inert in lint)", () =
     rmSync(fmDir, { recursive: true, force: true });
   });
 
-  it("a `vigiles:` frontmatter block is INERT — not verified, never fails lint", () => {
+  it("a `vigiles:` frontmatter block is INERT — not verified, never fails lint", async () => {
     // Frontmatter mode is DISABLED (FRONTMATTER_MODE_ENABLED=false): a `vigiles:`
     // block is ignored, so even a fake rule that WOULD have failed lint under the
     // old mode is now inert — no frontmatter rules read, no frontmatter errors.
@@ -676,7 +666,7 @@ vigiles:
 # Project
 `,
     );
-    const { stdout } = run("lint --json CLAUDE.md", fmDir);
+    const { stdout } = await run("lint --json CLAUDE.md", fmDir);
     const report = JSON.parse(stdout) as {
       frontmatterErrors: number;
       frontmatterRules: number;
@@ -693,7 +683,7 @@ vigiles:
     );
   });
 
-  it("does NOT satisfy require-instructions-spec via frontmatter rules (narrow rule)", () => {
+  it("does NOT satisfy require-instructions-spec via frontmatter rules (narrow rule)", async () => {
     // A `vigiles:` block never counted as a `.spec.ts`, so the narrow
     // `require-instructions-spec` nudge fires (default warn) — and now even more
     // so, since frontmatter mode is disabled and the block is inert prose.
@@ -709,14 +699,14 @@ vigiles:
 # Project
 `,
     );
-    const { stdout } = run("lint CLAUDE.md", fmDir);
+    const { stdout } = await run("lint CLAUDE.md", fmDir);
     assert.ok(
       stdout.includes("require-instructions-spec"),
       `frontmatter must NOT satisfy the narrow require-instructions-spec, got: ${stdout.slice(0, 600)}`,
     );
   });
 
-  it("inline mode still works while frontmatter is inert", () => {
+  it("inline mode still works while frontmatter is inert", async () => {
     writeFileSync(
       join(fmDir, "CLAUDE.md"),
       `---
@@ -731,7 +721,7 @@ vigiles:
 <!-- vigiles:enforce eslint/no-console "from inline" -->
 `,
     );
-    const { stdout, exitCode } = run("lint --json CLAUDE.md", fmDir);
+    const { stdout, exitCode } = await run("lint --json CLAUDE.md", fmDir);
     const report = JSON.parse(stdout) as {
       inlineRules: number;
       frontmatterRules: number;
@@ -773,8 +763,8 @@ describe("CLI: vigiles generate schema", () => {
     rmSync(schemaDir, { recursive: true, force: true });
   });
 
-  it("emits a valid JSON Schema with a populated rule enum", () => {
-    const { exitCode } = run("generate schema", schemaDir);
+  it("emits a valid JSON Schema with a populated rule enum", async () => {
+    const { exitCode } = await run("generate schema", schemaDir);
     assert.equal(exitCode, 0);
     const schemaPath = join(schemaDir, ".vigiles", "schema.json");
     assert.ok(existsSync(schemaPath), "expected .vigiles/schema.json");
@@ -803,14 +793,17 @@ describe("CLI: vigiles generate schema", () => {
     );
   });
 
-  it("--check passes after generation and is idempotent", () => {
-    run("generate schema", schemaDir);
-    const { stdout, exitCode } = run("generate schema --check", schemaDir);
+  it("--check passes after generation and is idempotent", async () => {
+    await run("generate schema", schemaDir);
+    const { stdout, exitCode } = await run(
+      "generate schema --check",
+      schemaDir,
+    );
     assert.equal(exitCode, 0, stdout);
     assert.ok(stdout.includes("up to date"));
   });
 
-  it("includes configured custom-linter rules from rulesDir in the enum", () => {
+  it("includes configured custom-linter rules from rulesDir in the enum", async () => {
     // A custom linter declared in .vigilesrc.json resolves its rules from a
     // rulesDir. `vigiles lint` accepts `my-tool/no-foo`, so the schema enum
     // must include it too (otherwise the YAML LSP false-flags a valid rule).
@@ -833,7 +826,7 @@ describe("CLI: vigiles generate schema", () => {
       "module.exports = {};",
     );
 
-    const { exitCode } = run("generate schema", customDir);
+    const { exitCode } = await run("generate schema", customDir);
     assert.equal(exitCode, 0);
     const schema = JSON.parse(
       readFileSync(join(customDir, ".vigiles", "schema.json"), "utf-8"),
@@ -862,19 +855,19 @@ describe("CLI: vigiles generate schema", () => {
 // ---------------------------------------------------------------------------
 
 describe("CLI: vigiles generate types", () => {
-  it("should generate types", () => {
+  it("should generate types", async () => {
     const tmpDir = mkdtempSync(join(tmpdir(), "vigiles-gen-"));
     writeFileSync(
       join(tmpDir, "package.json"),
       JSON.stringify({ name: "test", scripts: { build: "echo ok" } }),
     );
-    const { stdout, exitCode } = run("generate types", tmpDir);
+    const { stdout, exitCode } = await run("generate types", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(stdout.includes("Generated"));
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should verify freshness with --check", () => {
+  it("should verify freshness with --check", async () => {
     // Use a temp dir so we don't modify the project's generated types
     const tmpDir = mkdtempSync(join(tmpdir(), "vigiles-types-check-"));
     writeFileSync(
@@ -882,9 +875,9 @@ describe("CLI: vigiles generate types", () => {
       JSON.stringify({ name: "test", scripts: { test: "echo ok" } }),
     );
     // Generate types in temp dir
-    run("generate types", tmpDir);
+    await run("generate types", tmpDir);
     // Then check — should pass
-    const { exitCode } = run("generate types --check", tmpDir);
+    const { exitCode } = await run("generate types --check", tmpDir);
     assert.equal(exitCode, 0);
     rmSync(tmpDir, { recursive: true, force: true });
   });
@@ -917,8 +910,8 @@ export default instructionFile({
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should compile to multiple targets", () => {
-    const { stdout, exitCode } = run("compile CLAUDE.md.spec.ts", tmpDir);
+  it("should compile to multiple targets", async () => {
+    const { stdout, exitCode } = await run("compile CLAUDE.md.spec.ts", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(stdout.includes("CLAUDE.md"));
     assert.ok(stdout.includes("AGENTS.md"));
@@ -999,10 +992,10 @@ export default instructionFile({
   ];
 
   for (const c of cases) {
-    it(c.name, () => {
+    it(c.name, async () => {
       const dir = project(c.specFile, c.targets);
       try {
-        const { stdout, exitCode } = run(`compile ${c.specFile}`, dir);
+        const { stdout, exitCode } = await run(`compile ${c.specFile}`, dir);
         assert.equal(exitCode, 0, stdout);
         for (const out of c.written) assertLinksResolve(dir, out);
       } finally {
@@ -1036,13 +1029,13 @@ export default instructionFile({
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("mirrors CLAUDE.md → AGENTS.md byte-identically when ≥2 harnesses are declared", () => {
+  it("mirrors CLAUDE.md → AGENTS.md byte-identically when ≥2 harnesses are declared", async () => {
     writeFileSync(
       join(tmpDir, ".vigilesrc.json"),
       JSON.stringify({ harnesses: { "claude-code": {}, codex: {} } }, null, 2) +
         "\n",
     );
-    const { stdout, exitCode } = run("compile CLAUDE.md.spec.ts", tmpDir);
+    const { stdout, exitCode } = await run("compile CLAUDE.md.spec.ts", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(stdout.includes("mirrored"), "should report the mirror write");
     assert.ok(existsSync(join(tmpDir, "AGENTS.md")));
@@ -1053,13 +1046,13 @@ export default instructionFile({
     );
   });
 
-  it("does NOT mirror for a single declared harness", () => {
+  it("does NOT mirror for a single declared harness", async () => {
     rmSync(join(tmpDir, "AGENTS.md"), { force: true });
     writeFileSync(
       join(tmpDir, ".vigilesrc.json"),
       JSON.stringify({ harnesses: { "claude-code": {} } }, null, 2) + "\n",
     );
-    const { exitCode } = run("compile CLAUDE.md.spec.ts", tmpDir);
+    const { exitCode } = await run("compile CLAUDE.md.spec.ts", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(
       !existsSync(join(tmpDir, "AGENTS.md")),
@@ -1067,7 +1060,7 @@ export default instructionFile({
     );
   });
 
-  it("--harness=codex selects the minimal SKILL.md profile (CC-only keys dropped)", () => {
+  it("--harness=codex selects the minimal SKILL.md profile (CC-only keys dropped)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-harness-skill-"));
     try {
       writeFileSync(
@@ -1083,7 +1076,7 @@ export default experimental_skill({
 `,
       );
       // Codex → minimal frontmatter: the CC-only keys are omitted.
-      run("compile --harness=codex SKILL.md.spec.ts", dir);
+      await run("compile --harness=codex SKILL.md.spec.ts", dir);
       const codex = readFileSync(join(dir, "SKILL.md"), "utf-8");
       assert.ok(
         !codex.includes("disable-model-invocation"),
@@ -1091,7 +1084,7 @@ export default experimental_skill({
       );
       assert.ok(!codex.includes("argument-hint"), "codex: no CC key");
       // Claude Code → full frontmatter: the same spec keeps the CC-only keys.
-      run("compile --harness=claude-code SKILL.md.spec.ts", dir);
+      await run("compile --harness=claude-code SKILL.md.spec.ts", dir);
       const cc = readFileSync(join(dir, "SKILL.md"), "utf-8");
       assert.ok(
         cc.includes("disable-model-invocation: true"),
@@ -1103,7 +1096,7 @@ export default experimental_skill({
     }
   });
 
-  it("mirror never clobbers a target that owns its own spec", () => {
+  it("mirror never clobbers a target that owns its own spec", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-harness-twospecs-"));
     try {
       const specImport = `import { instructionFile, guidance } from "${resolve(process.cwd(), "src/core/spec.js")}";`;
@@ -1123,7 +1116,7 @@ export default experimental_skill({
           2,
         ) + "\n",
       );
-      const { stdout } = run("compile", dir);
+      const { stdout } = await run("compile", dir);
       // Each file is its OWN compiled output — the mirror skipped the spec-owned
       // target rather than overwriting AGENTS.md with a copy of CLAUDE.md.
       assert.ok(
@@ -1139,7 +1132,7 @@ export default experimental_skill({
     }
   });
 
-  it("mirror defers to a sync tool (.ruler present → no copy written)", () => {
+  it("mirror defers to a sync tool (.ruler present → no copy written)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-harness-ruler-"));
     try {
       writeFileSync(
@@ -1157,7 +1150,7 @@ export default instructionFile({ target: "CLAUDE.md", rules: { "r": guidance("c"
         ) + "\n",
       );
       mkdirSync(join(dir, ".ruler")); // Ruler owns fan-out
-      const { stdout } = run("compile CLAUDE.md.spec.ts", dir);
+      const { stdout } = await run("compile CLAUDE.md.spec.ts", dir);
       assert.ok(
         !existsSync(join(dir, "AGENTS.md")),
         "a sync tool owns fan-out — vigiles must not also write the mirror",
@@ -1168,7 +1161,7 @@ export default instructionFile({ target: "CLAUDE.md", rules: { "r": guidance("c"
     }
   });
 
-  it("warns when a declared minimal-profile harness drops a skill's CC-only keys", () => {
+  it("warns when a declared minimal-profile harness drops a skill's CC-only keys", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-harness-skillwarn-"));
     try {
       writeFileSync(
@@ -1190,7 +1183,7 @@ export default experimental_skill({
           2,
         ) + "\n",
       );
-      const { stdout, exitCode } = run("compile SKILL.md.spec.ts", dir);
+      const { stdout, exitCode } = await run("compile SKILL.md.spec.ts", dir);
       assert.equal(exitCode, 0);
       assert.match(stdout, /disable-model-invocation/);
       assert.match(stdout, /codex/);
@@ -1199,7 +1192,7 @@ export default experimental_skill({
     }
   });
 
-  it("spec-target disambiguation: a target-less AGENTS.md.spec.ts compiles as codex", () => {
+  it("spec-target disambiguation: a target-less AGENTS.md.spec.ts compiles as codex", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-harness-spectarget-"));
     try {
       // No `target` field and no config/flag → the spec's filename (AGENTS.md)
@@ -1211,7 +1204,7 @@ export default experimental_skill({
 export default instructionFile({ rules: { r: guidance("a") } });
 `,
       );
-      const { exitCode } = run("compile AGENTS.md.spec.ts", dir);
+      const { exitCode } = await run("compile AGENTS.md.spec.ts", dir);
       assert.equal(exitCode, 0);
       const md = readFileSync(join(dir, "AGENTS.md"), "utf-8");
       assert.match(md, /^# AGENTS\.md/m, "codex dialect → AGENTS.md heading");
@@ -1220,7 +1213,7 @@ export default instructionFile({ rules: { r: guidance("a") } });
     }
   });
 
-  it("mirror is idempotent — an already-identical target isn't rewritten", () => {
+  it("mirror is idempotent — an already-identical target isn't rewritten", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-harness-idem-"));
     try {
       writeFileSync(
@@ -1237,8 +1230,8 @@ export default instructionFile({ target: "CLAUDE.md", rules: { r: guidance("c") 
           2,
         ) + "\n",
       );
-      run("compile CLAUDE.md.spec.ts", dir); // first run writes the mirror
-      const second = run("compile CLAUDE.md.spec.ts", dir); // already identical
+      await run("compile CLAUDE.md.spec.ts", dir); // first run writes the mirror
+      const second = await run("compile CLAUDE.md.spec.ts", dir); // already identical
       assert.equal(second.exitCode, 0);
       assert.ok(
         !second.stdout.includes("mirrored"),
@@ -1249,7 +1242,7 @@ export default instructionFile({ target: "CLAUDE.md", rules: { r: guidance("c") 
     }
   });
 
-  it("compile --harness=bogus fails with an actionable error", () => {
+  it("compile --harness=bogus fails with an actionable error", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-harness-bogus-"));
     try {
       writeFileSync(
@@ -1258,7 +1251,7 @@ export default instructionFile({ target: "CLAUDE.md", rules: { r: guidance("c") 
 export default instructionFile({ target: "CLAUDE.md", rules: { r: guidance("c") } });
 `,
       );
-      const { stdout, stderr, exitCode } = run(
+      const { stdout, stderr, exitCode } = await run(
         "compile --harness=bogus CLAUDE.md.spec.ts",
         dir,
       );
@@ -1294,8 +1287,8 @@ describe("CLI: vigiles init (full setup)", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should create spec, generate types, and compile", () => {
-    const { stdout, exitCode } = run("init --no-plugin", tmpDir);
+  it("should create spec, generate types, and compile", async () => {
+    const { stdout, exitCode } = await run("init --no-plugin", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(stdout.includes("Created CLAUDE.md.spec.ts"));
     assert.ok(stdout.includes("Setup complete"));
@@ -1309,8 +1302,8 @@ describe("CLI: vigiles init (full setup)", () => {
     assert.ok(existsSync(join(tmpDir, ".vigiles/generated.d.ts")));
   });
 
-  it("should support --target flag", () => {
-    const { stdout, exitCode } = run("init --target=AGENTS.md", tmpDir);
+  it("should support --target flag", async () => {
+    const { stdout, exitCode } = await run("init --target=AGENTS.md", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(stdout.includes("AGENTS.md.spec.ts"));
     assert.ok(existsSync(join(tmpDir, "AGENTS.md.spec.ts")));
@@ -1332,37 +1325,37 @@ describe("CLI: vigiles init auto-detection", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("should detect existing CLAUDE.md and adopt it", () => {
+  it("should detect existing CLAUDE.md and adopt it", async () => {
     writeFileSync(join(tmpDir, "CLAUDE.md"), "# Hand-written\n");
-    const { stdout } = run("init --no-plugin", tmpDir);
+    const { stdout } = await run("init --no-plugin", tmpDir);
     assert.match(stdout, /adopt/i, "should adopt the hand-written CLAUDE.md");
   });
 
-  it("should detect .cursorrules and suggest sync tool", () => {
+  it("should detect .cursorrules and suggest sync tool", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-detect-cursor-"));
     writeFileSync(
       join(dir, "package.json"),
       JSON.stringify({ name: "test", scripts: {} }),
     );
     writeFileSync(join(dir, ".cursorrules"), "Use TypeScript.\n");
-    const { stdout } = run("init --no-plugin", dir);
+    const { stdout } = await run("init --no-plugin", dir);
     assert.ok(stdout.includes("Cursor") || stdout.includes("Non-markdown"));
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("should detect .claude directory as Claude Code project", () => {
+  it("should detect .claude directory as Claude Code project", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-detect-claude-"));
     writeFileSync(
       join(dir, "package.json"),
       JSON.stringify({ name: "test", scripts: {} }),
     );
     mkdirSync(join(dir, ".claude"), { recursive: true });
-    const { stdout } = run("init --no-plugin", dir);
+    const { stdout } = await run("init --no-plugin", dir);
     assert.ok(stdout.includes("Claude Code"));
     rmSync(dir, { recursive: true, force: true });
   });
 
-  it("honors an existing .vigilesrc.json `harness` over auto-detection (dogfood I3)", () => {
+  it("honors an existing .vigilesrc.json `harness` over auto-detection (dogfood I3)", async () => {
     // The repo would auto-detect as Claude Code (a CLAUDE.md), but config
     // already declares codex — re-running init must target codex, not re-detect.
     const dir = mkdtempSync(join(tmpdir(), "vigiles-detect-cfg-"));
@@ -1375,7 +1368,7 @@ describe("CLI: vigiles init auto-detection", () => {
       join(dir, ".vigilesrc.json"),
       JSON.stringify({ harnesses: { codex: {} } }),
     );
-    const { stdout } = run("init --no-plugin", dir);
+    const { stdout } = await run("init --no-plugin", dir);
     assert.match(stdout, /Harness: codex/);
     rmSync(dir, { recursive: true, force: true });
   });
@@ -1391,10 +1384,10 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     return dir;
   }
 
-  it("default (--no-plugin): scaffolds Pillar 2 + a v1-Action workflow", () => {
+  it("default (--no-plugin): scaffolds Pillar 2 + a v1-Action workflow", async () => {
     const dir = freshProject();
     try {
-      const { stdout } = run("init --no-plugin", dir);
+      const { stdout } = await run("init --no-plugin", dir);
       assert.match(stdout, /pillars: lint \+ test/);
       assert.ok(existsSync(join(dir, "CLAUDE.md.spec.ts")), "spec");
       assert.ok(existsSync(join(dir, STARTER)), "harness");
@@ -1416,10 +1409,10 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("--harness=codex: the CI test job installs the codex binary, not claude", () => {
+  it("--harness=codex: the CI test job installs the codex binary, not claude", async () => {
     const dir = freshProject();
     try {
-      run("init --harness=codex --no-plugin", dir);
+      await run("init --harness=codex --no-plugin", dir);
       const yaml = readFileSync(
         join(dir, ".github/workflows/vigiles.yml"),
         "utf-8",
@@ -1431,7 +1424,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("the spec target is the LAYOUT's instruction file, per registered harness", () => {
+  it("the spec target is the LAYOUT's instruction file, per registered harness", async () => {
     // 🔴 THE HALF NOTHING ASSERTED UNTIL NOW. `determineTargets` used to read
     // `harnesses.includes("claude") -> "CLAUDE.md"` and `includes("codex") ->
     // "AGENTS.md"` — the registry restated by hand — and it now maps each
@@ -1441,7 +1434,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     // target at all.
     const dir = freshProject();
     try {
-      run("init --harness=codex --no-plugin", dir);
+      await run("init --harness=codex --no-plugin", dir);
       assert.ok(existsSync(join(dir, "AGENTS.md.spec.ts")));
       assert.ok(!existsSync(join(dir, "CLAUDE.md.spec.ts")));
     } finally {
@@ -1452,7 +1445,10 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     // printed "Edit <target>" line follows).
     const both = freshProject();
     try {
-      const { stdout } = run("init --harness=claude,codex --no-plugin", both);
+      const { stdout } = await run(
+        "init --harness=claude,codex --no-plugin",
+        both,
+      );
       assert.ok(existsSync(join(both, "CLAUDE.md.spec.ts")));
       assert.ok(existsSync(join(both, "AGENTS.md.spec.ts")));
       assert.ok(
@@ -1465,10 +1461,10 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("--harness=claude,codex: the CI test job installs BOTH binaries", () => {
+  it("--harness=claude,codex: the CI test job installs BOTH binaries", async () => {
     const dir = freshProject();
     try {
-      run("init --harness=claude,codex --no-plugin", dir);
+      await run("init --harness=claude,codex --no-plugin", dir);
       const yaml = readFileSync(
         join(dir, ".github/workflows/vigiles.yml"),
         "utf-8",
@@ -1480,10 +1476,10 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("--test (with gha): the workflow has the harness job but NO lint job (dogfood I4)", () => {
+  it("--test (with gha): the workflow has the harness job but NO lint job (dogfood I4)", async () => {
     const dir = freshProject();
     try {
-      run("init --test --no-plugin", dir);
+      await run("init --test --no-plugin", dir);
       const wf = join(dir, ".github/workflows/vigiles.yml");
       assert.ok(existsSync(wf), "workflow written");
       const yaml = readFileSync(wf, "utf-8");
@@ -1498,7 +1494,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("no package.json: NO harness job (the JS test tier can't resolve vigiles) — lint only (dogfood I1 / Codex review)", () => {
+  it("no package.json: NO harness job (the JS test tier can't resolve vigiles) — lint only (dogfood I1 / Codex review)", async () => {
     // A non-JS repo has no package.json, so `npx vigiles test` on the starter
     // harness can't resolve its `vigiles` import — the whole harness job
     // would fail, not just an install step. So the workflow emits the lint job
@@ -1506,7 +1502,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-init-nopkg-"));
     try {
       writeFileSync(join(dir, "CLAUDE.md"), "# proj\n");
-      run("init --no-plugin", dir);
+      await run("init --no-plugin", dir);
       const wf = join(dir, ".github/workflows/vigiles.yml");
       assert.ok(existsSync(wf), "workflow written (lint job)");
       const yaml = readFileSync(wf, "utf-8");
@@ -1526,14 +1522,14 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("no package.json + --test only: no runnable job → no workflow written (Codex review: no empty jobs:)", () => {
+  it("no package.json + --test only: no runnable job → no workflow written (Codex review: no empty jobs:)", async () => {
     // The only pillar is the JS test tier, which can't run without a package.json,
     // so there is no job to emit — writing a bare `jobs:` would be an invalid
     // workflow GitHub rejects. Emit nothing instead.
     const dir = mkdtempSync(join(tmpdir(), "vigiles-init-nopkg-testonly-"));
     try {
       writeFileSync(join(dir, "CLAUDE.md"), "# proj\n");
-      run("init --test --no-plugin", dir);
+      await run("init --test --no-plugin", dir);
       assert.ok(
         !existsSync(join(dir, ".github/workflows/vigiles.yml")),
         "no workflow when there is no runnable job",
@@ -1543,10 +1539,10 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("--test: only the harness starter, no spec/workflow", () => {
+  it("--test: only the harness starter, no spec/workflow", async () => {
     const dir = freshProject();
     try {
-      const { stdout } = run("init --test --no-plugin --no-gha", dir);
+      const { stdout } = await run("init --test --no-plugin --no-gha", dir);
       assert.match(stdout, /pillars: test/);
       assert.ok(existsSync(join(dir, STARTER)), "harness");
       assert.ok(!existsSync(join(dir, "CLAUDE.md.spec.ts")), "no spec");
@@ -1559,10 +1555,10 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("--test: records the harness but writes NO lint rules (lint pillar off)", () => {
+  it("--test: records the harness but writes NO lint rules (lint pillar off)", async () => {
     const dir = freshProject();
     try {
-      run("init --test --no-plugin --no-gha", dir);
+      await run("init --test --no-plugin --no-gha", dir);
       const cfg = JSON.parse(
         readFileSync(join(dir, ".vigilesrc.json"), "utf-8"),
       ) as { harnesses?: Record<string, unknown>; rules?: unknown };
@@ -1577,10 +1573,10 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("--lint: spec only, no harness", () => {
+  it("--lint: spec only, no harness", async () => {
     const dir = freshProject();
     try {
-      const { stdout } = run("init --lint --no-plugin --no-gha", dir);
+      const { stdout } = await run("init --lint --no-plugin --no-gha", dir);
       assert.match(stdout, /pillars: lint/);
       assert.ok(existsSync(join(dir, "CLAUDE.md.spec.ts")), "spec");
       assert.ok(!existsSync(join(dir, STARTER)), "no harness");
@@ -1589,10 +1585,10 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("--strict: writes the workflow-tier rules to .vigilesrc.json", () => {
+  it("--strict: writes the workflow-tier rules to .vigilesrc.json", async () => {
     const dir = freshProject();
     try {
-      run("init --lint --strict --no-plugin --no-gha", dir);
+      await run("init --lint --strict --no-plugin --no-gha", dir);
       const cfg = JSON.parse(
         readFileSync(join(dir, ".vigilesrc.json"), "utf-8"),
       ) as { extends?: string; rules?: Record<string, string> };
@@ -1607,10 +1603,10 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("--report-only: writes the gate at warn (nothing fails CI)", () => {
+  it("--report-only: writes the gate at warn (nothing fails CI)", async () => {
     const dir = freshProject();
     try {
-      run("init --lint --report-only --no-plugin --no-gha", dir);
+      await run("init --lint --report-only --no-plugin --no-gha", dir);
       const cfg = JSON.parse(
         readFileSync(join(dir, ".vigilesrc.json"), "utf-8"),
       ) as { rules?: Record<string, string> };
@@ -1620,7 +1616,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("gives honest guidance on a non-JS repo (no package.json)", () => {
+  it("gives honest guidance on a non-JS repo (no package.json)", async () => {
     // A Python/Rust repo with a CLAUDE.md but no package.json gets the SAME
     // next step as a JS repo — `npx vigiles compile` — because the spec host
     // resolves `vigiles/spec` from the CLI's own install (src/self-resolve.mts).
@@ -1632,7 +1628,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
         join(dir, "CLAUDE.md"),
         "# CLAUDE.md\n\n## Notes\n\nPy app.\n",
       );
-      const { stdout } = run("init --lint --no-plugin --no-gha", dir);
+      const { stdout } = await run("init --lint --no-plugin --no-gha", dir);
       assert.ok(
         !existsSync(join(dir, "package.json")),
         "no package.json created",
@@ -1653,7 +1649,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("e2e on a repo with NO package.json: init → compile → lint → audit", () => {
+  it("e2e on a repo with NO package.json: init → compile → lint → audit", async () => {
     // The END-TO-END proof that the typed-spec path needs no install. Every
     // step is asserted, because the failure this pins was one step deep: `init`
     // and `lint` were already fine on such a repo while `compile` exited 1 with
@@ -1682,7 +1678,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
         "---\nname: greeter\ndescription: Greet the user warmly when they say hello.\n---\n\nSay hello back.\n",
       );
 
-      const init = run("init --lint --no-plugin --no-gha", dir);
+      const init = await run("init --lint --no-plugin --no-gha", dir);
       assert.equal(init.exitCode, 0, `init: ${init.stdout}${init.stderr}`);
       assert.ok(
         !existsSync(join(dir, "package.json")),
@@ -1700,7 +1696,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
       // THE STEP THAT USED TO FAIL. With no node_modules/vigiles and no
       // package.json, the spec's `import … from "vigiles/spec"` is served by
       // the CLI's own install; without that rescue this exits 1.
-      const compiled = run("compile", dir);
+      const compiled = await run("compile", dir);
       assert.equal(
         compiled.exitCode,
         0,
@@ -1724,7 +1720,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
 
       // lint must then VERIFY what compile wrote. No assertion touches a ruff
       // rule, so the test does not need ruff on PATH to be meaningful.
-      const linted = run("lint", dir);
+      const linted = await run("lint", dir);
       assert.equal(
         linted.exitCode,
         0,
@@ -1733,7 +1729,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
       assert.match(linted.stdout, /All compiled files intact/);
       assert.doesNotMatch(linted.stdout, /hash MISMATCH/);
 
-      const audited = run("audit", dir);
+      const audited = await run("audit", dir);
       assert.equal(
         audited.exitCode,
         0,
@@ -1745,14 +1741,14 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("auto-adopt is NON-DESTRUCTIVE: never compiles over an existing file in init", () => {
+  it("auto-adopt is NON-DESTRUCTIVE: never compiles over an existing file in init", async () => {
     const dir = freshProject();
     try {
       writeFileSync(
         join(dir, "CLAUDE.md"),
         "# CLAUDE.md\n\n## Notes\n\nMine.\n",
       );
-      const { stdout } = run("init --lint --no-plugin --no-gha", dir);
+      const { stdout } = await run("init --lint --no-plugin --no-gha", dir);
       // The spec is adopted, but the user's file is left exactly as-is — no
       // integrity header is written during init (the user runs `compile` to opt in).
       assert.ok(existsSync(join(dir, "CLAUDE.md.spec.ts")), "spec adopted");
@@ -1768,7 +1764,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("clean break: old --pillars / --verify flags are REJECTED, not ignored", () => {
+  it("clean break: old --pillars / --verify flags are REJECTED, not ignored", async () => {
     const dir = freshProject();
     try {
       // These flags were removed. They used to be silently ignored, so `init
@@ -1777,7 +1773,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
       // enforced" failure the unknown-flag check exists to stop. A removed flag
       // now stops the run and says so.
       for (const stale of ["--verify", "--pillars=lint"]) {
-        const r = run(`init ${stale} --no-plugin --no-gha`, dir);
+        const r = await run(`init ${stale} --no-plugin --no-gha`, dir);
         assert.equal(r.exitCode, 2, `${stale}: ${r.stdout}${r.stderr}`);
         assert.match(r.stderr, /unknown flag/);
       }
@@ -1786,7 +1782,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("adds vigiles to devDependencies (not dependencies)", () => {
+  it("adds vigiles to devDependencies (not dependencies)", async () => {
     const dir = freshProject();
     try {
       // Start from a stale runtime pin, like an old git-commit install.
@@ -1797,7 +1793,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
           dependencies: { vigiles: "github:zernie/vigiles#abc123" },
         }),
       );
-      run("init --test --no-plugin --no-gha", dir);
+      await run("init --test --no-plugin --no-gha", dir);
       const pkg = JSON.parse(
         readFileSync(join(dir, "package.json"), "utf-8"),
       ) as {
@@ -1817,14 +1813,14 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("auto-adopts an existing CLAUDE.md into a faithful spec (content preserved)", () => {
+  it("auto-adopts an existing CLAUDE.md into a faithful spec (content preserved)", async () => {
     const dir = freshProject();
     try {
       writeFileSync(
         join(dir, "CLAUDE.md"),
         "# CLAUDE.md\n\n## Notes\n\nKeep me.\n",
       );
-      const { stdout } = run("init --lint --no-plugin --no-gha", dir);
+      const { stdout } = await run("init --lint --no-plugin --no-gha", dir);
       // Auto-adopt: the hand-written file is converted into a spec (not a blank
       // scaffold), and the spec captures the content verbatim (faithful).
       assert.match(stdout, /Adopted CLAUDE\.md/);
@@ -1843,7 +1839,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("adopts an existing SKILL.md into a skill() spec via init --target", () => {
+  it("adopts an existing SKILL.md into a skill() spec via init --target", async () => {
     const dir = freshProject();
     try {
       mkdirSync(join(dir, "skills", "greet"), { recursive: true });
@@ -1851,7 +1847,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
         join(dir, "skills", "greet", "SKILL.md"),
         "---\nname: greet\ndescription: Greet warmly\n---\n\n# Greet\n\nSay hi.\n",
       );
-      const { stdout } = run("init --target=skills/greet/SKILL.md", dir);
+      const { stdout } = await run("init --target=skills/greet/SKILL.md", dir);
       assert.match(stdout, /Adopted skill/);
       const spec = readFileSync(
         join(dir, "skills", "greet", "SKILL.md.spec.ts"),
@@ -1868,7 +1864,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("adopts an existing subagent into an experimental_agent() spec (unmapped key noted)", () => {
+  it("adopts an existing subagent into an experimental_agent() spec (unmapped key noted)", async () => {
     const dir = freshProject();
     try {
       mkdirSync(join(dir, "agents"), { recursive: true });
@@ -1876,7 +1872,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
         join(dir, "agents", "reviewer.md"),
         "---\nname: reviewer\ndescription: Reviews code\nmodel: sonnet\nlevel: 3\n---\n\nYou review code.\n\n## Method\n\nRead the diff.\n",
       );
-      const { stdout } = run("init --target=agents/reviewer.md", dir);
+      const { stdout } = await run("init --target=agents/reviewer.md", dir);
       assert.match(stdout, /Adopted subagent/);
       const spec = readFileSync(
         join(dir, "agents", "reviewer.md.spec.ts"),
@@ -1897,7 +1893,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("bare init adopts every skill + subagent surface, not just the instruction file", () => {
+  it("bare init adopts every skill + subagent surface, not just the instruction file", async () => {
     const dir = freshProject();
     try {
       writeFileSync(join(dir, "CLAUDE.md"), "# CLAUDE.md\n\n## Notes\n\nHi.\n");
@@ -1911,7 +1907,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
         join(dir, "agents", "reviewer.md"),
         "---\nname: reviewer\ndescription: Reviews code\n---\n\nYou review code.\n",
       );
-      const { stdout } = run("init --lint --no-plugin --no-gha", dir);
+      const { stdout } = await run("init --lint --no-plugin --no-gha", dir);
       assert.match(stdout, /Adopted skill/);
       assert.match(stdout, /Adopted subagent/);
       assert.ok(
@@ -1927,7 +1923,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("warns loudly on a stale old-API CI workflow, doesn't clobber it", () => {
+  it("warns loudly on a stale old-API CI workflow, doesn't clobber it", async () => {
     const dir = freshProject();
     try {
       const wfDir = join(dir, ".github", "workflows");
@@ -1935,7 +1931,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
       const stale =
         "name: vigiles\njobs:\n  v:\n    steps:\n      - run: npx vigiles\n";
       writeFileSync(join(wfDir, "vigiles.yml"), stale);
-      const { stdout } = run("init --no-plugin", dir);
+      const { stdout } = await run("init --no-plugin", dir);
       assert.match(stdout, /STALE/);
       // Not clobbered.
       assert.equal(readFileSync(join(wfDir, "vigiles.yml"), "utf-8"), stale);
@@ -1944,7 +1940,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("flags a workflow calling a renamed subcommand (scan→audit), even with the Action present", () => {
+  it("flags a workflow calling a renamed subcommand (scan→audit), even with the Action present", async () => {
     const dir = freshProject();
     try {
       const wfDir = join(dir, ".github", "workflows");
@@ -1956,7 +1952,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
         "      - uses: zernie/vigiles@v1\n" +
         "      - run: npx vigiles scan\n"; // vigiles:ignore-cmd (intentional stale fixture)
       writeFileSync(join(wfDir, "vigiles.yml"), stale);
-      const { stdout } = run("init --no-plugin", dir);
+      const { stdout } = await run("init --no-plugin", dir);
       assert.match(stdout, /STALE/);
       assert.match(stdout, /vigiles scan/);
       assert.match(stdout, /vigiles audit/);
@@ -1971,7 +1967,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
     }
   });
 
-  it("--force rewrites a renamed-subcommand workflow in place (scan→audit), preserving the rest", () => {
+  it("--force rewrites a renamed-subcommand workflow in place (scan→audit), preserving the rest", async () => {
     const dir = freshProject();
     try {
       const wfDir = join(dir, ".github", "workflows");
@@ -1981,7 +1977,7 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
         "      - uses: actions/checkout@v4\n" +
         "      - run: npx vigiles scan\n"; // vigiles:ignore-cmd (intentional stale fixture)
       writeFileSync(join(wfDir, "vigiles.yml"), stale);
-      const { stdout } = run("init --no-plugin --force", dir);
+      const { stdout } = await run("init --no-plugin --force", dir);
       assert.match(stdout, /Rewrote/);
       const after = readFileSync(join(wfDir, "vigiles.yml"), "utf-8");
       assert.ok(after.includes("npx vigiles audit"), "scan → audit");
@@ -1995,8 +1991,8 @@ describe("CLI: vigiles init — both pillars + workflow", () => {
 });
 
 describe("CLI: vigiles --version", () => {
-  it("prints a version number, not the help banner", () => {
-    const { stdout, exitCode } = run("--version", process.cwd());
+  it("prints a version number, not the help banner", async () => {
+    const { stdout, exitCode } = await run("--version", process.cwd());
     assert.equal(exitCode, 0);
     assert.match(stdout, /\d+\.\d+\.\d+/);
     assert.ok(!stdout.includes("Commands:"), "not the help banner");
@@ -2027,7 +2023,7 @@ describe("CLI: installation smoke test (deterministic)", () => {
     }
   }
 
-  it("Claude Code todo app: spec + types + devDep, vendors NOTHING", () => {
+  it("Claude Code todo app: spec + types + devDep, vendors NOTHING", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-smoke-cc-"));
     try {
       // A realistic Claude Code project: deps (stale vigiles pin), an existing
@@ -2048,7 +2044,7 @@ describe("CLI: installation smoke test (deterministic)", () => {
       mkdirSync(join(dir, "hooks"), { recursive: true });
       writeFileSync(join(dir, "hooks", "guard.sh"), "exit 0\n");
 
-      const { stdout, exitCode } = run("init --no-plugin --no-gha", dir);
+      const { stdout, exitCode } = await run("init --no-plugin --no-gha", dir);
       assert.equal(exitCode, 0, stdout);
 
       // Pillar 1: the hand-written CLAUDE.md is adopted into a spec that
@@ -2087,7 +2083,7 @@ describe("CLI: installation smoke test (deterministic)", () => {
     }
   });
 
-  it("Codex todo app: scaffolds an AGENTS.md spec, no CLAUDE.md, no vendoring", () => {
+  it("Codex todo app: scaffolds an AGENTS.md spec, no CLAUDE.md, no vendoring", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-smoke-codex-"));
     try {
       writeFileSync(
@@ -2096,7 +2092,7 @@ describe("CLI: installation smoke test (deterministic)", () => {
       );
       writeFileSync(join(dir, "AGENTS.md"), "# Agents\n\nKeep this prose.\n");
 
-      const { stdout, exitCode } = run(
+      const { stdout, exitCode } = await run(
         "init --harness=codex --no-plugin --no-gha",
         dir,
       );
@@ -2121,14 +2117,14 @@ describe("CLI: installation smoke test (deterministic)", () => {
     }
   });
 
-  it("Claude + Codex todo app: a spec for each, still no vendoring", () => {
+  it("Claude + Codex todo app: a spec for each, still no vendoring", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-smoke-both-"));
     try {
       writeFileSync(
         join(dir, "package.json"),
         JSON.stringify({ name: "todo-both", scripts: { test: "echo ok" } }),
       );
-      const { stdout, exitCode } = run(
+      const { stdout, exitCode } = await run(
         "init --harness=claude,codex --no-plugin --no-gha",
         dir,
       );
@@ -2149,7 +2145,7 @@ describe("CLI: installation smoke test (deterministic)", () => {
     }
   });
 
-  it("AGENTS.md symlinked to CLAUDE.md: ONE spec, not two (no hash collision)", () => {
+  it("AGENTS.md symlinked to CLAUDE.md: ONE spec, not two (no hash collision)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-smoke-symlink-"));
     try {
       writeFileSync(
@@ -2160,7 +2156,7 @@ describe("CLI: installation smoke test (deterministic)", () => {
       // The common bridge to the AGENTS.md tools: ln -s CLAUDE.md AGENTS.md.
       symlinkSync("CLAUDE.md", join(dir, "AGENTS.md"));
 
-      const { stdout, exitCode } = run(
+      const { stdout, exitCode } = await run(
         "init --harness=claude,codex --no-plugin --no-gha",
         dir,
       );
@@ -2177,7 +2173,7 @@ describe("CLI: installation smoke test (deterministic)", () => {
     }
   });
 
-  it("Ruler project: redirects the spec into .ruler/ (no root CLAUDE.md collision)", () => {
+  it("Ruler project: redirects the spec into .ruler/ (no root CLAUDE.md collision)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-smoke-ruler-"));
     try {
       writeFileSync(
@@ -2186,7 +2182,10 @@ describe("CLI: installation smoke test (deterministic)", () => {
       );
       // Ruler is keyed on its .ruler/ source dir; it regenerates CLAUDE.md.
       mkdirSync(join(dir, ".ruler"), { recursive: true });
-      const { stdout, exitCode } = run("init --lint --no-plugin --no-gha", dir);
+      const { stdout, exitCode } = await run(
+        "init --lint --no-plugin --no-gha",
+        dir,
+      );
       assert.equal(exitCode, 0, stdout);
       assert.match(stdout, /ruler detected/i);
       // The spec compiles into Ruler's source slot; Ruler distributes from there.
@@ -2204,7 +2203,7 @@ describe("CLI: installation smoke test (deterministic)", () => {
     }
   });
 
-  it("CLAUDE.md/AGENTS.md byte-identical (synced): ONE spec for CLAUDE.md", () => {
+  it("CLAUDE.md/AGENTS.md byte-identical (synced): ONE spec for CLAUDE.md", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-smoke-synced-"));
     try {
       writeFileSync(
@@ -2215,7 +2214,7 @@ describe("CLI: installation smoke test (deterministic)", () => {
       writeFileSync(join(dir, "CLAUDE.md"), body);
       writeFileSync(join(dir, "AGENTS.md"), body); // byte-identical mirror
 
-      const { exitCode } = run("init --no-plugin --no-gha", dir);
+      const { exitCode } = await run("init --no-plugin --no-gha", dir);
       assert.equal(exitCode, 0);
       assert.ok(existsSync(join(dir, "CLAUDE.md.spec.ts")), "canonical spec");
       assert.ok(
@@ -2229,18 +2228,21 @@ describe("CLI: installation smoke test (deterministic)", () => {
 });
 
 describe("CLI: vigiles test — skips are loud and gateable", () => {
-  it("reports SKIPPED + passes by default; --no-skip fails on a skip", () => {
+  it("reports SKIPPED + passes by default; --no-skip fails on a skip", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-test-skip-"));
     try {
       writeFileSync(join(dir, "s.harness.mjs"), "process.exit(77);\n"); // skip
       writeFileSync(join(dir, "p.harness.mjs"), "process.exit(0);\n"); // pass
 
-      const def = run("test s.harness.mjs p.harness.mjs", dir);
+      const def = await run("test s.harness.mjs p.harness.mjs", dir);
       assert.equal(def.exitCode, 0); // a skip doesn't fail
       assert.match(def.stdout, /⊘ s\.harness\.mjs — SKIPPED/); // loud, shown
       assert.match(def.stdout, /1 passed, 1 skipped/); // tallied separately
 
-      const strict = run("test --no-skip s.harness.mjs p.harness.mjs", dir);
+      const strict = await run(
+        "test --no-skip s.harness.mjs p.harness.mjs",
+        dir,
+      );
       assert.equal(strict.exitCode, 1); // a skip is untested surface here
       assert.match(strict.stdout, /SKIPPED — untested surface/);
     } finally {
@@ -2248,7 +2250,7 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
     }
   });
 
-  it("eval: a DESCRIPTION is run through the entry, and an unmigrated file is told what to do", () => {
+  it("eval: a DESCRIPTION is run through the entry, and an unmigrated file is told what to do", async () => {
     // Re-probing the product, not the unit: `vigiles eval` has to interpose
     // `dist/eval-program.js`. Without it the eval file becomes the program again
     // and every migrated file refuses itself — the defect in a new place.
@@ -2262,13 +2264,13 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
         `import { defineEval } from ${distTest};\n` +
           `export default defineEval({ runEval: { task: "t", env: { kind: "ephemeral" }, measure: () => ({}) }, skipIf: () => "no model here" });\n`,
       );
-      const good = run("eval good.eval.mjs", dir);
+      const good = await run("eval good.eval.mjs", dir);
       assert.equal(good.exitCode, 0, good.stdout + good.stderr);
       assert.match(good.stdout, /SKIPPED/); // loud, never a silent green
 
       // The unmigrated shape: no description at all.
       writeFileSync(join(dir, "old.eval.mjs"), "export const x = 1;\n");
-      const old = run("eval old.eval.mjs", dir);
+      const old = await run("eval old.eval.mjs", dir);
       assert.equal(old.exitCode, 1);
       assert.match(
         old.stdout + old.stderr,
@@ -2280,7 +2282,7 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
     }
   });
 
-  it("--min fails loudly when fewer evals ran than required (never a silent 0)", () => {
+  it("--min fails loudly when fewer evals ran than required (never a silent 0)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-min-"));
     try {
       // A real (minimal) eval file: it DESCRIBES a measurement and skips, so no
@@ -2292,24 +2294,24 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
           `export default defineEval({ runEval: { task: "t", env: { kind: "ephemeral" }, measure: () => ({}) }, skipIf: () => "no model in this test" });\n`,
       );
       // a glob/path matching nothing → 0 ran → must fail under --min
-      const none = run("eval --min=1 no-such-*.eval.mjs", dir);
+      const none = await run("eval --min=1 no-such-*.eval.mjs", dir);
       assert.equal(none.exitCode, 1);
       assert.match(none.stderr, /never executed/);
       // asking for more than exist also fails
-      const tooFew = run("eval --min=2 a.eval.mjs", dir);
+      const tooFew = await run("eval --min=2 a.eval.mjs", dir);
       assert.equal(tooFew.exitCode, 1);
       assert.match(tooFew.stderr, /--min=2 but only 1/);
       // enough matched, but the one file declared a skip: nothing ran, so the
       // floor is not met (#256). The passing side is held for both kinds by the
       // `--min counts scripts that RAN` test, which shares this code path.
-      const skippedOnly = run("eval --min=1 a.eval.mjs", dir);
+      const skippedOnly = await run("eval --min=1 a.eval.mjs", dir);
       assert.equal(skippedOnly.exitCode, 1);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("--min counts scripts that RAN: not files matched (#243), not declared skips (#256)", () => {
+  it("--min counts scripts that RAN: not files matched (#243), not declared skips (#256)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-min-ran-"));
     try {
       writeFileSync(join(dir, "a.harness.mjs"), "process.exit(0);\n");
@@ -2319,16 +2321,16 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
         join(dir, "c.harness.mjs"),
         'import "definitely-not-installed-pkg-xyz";\n',
       );
-      assert.equal(run("test --min=3", dir).exitCode, 1);
+      assert.equal((await run("test --min=3", dir)).exitCode, 1);
       // #256's acceptance, word for word: a file that only skips is not a run.
-      assert.equal(run("test --min=1 b.harness.mjs", dir).exitCode, 1);
+      assert.equal((await run("test --min=1 b.harness.mjs", dir)).exitCode, 1);
       // One run and one declared skip do not reach a floor of two…
       assert.equal(
-        run("test --min=2 a.harness.mjs b.harness.mjs", dir).exitCode,
+        (await run("test --min=2 a.harness.mjs b.harness.mjs", dir)).exitCode,
         1,
       );
       // …and do reach a floor of one: the skip itself stays green.
-      const ok = run("test --min=1 a.harness.mjs b.harness.mjs", dir);
+      const ok = await run("test --min=1 a.harness.mjs b.harness.mjs", dir);
       assert.equal(ok.exitCode, 0, ok.stdout + ok.stderr);
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -2341,24 +2343,24 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
   // floor spelled out as zero.
   for (const kind of ["test", "eval"] as const) {
     const ext = kind === "test" ? "harness" : "eval";
-    it(`${kind}: a run that matches no file fails and names what it looked for (#197)`, () => {
+    it(`${kind}: a run that matches no file fails and names what it looked for (#197)`, async () => {
       const dir = mkdtempSync(join(tmpdir(), `vigiles-empty-${kind}-`));
       try {
         // Nothing named: bare discovery found nothing. This used to print
         // "No ... files found." and exit 0 — a green check that ran nothing.
-        const bare = run(kind, dir);
+        const bare = await run(kind, dir);
         assert.equal(bare.exitCode, 1, bare.stdout + bare.stderr);
         assert.match(bare.stderr, new RegExp(`\\*\\*/\\*\\.${ext}\\.`));
         assert.match(bare.stderr, /Nothing ran/);
 
         // A path or glob that matches nothing names itself.
-        const glob = run(`${kind} no-such-*.${ext}.mjs`, dir);
+        const glob = await run(`${kind} no-such-*.${ext}.mjs`, dir);
         assert.equal(glob.exitCode, 1, glob.stdout + glob.stderr);
         assert.match(glob.stderr, new RegExp(`no-such-\\*\\.${ext}\\.mjs`));
         assert.match(glob.stderr, /Nothing ran/);
 
         // `--min=0` is the existing, explicit floor of zero — not a new flag.
-        const zero = run(`${kind} --min=0 no-such-*.${ext}.mjs`, dir);
+        const zero = await run(`${kind} --min=0 no-such-*.${ext}.mjs`, dir);
         assert.equal(zero.exitCode, 0, zero.stdout + zero.stderr);
       } finally {
         rmSync(dir, { recursive: true, force: true });
@@ -2366,11 +2368,11 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
     });
   }
 
-  it("test: bare discovery that finds a harness still runs it (the empty-match failure is only for nothing)", () => {
+  it("test: bare discovery that finds a harness still runs it (the empty-match failure is only for nothing)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-nonempty-"));
     try {
       writeFileSync(join(dir, "a.harness.mjs"), "process.exit(0);\n");
-      const r = run("test", dir);
+      const r = await run("test", dir);
       assert.equal(r.exitCode, 0, r.stdout + r.stderr);
       assert.match(r.stdout, /1 passed/);
     } finally {
@@ -2378,12 +2380,12 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
     }
   });
 
-  it("init writes the eval gate as `eval --check --min=0`, green on a repo with no eval yet (#197)", () => {
+  it("init writes the eval gate as `eval --check --min=0`, green on a repo with no eval yet (#197)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-init-noeval-"));
     try {
       writeFileSync(join(dir, "package.json"), '{"name":"x"}');
       writeFileSync(join(dir, "CLAUDE.md"), "# proj\n");
-      run("init --no-plugin", dir);
+      await run("init --no-plugin", dir);
       const yaml = readFileSync(
         join(dir, ".github/workflows/vigiles.yml"),
         "utf-8",
@@ -2392,28 +2394,28 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
       assert.match(yaml, /- run: npx vigiles eval --check --min=0\n/);
       assert.match(yaml, /--min=0` is deliberate/, "the file says why");
       // Without --min=0 the same step is red on this repo, and with it, green.
-      assert.equal(run("eval --check", dir).exitCode, 1);
-      assert.equal(run("eval --check --min=0", dir).exitCode, 0);
+      assert.equal((await run("eval --check", dir)).exitCode, 1);
+      assert.equal((await run("eval --check --min=0", dir)).exitCode, 0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("eval lock flags: mutual-exclusion, and --check with no committed lock fails (#197)", () => {
+  it("eval lock flags: mutual-exclusion, and --check with no committed lock fails (#197)", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-lock-"));
     try {
       // --check + --update is a usage error (exit 2).
-      const both = run("eval --check --update", dir);
+      const both = await run("eval --check --update", dir);
       assert.equal(both.exitCode, 2);
       assert.match(both.stderr, /mutually exclusive/);
 
       // --check with NO eval file at all is the #197 case: an empty match fails,
       // it used to return green before discovery ever ran.
-      const empty = run("eval --check", dir);
+      const empty = await run("eval --check", dir);
       assert.equal(empty.exitCode, 1, empty.stdout + empty.stderr);
       assert.match(empty.stderr, /NOTHING matched the default glob/);
       // …and `--min=0`, the explicit floor of zero, is the one way to allow it.
-      assert.equal(run("eval --check --min=0", dir).exitCode, 0);
+      assert.equal((await run("eval --check --min=0", dir)).exitCode, 0);
 
       // Eval files exist and none has a recorded result: that is not "nothing to
       // verify", it is a gate that has verified nothing.
@@ -2427,7 +2429,7 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
             `export default defineEval({ runEval: { task: "t", env: { kind: "ephemeral" }, measure: () => ({}) }, skipIf: () => "no model here" });\n`,
         );
       }
-      const unlocked = run("eval --check", dir);
+      const unlocked = await run("eval --check", dir);
       assert.equal(unlocked.exitCode, 1, unlocked.stdout + unlocked.stderr);
       assert.match(unlocked.stderr, /2 eval file\(s\) have no recorded result/);
       assert.match(unlocked.stderr, /vigiles eval --update.*commit/s);
@@ -2436,7 +2438,7 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
     }
   });
 
-  it("eval lock e2e: --update writes a lock, --check replays green, an input change goes red", () => {
+  it("eval lock e2e: --update writes a lock, --check replays green, an input change goes red", async () => {
     const dir = mkdtempSync(join(tmpdir(), "vigiles-locke2e-"));
     try {
       // A real eval file run by the built CLI, but MODEL-FREE: it DESCRIBES a
@@ -2478,16 +2480,22 @@ describe("CLI: vigiles test — skips are loud and gateable", () => {
       );
 
       // 1. --update: drives the (fake) run and writes a committed lock.
-      const up = run("eval --update x.eval.cjs", dir, { E2E_TASK: "task A" });
+      const up = await run("eval --update x.eval.cjs", dir, {
+        E2E_TASK: "task A",
+      });
       assert.equal(up.exitCode, 0);
       assert.ok(existsSync(lockFile), "a lock is committed");
 
       // 2. --check with the SAME inputs: replays green, no model.
-      const ok = run("eval --check x.eval.cjs", dir, { E2E_TASK: "task A" });
+      const ok = await run("eval --check x.eval.cjs", dir, {
+        E2E_TASK: "task A",
+      });
       assert.equal(ok.exitCode, 0);
 
       // 3. --check after an INPUT change (different task): STALE → red.
-      const stale = run("eval --check x.eval.cjs", dir, { E2E_TASK: "task B" });
+      const stale = await run("eval --check x.eval.cjs", dir, {
+        E2E_TASK: "task B",
+      });
       assert.equal(stale.exitCode, 1);
       assert.match(stale.stdout + stale.stderr, /stale/i);
     } finally {
@@ -2787,8 +2795,8 @@ describe("E2E: fixture project adoption", () => {
     rmSync(workDir, { recursive: true, force: true });
   });
 
-  it("setup detects existing hand-written CLAUDE.md and adopts it", () => {
-    const { stdout } = run("init --no-plugin", workDir);
+  it("setup detects existing hand-written CLAUDE.md and adopts it", async () => {
+    const { stdout } = await run("init --no-plugin", workDir);
     // Existing CLAUDE.md without a spec → adopted into one (non-destructively).
     assert.match(
       stdout,
@@ -2797,8 +2805,8 @@ describe("E2E: fixture project adoption", () => {
     );
   });
 
-  it("lint detects CLAUDE.md has no vigiles hash", () => {
-    const { stdout } = run("lint", workDir);
+  it("lint detects CLAUDE.md has no vigiles hash", async () => {
+    const { stdout } = await run("lint", workDir);
     // Hand-written CLAUDE.md has no hash — should report it
     assert.ok(
       stdout.includes("no vigiles hash") ||
@@ -2807,13 +2815,13 @@ describe("E2E: fixture project adoption", () => {
     );
   });
 
-  it("generate types works in fixture project", () => {
-    const { exitCode } = run("generate types", workDir);
+  it("generate types works in fixture project", async () => {
+    const { exitCode } = await run("generate types", workDir);
     assert.equal(exitCode, 0);
     assert.ok(existsSync(join(workDir, ".vigiles/generated.d.ts")));
   });
 
-  it("full flow: write spec → compile → lint passes", () => {
+  it("full flow: write spec → compile → lint passes", async () => {
     // Clean slate: remove any existing CLAUDE.md and spec
     const mdPath = join(workDir, "CLAUDE.md");
     const specPath = join(workDir, "CLAUDE.md.spec.ts");
@@ -2833,7 +2841,7 @@ export default instructionFile({
     );
 
     // Compile
-    const compileResult = run("compile CLAUDE.md.spec.ts", workDir);
+    const compileResult = await run("compile CLAUDE.md.spec.ts", workDir);
     assert.equal(compileResult.exitCode, 0, compileResult.stdout);
     assert.ok(existsSync(mdPath));
 
@@ -2842,7 +2850,7 @@ export default instructionFile({
     assert.ok(content.includes("<!-- vigiles:sha256:"));
 
     // Audit should pass (hash valid, spec exists)
-    const lintResult = run("lint", workDir);
+    const lintResult = await run("lint", workDir);
     assert.ok(
       lintResult.stdout.includes("hash valid") || lintResult.exitCode === 0,
     );
@@ -2867,22 +2875,22 @@ describe("CLI: markdown-mode file/cmd verification", () => {
     return dir;
   }
 
-  it("passes when inline file/cmd references resolve", () => {
+  it("passes when inline file/cmd references resolve", async () => {
     const dir = scaffold(
       `# P\n\nSee <!-- vigiles:file src/real.ts --> and run <!-- vigiles:cmd "npm run build" -->.\n`,
     );
     try {
-      const { exitCode } = run("lint CLAUDE.md", dir);
+      const { exitCode } = await run("lint CLAUDE.md", dir);
       assert.equal(exitCode, 0);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  it("fails (exit 2) on a stale inline file reference", () => {
+  it("fails (exit 2) on a stale inline file reference", async () => {
     const dir = scaffold(`# P\n\n<!-- vigiles:file src/GONE.ts -->\n`);
     try {
-      const { stdout, exitCode } = run("lint CLAUDE.md", dir);
+      const { stdout, exitCode } = await run("lint CLAUDE.md", dir);
       assert.equal(exitCode, 2);
       assert.match(stdout, /File not found: "src\/GONE\.ts"/);
     } finally {
@@ -2890,10 +2898,10 @@ describe("CLI: markdown-mode file/cmd verification", () => {
     }
   });
 
-  it("fails (exit 2) on a stale inline command reference", () => {
+  it("fails (exit 2) on a stale inline command reference", async () => {
     const dir = scaffold(`# P\n\n<!-- vigiles:cmd "npm run ghost" -->\n`);
     try {
-      const { stdout, exitCode } = run("lint CLAUDE.md", dir);
+      const { stdout, exitCode } = await run("lint CLAUDE.md", dir);
       assert.equal(exitCode, 2);
       assert.match(stdout, /Script "ghost" not found/);
     } finally {
@@ -2901,7 +2909,7 @@ describe("CLI: markdown-mode file/cmd verification", () => {
     }
   });
 
-  it("ignores file/cmd lists declared in frontmatter (mode disabled, inert)", () => {
+  it("ignores file/cmd lists declared in frontmatter (mode disabled, inert)", async () => {
     // Frontmatter mode is disabled, so `vigiles: files/commands` lists are inert:
     // a missing file + bad script in a `vigiles:` block must NOT fail lint. (The
     // inline `<!-- vigiles:cmd -->` form above stays active — that's the kept
@@ -2910,7 +2918,7 @@ describe("CLI: markdown-mode file/cmd verification", () => {
       `---\nvigiles:\n  files:\n    - src/real.ts\n    - src/MISSING.ts\n  commands:\n    - npm run build\n    - npm run ghost\n---\n\n# P\n`,
     );
     try {
-      const { stdout, exitCode } = run("lint CLAUDE.md", dir);
+      const { stdout, exitCode } = await run("lint CLAUDE.md", dir);
       assert.notEqual(
         exitCode,
         2,
@@ -2941,10 +2949,10 @@ describe("CLI: vigiles eject", () => {
     rmSync(tmpDir, { recursive: true, force: true });
   });
 
-  it("strips the integrity header, adds the disable marker, and removes the spec", () => {
+  it("strips the integrity header, adds the disable marker, and removes the spec", async () => {
     writeFileSync(join(tmpDir, "CLAUDE.md"), compiled);
     writeFileSync(join(tmpDir, "CLAUDE.md.spec.ts"), "export default {}\n");
-    const { stdout, exitCode } = run("eject CLAUDE.md", tmpDir);
+    const { stdout, exitCode } = await run("eject CLAUDE.md", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(stdout.includes("Ejected CLAUDE.md"));
     const out = readFileSync(join(tmpDir, "CLAUDE.md"), "utf-8");
@@ -2957,8 +2965,8 @@ describe("CLI: vigiles eject", () => {
     assert.ok(!existsSync(join(tmpDir, "CLAUDE.md.spec.ts")), "spec removed");
   });
 
-  it("leaves lint quiet on the ejected file (no require-instructions-spec error)", () => {
-    const { stdout, stderr, exitCode } = run("lint CLAUDE.md", tmpDir);
+  it("leaves lint quiet on the ejected file (no require-instructions-spec error)", async () => {
+    const { stdout, stderr, exitCode } = await run("lint CLAUDE.md", tmpDir);
     assert.ok(
       !(stdout + stderr).includes("require-instructions-spec"),
       "require-instructions-spec satisfied",
@@ -2966,19 +2974,19 @@ describe("CLI: vigiles eject", () => {
     assert.equal(exitCode, 0);
   });
 
-  it("reports nothing to eject on a plain (already-ejected) file", () => {
-    const { stdout, exitCode } = run("eject CLAUDE.md", tmpDir);
+  it("reports nothing to eject on a plain (already-ejected) file", async () => {
+    const { stdout, exitCode } = await run("eject CLAUDE.md", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(stdout.includes("nothing to eject"));
   });
 
-  it("--keep-spec leaves the spec in place", () => {
+  it("--keep-spec leaves the spec in place", async () => {
     writeFileSync(
       join(tmpDir, "K.md"),
       `${HEADER.replace("CLAUDE.md", "K.md")}\n\n# K\n`,
     );
     writeFileSync(join(tmpDir, "K.md.spec.ts"), "export default {}\n");
-    const { exitCode } = run("eject K.md --keep-spec", tmpDir);
+    const { exitCode } = await run("eject K.md --keep-spec", tmpDir);
     assert.equal(exitCode, 0);
     assert.ok(existsSync(join(tmpDir, "K.md.spec.ts")), "spec kept");
   });
@@ -2998,10 +3006,10 @@ describe("CLI: vigiles eject", () => {
     return d;
   }
 
-  it("keeps the shared spec when ejecting the SECONDARY target", () => {
+  it("keeps the shared spec when ejecting the SECONDARY target", async () => {
     const dir = multiTargetDir();
     try {
-      const { stdout, exitCode } = run("eject AGENTS.md", dir);
+      const { stdout, exitCode } = await run("eject AGENTS.md", dir);
       assert.equal(exitCode, 0);
       assert.ok(
         existsSync(join(dir, "CLAUDE.md.spec.ts")),
@@ -3013,10 +3021,10 @@ describe("CLI: vigiles eject", () => {
     }
   });
 
-  it("keeps the shared spec when ejecting the PRIMARY target", () => {
+  it("keeps the shared spec when ejecting the PRIMARY target", async () => {
     const dir = multiTargetDir();
     try {
-      const { exitCode } = run("eject CLAUDE.md", dir);
+      const { exitCode } = await run("eject CLAUDE.md", dir);
       assert.equal(exitCode, 0);
       assert.ok(
         existsSync(join(dir, "CLAUDE.md.spec.ts")),
@@ -3027,7 +3035,7 @@ describe("CLI: vigiles eject", () => {
     }
   });
 
-  it("refuses to delete a forged out-of-spec target named in the header", () => {
+  it("refuses to delete a forged out-of-spec target named in the header", async () => {
     // A hand-edited/forged header points `compiled from` at a non-spec file.
     // eject must NOT delete it (path-safety) — only a .spec.ts inside the project.
     const d = mkdtempSync(join(tmpdir(), "vigiles-eject-forged-"));
@@ -3037,7 +3045,7 @@ describe("CLI: vigiles eject", () => {
         join(d, "CLAUDE.md"),
         "<!-- vigiles:sha256:deadbeef compiled from package.json -->\n\n# CLAUDE.md\n\nx.\n",
       );
-      const { stdout, exitCode } = run("eject CLAUDE.md", d);
+      const { stdout, exitCode } = await run("eject CLAUDE.md", d);
       assert.equal(exitCode, 0);
       assert.ok(
         existsSync(join(d, "package.json")),
@@ -3049,11 +3057,11 @@ describe("CLI: vigiles eject", () => {
     }
   });
 
-  it("removes the spec once its LAST compiled output is ejected", () => {
+  it("removes the spec once its LAST compiled output is ejected", async () => {
     const dir = multiTargetDir();
     try {
-      run("eject AGENTS.md", dir); // secondary first — spec kept
-      run("eject CLAUDE.md", dir); // last consumer — now safe to delete
+      await run("eject AGENTS.md", dir); // secondary first — spec kept
+      await run("eject CLAUDE.md", dir); // last consumer — now safe to delete
       assert.ok(
         !existsSync(join(dir, "CLAUDE.md.spec.ts")),
         "spec deleted when no compiled output references it",
@@ -3063,7 +3071,7 @@ describe("CLI: vigiles eject", () => {
     }
   });
 
-  it("keeps the shared spec when the other output is in a SUBDIRECTORY", () => {
+  it("keeps the shared spec when the other output is in a SUBDIRECTORY", async () => {
     // `target: ["CLAUDE.md", "docs/AGENTS.md"]` — the secondary lives in a subdir.
     // Ejecting the root file must scan the whole tree (not just its own dir) so it
     // doesn't orphan docs/AGENTS.md by deleting the shared spec.
@@ -3079,7 +3087,7 @@ describe("CLI: vigiles eject", () => {
         join(dir, "docs", "AGENTS.md"),
         "<!-- vigiles:sha256:deadbeef compiled from CLAUDE.md.spec.ts -->\n\n# AGENTS.md\n",
       );
-      const { exitCode } = run("eject CLAUDE.md", dir);
+      const { exitCode } = await run("eject CLAUDE.md", dir);
       assert.equal(exitCode, 0);
       assert.ok(
         existsSync(join(dir, "CLAUDE.md.spec.ts")),
@@ -3090,8 +3098,8 @@ describe("CLI: vigiles eject", () => {
     }
   });
 
-  it("errors on a missing file", () => {
-    const { exitCode } = run("eject does-not-exist.md", tmpDir);
+  it("errors on a missing file", async () => {
+    const { exitCode } = await run("eject does-not-exist.md", tmpDir);
     assert.equal(exitCode, 1);
   });
 });
@@ -3132,9 +3140,9 @@ describe("CLI: vigiles lint directory arg + strict gating", () => {
     );
   }
 
-  it("`lint .` (a directory arg) does not crash (regression: EISDIR)", () => {
+  it("`lint .` (a directory arg) does not crash (regression: EISDIR)", async () => {
     reviewer("Read, Grep");
-    const { exitCode } = run("lint .", dir);
+    const { exitCode } = await run("lint .", dir);
     assert.notEqual(exitCode, undefined);
     assert.ok(
       exitCode === 0,
@@ -3142,14 +3150,14 @@ describe("CLI: vigiles lint directory arg + strict gating", () => {
     );
   });
 
-  it("a clean subagent passes under strict (exit 0)", () => {
+  it("a clean subagent passes under strict (exit 0)", async () => {
     reviewer("Read, Grep");
-    assert.equal(run("lint", dir).exitCode, 0);
+    assert.equal((await run("lint", dir)).exitCode, 0);
   });
 
-  it("a typo'd tool FAILS CI under strict (exit 2)", () => {
+  it("a typo'd tool FAILS CI under strict (exit 2)", async () => {
     reviewer("Reed, Grep"); // Reed = typo of Read
-    const { stdout, exitCode } = run("lint", dir);
+    const { stdout, exitCode } = await run("lint", dir);
     assert.equal(exitCode, 2, "broken subagent gates CI");
     assert.ok(
       /Reed/.test(stdout) && /Read/.test(stdout),
@@ -3157,11 +3165,11 @@ describe("CLI: vigiles lint directory arg + strict gating", () => {
     );
   });
 
-  it("a subagent missing its description FAILS CI under strict (exit 2)", () => {
+  it("a subagent missing its description FAILS CI under strict (exit 2)", async () => {
     writeFileSync(
       join(dir, "agents", "reviewer.md"),
       "---\nname: reviewer\ntools: [Read]\n---\n\nReview.\n",
     );
-    assert.equal(run("lint", dir).exitCode, 2);
+    assert.equal((await run("lint", dir)).exitCode, 2);
   });
 });
