@@ -90,11 +90,7 @@ function checkedSource(
   const top = specRefusals(ws, ctx);
   const sha = ctx.host.resolveCommit(top, ws.ref);
   if (sha === undefined) refuse({ kind: "ref-not-a-commit", ref: ws.ref });
-  const harness = harnessRefusal(declaredAt(ctx.host, top, sha), ctx.driven);
-  if (harness !== undefined) refuse(harness);
-  const tmp = ctx.host.tmpRoot();
-  if (!relative(top, tmp).startsWith(".."))
-    refuse({ kind: "trial-dir-inside-repo", dir: tmp });
+  refuseForeignTop(ctx.host, top, { sha, driven: ctx.driven });
   const installs =
     ws.deps.kind === "none" ? [] : ctx.host.findInstalls(top, sha);
   return { top, sha, installs };
@@ -118,9 +114,31 @@ function specRefusals(ws: RepoWorkspace, ctx: WorkspaceContext): string {
   if (ctx.hasFixture) refuse({ kind: "workspace-with-fixture" });
   if (ctx.cache !== "off")
     refuse({ kind: "cache-not-supported-with-workspace" });
-  const top = ctx.host.workTreeTop(ws.dir);
-  if (top === undefined) refuse({ kind: "not-a-git-work-tree", dir: ws.dir });
+  return checkedTop(ctx.host, ws.dir);
+}
+
+/** The work tree top of `dir`; refused when `dir` is in none. */
+export function checkedTop(host: WorkspaceHost, dir: string): string {
+  const top = host.workTreeTop(dir);
+  if (top === undefined) refuse({ kind: "not-a-git-work-tree", dir });
   return top;
+}
+
+/**
+ * The checks a workspace and a regression case share on a work tree: its
+ * `.vigilesrc.json` at `sha` declares no harness this runner does not drive,
+ * and the trial dirs are not made inside it.
+ */
+export function refuseForeignTop(
+  host: WorkspaceHost,
+  top: string,
+  at: { readonly sha: string; readonly driven: string },
+): void {
+  const harness = harnessRefusal(declaredAt(host, top, at.sha), at.driven);
+  if (harness !== undefined) refuse(harness);
+  const tmp = host.tmpRoot();
+  if (!relative(top, tmp).startsWith(".."))
+    refuse({ kind: "trial-dir-inside-repo", dir: tmp });
 }
 
 /** The harnesses the world's own `.vigilesrc.json` declares; none when it has none or does not parse. */

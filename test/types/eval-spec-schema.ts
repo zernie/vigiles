@@ -22,7 +22,9 @@ type ShapeKey =
   | "interceptTools"
   | "checks"
   | "measure"
-  | "stubSkillBodies";
+  | "stubSkillBodies"
+  | "task"
+  | "experimental_regressionCases";
 
 /** Each union member cut to the shape fields, flattened and read-only. */
 type ShapeOf<T> = T extends unknown

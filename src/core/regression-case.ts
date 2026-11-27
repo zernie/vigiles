@@ -8,7 +8,12 @@ import { minimatch } from "minimatch";
 import { keys, sortBy, uniqueBy } from "remeda";
 import type { PathRefusal, RevertConflict } from "./regression-case-refusal.js";
 
-/** A regression case as an eval spec declares it. */
+/**
+ * A regression case as an eval spec declares it.
+ *
+ * @experimental
+ * @public
+ */
 export interface RegressionCaseSpec {
   /** Your repository (a git work tree). Not in the lock key: a path differs per machine. */
   readonly repo: string;
@@ -25,9 +30,11 @@ export interface RegressionCaseSpec {
   };
   /** argv; one oracle path is appended as one argument, no shell. */
   readonly testCommand: readonly string[];
+  /** Run once per world before any test: a command's argv, or `none` with the reason. */
   readonly build:
     | { readonly kind: "command"; readonly argv: readonly string[] }
     | { readonly kind: "none"; readonly reason: string };
+  /** `node-modules`: each `node_modules` is copied from your checkout byte for byte; `none`: nothing is. */
   readonly deps:
     | {
         readonly kind: "node-modules";

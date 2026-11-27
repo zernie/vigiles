@@ -79,7 +79,7 @@ import {
   runDefinition,
   type EvalOutcome,
 } from "../eval-run.js";
-import { repoCopyHost } from "../host/workspace-host.io.js";
+import { evalHost } from "../host/workspace-host.io.js";
 
 // --- the runner: the programmatic door to what `vigiles eval` runs ---
 
@@ -109,8 +109,9 @@ export function paid_runEval(
     const outcome = await runDefinition(definition, {
       label: "paid_runEval",
       trials: options.trials ?? trialsOverride(process.env["VIGILES_TRIALS"]),
-      // The composition: the host adapter that copies a repo for `experimental_workspace`.
-      host: repoCopyHost,
+      // The composition: the host adapter that copies a repo for
+      // `experimental_workspace` and qualifies and scores each regression case.
+      host: evalHost,
       notADescription: notADescription,
     });
     if (outcome.kind === "failed" || outcome.kind === "refused")

@@ -29,7 +29,7 @@ import {
   type EvalSpec,
   type RunContext,
 } from "./eval.js";
-import { repoCopyHost } from "./host/workspace-host.io.js";
+import { evalHost } from "./host/workspace-host.io.js";
 
 /** The harness paid_runEval drives, and one it does not. */
 const DRIVEN = defaultAdapter.name;
@@ -150,7 +150,7 @@ function touchedRecorder(rows: string[][]) {
   return (ctx: RunContext): Metrics => {
     const view = ctx.experimental_workspace;
     if (view === undefined) throw new Error("no workspace view");
-    const touched = repoCopyHost.touchedPaths(view, ctx.cwd).rows;
+    const touched = evalHost.touchedPaths(view, ctx.cwd).rows;
     rows.push([
       view.arm,
       ...view.armPaths,
@@ -171,7 +171,7 @@ describe("runEvalWith on a repo workspace: the trial's world", () => {
       runEvalWith(
         spec(ws(src), touchedRecorder(rows), { arms }),
         editingRunner(seen),
-        repoCopyHost,
+        evalHost,
       );
     const reports: Awaited<ReturnType<typeof run>>[] = [];
     const left = await leftIn(async () => reports.push(await run()));
@@ -193,11 +193,7 @@ describe("runEvalWith on a repo workspace: the trial's world", () => {
       seen.push(readFileSync(join(a.cwd, "src/a.ts"), "utf-8"));
       return Promise.resolve({ code: 0, stdout: RESULT });
     };
-    await runEvalWith(
-      spec(ws(src, { patch }), noMetrics),
-      runner,
-      repoCopyHost,
-    );
+    await runEvalWith(spec(ws(src, { patch }), noMetrics), runner, evalHost);
     // Guards: the case world (HEAD + revert) is what the agent sees, never HEAD itself.
     expect(seen).toEqual(["broken\n"]);
   });
@@ -207,7 +203,7 @@ describe("runEvalWith on a repo workspace: the trial's world", () => {
     const report = await runEvalWith(
       spec(ws(src), noMetrics),
       editingRunner(),
-      repoCopyHost,
+      evalHost,
     );
     // Guards: the fake runner sends no request, so an expected file is not "nothing expected".
     expect(report.arms.default?.context?.[0]?.kind).not.toBe(
@@ -250,7 +246,7 @@ describe("runEvalWith on a repo workspace: a rate-limited retry", () => {
           retryBackoffMs: 0,
         }),
         rateLimitedOnceRunner(found),
-        repoCopyHost,
+        evalHost,
       );
     const left = await leftIn(run);
     // Guards: the retry starts from the seed, never from the discarded attempt's edit.
@@ -268,12 +264,10 @@ describe("runEvalWith on a repo workspace: a rate-limited retry", () => {
     const seen: AgentRunArgs[] = [];
     let clones = 0;
     const host = {
-      ...repoCopyHost,
-      cloneTemplate: (
-        ...args: Parameters<typeof repoCopyHost.cloneTemplate>
-      ) => {
+      ...evalHost,
+      cloneTemplate: (...args: Parameters<typeof evalHost.cloneTemplate>) => {
         clones += 1;
-        repoCopyHost.cloneTemplate(...args);
+        evalHost.cloneTemplate(...args);
       },
     };
     await runEvalWith(spec(ws(src), noMetrics), editingRunner(seen), host);
@@ -311,7 +305,7 @@ describe("runEvalWith on a repo workspace: installs", () => {
     await runEvalWith(
       spec(ws(src, { deps }), measure),
       installWriter,
-      repoCopyHost,
+      evalHost,
     );
     // Guards: a byte copy, never a hardlink (vitest writes into node_modules in place).
     expect(readFileSync(join(src, "node_modules/dep/index.js"), "utf-8")).toBe(
@@ -330,7 +324,7 @@ async function refusal(
   const seen: AgentRunArgs[] = [];
   try {
     await (wired.host
-      ? runEvalWith(s, editingRunner(seen), repoCopyHost)
+      ? runEvalWith(s, editingRunner(seen), evalHost)
       : runEvalWith(s, editingRunner(seen)));
   } catch (e) {
     expect(seen).toEqual([]);
@@ -392,7 +386,7 @@ describe("workspace refusals: the harness", () => {
       "src/a.ts": "x\n",
     });
     await expect(
-      runEvalWith(spec(ws(src), noMetrics), editingRunner(), repoCopyHost),
+      runEvalWith(spec(ws(src), noMetrics), editingRunner(), evalHost),
     ).resolves.toBeDefined();
   });
 
@@ -401,7 +395,7 @@ describe("workspace refusals: the harness", () => {
       const src = repo({ ".vigilesrc.json": text, "src/a.ts": "x\n" });
       // Guards: an unreadable config declares nothing, so nothing is refused for it.
       await expect(
-        runEvalWith(spec(ws(src), noMetrics), editingRunner(), repoCopyHost),
+        runEvalWith(spec(ws(src), noMetrics), editingRunner(), evalHost),
       ).resolves.toBeDefined();
     }
   });
@@ -409,7 +403,7 @@ describe("workspace refusals: the harness", () => {
   it("does not refuse a lone AGENTS.md with no declaration", async () => {
     const src = repo({ "AGENTS.md": "be brief\n", "src/a.ts": "x\n" });
     await expect(
-      runEvalWith(spec(ws(src), noMetrics), editingRunner(), repoCopyHost),
+      runEvalWith(spec(ws(src), noMetrics), editingRunner(), evalHost),
     ).resolves.toBeDefined();
   });
 });

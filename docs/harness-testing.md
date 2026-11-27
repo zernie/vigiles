@@ -474,6 +474,10 @@ export default defineEval({
 > That's the right oracle for "is this skill any good?"; A/B is for "does it _move_
 > behaviour vs off?". Both are in the [reference](api/eval.md#runeval-one-runner-two-choices).
 
+> **Scoring the agent on bugs you already fixed?** `experimental_regressionCases`
+> rebuilds your repo as it was before each fix and scores every trial with the
+> fix's own tests — [reference](api/eval.md#measure-the-agent-on-your-own-fixes-experimental_regressioncases).
+
 > **Note:** `runEval` is shipped and proven for Claude Code; for Codex it's a
 > documented follow-on — use the deterministic `runHarnessTest` tier there.
 

@@ -8,12 +8,13 @@
  * "imported" from "run as the program". So the program is this separate file.
  *
  * It is a COMPOSITION ROOT (listed in `CLI_ROOT`, eslint.config.mjs): it wires
- * the machine adapter that copies a repository, so `experimental_workspace`
- * works from an eval file the same way it does through `paid_runEval`.
+ * the machine adapter that copies a repository and scores a regression case,
+ * so `experimental_workspace` and `experimental_regressionCases` work from an
+ * eval file the same way they do through `paid_runEval`.
  */
 import { trialsOverride } from "./eval-entry.js";
 import { main } from "./eval-run.js";
-import { repoCopyHost } from "./host/workspace-host.io.js";
+import { evalHost } from "./host/workspace-host.io.js";
 
 const file = process.argv.at(2);
 if (file === undefined) {
@@ -25,6 +26,6 @@ if (file === undefined) {
 process.exit(
   await main(file, {
     trials: trialsOverride(process.env["VIGILES_TRIALS"]),
-    host: repoCopyHost,
+    host: evalHost,
   }),
 );

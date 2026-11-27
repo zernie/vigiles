@@ -212,6 +212,8 @@ error in TypeScript, and refused before the first trial in a `.mjs` file:
 | **configurations** | `arms: { off: {…}, on: {…} }` — compared against each other                                                                             | no `arms` — one arm, named `"default"`, set up by the top-level `settings` / `plugin` / `pluginDir` / `skillsDir` / `interceptTools` |
 | **scoring**        | `checks: [check.tool("Bash"), …]` — each a 0/1 metric keyed by its label (`tool(Bash)`, a repeat gets ` #2`), listed in `report.checks` | `measure: (ctx) => ({ … })` — your own numbers or booleans                                                                           |
 
+A third, experimental way to score replaces `task` and both of these: `experimental_regressionCases`, where each trial is scored by the tests of a fix from your own history ([below](#measure-the-agent-on-your-own-fixes-experimental_regressioncases)).
+
 The five top-level arm fields beside `arms` are refused: set them on each arm.
 Either way the report is one `EvalReport`, so every reader below takes it. An
 arm's skills install under the namespace in `report.arms[a].namespace` — the
@@ -312,6 +314,87 @@ What it does **not** do: confine the agent. It runs with your user's rights and
 your network, exactly as every `runEval` trial does — pass only a
 repository you would run the agent in anyway. The copy uses `cp --reflink=auto`
 on Linux and `cp -c` on macOS; only Linux has been measured.
+
+### Measure the agent on your own fixes: `experimental_regressionCases`
+
+A regression case is a bug you already fixed. vigiles rebuilds your repository
+as it was just before the fix, gives the agent the symptom, and scores each
+trial with the tests the fix added: solved, or not. Several cases make one
+eval, so the score is "how many of my own bugs does this harness fix", not a
+benchmark someone else picked. Each entry is a `RegressionCaseEntry`: a
+`RegressionCaseSpec` plus the `id` that names it in the report and in refusals.
+
+```ts
+import { defineEval } from "vigiles";
+
+export default defineEval({
+  runEval: {
+    env: { kind: "ephemeral" },
+    experimental_regressionCases: [
+      {
+        id: "parse-empty-line",
+        repo: ".",
+        commit: "<the fix, a full 40-hex SHA>",
+        head: "<the commit the world is built at>",
+        tests: { run: ["src/**/*.test.ts"], data: [] },
+        testCommand: ["npx", "vitest", "run"],
+        build: { kind: "none", reason: "vitest runs the sources" },
+        deps: { kind: "node-modules" },
+        symptom: { kind: "file", path: "issues/parse-empty-line.md" },
+      },
+    ],
+    trials: 5,
+  },
+});
+```
+
+What the agent gets, and what scores it:
+
+- **The world.** `head`, with the fix's own change to every file outside the
+  test territory reversed, and the `symptom` file (plus `hide`) removed. The
+  task is the symptom file's text: commit it at `head`, written as the bug
+  report you would hand a colleague.
+- **The oracle.** The test files the fix added or changed, run one by one with
+  `testCommand` on the tree the agent left. A trial that edits a test file
+  fails, whatever its tests say.
+- **The metrics.** `case.solved`, `case.editedTests`, `case.droppedEdits`,
+  `case.ignoredNewFiles` and `case.scoringTimedOut`, per arm over every case.
+  `report.experimental_regressionCases` keeps one `CaseResult` per case: its
+  commits, the resolved paths, the three controls and each arm's
+  `CaseArmResult` (`{ solved, scored, unscored }`). The printed report gives each case one line:
+
+```
+  case parse-empty-line @ 1a2b3c4  default 3/5 solved
+```
+
+**Every case qualifies before the first trial**, so a broken case costs no
+model quota. Each case runs three controls through the same scorer the trials
+use: the world as the agent gets it must FAIL its oracle (or the case is
+solved for free), the world with the fix must PASS (or no agent can solve it),
+and the fix plus a test edit must be caught as a test edit. Red and gold run
+`runs` times (default 2) and must agree with themselves. One case refused
+refuses the whole run, naming the case's `id` and what to change. The run is
+also refused when no agent binary is found, and when the temp disk cannot hold
+`concurrency + 1` copies of the largest case's world and installs.
+
+A trial whose tree cannot be scored as the agent left it (a nested git
+repository inside the source, say) is counted **unscored**: left out of both
+the solved count and the denominator, printed apart, and it **fails the run**.
+An agent cannot drop out of the denominator and lift the rate of the trials
+that remain.
+
+**The lock.** One lock per eval, keyed by every entry, by the lockfile blob at
+`head` for each install root, by a fingerprint of the vigiles eval engine, and
+by the Node major. Changing one case re-measures all of them. `--check`
+refuses without qualifying anything when the installed vigiles has no engine
+fingerprint; `--update` still runs, and writes no lock. Not detected on
+replay: a change in a vigiles dependency with no vigiles code change, a
+hand-patched `node_modules` behind an unchanged lockfile, and a tool an `npx`
+downloads unpinned.
+
+It is refused beside `task`, `checks`, `measure`, `experimental_workspace` or
+`fixture`, and when `cache` is not `"off"`. Like every `runEval` trial, the
+agent runs with your user's rights and your network.
 
 The `measure` ctx — and every check — reads a full `Trace`, so a metric reads the agent's **actions**
 (`ctx.toolCalls`), its **final answer** (`ctx.output`), and the **filesystem**

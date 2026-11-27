@@ -246,6 +246,8 @@ export type {
 export type {
   ArmReport,
   ArmUsage,
+  CaseArmResult,
+  CaseResult,
   EvalReport,
   MetricStat,
   PromptTriggerStat,
@@ -260,6 +262,8 @@ export type {
 } from "../eval.js";
 export type { Metrics } from "../core/eval-aggregate.js";
 export type { RepoWorkspace, TrialWorkspaceView } from "../core/workspace.js";
+export type { RegressionCaseSpec } from "../core/regression-case.js";
+export type { RegressionCaseEntry } from "../core/regression-case-entries.js";
 
 // --- R3: the disposable-service tier ---
 // `experimental_startServices` and `experimental_dockerRuntime` live on

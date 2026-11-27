@@ -29,12 +29,12 @@ const asSpec = (spec: unknown): EvalSpec =>
 const refused = (spec: Readonly<Record<string, unknown>>, why: RegExp) =>
   assert.rejects(runEvalWith(loose(spec), neverRuns), why);
 
-test("scoring is exactly one of `checks` and `measure`: both, and neither, are refused with the rewrite", async () => {
+test("scoring is exactly one of `checks`, `measure` and the cases: two, and none, are refused with the rewrite", async () => {
   await refused(
     { checks: [check.tool("Bash")], measure: () => ({}) },
-    /runEval: score each trial with exactly ONE of `checks` or `measure` — this spec has both:\n {2}checks: \[check\.tool/,
+    /runEval: score each trial with exactly ONE of `checks`, `measure` or `experimental_regressionCases` — this spec has `checks` and `measure`:\n {2}checks: \[check\.tool/,
   );
-  await refused({}, /this spec has neither/);
+  await refused({}, /this spec has none:/);
 });
 
 test("a malformed scoring is refused by its field, not run", async () => {
@@ -88,9 +88,12 @@ test("no `arms` is one arm named `default`, carrying exactly the top-level field
 });
 
 test("a checks-scored trial is scored 0/1 per check, keyed by label", () => {
-  const { measure } = shapeEvalSpec(
+  const shape = shapeEvalSpec(
     loose({ checks: [check.output("done"), check.turns({ max: 0 })] }),
   );
+  assert.equal(shape.kind, "trial");
+  if (shape.kind !== "trial") return;
+  const { measure } = shape;
   // The two fields these checks read; a run's full context is not needed.
   const ctx = { output: "all done", turns: 1, toolCalls: [] };
   assert.deepEqual(Reflect.apply(measure, undefined, [ctx]), {
@@ -117,6 +120,6 @@ test("stubSkillBodies with nothing to stub, or beside a judged check, is refused
 test("a spec that is not an object is refused by the schema, not read as an empty one", () => {
   assert.throws(
     () => shapeEvalSpec(asSpec("a task string")),
-    /^Error: runEval: .*this spec has neither/s,
+    /^Error: runEval: .*this spec has none:/s,
   );
 });

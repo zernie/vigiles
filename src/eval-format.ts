@@ -6,6 +6,8 @@
 import type {
   ArmReport,
   ArmUsage,
+  CaseArmResult,
+  CaseResult,
   EvalReport,
   MetricStat,
   TriggerRateReport,
@@ -122,9 +124,26 @@ export function formatEvalReport(
   }
   const inherit =
     report.env?.kind === "inherit" ? [inheritLine(report.env.reason)] : [];
-  return [...lines, ...verdictLines(report, opts.baseline), ...inherit].join(
-    "\n",
-  );
+  return [
+    ...lines,
+    ...(report.experimental_regressionCases ?? []).map(caseLine),
+    ...verdictLines(report, opts.baseline),
+    ...inherit,
+  ].join("\n");
+}
+
+/** One line per regression case: its id, the head it ran at, and each arm's solved count. */
+function caseLine(c: CaseResult): string {
+  const arms = Object.entries(c.arms).map(([arm, r]) => caseArm(arm, r));
+  return `  case ${c.id} @ ${c.head.slice(0, 7)}  ${arms.join("  ")}`;
+}
+
+/** `arm solved/scored solved`, plus the trials left unscored when there are any. */
+function caseArm(arm: string, r: CaseArmResult): string {
+  const solved = `${arm} ${String(r.solved)}/${String(r.scored)} solved`;
+  return r.unscored === 0
+    ? solved
+    : `${solved}, ${String(r.unscored)} unscored`;
 }
 
 /** Format a trigger-rate report: overall %, then each prompt's rate. */

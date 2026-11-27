@@ -162,11 +162,7 @@ import {
   parseRunEnv,
   parseToolStubs,
 } from "./core/eval-spec-parse.js";
-import type {
-  RepoWorkspace,
-  TrialWorkspaceView,
-  WorkspaceHost,
-} from "./core/workspace.js";
+import type { RepoWorkspace, TrialWorkspaceView } from "./core/workspace.js";
 import {
   disposeWorkspace,
   prepareWorkspace,
@@ -187,6 +183,7 @@ import { assertPromptDiversity } from "./core/prompt-diversity.js";
 import {
   contextInReport,
   unansweredInReport,
+  unscoredInReport,
 } from "./core/eval-report-failures.js";
 import { assertKnownKeys } from "./core/known-keys.js";
 import {
@@ -199,6 +196,18 @@ import {
   type EvalShape,
 } from "./eval-spec-shape.js";
 import { runEffect } from "./effect-run.js";
+import type { EvalHost } from "./core/eval-host.js";
+import type { RegressionCaseEntry } from "./core/regression-case-entries.js";
+import {
+  casesReport,
+  disposeCases,
+  prepareCases,
+  type AgentProbe,
+  type RunCase,
+  type TrialPlan,
+  type TrialScore,
+} from "./eval-cases.js";
+import { casesLock, type CasesLock } from "./eval-cases-lock.js";
 
 /**
  * The harness the eval tier spawns. ONE binding on purpose: the paid tier is
@@ -351,8 +360,6 @@ export type EvalSpec<M extends Metrics = Metrics> = {
    * grade — a `judged` check beside it is refused. See {@link stubSkillBody}.
    */
   readonly stubSkillBodies?: boolean;
-  /** The task prompt given to the agent. */
-  readonly task: string;
   /** Trials per arm. Default 5. */
   readonly trials?: number;
   /** Model alias. Default "haiku". */
@@ -492,12 +499,36 @@ export type EvalSpec<M extends Metrics = Metrics> = {
          * Each becomes a 0/1 metric keyed by its label; an empty list is refused.
          */
         readonly checks: readonly Check<RunContext>[];
+        /** The task prompt given to the agent. */
+        readonly task: string;
         readonly measure?: never;
+        readonly experimental_regressionCases?: never;
       }
     | {
         /** Compute this run's metrics from its outcome. */
         readonly measure: (ctx: RunContext) => M;
+        /** The task prompt given to the agent. */
+        readonly task: string;
         readonly checks?: never;
+        readonly experimental_regressionCases?: never;
+      }
+    | {
+        /**
+         * @experimental Score every trial against fix commits of your own
+         * repository (vigiles#416): each case's world is its fix reverted at
+         * `head`, its task is the symptom file, and a trial is solved when the
+         * fix's own tests pass on the agent's tree. Each case is qualified
+         * (red fails, gold passes) before any trial. Refused beside `task`,
+         * `checks`, `measure`, `experimental_workspace`, `fixture`, and with
+         * the cache on.
+         */
+        readonly experimental_regressionCases: readonly RegressionCaseEntry[];
+        readonly task?: never;
+        readonly checks?: never;
+        readonly measure?: never;
+        readonly experimental_workspace?: never;
+        readonly fixture?: never;
+        readonly cache?: "off";
       }
   );
 
@@ -700,6 +731,20 @@ export function withStartGuard(runner: AgentRunner): AgentRunner {
  * not yet written, is covered by construction. Guarding each call site instead is
  * the shape that left four of five compilers unprotected in #173.
  */
+/**
+ * How each real runner tells a regression-case run whether its agent binary
+ * is there. An injected runner (a test's fake) has none and is not probed.
+ */
+const AGENT_PROBES = new WeakMap<AgentRunner, () => AgentProbe>();
+
+/** Give `runner` its agent-binary probe. */
+export function registerAgentProbe(
+  runner: AgentRunner,
+  probe: () => AgentProbe,
+): void {
+  AGENT_PROBES.set(runner, probe);
+}
+
 export const spawnAgent: AgentRunner = withEffortGuard(
   withStartGuard(spawnAgentRaw),
 );
@@ -808,10 +853,10 @@ export async function runEval<M extends Metrics>(
   return runEvalReporting(spec, spawnAgent);
 }
 
-/** {@link runEval} with the machine side of `experimental_workspace` wired in. */
+/** {@link runEval} with the machine side of `experimental_workspace` and `experimental_regressionCases` wired in. */
 export async function runEvalOnHost<M extends Metrics>(
   spec: EvalSpec<M>,
-  host: WorkspaceHost,
+  host: EvalHost,
 ): Promise<EvalReport> {
   return runEvalReporting(spec, spawnAgent, host);
 }
@@ -1234,6 +1279,14 @@ function harnessVersion(): string {
 }
 /* v8 ignore stop */
 
+/* v8 ignore start -- probes the real binary; a test registers its own probe */
+registerAgentProbe(spawnAgent, () =>
+  harnessVersion() === "unknown"
+    ? { kind: "missing", binary: EVAL_RUNTIME.agentBinary }
+    : { kind: "found" },
+);
+/* v8 ignore stop */
+
 /** Warn (once per run) that replaying/recording a cache on a floating alias hides drift. */
 function warnFloatingModel(model: string): void {
   const msg =
@@ -1437,9 +1490,9 @@ function trialEnv(
   }
 }
 
-/** A finished trial: its metric row, usage, and the stub calls nobody answered. */
-interface TrialOutcome<M extends Metrics> {
-  readonly row: M;
+/** A finished trial: its score, usage, and the stub calls nobody answered. */
+interface TrialOutcome {
+  readonly score: TrialScore;
   readonly usage: EvalUsage;
   readonly unanswered: readonly StubCall[];
   /** False when the run reported no cost (see `ParsedModelRun.costObserved`). */
@@ -1455,13 +1508,14 @@ async function executeTrial(
   trial: {
     readonly index: number;
     readonly armName: string;
+    readonly plan: TrialPlan;
     readonly maxBudgetUsd?: number;
     readonly signal?: AbortSignal;
   },
   retrying: RetryingRunner,
   cfg: RunConfig,
-): Promise<TrialOutcome<Metrics>> {
-  const { index: trialIndex, maxBudgetUsd, signal } = trial;
+): Promise<TrialOutcome> {
+  const { index: trialIndex, maxBudgetUsd, signal, plan } = trial;
   // Resolved before any temp dir exists, so a bad plugin leaves nothing behind.
   const resolved = resolveHarness({
     plugin: arm.plugin,
@@ -1472,7 +1526,7 @@ async function executeTrial(
   // The trial's world decides what its first request must carry (vigiles#416).
   const observed = startContextCapture({
     runtime: EVAL_RUNTIME,
-    world: worldOf(spec.workspace, files),
+    world: worldOf(plan.workspace, files),
     enabled: spec.experimental_contextCheck !== false,
   });
   const cwd = makeTmpDir("eval");
@@ -1487,7 +1541,7 @@ async function executeTrial(
     stubs.length > 0 ? writeStubDir(stubs, STUB_LAUNCHER) : undefined;
   // The trial's base record: a git dir beside the work dir (never in it, so
   // the agent's own git cannot reach it), removed with it.
-  const baseDir = spec.workspace === undefined ? undefined : makeTmpDir("base");
+  const baseDir = plan.workspace === undefined ? undefined : makeTmpDir("base");
   try {
     const intercepts = arm.interceptTools ?? [];
     const settings = withInterceptToolHook(resolved.settings, intercepts);
@@ -1504,7 +1558,7 @@ async function executeTrial(
     const world = layPerAttempt(
       () =>
         layTrial(
-          spec.workspace,
+          plan.workspace,
           { cwd, gitDir: baseDir },
           { name: trial.armName, files, settings },
         ),
@@ -1516,7 +1570,7 @@ async function executeTrial(
     );
     const { out, stubCalls, context } = await runWithCache(
       {
-        task: spec.task,
+        task: plan.task,
         cwd,
         // A model comparison is a harness A/B: an arm may override the model.
         model: arm.model ?? cfg.model,
@@ -1565,7 +1619,8 @@ async function executeTrial(
       ...(view === undefined ? {} : { experimental_workspace: view }),
     };
     return {
-      row: spec.measure(ctx),
+      // Scored before `finally` removes the trial dir: a case scores the tree.
+      score: await plan.score(ctx),
       usage: ctx.usage,
       costObserved,
       unanswered: unansweredCalls(ctx, stubCalls, stubs),
@@ -1780,27 +1835,41 @@ export async function runPool<T, R>(
   );
 }
 
-/** One unit of work: a single trial of a single arm. */
+/** One unit of work: a single trial of a single arm on one plan. */
 interface Unit {
   readonly armName: string;
   readonly arm: EvalArm;
   readonly trialIndex: number;
+  readonly plan: TrialPlan;
 }
 
-/** Flatten arms × trials into a single work list (so concurrency spans both). */
-function buildUnits(arms: Record<string, EvalArm>, trials: number): Unit[] {
-  const units: Unit[] = [];
-  for (const [armName, arm] of Object.entries(arms)) {
-    for (let t = 0; t < trials; t++)
-      units.push({ armName, arm, trialIndex: t });
-  }
-  return units;
+/**
+ * Flatten plans × arms × trials into a single work list (so concurrency
+ * spans all three). One plan for a `checks`/`measure` spec, one per case.
+ */
+function buildUnits(
+  plans: readonly TrialPlan[],
+  arms: Readonly<Record<string, EvalArm>>,
+  trials: number,
+): readonly Unit[] {
+  return plans.flatMap((plan) =>
+    Object.entries(arms).flatMap(([armName, arm]) =>
+      Array.from({ length: trials }, (_, trialIndex) => ({
+        armName,
+        arm,
+        trialIndex,
+        plan,
+      })),
+    ),
+  );
 }
 
-type DoneResult<M extends Metrics> = {
+type DoneResult = {
   readonly armName: string;
   readonly skipped: false;
-  readonly row: M;
+  readonly score: TrialScore;
+  /** The case the trial measured; absent for a `checks`/`measure` spec. */
+  readonly caseId?: string;
   readonly usage: EvalUsage;
   readonly unanswered: readonly StubCall[];
   /** False when the run reported no cost; absent on results built elsewhere. */
@@ -1808,26 +1877,27 @@ type DoneResult<M extends Metrics> = {
   /** The trial's context evidence; absent on results built elsewhere. */
   readonly context?: ContextEvidence;
 };
-type UnitResult<M extends Metrics> =
-  | DoneResult<M>
+type UnitResult =
+  | DoneResult
   | { readonly armName: string; readonly skipped: true };
 
 /** Group completed (non-skipped) unit results by arm and aggregate each. */
-function aggregateArms<M extends Metrics>(
+function aggregateArms(
   armNames: readonly string[],
-  results: readonly UnitResult<M>[],
+  results: readonly UnitResult[],
 ): { arms: Record<string, ArmReport>; totalCostUsd: number } {
   const arms: Record<string, ArmReport> = {};
   let totalCostUsd = 0;
   for (const armName of armNames) {
     const done = results.filter(
-      (r): r is DoneResult<M> => !r.skipped && r.armName === armName,
+      (r): r is DoneResult => !r.skipped && r.armName === armName,
     );
     // A trial whose instruction files never reached the model is not a sample
-    // of this arm: it ran and it cost, but it is not scored (vigiles#416).
-    const rows = done
-      .filter((d) => d.context?.kind !== "missing")
-      .map((d) => d.row);
+    // of this arm: it ran and it cost, but it is not scored (vigiles#416); nor
+    // is a case trial whose tree could not be scored as the agent left it.
+    const rows = scoredOf(done).flatMap((d) =>
+      d.score.kind === "row" ? [d.score.row] : [],
+    );
     const context = done.flatMap((d) =>
       d.context === undefined ? [] : [d.context],
     );
@@ -1844,6 +1914,10 @@ function aggregateArms<M extends Metrics>(
   }
   return { arms, totalCostUsd };
 }
+
+/** The trials that are samples: their instruction files reached the model. */
+const scoredOf = (done: readonly DoneResult[]): readonly DoneResult[] =>
+  done.filter((d) => d.context?.kind !== "missing");
 
 /**
  * The eval orchestration — every arm × trial via `runner`, run through the cache
@@ -1997,7 +2071,11 @@ function stripPluginRoot(value: unknown, absRoot: string): unknown {
  * excluded by design (the script re-asserts against the replayed report);
  * `checks` are folded in (see the comment at the end).
  */
-function evalArmsInputs(spec: ParsedEvalSpec, cfg: RunConfig): unknown {
+function evalArmsInputs(
+  spec: ParsedEvalSpec,
+  cfg: RunConfig,
+  scoring: ScoringLock,
+): unknown {
   const arms: Record<string, unknown> = {};
   for (const [name, arm] of Object.entries(spec.arms)) {
     const resolved = resolveHarness({
@@ -2037,7 +2115,7 @@ function evalArmsInputs(spec: ParsedEvalSpec, cfg: RunConfig): unknown {
   // it is an input. The seed's CONTENTS are hashed — the author's input — never
   // the per-trial HOME path, which differs every run.
   return {
-    task: spec.task,
+    ...scoring.inputs,
     arms,
     stubs,
     env: runEnvKeyView(spec.env),
@@ -2055,6 +2133,28 @@ function evalArmsInputs(spec: ParsedEvalSpec, cfg: RunConfig): unknown {
       ? {}
       : { workspace: spec.workspace.lockView }),
   };
+}
+
+/** What a spec's scoring adds to its lock: the task, or the cases. */
+interface ScoringLock {
+  readonly inputs: object;
+  readonly why: string | undefined;
+}
+
+/**
+ * A `checks`/`measure` spec is keyed by its task. A case spec is keyed by
+ * each case's entry and lockfiles, the engine and the Node major, read from
+ * git, never by qualifying a case (`./eval-cases-lock.ts`).
+ */
+function scoringLockOf(spec: ParsedEvalSpec, lock: ResolvedLock): ScoringLock {
+  if (spec.kind === "trial")
+    return { inputs: { task: spec.task }, why: undefined };
+  const cases: CasesLock = casesLock(
+    hostFor(spec.host, "experimental_regressionCases"),
+    spec.cases,
+    lock.mode,
+  );
+  return { inputs: { regressionCases: cases.inputs }, why: cases.why };
 }
 
 // ---------------------------------------------------------------------------
@@ -2090,6 +2190,7 @@ const EVAL_SPEC_KEYS = {
   task: true,
   measure: true,
   checks: true,
+  experimental_regressionCases: true,
   settings: true,
   plugin: true,
   pluginDir: true,
@@ -2147,6 +2248,8 @@ type ParsedEvalSpec = Omit<
   | "arms"
   | "checks"
   | "measure"
+  | "task"
+  | "experimental_regressionCases"
   | "stubs"
   | "env"
   | (typeof SINGLE_ARM_KEYS)[number]
@@ -2158,6 +2261,10 @@ type ParsedEvalSpec = Omit<
     readonly env: RunEnv;
     /** The checked workspace, when the spec sets one. */
     readonly workspace?: PreparedWorkspace;
+    /** The machine ports, when a root wired them; a case spec needs them. */
+    readonly host?: EvalHost;
+    /** Is the agent binary there? Asked only by a case spec, before it qualifies. */
+    readonly probeAgent: () => AgentProbe;
   };
 
 /**
@@ -2172,7 +2279,7 @@ type ParsedEvalSpec = Omit<
 export async function runEvalReporting<M extends Metrics>(
   spec: EvalSpec<M>,
   runner: AgentRunner,
-  host?: WorkspaceHost,
+  host?: EvalHost,
 ): Promise<EvalReport> {
   warnUnregisteredSkillArms(spec.arms ?? {});
   const report = await runEvalWith(spec, runner, host);
@@ -2192,8 +2299,8 @@ export async function runEvalReporting<M extends Metrics>(
 export async function runEvalWith<M extends Metrics>(
   input: EvalSpec<M>,
   runner: AgentRunner,
-  /** The machine side of `experimental_workspace`; the `vigiles/eval` entry wires it. */
-  host?: WorkspaceHost,
+  /** The machine side of `experimental_workspace` and the cases; the `vigiles/eval` entry wires it. */
+  host?: EvalHost,
 ): Promise<EvalReport> {
   // A REMOVED field gets its rewrite, not "unknown field … did you mean".
   if (Object.hasOwn(input, "ephemeralEnv"))
@@ -2245,13 +2352,15 @@ export async function runEvalWith<M extends Metrics>(
     const workspace = workspaceOf(input, host);
     const spec: ParsedEvalSpec = {
       ...input,
-      measure: shape.measure,
-      // Set even when absent: the caller's `checks` LIST must not survive the spread.
-      checks: shape.checks,
+      // Cleared first: the caller's `checks` LIST must not survive the spread.
+      checks: undefined,
+      ...shape,
       arms: resolvedArms,
       namespaces: mapValues(shape.arms, installNamespace),
       stubs,
       env,
+      probeAgent: probeOf(runner),
+      host,
       ...(workspace === undefined ? {} : { workspace }),
     };
     try {
@@ -2264,21 +2373,19 @@ export async function runEvalWith<M extends Metrics>(
   }
 }
 
+/** How a run learns whether its agent binary exists; an injected runner is not probed. */
+const probeOf = (runner: AgentRunner): (() => AgentProbe) =>
+  AGENT_PROBES.get(runner) ?? (() => ({ kind: "not-probed" }));
+
 /** The spec's workspace, parsed and prepared, or undefined when it sets none. */
 function workspaceOf(
   input: EvalSpec,
-  host: WorkspaceHost | undefined,
+  host: EvalHost | undefined,
 ): PreparedWorkspace | undefined {
   const ws = parseRepoWorkspace(input.experimental_workspace, "runEval");
   if (ws === undefined) return undefined;
-  if (host === undefined)
-    throw new Error(
-      "runEval: experimental_workspace needs the host that copies a repository — " +
-        "run the eval with `vigiles eval <file>` or pass its description to `paid_runEval` " +
-        "from vigiles/eval (vigiles#586)",
-    );
   return prepareWorkspace(ws, {
-    host,
+    host: hostFor(host, "experimental_workspace"),
     hasFixture: input.fixture !== undefined,
     cache: input.cache ?? "off",
     concurrency: input.concurrency ?? 1,
@@ -2332,7 +2439,6 @@ async function runResolvedEval(
   const retrying: RetryingRunner = (beforeAttempt) => (a) =>
     runWithRetry(a, runner, retries, backoffMs, beforeAttempt);
 
-  const units = buildUnits(spec.arms, trials);
   // What counts against `maxCostUsd`: a reported cost, or — for a run that
   // reported none, killed by the timeout — the cap it was given (vigiles#416).
   let charged = 0;
@@ -2347,19 +2453,20 @@ async function runResolvedEval(
   const worker = async (
     unit: Unit,
     signal: Readonly<AbortSignal>,
-  ): Promise<UnitResult<Metrics>> => {
+  ): Promise<UnitResult> => {
     if (stopped !== undefined) return { armName: unit.armName, skipped: true };
     // The run's own cap: the budget not yet charged. Past it the CLI ends the
     // turn and reports its cost; a run killed first is charged the cap.
     const cap =
       spec.maxCostUsd === undefined ? undefined : spec.maxCostUsd - charged;
-    const { row, usage, unanswered, costObserved, context } =
+    const { score, usage, unanswered, costObserved, context } =
       await executeTrial(
         spec,
         unit.arm,
         {
           index: unit.trialIndex,
           armName: unit.armName,
+          plan: unit.plan,
           signal,
           ...(cap === undefined ? {} : { maxBudgetUsd: cap }),
         },
@@ -2374,7 +2481,8 @@ async function runResolvedEval(
     return {
       armName: unit.armName,
       skipped: false,
-      row,
+      score,
+      caseId: unit.plan.caseId,
       usage,
       unanswered,
       costObserved,
@@ -2383,10 +2491,15 @@ async function runResolvedEval(
   };
 
   const lock = resolveLock(spec.lock);
+  // A case spec's lock holds the engine's fingerprint; without one, `check`
+  // throws here (never replays) and `update` runs but writes no lock.
+  const scoring = scoringLockOf(spec, lock);
   // Resolve the lock inputs only when the lock is active (off skips the
   // resolveHarness/hashDir work). `check` replays the committed report below
-  // without ever entering the run pool — so no model is driven in CI.
-  const inputs = lock.mode === "off" ? undefined : evalArmsInputs(spec, cfg);
+  // without ever entering the run pool — so no model is driven in CI, and no
+  // case is qualified: its key is read from git.
+  const inputs =
+    lock.mode === "off" ? undefined : evalArmsInputs(spec, cfg, scoring);
   return withEvalLock(
     {
       name: spec.name,
@@ -2395,29 +2508,96 @@ async function runResolvedEval(
       effort: cfg.effort,
       lock,
       refuse: (report: EvalReport) =>
-        unansweredInReport(report, spec.stubs) ?? contextInReport(report),
+        unansweredInReport(report, spec.stubs) ??
+        contextInReport(report) ??
+        unscoredInReport(report) ??
+        scoring.why,
     },
     async (): Promise<EvalReport> => {
-      const results = await runPool(units, concurrency, worker);
-      const { arms, totalCostUsd } = aggregateArms<Metrics>(
-        Object.keys(spec.arms),
-        results,
-      );
-      return {
-        name: spec.name ?? "eval",
-        trials,
-        arms: withNamespaces(arms, spec.namespaces),
-        totalCostUsd,
-        chargedUsd: Math.max(charged, totalCostUsd),
-        unknownCostRuns: results.filter(
-          (r) => !r.skipped && r.costObserved === false,
-        ).length,
-        aborted: stopped === "budget",
-        env: runEnvReportView(spec.env),
-        ...(spec.checks === undefined ? {} : { checks: spec.checks }),
-      };
+      const cases = await casesOf(spec, concurrency);
+      try {
+        const units = buildUnits(plansOf(spec, cases), spec.arms, trials);
+        const results = await runPool(units, concurrency, worker);
+        return evalReport(spec, {
+          trials,
+          charged,
+          aborted: stopped === "budget",
+          cases,
+          results,
+        });
+      } finally {
+        disposeCases(cases);
+      }
     },
   );
+}
+
+/** The qualified cases of a case spec; none for any other spec. */
+async function casesOf(
+  spec: ParsedEvalSpec,
+  concurrency: number,
+): Promise<readonly RunCase[]> {
+  if (spec.kind !== "cases") return [];
+  return prepareCases(spec.cases, {
+    host: hostFor(spec.host, "experimental_regressionCases"),
+    concurrency,
+    driven: EVAL_RUNTIME.name,
+    agent: spec.probeAgent(),
+  });
+}
+
+/** One plan shared by every trial of a `checks`/`measure` spec, or one per case. */
+function plansOf(
+  spec: ParsedEvalSpec,
+  cases: readonly RunCase[],
+): readonly TrialPlan[] {
+  if (spec.kind === "cases") return cases.map((c) => c.plan);
+  const { measure } = spec;
+  return [
+    {
+      task: spec.task,
+      workspace: spec.workspace,
+      score: (ctx) => Promise.resolve({ kind: "row", row: measure(ctx) }),
+    },
+  ];
+}
+
+/** The host a key needs, or the error that says how to run it with one. */
+function hostFor(host: EvalHost | undefined, key: string): EvalHost {
+  if (host !== undefined) return host;
+  throw new Error(
+    `runEval: ${key} needs the host that copies a repository — ` +
+      "run the eval with `vigiles eval <file>` or pass its description to `paid_runEval` " +
+      "from vigiles/eval (vigiles#586)",
+  );
+}
+
+/** What the pool left behind: the counts, the cases, every unit's result. */
+interface FinishedRun {
+  readonly trials: number;
+  readonly charged: number;
+  readonly aborted: boolean;
+  readonly cases: readonly RunCase[];
+  readonly results: readonly UnitResult[];
+}
+
+/** The finished run's report. */
+function evalReport(spec: ParsedEvalSpec, run: FinishedRun): EvalReport {
+  const armNames = Object.keys(spec.arms);
+  const { arms, totalCostUsd } = aggregateArms(armNames, run.results);
+  const done = run.results.filter((r): r is DoneResult => !r.skipped);
+  return {
+    name: spec.name ?? "eval",
+    trials: run.trials,
+    arms: withNamespaces(arms, spec.namespaces),
+    totalCostUsd,
+    chargedUsd: Math.max(run.charged, totalCostUsd),
+    unknownCostRuns: done.filter((r) => r.costObserved === false).length,
+    aborted: run.aborted,
+    env: runEnvReportView(spec.env),
+    ...(spec.checks === undefined ? {} : { checks: spec.checks }),
+    ...casesReport(run.cases, armNames, scoredOf(done)),
+  };
 }
 
 // --- trigger-rate: does a skill/behaviour actually FIRE across varied prompts ---

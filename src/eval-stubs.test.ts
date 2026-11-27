@@ -94,11 +94,12 @@ const looseSpec = (spec: unknown): EvalSpec =>
   // eslint-disable-next-line @typescript-eslint/consistent-type-assertions -- the shapes under test are exactly the ones the type rules out
   spec as EvalSpec;
 
-const base = (
-  extra: Partial<
-    Extract<EvalSpec, { readonly arms: object; readonly measure: object }>
-  > = {},
-): EvalSpec => ({
+type MeasureSpec = Extract<
+  EvalSpec,
+  { readonly arms: object; readonly measure: object }
+>;
+
+const base = (extra: Partial<MeasureSpec> = {}): MeasureSpec => ({
   arms: { a: {} },
   task: "file it",
   trials: 1,
