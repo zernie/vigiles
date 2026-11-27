@@ -130,25 +130,27 @@ async function qualifyAll(
 ): Promise<readonly RunCase[]> {
   const next = pending.at(0);
   if (next === undefined) return done;
-  const prepared = await qualifyOne(at, next).catch((e: unknown) => {
+  const built = await qualifyOne(at, next).catch((e: unknown) => {
     disposeCases(done);
     throw e;
   });
-  return qualifyAll(pending.slice(1), at, [
-    ...done,
-    runCase(at, next.entry, prepared),
-  ]);
+  return qualifyAll(pending.slice(1), at, [...done, built]);
 }
 
-/** Qualify one case; a refusal throws, naming the case. */
+/** Qualify one case and build its trial plan; a refusal or a throw removes its world. */
 async function qualifyOne(
   at: At,
   { entry, top }: { readonly entry: RegressionCaseEntry; readonly top: string },
-): Promise<PreparedCase> {
+): Promise<RunCase> {
   const q = await qualifyCase(at.host, { top, lock: at.lock }, entry);
   if (q.kind === "refused")
     throw new RegressionCaseRefusalError(entry.id, q.refusal);
-  return q.prepared;
+  try {
+    return runCase(at, entry, q.prepared);
+  } catch (e) {
+    q.prepared.dispose();
+    throw e;
+  }
 }
 
 function runCase(

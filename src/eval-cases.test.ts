@@ -257,6 +257,29 @@ describe("runEvalWith on regression cases: refused before any trial", () => {
   });
 });
 
+describe("runEvalWith on regression cases: a throw after qualification", () => {
+  it("a read error while building a case's trial plan removes that case and the ones built before it", async () => {
+    const reads: string[] = [];
+    const failsSecond: EvalHost = {
+      ...evalHost,
+      readWorld: (template) => {
+        reads.push(template.tree);
+        if (reads.length > 1) throw new Error("disk read failed");
+        return evalHost.readWorld(template);
+      },
+    };
+    const entries = [caseEntry("one"), caseEntry("two")];
+    const { run, calls } = agent(fixes);
+    const { thrown, left } = await refusedIn(() =>
+      runCases(entries, run, failsSecond),
+    );
+    expect(thrown).toMatchObject({ message: "disk read failed" });
+    expect(calls).toEqual([]);
+    // Guards: a throw past qualification still leaves no case world behind.
+    expect(left).toEqual([]);
+  });
+});
+
 describe("runEvalWith on regression cases: the lock", () => {
   const MISSING: EvalHost = {
     ...evalHost,
