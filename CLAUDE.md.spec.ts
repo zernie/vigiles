@@ -342,6 +342,14 @@ BUILD + TOOLING + GENERATED:
       },
     ),
 
+    "test-time-goal": guidance(
+      "Test time is a goal we track, not a gate: the CI `test` job and a local `npm test` each aim at 5 minutes wall-clock or less, reached step by step.",
+      {
+        details: file("docs/contributing/rules.md"),
+        anchor: "test-time-goal",
+      },
+    ),
+
     "conventional-commits": guidance(
       "Commit subjects AND PR titles are Conventional Commits — they drive the release version via `@semantic-release/commit-analyzer` off `main` (`feat` → minor, `fix` → patch, everything else no bump).",
       {
