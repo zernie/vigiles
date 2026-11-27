@@ -148,7 +148,8 @@ export function cloneTemplate(template: RepoTemplate, dest: string): void {
  * template, its index seeded from the template tree, then everything in the
  * trial dir staged on top, and the arm's own files forced in past
  * `.gitignore` (an ignored file outside the base would hide every later edit
- * to it). Returns the tree id and the arm paths as staged.
+ * to it). Returns the tree id and the arm-owned paths: each as staged and
+ * where writing it lands, since git reports a later edit at either.
  */
 export function recordTrialBase(
   template: RepoTemplate,
@@ -162,9 +163,11 @@ export function recordTrialBase(
   const shadow = [`--git-dir=${at.gitDir}`, `--work-tree=${at.cwd}`];
   git(at.cwd, [...shadow, "read-tree", template.tree]);
   git(at.cwd, [...shadow, "add", "-A"]);
-  const armPaths = at.armPaths.map((p) => physicalPath(at.cwd, p));
-  if (armPaths.length > 0)
-    git(at.cwd, [...shadow, "add", "-f", "--", ...armPaths]);
+  const staged = at.armPaths.map((p) => physicalPath(at.cwd, p));
+  if (staged.length > 0) git(at.cwd, [...shadow, "add", "-f", "--", ...staged]);
+  const armPaths = [
+    ...new Set([...staged, ...staged.map((p) => canonicalPath(at.cwd, p))]),
+  ];
   const baseTree = git(at.cwd, [...shadow, "write-tree"]).trim();
   recordIgnored(at.gitDir, shadow, at.cwd);
   return { baseTree, armPaths };
@@ -223,6 +226,17 @@ function ignoredNew(
 function physicalPath(cwd: string, path: string): string {
   const parent = realpathSync(join(cwd, dirname(path)));
   return relative(realpathSync(cwd), join(parent, basename(path)));
+}
+
+/**
+ * Where writing `path` lands: every link on the way resolved, the last one
+ * included (writing an arm file follows it). `path` itself when nothing is
+ * there.
+ */
+function canonicalPath(cwd: string, path: string): string {
+  const full = join(cwd, path);
+  if (!existsSync(full)) return path;
+  return relative(realpathSync(cwd), realpathSync(full));
 }
 
 /** A bare git dir that reads the template's objects through `alternates`. */

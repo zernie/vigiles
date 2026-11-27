@@ -55,7 +55,8 @@ export interface TrialWorkspaceView {
    * Paths where this trial's world differs from the workspace by
    * construction (the arm's files, `settings.json`, a materialised plugin):
    * an edit there is the arm's, not the agent's. Each is where the file
-   * really sits (a directory link on the way resolved), as git reports it.
+   * really sits, as git reports it: as staged, and where writing it lands
+   * (every link resolved, the last one included).
    */
   readonly armPaths: readonly string[];
 }

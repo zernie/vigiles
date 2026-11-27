@@ -186,6 +186,24 @@ describe("recordTrialBase on arm files under a linked directory", () => {
   });
 });
 
+describe("recordTrialBase on an arm file that is itself a link", () => {
+  it("records both the link and the file it writes, so an agent edit to either stays the arm's", () => {
+    const src = sourceRepo({ "config/notes.js": "base\n" });
+    const trial = startTrial(
+      src,
+      (cwd) => {
+        symlinkSync("config/notes.js", join(cwd, "arm.js"));
+        write(cwd, "arm.js", "arm\n");
+      },
+      ["arm.js"],
+    );
+    // Guards: writing an arm file follows its link, so the target is arm-owned too (Codex, #596).
+    expect([...trial.view.armPaths].sort((a, b) => a.localeCompare(b))).toEqual(
+      ["arm.js", "config/notes.js"],
+    );
+  });
+});
+
 describe("workspace git against the caller's git environment", () => {
   const keys = ["GIT_INDEX_FILE", "GIT_DIR", "GIT_WORK_TREE"] as const;
   const saved = keys.map((k) => process.env[k]);
