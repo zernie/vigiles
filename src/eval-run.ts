@@ -17,15 +17,16 @@
  *   5. runs the one declared measurement, overriding `trials` from
  *      `VIGILES_TRIALS` — which is why no eval file parses env or argv;
  *   6. prints the report with the formatter that matches the measurement;
- *   7. fails a run that executed ZERO trials, missed its context, or left a stub
- *      call unanswered (`runFailure` in `./eval-entry.ts`);
+ *   7. fails a run that executed ZERO trials, missed its context, left a case
+ *      trial unscored, or left a stub call unanswered (`runFailure` in
+ *      `./eval-entry.ts`);
  *   8. calls `assert(report)`; a throw is a failed run.
  */
 import { pathToFileURL } from "node:url";
 import { resolve } from "node:path";
 
 import { withEvalLoad, withVigilesRunner } from "./core/eval-load-phase.js";
-import type { WorkspaceHost } from "./core/workspace.js";
+import type { EvalHost } from "./core/eval-host.js";
 import {
   declaredEval,
   isEvalDefinition,
@@ -35,9 +36,11 @@ import {
   type SelectionMatrixSpec,
 } from "./eval-define.js";
 import {
+  checkCaseList,
   declarationProblem,
   driverMisplaced,
   notADescriptionMessage,
+  refusalText,
   runFailure,
   UNANSWERED_STUB_EXIT_CODE,
   UNANSWERED_STUB_VERB_EXIT,
@@ -66,7 +69,7 @@ interface DeclaredRun {
   readonly spec: unknown;
   readonly trials: number | undefined;
   readonly evalDriver: EvalDriver | undefined;
-  readonly host: WorkspaceHost | undefined;
+  readonly host: EvalHost | undefined;
 }
 
 /** Run the one declared measurement. The only place the paid runners are called. */
@@ -165,8 +168,8 @@ export interface RunDefinitionOptions {
   readonly label: string;
   /** Overrides the description's own `trials`. */
   readonly trials: number | undefined;
-  /** The machine side of `experimental_workspace`; without it that key is refused. */
-  readonly host: WorkspaceHost | undefined;
+  /** The machine side of `experimental_workspace` and the cases; without it those keys are refused. */
+  readonly host: EvalHost | undefined;
   /** The message for a value that is not a description. */
   readonly notADescription?: (why: string) => string;
 }
@@ -186,6 +189,10 @@ export async function runDefinition(
   try {
     return await runReady(exported, o);
   } catch (err) {
+    // A spec, a workspace or a case refused before any trial: a refusal
+    // names what to change, not a stack (exit 1 either way).
+    const refusal = refusalText(err);
+    if (refusal !== undefined) return refused(`✗ ${o.label}: ${refusal}`);
     // A throwing `skipIf`, a measurement that rejects (a model below
     // `minModel`, a failed start guard): a failed run, exit 1, as `vigiles eval`
     // exits on it — never a rejection a caller could catch and exit 0 on.
@@ -242,10 +249,7 @@ function preflight(
       o,
     );
   }
-  const misplaced = driverMisplaced(
-    declared.kind,
-    exported.evalDriver !== undefined,
-  );
+  const misplaced = misdeclared(declared.kind, exported, declared.spec);
   if (misplaced !== undefined) return refused(`✗ ${o.label}: ${misplaced}`);
   return (
     skipped(exported) ?? {
@@ -255,6 +259,19 @@ function preflight(
       spec: declared.spec,
     }
   );
+}
+
+/**
+ * What is wrong with a well-formed description, read before `skipIf`: a
+ * driver where it cannot be used, or (thrown) a malformed case list.
+ */
+function misdeclared(
+  kind: EvalKind,
+  def: EvalDefinition,
+  spec: unknown,
+): string | undefined {
+  checkCaseList(kind, spec);
+  return driverMisplaced(kind, def.evalDriver !== undefined);
 }
 
 /** The refusal for a value that is not a well-formed description. */

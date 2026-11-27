@@ -13,9 +13,11 @@ import { tmpdir } from "node:os";
 import { delimiter, dirname, join, resolve } from "node:path";
 
 import {
+  checkCaseList,
   declarationProblem,
   driverMisplaced,
   notADescriptionMessage,
+  refusalText,
   runFailure,
   runsIn,
   trialsOverride,
@@ -25,6 +27,9 @@ import {
 import type { EvalReport } from "./eval.js";
 import { aggregateUsage } from "./core/eval-aggregate.js";
 import { ARGV_REST, type StubCall } from "./core/stub-rules.js";
+import { EvalSpecRefusalError } from "./core/regression-case-entries.js";
+import { RegressionCaseRefusalError } from "./core/regression-case-refusal.js";
+import { WorkspaceRefusalError } from "./core/workspace.js";
 
 const DIST = resolve("dist");
 const ENTRY = join(DIST, "eval-program.js");
@@ -402,4 +407,73 @@ test("an eval file that exits 2 for its own reasons is not reported as an unansw
   });
   assert.equal(r.status, 1, r.stdout + r.stderr);
   assert.doesNotMatch(r.stdout + r.stderr, /unanswered stub call/);
+});
+
+test("refusalText: a refusal before any trial is its own line; any other throw is not a refusal", () => {
+  assert.match(
+    refusalText(new EvalSpecRefusalError("x")) ?? "",
+    /^spec refused/,
+  );
+  assert.match(
+    refusalText(
+      new WorkspaceRefusalError({
+        kind: "not-enough-disk",
+        neededBytes: 2,
+        freeBytes: 1,
+      }),
+    ) ?? "",
+    /^workspace refused/,
+  );
+  const caseRefusal = new RegressionCaseRefusalError("add", {
+    kind: "agent-binary-missing",
+    binary: "agent-cli",
+  });
+  assert.equal(refusalText(caseRefusal), caseRefusal.message);
+  assert.equal(refusalText(new Error("boom")), undefined);
+});
+
+test("checkCaseList refuses a malformed case list of runEval, and reads no other measurement", () => {
+  const malformed = { task: undefined, experimental_regressionCases: [{}] };
+  assert.throws(() => {
+    checkCaseList("runEval", malformed);
+  }, EvalSpecRefusalError);
+  assert.doesNotThrow(() => {
+    checkCaseList("measureTriggerRate", malformed);
+  });
+  assert.doesNotThrow(() => {
+    checkCaseList("runEval", { task: "t" });
+  });
+});
+
+test("runFailure fails a run that left a case trial unscored", () => {
+  const report: EvalReport = {
+    name: "e",
+    trials: 1,
+    totalCostUsd: 0,
+    aborted: false,
+    arms: {
+      default: {
+        runs: 1,
+        metrics: {},
+        stats: {},
+        usage: aggregateUsage([]),
+        unansweredStubCalls: [],
+      },
+    },
+    experimental_regressionCases: [
+      {
+        id: "add",
+        commit: "c",
+        head: "h",
+        source: ["src/"],
+        oracle: [],
+        markdownKeptAtHead: [],
+        controls: { red: [false], gold: [true], goldEdit: [true] },
+        build: { kind: "command" },
+        arms: { default: { solved: 0, scored: 0, unscored: 1 } },
+      },
+    ],
+  };
+  // Guards: a trial that could not be scored is never read as a measurement.
+  assert.equal(runFailure("f", "runEval", report, {})?.code, 1);
 });

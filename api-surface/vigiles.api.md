@@ -59,6 +59,35 @@ export function assertChecks<T>(target: T, checks: readonly Check<T>[]): void;
 export type BlockMechanism = "exit-code" | "deny-decision" | "halt-field";
 
 // @public
+export interface CaseArmResult {
+    readonly scored: number;
+    readonly solved: number;
+    readonly unscored: number;
+}
+
+// @public
+export interface CaseResult {
+    readonly arms: Readonly<Record<string, CaseArmResult>>;
+    readonly build: {
+        readonly kind: "command";
+    } | {
+        readonly kind: "none";
+        readonly reason: string;
+    };
+    readonly commit: string;
+    readonly controls: {
+        readonly red: readonly boolean[];
+        readonly gold: readonly boolean[];
+        readonly goldEdit: readonly boolean[];
+    };
+    readonly head: string;
+    readonly id: string;
+    readonly markdownKeptAtHead: readonly string[];
+    readonly oracle: readonly string[];
+    readonly source: readonly string[];
+}
+
+// @public
 export interface Check<T> {
     eval(target: T): CheckResult;
     readonly kind: string;
@@ -249,6 +278,7 @@ export interface EvalReport {
         readonly kind: "inherit";
         readonly reason: string;
     };
+    readonly experimental_regressionCases?: readonly CaseResult[];
     // (undocumented)
     readonly name: string;
     readonly totalCostUsd: number;
@@ -273,7 +303,6 @@ export type EvalSpec<M extends Metrics = Metrics> = {
     readonly fixture?: Record<string, string>;
     readonly experimental_workspace?: RepoWorkspace;
     readonly stubSkillBodies?: boolean;
-    readonly task: string;
     readonly trials?: number;
     readonly model?: string;
     readonly effort?: string | number;
@@ -306,10 +335,22 @@ export type EvalSpec<M extends Metrics = Metrics> = {
     readonly interceptTools?: readonly ToolIntercept[];
 }) & ({
     readonly checks: readonly Check<RunContext>[];
+    readonly task: string;
     readonly measure?: never;
+    readonly experimental_regressionCases?: never;
 } | {
     readonly measure: (ctx: RunContext) => M;
+    readonly task: string;
     readonly checks?: never;
+    readonly experimental_regressionCases?: never;
+} | {
+    readonly experimental_regressionCases: readonly RegressionCaseEntry[];
+    readonly task?: never;
+    readonly checks?: never;
+    readonly measure?: never;
+    readonly experimental_workspace?: never;
+    readonly fixture?: never;
+    readonly cache?: "off";
 });
 
 // @public
@@ -564,6 +605,44 @@ export function readSkillContract(skillDir: string, options?: SkillContractOptio
 
 // @public
 export function recordCheck(n?: number): void;
+
+// @public
+export type RegressionCaseEntry = RegressionCaseSpec & {
+    readonly id: string;
+};
+
+// @public
+export interface RegressionCaseSpec {
+    readonly build: {
+        readonly kind: "command";
+        readonly argv: readonly string[];
+    } | {
+        readonly kind: "none";
+        readonly reason: string;
+    };
+    readonly commit: string;
+    readonly deps: {
+        readonly kind: "node-modules";
+        readonly roots?: readonly string[];
+    } | {
+        readonly kind: "none";
+    };
+    readonly head: string;
+    readonly hide?: readonly string[];
+    readonly repo: string;
+    readonly runs?: number;
+    readonly scoringTimeoutMs?: number;
+    readonly source?: readonly string[];
+    readonly symptom: {
+        readonly kind: "file";
+        readonly path: string;
+    };
+    readonly testCommand: readonly string[];
+    readonly tests: {
+        readonly run: readonly string[];
+        readonly data: readonly string[];
+    };
+}
 
 // @public
 export interface RepoWorkspace {

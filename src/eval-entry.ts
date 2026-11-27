@@ -11,8 +11,16 @@ import type { EvalReport, TriggerRateReport } from "./eval.js";
 import {
   unansweredInReport,
   contextInReport,
+  unscoredInReport,
 } from "./core/eval-report-failures.js";
 import { parseToolStubs } from "./core/eval-spec-parse.js";
+import { EvalSpecRefusalError } from "./core/regression-case-entries.js";
+import { RegressionCaseRefusalError } from "./core/regression-case-refusal.js";
+import {
+  describeWorkspaceRefusal,
+  WorkspaceRefusalError,
+} from "./core/workspace.js";
+import { regressionCasesOf } from "./eval-spec-shape.js";
 import type { SelectionReport } from "./scan-behavioral.js";
 
 /** Every report this entry can produce. */
@@ -95,12 +103,9 @@ export function runFailure(
 ): { readonly code: number; readonly message: string } | undefined {
   // Checked before the zero-runs line: a run whose every trial missed its
   // instruction files has zero scored runs, and this is the reason why.
-  const context = isEvalReport(report) ? contextInReport(report) : undefined;
-  if (context !== undefined)
-    return {
-      code: 1,
-      message: `✗ ${file}: an instruction file missed the model's request — those trials are not scored.\n${context}`,
-    };
+  const integrity = integrityFailure(report);
+  if (integrity !== undefined)
+    return { code: 1, message: `✗ ${file}: ${integrity}` };
   if (runsIn(report) === 0)
     return {
       code: 1,
@@ -114,6 +119,40 @@ export function runFailure(
         code: UNANSWERED_STUB_EXIT_CODE,
         message: `✗ ${file}: stub call(s) went unanswered (listed above) — the report is not a measurement.`,
       };
+}
+
+/**
+ * Why a `runEval` report's trials are not scored, or undefined: an
+ * instruction file missed the model's request, or a regression case's tree
+ * could not be scored as the agent left it. Pure.
+ */
+function integrityFailure(report: AnyReport): string | undefined {
+  if (!isEvalReport(report)) return undefined;
+  const context = contextInReport(report);
+  return context === undefined
+    ? unscoredInReport(report)
+    : `an instruction file missed the model's request — those trials are not scored.\n${context}`;
+}
+
+/**
+ * The line of a refusal thrown before any trial — a malformed spec, a
+ * workspace or a case that cannot be run — or undefined for any other throw.
+ */
+export function refusalText(err: unknown): string | undefined {
+  if (err instanceof EvalSpecRefusalError)
+    return `spec refused —\n${err.message}`;
+  if (err instanceof WorkspaceRefusalError)
+    return `workspace refused — ${describeWorkspaceRefusal(err.refusal)}`;
+  if (err instanceof RegressionCaseRefusalError) return err.message;
+  return undefined;
+}
+
+/**
+ * Read a `runEval` spec's case list, so a malformed one throws its
+ * EvalSpecRefusalError before `skipIf` runs. Nothing for another measurement.
+ */
+export function checkCaseList(kind: EvalKind, spec: unknown): void {
+  if (kind === "runEval") regressionCasesOf(spec);
 }
 
 /**

@@ -5257,16 +5257,16 @@
       "count": 4
     },
     "functional/immutable-data": {
-      "count": 9
+      "count": 8
     },
     "functional/no-let": {
-      "count": 12
+      "count": 11
     },
     "functional/no-loop-statements": {
-      "count": 17
+      "count": 15
     },
     "functional/prefer-immutable-types": {
-      "count": 39
+      "count": 36
     },
     "local/no-harness-names": {
       "count": 18

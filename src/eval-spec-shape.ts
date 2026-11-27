@@ -7,7 +7,8 @@
  * two:
  *
  * - `arms`, or none (one arm, {@link DEFAULT_ARM}, configured at top level);
- * - `checks`, or `measure(ctx)`.
+ * - `checks`, `measure(ctx)`, or `experimental_regressionCases` (each case is
+ *   its own task, scored by its own oracle tests).
  *
  * The TYPE makes "both" and "neither" an error, but most eval files are plain
  * `.mjs` and nothing type-checks them — so the same shapes are refused at run
@@ -30,6 +31,11 @@
  */
 import { z } from "zod";
 import type { Check } from "./check.js";
+import {
+  EvalSpecRefusalError,
+  parseRegressionCases,
+  type RegressionCaseEntry,
+} from "./core/regression-case-entries.js";
 import type { CheckJSON } from "./core/eval-report.js";
 import type { Metrics } from "./core/eval-aggregate.js";
 import type { ToolIntercept } from "./tool-intercept.js";
@@ -51,14 +57,28 @@ export const SINGLE_ARM_KEYS = [
   "interceptTools",
 ] as const satisfies readonly (keyof EvalArm)[];
 
+/** How an eval spec scores its trials, after the boundary. */
+export type ShapeScoring =
+  | {
+      readonly kind: "trial";
+      /** The task prompt every trial is given. */
+      readonly task: string;
+      /** Scores one trial: the caller's `measure`, or each check's pass as 0/1. */
+      readonly measure: (ctx: RunContext) => Readonly<Metrics>;
+      /** Each check-scored metric key → its check; absent for `measure(ctx)`. */
+      readonly checks?: Readonly<Record<string, CheckJSON>>;
+    }
+  | {
+      readonly kind: "cases";
+      /** Each case is its own task, scored by its own oracle tests. */
+      readonly cases: readonly RegressionCaseEntry[];
+      readonly checks?: never;
+    };
+
 /** An eval spec's configurations and scoring, after the boundary. */
-export interface EvalShape {
+export type EvalShape = {
   readonly arms: Readonly<Record<string, EvalArm>>;
-  /** Scores one trial: the caller's `measure`, or each check's pass as 0/1. */
-  readonly measure: (ctx: RunContext) => Readonly<Metrics>;
-  /** Each check-scored metric key → its check; absent for `measure(ctx)`. */
-  readonly checks?: Readonly<Record<string, CheckJSON>>;
-}
+} & ShapeScoring;
 
 // ---------------------------------------------------------------------------
 // The schema
@@ -108,27 +128,77 @@ const ONE_ARM = z.object({
   interceptTools: z.array(z.custom<ToolIntercept>()).readonly().optional(),
 });
 
+const TASK = z.string({ error: "is the prompt given to the agent: a string." });
+
 const CHECKS = z.object({
+  task: TASK,
   checks: z
     .array(check, { error: CHECK_LIST })
     .min(1, { error: CHECK_LIST })
     .readonly(),
   measure: unset,
+  experimental_regressionCases: unset,
 });
 
 /** The spec's own `measure` type: written out here, the two could differ. */
 type MeasureFn = NonNullable<EvalSpec["measure"]>;
 
 const MEASURE = z.object({
+  task: TASK,
   measure: z.custom<MeasureFn>(isFunction, {
     error: "is a function of the run: `measure: (ctx) => ({ … })`.",
   }),
   checks: unset,
+  experimental_regressionCases: unset,
+});
+
+/** A field a regression-case eval does not take: set, it is refused with why. */
+const besideCases = (why: string): Readonly<z.ZodOptional<z.ZodUndefined>> =>
+  z.undefined({ error: why }).optional();
+
+/**
+ * The entries are checked in full by `parseRegressionCases`, which names each
+ * malformed field; here the branch only needs to know the key is a list.
+ */
+const CASES = z.object({
+  experimental_regressionCases: z.custom<readonly RegressionCaseEntry[]>(
+    (v) => Array.isArray(v),
+    { error: "is a list of regression cases." },
+  ),
+  task: besideCases(
+    "is not set beside regression cases: each case's symptom file is its task.",
+  ),
+  checks: besideCases(
+    "is not set beside regression cases: each case is scored by its oracle tests.",
+  ),
+  measure: besideCases(
+    "is not set beside regression cases: each case is scored by its oracle tests.",
+  ),
+  experimental_workspace: besideCases(
+    "is not set beside regression cases: each case builds its own world.",
+  ),
+  fixture: besideCases(
+    "is not set beside regression cases: a case's world is its repository.",
+  ),
+  cache: z
+    .literal("off", {
+      error:
+        'must be "off" beside regression cases: a cached trial replays a tree the agent never edited.',
+    })
+    .optional(),
 });
 
 const SCORING_REWRITE =
   '  checks: [check.tool("Bash"), …]   — the check vocabulary, each a 0/1 metric\n' +
-  "  measure: (ctx) => ({ … })          — your own metrics from each run";
+  "  measure: (ctx) => ({ … })          — your own metrics from each run\n" +
+  "  experimental_regressionCases: […]  — fix commits of your repo, each scored by its tests";
+
+/** The scoring keys, in the order of the union's branches. */
+const SCORING_KEYS = [
+  "checks",
+  "measure",
+  "experimental_regressionCases",
+] as const;
 
 /**
  * The fields of an eval spec that pick its arms and its scoring. Every other
@@ -137,7 +207,7 @@ const SCORING_REWRITE =
 export const EVAL_SHAPE = z
   .object({ stubSkillBodies: z.boolean().optional() })
   .and(z.union([ARMS, ONE_ARM], { error: (iss) => branchError(iss, "arms") }))
-  .and(z.union([CHECKS, MEASURE], { error: scoringError }))
+  .and(z.union([CHECKS, MEASURE, CASES], { error: scoringError }))
   .superRefine((spec, ctx) => {
     if (spec.stubSkillBodies !== true) return;
     const problem = stubProblem(spec);
@@ -198,12 +268,16 @@ function besideArmsMessage(issues: readonly z.core.$ZodIssue[]): string {
 
 /** Both or neither scoring is named with the rewrite; one malformed, by its field. */
 function scoringError(iss: UnionIssue): string {
-  const hasChecks = inputField(iss, "checks") !== undefined;
-  if (hasChecks === (inputField(iss, "measure") !== undefined)) {
-    const has = hasChecks ? "both" : "neither";
-    return `score each trial with exactly ONE of \`checks\` or \`measure\` — this spec has ${has}:\n${SCORING_REWRITE}`;
+  const set = SCORING_KEYS.filter((k) => inputField(iss, k) !== undefined);
+  const only = set.at(0);
+  if (set.length !== 1 || only === undefined) {
+    const has =
+      set.length === 0 ? "none" : set.map((k) => quoted([k])).join(" and ");
+    return `score each trial with exactly ONE of \`checks\`, \`measure\` or \`experimental_regressionCases\` — this spec has ${has}:\n${SCORING_REWRITE}`;
   }
-  return branchError(iss, "checks");
+  return (iss.errors[SCORING_KEYS.indexOf(only)] ?? [])
+    .map(describe)
+    .join("\n");
 }
 
 /** Why `stubSkillBodies: true` cannot do its job on this spec, if it cannot. */
@@ -238,6 +312,28 @@ export function shapeEvalSpec(spec: unknown): EvalShape {
   return { arms: armsOf(parsed.data), ...scoringOf(parsed.data) };
 }
 
+/**
+ * A regression-case spec's cases, or undefined for any other spec. Everything
+ * the case branch refuses, and every malformed entry, throws an
+ * {@link EvalSpecRefusalError}: the runner calls this before `skipIf`, so a
+ * spec that skips here does not hide its misconfiguration.
+ */
+export function regressionCasesOf(
+  spec: unknown,
+): readonly RegressionCaseEntry[] | undefined {
+  const raw: unknown =
+    typeof spec === "object" && spec !== null
+      ? Reflect.get(spec, "experimental_regressionCases")
+      : undefined;
+  if (raw === undefined) return undefined;
+  const parsed = EVAL_SHAPE.safeParse(spec);
+  if (!parsed.success)
+    throw new EvalSpecRefusalError(
+      parsed.error.issues.map(describe).join("\n"),
+    );
+  return parseRegressionCases(raw);
+}
+
 /** `arms` as given, or the one {@link DEFAULT_ARM} built from the top-level fields. */
 function armsOf(spec: EvalShapeInput): Readonly<Record<string, EvalArm>> {
   if (spec.arms !== undefined) return spec.arms;
@@ -257,12 +353,18 @@ function armsOf(spec: EvalShapeInput): Readonly<Record<string, EvalArm>> {
 }
 
 /** The scoring: the caller's `measure`, or the checks as 0/1 metrics by label. */
-function scoringOf(
-  spec: EvalShapeInput,
-): Pick<EvalShape, "measure" | "checks"> {
-  if (spec.measure !== undefined) return { measure: spec.measure };
-  const keyed = checkMetricKeys(spec.checks);
+function scoringOf(spec: EvalShapeInput): ShapeScoring {
+  if (spec.experimental_regressionCases !== undefined)
+    return {
+      kind: "cases",
+      cases: parseRegressionCases(spec.experimental_regressionCases) ?? [],
+    };
+  if (spec.measure !== undefined)
+    return { kind: "trial", task: spec.task, measure: spec.measure };
+  const keyed = checkMetricKeys(spec.checks ?? []);
   return {
+    kind: "trial",
+    task: spec.task,
     measure: (ctx) =>
       Object.fromEntries(keyed.map(([k, c]) => [k, c.eval(ctx).pass])),
     checks: Object.fromEntries(keyed.map(([k, c]) => [k, c.toJSON()])),

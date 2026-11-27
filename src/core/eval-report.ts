@@ -138,6 +138,65 @@ export interface EvalReport {
    * `measure(ctx)`.
    */
   readonly checks?: Readonly<Record<string, CheckJSON>>;
+  /**
+   * Present when the run measured `experimental_regressionCases`: one entry per
+   * case, in the spec's order — what was measured and how each arm did on it.
+   * The arm's pooled `case.*` metrics are in `arms`; this says which case moved.
+   *
+   * @experimental
+   */
+  readonly experimental_regressionCases?: readonly CaseResult[];
+}
+
+/**
+ * One arm on one regression case: its trials that were scored, how many of
+ * them solved the case, and the trials left unscored for integrity.
+ *
+ * @experimental
+ * @public
+ */
+export interface CaseArmResult {
+  /** Scored trials whose tree passed the case's tests. */
+  readonly solved: number;
+  /** Trials scored at all: solved or not. */
+  readonly scored: number;
+  /** Trials whose tree could not be scored as the agent left it; any one fails the run. */
+  readonly unscored: number;
+}
+
+/**
+ * One regression case of a run, as the report keeps it: the commits, the
+ * resolved paths, the controls that qualified it, and each arm's result. A
+ * replayed lock prints from it, so it shows what was measured.
+ *
+ * @experimental
+ * @public
+ */
+export interface CaseResult {
+  /** The entry's `id`. */
+  readonly id: string;
+  /** The fix commit the case measures. */
+  readonly commit: string;
+  /** The commit the world was built at. */
+  readonly head: string;
+  /** Where an agent's edit is kept from: the declared globs, or the fix's own top-level paths. */
+  readonly source: readonly string[];
+  /** The fix's test files, run as the oracle. */
+  readonly oracle: readonly string[];
+  /** Markdown files of the fix kept as they are at `head`. */
+  readonly markdownKeptAtHead: readonly string[];
+  /** Solved per control run: the world as is, with the fix, with the fix and a test edit. */
+  readonly controls: {
+    readonly red: readonly boolean[];
+    readonly gold: readonly boolean[];
+    readonly goldEdit: readonly boolean[];
+  };
+  /** Whether the world ran a build; a command's argv is left out of the report. */
+  readonly build:
+    | { readonly kind: "command" }
+    | { readonly kind: "none"; readonly reason: string };
+  /** Each arm's result on this case, keyed by arm name. */
+  readonly arms: Readonly<Record<string, CaseArmResult>>;
 }
 
 /**

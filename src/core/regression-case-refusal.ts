@@ -255,3 +255,24 @@ function describeOutdated(o: Outdated): string {
 /** `[true, false]` → `1/2`: how many runs passed. */
 const runs = (results: readonly boolean[]): string =>
   `${String(results.filter(Boolean).length)}/${String(results.length)}`;
+
+/**
+ * The thrown form: a case of an eval refused, so the whole run is refused.
+ * `id` is undefined when the refusal is the run's, not one case's (the agent
+ * binary is missing).
+ */
+export class RegressionCaseRefusalError extends Error {
+  override readonly name = "RegressionCaseRefusalError";
+  constructor(
+    readonly id: string | undefined,
+    readonly refusal: RegressionCaseRefusal,
+  ) {
+    super(
+      `${subjectOf(id)} refused — ${describeRegressionCaseRefusal(refusal)}`,
+    );
+  }
+}
+
+/** What a refusal is about: one case, or the run's cases as a whole. */
+const subjectOf = (id: string | undefined): string =>
+  id === undefined ? "regression cases" : `regression case ${id}`;

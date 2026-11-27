@@ -40,3 +40,25 @@ export function contextInReport(
     ? undefined
     : `${lines}\n  Those trials are not scored: no lock is written, and the eval fails.`;
 }
+
+/**
+ * The author-facing failure for a regression-case report where a trial's
+ * tree could not be scored as the agent left it, or undefined (vigiles#416).
+ * Such a trial is left out of every rate, so a run that has one is not a
+ * measurement: the lock's refusal and `vigiles eval` read this.
+ */
+export function unscoredInReport(
+  report: Pick<EvalReport, "experimental_regressionCases">,
+): string | undefined {
+  const lines = (report.experimental_regressionCases ?? []).flatMap((c) =>
+    Object.entries(c.arms)
+      .filter(([, a]) => a.unscored > 0)
+      .map(
+        ([arm, a]) =>
+          `  ${c.id} / ${arm}: ${String(a.unscored)} trial(s) left unscored`,
+      ),
+  );
+  return lines.length === 0
+    ? undefined
+    : `a trial's tree could not be scored as the agent left it (an unstaged path, a link out of the world, or an unhealthy scoring tree):\n${lines.join("\n")}\n  Those trials are not scored: no lock is written, and the eval fails.`;
+}

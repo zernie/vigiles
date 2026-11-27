@@ -315,24 +315,28 @@ The types below describe these: `EmitFieldSchema`, `EmitObjectSchema`, `EmitProp
 
 ### Types: results of a run
 
-| Type                 | What it describes                                                                                                                                    |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ScriptRunResult`    | What `runScript` returns.                                                                                                                            |
-| `HookRunResult`      | What `runHook` returns: a script result plus decision, `blocked`, delivery.                                                                          |
-| `HarnessTestResult`  | What `runHarnessTest` returns; a `Trace` that owns its temp directory.                                                                               |
-| `Trace`              | The record of one agent run: tool calls, hooks, skills, output, turns.                                                                               |
-| `SubagentTrace`      | The part of a trace belonging to one subagent.                                                                                                       |
-| `ToolCall`           | One tool call with its input and result.                                                                                                             |
-| `HookFire`           | One hook invocation seen in a run.                                                                                                                   |
-| `SkillFire`          | One skill activation.                                                                                                                                |
-| `SkillFacts`         | Which skills fired, or why the harness cannot tell.                                                                                                  |
-| `ModelRequest`       | What the harness sent to the scripted model.                                                                                                         |
-| `ModelTurn`          | One scripted model turn: text, or a tool call.                                                                                                       |
-| `ContextEvidence`    | Whether expected context files reached the model's first request.                                                                                    |
-| `UnobservableWhy`    | Why context delivery could not be observed.                                                                                                          |
-| `RunContext`         | What an eval `measure` or check callback receives for each trial.                                                                                    |
-| `RepoWorkspace`      | A commit of your own repo as every trial's world ([`experimental_workspace`](eval.md#run-the-trials-in-your-own-repository-experimental_workspace)). |
-| `TrialWorkspaceView` | A workspace trial's tree from before the agent ran, for diffing its edits (same section).                                                            |
+| Type                  | What it describes                                                                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ScriptRunResult`     | What `runScript` returns.                                                                                                                               |
+| `HookRunResult`       | What `runHook` returns: a script result plus decision, `blocked`, delivery.                                                                             |
+| `HarnessTestResult`   | What `runHarnessTest` returns; a `Trace` that owns its temp directory.                                                                                  |
+| `Trace`               | The record of one agent run: tool calls, hooks, skills, output, turns.                                                                                  |
+| `SubagentTrace`       | The part of a trace belonging to one subagent.                                                                                                          |
+| `ToolCall`            | One tool call with its input and result.                                                                                                                |
+| `HookFire`            | One hook invocation seen in a run.                                                                                                                      |
+| `SkillFire`           | One skill activation.                                                                                                                                   |
+| `SkillFacts`          | Which skills fired, or why the harness cannot tell.                                                                                                     |
+| `ModelRequest`        | What the harness sent to the scripted model.                                                                                                            |
+| `ModelTurn`           | One scripted model turn: text, or a tool call.                                                                                                          |
+| `ContextEvidence`     | Whether expected context files reached the model's first request.                                                                                       |
+| `UnobservableWhy`     | Why context delivery could not be observed.                                                                                                             |
+| `RunContext`          | What an eval `measure` or check callback receives for each trial.                                                                                       |
+| `RepoWorkspace`       | A commit of your own repo as every trial's world ([`experimental_workspace`](eval.md#run-the-trials-in-your-own-repository-experimental_workspace)).    |
+| `TrialWorkspaceView`  | A workspace trial's tree from before the agent ran, for diffing its edits (same section).                                                               |
+| `RegressionCaseEntry` | One fix of your own repo as a scored case ([`experimental_regressionCases`](eval.md#measure-the-agent-on-your-own-fixes-experimental_regressioncases)). |
+| `RegressionCaseSpec`  | The fields of a case besides its `id` (same section).                                                                                                   |
+| `CaseResult`          | One case in the report: its commits, paths, controls and each arm's result (same section).                                                              |
+| `CaseArmResult`       | One arm on one case: `solved`, `scored`, `unscored` (same section).                                                                                     |
 
 ### Types: inputs and options
 
