@@ -39,11 +39,14 @@ type Featured = {
   repo?: string;
 };
 
-// A real F → C → B → A scale on repos people recognize — so the default shows
-// vigiles CATCHING something (not a wall of A's that reads as "everything's fine"),
-// and the A at the end proves the grade is earnable. davila7 (F) leads: its skills/
-// dir is hidden inside .claude-plugin/ where the harness can't load it, and two
-// subagents list a tool that doesn't exist — "valid files, silently broken".
+// A real low-to-high scale on repos people recognize (C → B → B → A as graded
+// on 2026-11-27) — so the default shows vigiles CATCHING something (not a wall
+// of A's that reads as "everything's fine"), and the A at the end proves the
+// grade is earnable. davila7 (C) leads: a functional dir sits inside
+// .claude-plugin/ where the harness can't load it, and three subagents have
+// frontmatter that is not valid YAML, so their `tools:` is unread and every tool
+// is inherited — "valid files, silently broken". The grades are whatever today's
+// `vigiles audit --json` prints; never hand-edit a baked report.
 const FEATURED: Featured[] = [
   {
     slug: "davila7/claude-code-templates",
@@ -116,6 +119,18 @@ function gradeTone(grade: string): string {
 }
 
 // ---------------------------------------------------------------------------
+
+/** The report a settled frame shows: the typed run's audit, or a baked chip's. */
+function frameReport(view: View): AuditReport {
+  return view.k === "report"
+    ? view.audit
+    : FEATURED[(view as { i: number }).i].report;
+}
+
+/** Every finding line the rings counted — the "Show everything" count. */
+function findingCount(report: AuditReport): number {
+  return report.score.categories.reduce((n, c) => n + c.findings.length, 0);
+}
 
 /** A quiet inline copy affordance for `npx vigiles audit` (edge-state frames). */
 function InlineCommand() {
@@ -298,10 +313,6 @@ export function DemoAudit({
 } = {}) {
   const [view, setView] = useState<View>({ k: "featured", i: 0 });
   const [loadingVisible, setLoadingVisible] = useState(false);
-  // Public/Private tabs — one input affordance at a time, so the hero doesn't
-  // stack the type-a-repo input, its caption, the command hand-off, AND a privacy
-  // line all at once. Public = grade a public repo live; Private = copy the command.
-  const [tab, setTab] = useState<"public" | "private">("public");
   // Live star counts per featured slug (from the module memo, filled on mount).
   const [stars, setStars] = useState<Record<string, number>>(() =>
     Object.fromEntries(
@@ -484,77 +495,24 @@ export function DemoAudit({
   const inner = (
     <>
       {variant === "section" && (
-        <div className="mx-auto max-w-2xl text-center">
-          <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
-            What&apos;s broken in your agent setup?
-          </h2>
-          <p className="mt-4 text-lg leading-relaxed text-muted-foreground">
-            <span className="text-foreground">vigiles</span> grades a
-            repo&apos;s <span className="text-foreground">Claude Code</span>{" "}
-            setup — the skills, hooks, and instructions — and flags what&apos;s{" "}
-            <span className="text-foreground">
-              broken, mistyped, or leaking secrets
-            </span>{" "}
-            before it bites your agent. Try any public repo right here; the CLI
-            grades Codex too.
-          </p>
-        </div>
+        <h2 className="section-title text-center">
+          Grade a public repo
+          <br />
+          in your browser.
+        </h2>
       )}
 
-      {/* Public/Private tabs — show ONE affordance at a time (was: input + caption
-          + command hand-off + privacy line all stacked, which read as crowded). */}
-      <div
-        role="tablist"
-        aria-label="How to grade your repo"
-        className="mx-auto mt-8 flex w-full max-w-[28rem] rounded-lg border border-border bg-card/40 p-1 text-sm"
-      >
-        {(["public", "private"] as const).map((t) => (
-          <button
-            key={t}
-            type="button"
-            role="tab"
-            aria-selected={tab === t}
-            onClick={() => setTab(t)}
-            className={cn(
-              "flex-1 rounded-md px-3 py-1.5 font-medium transition-colors",
-              tab === t
-                ? "bg-accent/15 text-foreground"
-                : "text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {t === "public" ? "Public repo" : "Private / local"}
-          </button>
-        ))}
-      </div>
+      {/* ONE input line. The Public/Private tabs that sat here hid the private
+          answer behind a click; the private answer is one sentence, so it is a
+          line under the result now (see the end of this component). */}
+      <RepoCombobox onSubmit={run} />
 
-      {tab === "public" ? (
-        <RepoCombobox onSubmit={run} />
-      ) : (
-        <div className="mx-auto mt-5 w-full max-w-[28rem] text-center">
-          <p className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
-            <Lock className="h-3.5 w-3.5" aria-hidden />
-            Grade it in your terminal — nothing leaves your machine:
-          </p>
-          <div className="mt-3 flex justify-center">
-            <InlineCommand />
-          </div>
-          <p className="mt-2 text-xs text-muted-foreground/70">
-            Reads your working copy off disk. Private repos, Codex, any harness.
-          </p>
-        </div>
-      )}
-
-      {/* Featured chips as a lightweight LEADERBOARD — real popular plugins with
-            their real grades. Reframes the one-tap examples as "here's how the
-            ecosystem scores; where does yours land?" (social proof + the ranking
-            nudge), and the grade letters explain themselves. Wrap + centered so a
-            chip never clips at the mobile edge.
-
-            The caption "Popular plugins, graded — tap to see why:" sat here
-            until 2026-09-09. It said what the chips already say: each one
-            carries its own grade letter, and a chip is self-evidently tappable.
-            Cut in the pass that gave the page one fold-level idea per element. */}
-      <div className="mt-8 flex flex-wrap justify-center gap-2">
+      {/* The featured repos as quiet text links with their real grade as a
+          superscript: "here is how known setups score". Each keeps
+          `aria-pressed` and an `aria-label="grade X"` on its letter, which the
+          tests and screen readers read. */}
+      <p className="mt-5 flex flex-wrap items-baseline justify-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+        <span>Or try</span>
         {FEATURED.map((f, i) => {
           const active = frameView.k === "featured" && frameView.i === i;
           const grade = f.report.score.grade;
@@ -566,39 +524,35 @@ export function DemoAudit({
               onClick={() => pickChip(i)}
               aria-pressed={active}
               className={cn(
-                "inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 font-mono text-sm transition-colors",
-                active
-                  ? "border-accent/60 bg-accent/10 text-foreground"
-                  : "border-border text-muted-foreground hover:border-accent/40 hover:text-foreground",
+                "font-mono underline-offset-4 transition-colors hover:text-foreground hover:underline",
+                active && "text-foreground underline",
               )}
             >
               {f.label}
-              {/* Live GitHub stars — social proof beside the grade. Appears only
-                  once fetched (degraded-safe), so the chip never shows a fake 0. */}
               {starCount !== undefined && (
                 <span
-                  className="inline-flex items-center gap-1 text-muted-foreground"
+                  className="ml-1 inline-flex items-center gap-0.5 text-xs text-muted-foreground"
                   aria-label={`${String(starCount)} GitHub stars`}
                 >
                   <Star className="h-3 w-3" aria-hidden />
                   {formatStars(starCount)}
                 </span>
               )}
-              <span
-                className={cn("font-bold", gradeTone(grade))}
+              <sup
+                className={cn("ml-0.5 font-bold", gradeTone(grade))}
                 aria-label={`grade ${grade}`}
               >
                 {grade}
-              </span>
+              </sup>
             </button>
           );
         })}
-      </div>
+      </p>
 
       {/* The report frame — one component, every state renders inside it (no
             toast, no layout jump). */}
-      <div className="reveal mt-8 overflow-hidden rounded-2xl border border-border bg-background shadow-2xl">
-        <div className="flex items-center justify-between gap-3 border-b border-border bg-card/40 px-5 py-2.5 text-xs text-muted-foreground">
+      <div className="reveal sheet mt-10 overflow-hidden">
+        <div className="flex items-center justify-between gap-3 border-b border-border px-5 py-3 text-xs text-muted-foreground sm:px-10">
           {/* Identify the graded repo + its SOURCE (example chip vs your typed repo)
               — not the redundant `$ vigiles audit <slug>` command, which just repeats
               the highlighted chip / the input above. */}
@@ -628,19 +582,34 @@ export function DemoAudit({
         ) : isEdge ? (
           <EdgeState view={frameView as TerminalView} />
         ) : (
-          <div className="px-5 py-7 sm:px-9 sm:py-9">
+          <div className="px-5 py-7 sm:px-10 sm:py-10">
             {/* The summary variant owns its own declutter (compact header,
                   borderless category strip, top-3 fixes, and the model-gated
                   locked tease that replaces the old AGradeNote + lock-row). */}
             <Report
               variant="summary"
               showFooter={false}
-              data={
-                frameView.k === "report"
-                  ? frameView.audit
-                  : FEATURED[(frameView as { i: number }).i].report
-              }
+              data={frameReport(frameView)}
             />
+            {/* Everything else the engine found, one tap away: the same
+                AuditReport JSON in the full variant. */}
+            <details className="group mt-8 border-t border-border pt-5">
+              <summary className="cursor-pointer text-sm font-medium text-accent">
+                Show everything
+                <span className="text-muted-foreground">
+                  {" "}
+                  · {findingCount(frameReport(frameView))} findings ↓
+                </span>
+              </summary>
+              <div className="mt-6">
+                <Report
+                  variant="full"
+                  ownsTitle={false}
+                  showFooter={false}
+                  data={frameReport(frameView)}
+                />
+              </div>
+            </details>
           </div>
         )}
       </div>
@@ -648,6 +617,15 @@ export function DemoAudit({
       {/* Shareability is the growth loop — a graded result is a public link that
           auto-runs. Surface a one-tap share on any report/featured view. */}
       {canShare && <ShareRow slug={headerSlug(frameView)} />}
+
+      <p className="mt-8 text-center text-sm text-muted-foreground">
+        <Lock className="mr-1.5 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
+        Private repo? Run{" "}
+        <code className="font-mono text-foreground">
+          npx vigiles audit
+        </code>{" "}
+        inside it. Nothing leaves your machine.
+      </p>
     </>
   );
 
@@ -662,13 +640,8 @@ export function DemoAudit({
   }
 
   return (
-    <section
-      id="try"
-      className="scroll-mt-20 border-t border-border bg-card/30"
-    >
-      <div className="mx-auto w-full max-w-4xl px-6 py-20 sm:py-28">
-        {inner}
-      </div>
+    <section id="try" className="band band-tint scroll-mt-20">
+      <div className="mx-auto w-full max-w-3xl px-6">{inner}</div>
     </section>
   );
 }

@@ -1,79 +1,111 @@
-import { Star } from "lucide-react";
-import { LANGUAGES } from "@/lib/linters";
-import { DemoAudit } from "@/components/sections/DemoAudit";
+import { useEffect, useState, type ReactNode } from "react";
+import { Copy, Check } from "lucide-react";
+import { Term, useCopy } from "@/components/Term";
 
 const REPO = "https://github.com/zernie/vigiles";
 
-/**
- * The one-line chip under the headline — its OWN component so a test can render
- * it without mounting `Hero`, which pulls in `DemoAudit` (network on mount:
- * `fetchStars` per featured chip, plus an idb sweep). Same move, same reason as
- * `Guard.tsx` exporting fixture-pinned data for its own tests: the consumer
- * stays covered, the test stays deterministic.
- *
- * What `Hero.browser.test.ts` asserts on it: every language the engine covers is
- * RENDERED here. That is the consumer half of the guarantee — `linters.browser
- * .test.ts` checks the VALUE of `LANGUAGES`, this checks the page shows it. A
- * root test used to check the same thing by regexing this file's SOURCE for an
- * import line; that made a root job depend on a site file and let a site-only PR
- * merge green over a broken root test (#219).
- */
-export function HeroChip() {
+// Real output of `node dist/cli.js audit .`, captured 2026-11-27 on a fixture
+// repo: a subagent `reviewer` listing tools Read, Grep, Bassh (typo) and a skill
+// `release` whose description is "Helps.". Re-capture it the same way; never
+// hand-edit the numbers.
+const AUDIT_OUTPUT = `$ npx vigiles audit
+  ● Truthfulness   100  ██████████████████████
+  ● Triggering      90  ████████████████████░░
+       └ 1 skill with no usable description (can't trigger)
+  ◑ Structure       89  ████████████████████░░
+       └ 1 unavailable agent tool (typo / never-available)
+  ● Safety          90  ████████████████████░░
+
+Harness health: C (72/100)
+
+✗ [FIX] reviewer
+    why: Tool "Bassh" matches no known name — the subagent never gets it. Did you mean "Bash"?
+    →    In "reviewer", change the tool "Bassh" to "Bash"`;
+
+/** One output line, tinted by what it is. Colour is presentation only. */
+function AuditLine({ line }: { line: string }): ReactNode {
+  if (line.startsWith("$ ")) {
+    return (
+      <>
+        <span className="t-mut">$</span>
+        {line.slice(1)}
+      </>
+    );
+  }
+  if (line.includes("└")) return <span className="t-mut">{line}</span>;
+  if (line.startsWith("Harness health"))
+    return <b className="t-warn font-bold">{line}</b>;
+  if (line.startsWith("✗")) return <span className="t-bad">{line}</span>;
+  const glyph = line.match(/^ {2}([●◑])/);
+  if (glyph) {
+    return (
+      <>
+        {"  "}
+        <span className={glyph[1] === "●" ? "t-ok" : "t-warn"}>{glyph[1]}</span>
+        {line.slice(3)}
+      </>
+    );
+  }
+  return line;
+}
+
+const WORDS = ["Claude Code", "Codex"] as const;
+const SWAP_MS = 2600;
+const FADE_MS = 350;
+
+/** The headline's harness name: cross-fades Claude Code ⇄ Codex, still when
+ *  the visitor prefers reduced motion. */
+function SwapWord() {
+  const [i, setI] = useState(0);
+  const [out, setOut] = useState(false);
+  useEffect(() => {
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    let fade: number | undefined;
+    const tick = window.setInterval(() => {
+      setOut(true);
+      fade = window.setTimeout(() => {
+        setI((n) => (n + 1) % WORDS.length);
+        setOut(false);
+      }, FADE_MS);
+    }, SWAP_MS);
+    return () => {
+      window.clearInterval(tick);
+      window.clearTimeout(fade);
+    };
+  }, []);
   return (
-    <p className="mt-5 px-6 text-center text-sm text-muted-foreground">
-      {[
-        "Claude Code · Codex",
-        // The languages, NAMED. This chip read "Any language · 11 linter
-        // catalogs" until 2026-09-08 — an overclaim ("any" is eleven
-        // specific ecosystems) wrapped around a term a cold visitor cannot
-        // gloss. A Python developer scanning on a phone has to see the word
-        // Python before deciding to scroll, and never did: Ruff and Pylint
-        // were named only in a strip two screens down.
-        //
-        // Still DERIVED, never typed — `LANGUAGES` is computed from the
-        // engine's `BUILTIN_LINTERS`, and `linters.browser.test.ts` fails
-        // if a shipped linter has no language decision, so a new linter
-        // cannot leave a stale list on the first screen. Same guarantee the
-        // count had; more useful answer.
-        LANGUAGES.join(" · "),
-        "MIT",
-      ].join(" · ")}
-    </p>
+    <span
+      className={`inline-block text-accent transition-[opacity,transform] duration-[350ms] motion-reduce:transition-none ${out ? "translate-y-[0.25em] opacity-0" : ""}`}
+    >
+      {WORDS[i]}
+    </span>
   );
 }
 
+const NAV_LINK =
+  "ml-[22px] text-sm text-muted-foreground no-underline transition-colors hover:text-foreground";
+
 export function Hero() {
+  const cmd = useCopy("npx vigiles audit");
   return (
-    <header className="hero-glow relative overflow-hidden">
-      {/* Top nav — logo + a single quiet star pill (the only GitHub CTA up top). */}
-      <nav className="mx-auto flex w-full max-w-6xl items-center justify-between px-6 py-6">
-        <a href="/" className="flex items-center gap-2.5 no-underline">
+    <header className="mx-auto w-full max-w-[1180px] px-6">
+      <nav className="flex items-center justify-between py-[22px]">
+        <a href="./" className="flex items-center gap-2 no-underline">
           <img
             src="./logo.png"
             alt=""
-            className="h-8 w-8 rounded-md"
-            width={32}
-            height={32}
+            className="h-7 w-7 rounded-md"
+            width={28}
+            height={28}
           />
-          <span className="text-lg font-semibold tracking-tight">vigiles</span>
+          <span className="text-sm font-semibold">vigiles</span>
         </a>
-        <div className="flex items-center gap-5">
-          <a
-            href="#try"
-            className="hidden text-sm font-medium text-muted-foreground no-underline transition-colors hover:text-foreground sm:inline"
-          >
-            Grade a repo
-          </a>
-          {/* The docs are a directory away and used to be unreachable from the
-              top of the page — a visitor who wanted detail had to guess. This
-              pointed at an in-page `#docs` section until 2026-09-09; that
-              section was a link list the footer already carried, so it went,
-              and the nav now goes where it always meant to. */}
+        <span>
           <a
             href={`${REPO}/blob/main/docs/README.md`}
             target="_blank"
             rel="noopener noreferrer"
-            className="hidden text-sm font-medium text-muted-foreground no-underline transition-colors hover:text-foreground sm:inline"
+            className={NAV_LINK}
           >
             Docs
           </a>
@@ -81,103 +113,46 @@ export function Hero() {
             href={REPO}
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 rounded-full border border-border px-3.5 py-1.5 text-sm font-medium text-muted-foreground no-underline transition-colors hover:border-accent/50 hover:text-foreground"
+            className={NAV_LINK}
           >
-            <Star className="h-3.5 w-3.5" aria-hidden />
-            Star on GitHub
+            GitHub
           </a>
-        </div>
+        </span>
       </nav>
 
-      {/* Hero content — headline + ONE primary action, then the real product shot. */}
-      <div className="mx-auto flex w-full max-w-3xl flex-col items-center px-6 pb-10 pt-14 text-center sm:pt-20">
-        {/* The headline names the FELT problem, not the tool's verbs. It used
-            to read "Audit, test and measure your agent harness" — accurate, and
-            a stranger could not tell from it whether this was about their
-            CLAUDE.md or about model evals. The pain sentence that used to open
-            the paragraph is the headline now; the verbs live one screen down in
-            the verb map, where a reader who has decided to care will read them. */}
-        <h1 className="text-balance text-4xl font-bold leading-[1.05] tracking-tight sm:text-6xl">
-          {/* Two block spans, not a <br>: the setup and the punchline break at
-              EVERY width. A responsive <br> collapsed them onto one line on a
-              phone, where "…every PR. Nobody reviews…" reads as one run-on. */}
-          <span className="block text-muted-foreground">
-            You review every PR.
-          </span>
-          <span className="block">Nobody reviews your CLAUDE.md.</span>
+      <div className="mx-auto max-w-[860px] pt-8 text-center sm:pt-[104px]">
+        <h1 className="mb-4 text-[clamp(36px,7vw,88px)] sm:mb-6 font-bold leading-[1.02] tracking-[-0.045em]">
+          Lint and test your <br />
+          <SwapWord /> setup.
         </h1>
-
-        {/* Three facts, one sentence each: what it checks, what it proved, and
-            how little work adopting it is.
-
-            ── THE CLAIM ─────────────────────────────────────────────────
-            Only two, and neither is about anyone else: vigiles checks the
-            things a skill or hook NAMES, and the disaster battery scored
-            2 of 7 against 7 of 7.
-
-            ── WHAT BACKS IT ─────────────────────────────────────────────
-            The battery is `src/hook-dogfood.test.ts`, model-free, in CI, and
-            the same numbers render in the proof section from
-            `Guard.tsx`'s CI-pinned rows. The reason the sentence claims
-            nothing about OTHER tools is `node tools/measure-validate-overlap.mjs`
-            (Claude Code 2.1.263, 2026-09-08): on a repo-local `.claude/`
-            harness `claude plugin validate` flagged 0 of 7 planted defects,
-            and on a packaged plugin exactly 1 — a typo'd hook event. One
-            genuine overlap is a fine thing to state where it can be stated
-            precisely, which is the problem section, not here.
-
-            ── WHAT THE EARLIER VERSION SAID, AND WHY IT WAS WRONG ───────
-            "Nothing checks that the tools, events, files and rules your skills
-            and hooks name actually exist." Two separate faults. It is a
-            universal negative over every tool that exists, which nobody can
-            measure and which therefore should never have been written. And on
-            its own terms it is false for one of its four nouns: EVENTS are
-            checked, in plugin form. The reader most likely to notice is a
-            plugin author — the exact reader this page is for — and the command
-            that disproves it is already on their machine.
-
-            ── WHAT WOULD INVALIDATE IT ──────────────────────────────────
-            A change to the battery would move 2/7 or 7/7; the CI test is what
-            catches that, not this comment. The reason for the silence about
-            other tools survives a vendor release either way: the more
-            `validate` grows, the more right it was to stay quiet here. */}
-        <p className="mt-5 max-w-2xl text-balance text-lg leading-relaxed text-muted-foreground sm:text-xl">
-          Your skills and hooks name tools, events, files and linter rules. One
-          command checks each one is real and grades the result — no key,
-          nothing uploaded.
+        <p className="mx-auto mb-7 max-w-[560px] text-base sm:mb-9 sm:text-lg leading-[1.45] text-muted-foreground sm:text-[21px]">
+          Skills that never fire. Hooks that never block. Rules that point at
+          nothing.
         </p>
-      </div>
+        <button
+          type="button"
+          onClick={cmd.copy}
+          aria-label="Copy command: npx vigiles audit"
+          className="inline-flex items-center gap-2.5 rounded-full border border-[#d9d3c5] bg-transparent px-[18px] py-3 font-mono text-[15px] text-foreground"
+        >
+          npx vigiles audit
+          {cmd.copied ? (
+            <Check className="h-3.5 w-3.5 opacity-70" aria-hidden />
+          ) : (
+            <Copy className="h-3.5 w-3.5 opacity-50" aria-hidden />
+          )}
+        </button>
 
-      {/* Product shot on the fold — the LIVE demo (combobox + real grading), not a
-          static sample. Its default view is an instant baked featured grade, so the
-          first paint has no spinner; type a repo to grade your own. */}
-      <div className="mx-auto w-full max-w-3xl pb-20 sm:pb-28">
-        <DemoAudit variant="hero" />
-        {/* The "is this for me?" strip. It answers the three questions a
-            stranger asks in the first ten seconds — which harness, which
-            language, what licence — and used to be the last sentence of the
-            SECOND section, where nobody deciding whether to keep reading ever
-            got to it. */}
-        <HeroChip />
-
-        {/* The ONE line that survived the VerbStrip (deleted 2026-09-09).
-            That strip was a four-row table of audit/lint/test/eval, and Ernie
-            read it right: "feels kinda dup". Measured — of its four rows, the
-            `test` and `eval` rows repeated their own beat's kicker VERBATIM one
-            screen later, and the `audit` row repeated the demo directly above
-            it. Worse, it announced "one of four commands" and then the page
-            showed a FIFTH verb (`compile`) that the four did not contain.
-
-            Two facts in it were NOT duplicated, and they are the whole of this
-            sentence: the four verbs are one engine rather than four products,
-            and `lint` is the CI gate — the only verb with no beat of its own,
-            and the way most people actually run this. */}
-        <p className="mx-auto mt-4 max-w-2xl px-6 text-center text-sm leading-relaxed text-muted-foreground">
-          That was <code className="font-mono">audit</code>, the graded read.{" "}
-          <code className="font-mono">lint</code> runs the same deterministic
-          checks as a CI gate — and the three sections below are the questions
-          neither of them can answer.
-        </p>
+        <div className="mx-auto mt-8 max-w-[860px] text-left sm:mt-[72px]">
+          <Term copyText={AUDIT_OUTPUT}>
+            {AUDIT_OUTPUT.split("\n").map((line, n) => (
+              <pre key={n}>
+                <AuditLine line={line} />
+                {"\n"}
+              </pre>
+            ))}
+          </Term>
+        </div>
       </div>
     </header>
   );

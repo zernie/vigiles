@@ -3,11 +3,12 @@ import { Highlight, type PrismTheme } from "prism-react-renderer";
 /**
  * The one code block on the site — highlighted, and wrapping.
  *
- * THEME: Oceanic Material, defined here as data rather than pulled from a theme
- * package. prism-react-renderer takes a plain object, so the palette IS the config;
- * a second dependency would buy nothing. Palette is the canonical Oceanic set
- * (#1B2B34 ground, #6699CC blue, #99C794 green, #C594C5 purple, #F99157 orange,
- * #5FB3B3 cyan, #65737E comment).
+ * THEME: the Oceanic Material token hues on a warm near-black ground, defined
+ * here as data rather than pulled from a theme package. prism-react-renderer
+ * takes a plain object, so the palette IS the config; a second dependency would
+ * buy nothing. Code stays dark on the light page (#1B1A17 ground, #E9E4D8 text,
+ * #8F897C comment; #6699CC blue, #99C794 green, #C594C5 purple, #F99157 orange,
+ * #5FB3B3 cyan).
  *
  * 🔴 WRAPPING IS NOT COSMETIC — it is the mobile contract. `site/e2e/mobile.spec.ts`
  * asserts no visible <pre> overflows its box at 390px, and a highlighter's default is
@@ -17,11 +18,11 @@ import { Highlight, type PrismTheme } from "prism-react-renderer";
  * A previous version of these blocks used `overflow-x-auto` and bled 258px.
  */
 const oceanic: PrismTheme = {
-  plain: { color: "#CDD3DE", backgroundColor: "#1B2B34" },
+  plain: { color: "#E9E4D8", backgroundColor: "#1B1A17" },
   styles: [
     {
       types: ["comment", "prolog", "doctype", "cdata"],
-      style: { color: "#65737E", fontStyle: "italic" },
+      style: { color: "#8F897C", fontStyle: "italic" },
     },
     { types: ["punctuation"], style: { color: "#A7ADBA" } },
     {

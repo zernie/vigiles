@@ -1,6 +1,6 @@
 {
   "meta": {
-    "schemaVersion": 2,
+    "schemaVersion": 4,
     "tool": "vigiles",
     "kind": "audit",
     "vigilesVersion": "0.0.0-semantically-released",
@@ -8,14 +8,14 @@
     "dir": "test/dogfood/superpowers@6fd4507"
   },
   "score": {
-    "overall": 92,
+    "overall": 90,
     "grade": "A",
     "categories": [
       {
         "key": "Truthfulness",
-        "score": 92,
+        "score": 100,
         "weight": 1,
-        "findings": ["1 broken intra-plugin reference"]
+        "findings": []
       },
       {
         "key": "Triggering",
@@ -31,11 +31,17 @@
       },
       {
         "key": "Safety",
-        "score": 100,
+        "score": 90,
         "weight": 1,
         "findings": [
-          "systematic-debugging inherits all tools — the \"lethal trifecta\" (reads data, reaches the web, runs commands), so a prompt injection could exfiltrate secrets (advisory)",
-          "test-driven-development inherits all tools — the \"lethal trifecta\" (reads data, reaches the web, runs commands), so a prompt injection could exfiltrate secrets (advisory)"
+          "systematic-debugging, test-driven-development: no `disallowed-tools:` line, so every session tool is inherited → add `disallowed-tools: WebFetch, WebSearch, Bash` to close untrusted intake"
+        ],
+        "groups": [
+          {
+            "problem": "no `disallowed-tools:` line, so every session tool is inherited",
+            "edit": "add `disallowed-tools: WebFetch, WebSearch, Bash` to close untrusted intake",
+            "names": ["systematic-debugging", "test-driven-development"]
+          }
         ]
       },
       {
@@ -43,13 +49,25 @@
         "score": 94,
         "weight": 1,
         "advisory": true,
-        "findings": ["2 untested surfaces"]
+        "findings": ["2 surfaces with no vigiles harness (deterministic, free)"]
+      },
+      {
+        "key": "Evaluated",
+        "score": null,
+        "weight": 1,
+        "advisory": true,
+        "notMeasured": true,
+        "findings": [
+          "2 surfaces never measured with a real model",
+          "not measured — run `npx vigiles audit` interactively to measure, or add a `*.eval.mjs` (`export default defineEval({ measureTriggerRate: … })`, vigiles)"
+        ]
       }
     ],
-    "empty": false
+    "empty": false,
+    "instructionsOnly": false
   },
   "verdict": {
-    "sentence": "A — nothing blocks the grade, but 1 broken intra-plugin reference is flagged — worth fixing.",
+    "sentence": "A — nothing blocks the grade, but 2 units inherit the session's tools, which can read files, reach the web and run commands — the \"lethal trifecta\", one cause, charged once are flagged — worth fixing.",
     "grade": "A",
     "pointsToNextGrade": null,
     "fixesToNextGrade": null,
@@ -62,17 +80,46 @@
     "hooks": 1,
     "commands": 0,
     "mcp": false,
-    "untested": 2
+    "untested": 2,
+    "untestedHarness": 2,
+    "unevaluated": 2,
+    "coverageEvidence": {
+      "executed": 0,
+      "colocated": 0,
+      "configured": 0
+    }
+  },
+  "contextCost": {
+    "alwaysLoaded": {
+      "unit": "chars",
+      "total": 0,
+      "parts": [
+        {
+          "part": "instructions",
+          "kind": "counted",
+          "total": 0,
+          "files": []
+        },
+        {
+          "part": "output-style",
+          "kind": "none"
+        },
+        {
+          "part": "skill-listing",
+          "kind": "none"
+        }
+      ]
+    }
   },
   "adoptable": {
     "surfaces": [
       {
-        "path": "skills/systematic-debugging/SKILL.md",
-        "command": "npx vigiles init --target=skills/systematic-debugging/SKILL.md"
+        "path": "test/dogfood/superpowers@6fd4507/skills/systematic-debugging/SKILL.md",
+        "command": "npx vigiles init --target=test/dogfood/superpowers@6fd4507/skills/systematic-debugging/SKILL.md"
       },
       {
-        "path": "skills/test-driven-development/SKILL.md",
-        "command": "npx vigiles init --target=skills/test-driven-development/SKILL.md"
+        "path": "test/dogfood/superpowers@6fd4507/skills/test-driven-development/SKILL.md",
+        "command": "npx vigiles init --target=test/dogfood/superpowers@6fd4507/skills/test-driven-development/SKILL.md"
       }
     ],
     "createAllCommand": "npx vigiles init"

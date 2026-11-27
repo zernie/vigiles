@@ -50,9 +50,13 @@ test("the landing page never bleeds past a 390px viewport", async ({
   await expectNoPageOverflow(page);
   await expectPreBlocksWrap(page);
 
-  // Expand every verb in the "One tool. Four questions." map — each reveals a
-  // prose detail + a `<pre>` example, the exact thing that clipped on mobile.
-  for (const summary of await page.locator("#how summary").all()) {
+  // Expand every disclosure on the page ("Show everything" under the demo
+  // report, the FAQ) — each reveals content that can clip on a phone.
+  const summaries = await page.locator("details summary").all();
+  // Guards: the loop below once matched zero elements (a selector for a deleted
+  // section) and passed while checking nothing.
+  expect(summaries.length).toBeGreaterThan(0);
+  for (const summary of summaries) {
     await summary.click();
   }
   await expectNoPageOverflow(page);

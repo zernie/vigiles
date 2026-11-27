@@ -3,16 +3,16 @@
 /* The demo renders the real audit report from the shared @vigiles/report-view
    package, so Tailwind must scan its source for the utility classes those
    components use (Tailwind v4 ignores node_modules). The report inherits THIS
-   site's theme tokens (warm dark), so it reads as one aesthetic — we do NOT
+   site's theme tokens (warm light), so it reads as one aesthetic — we do NOT
    import the package's own light/dark theme.css. */
 @source "../../packages/report-view/src";
 
 /*
-  Theme: "material oceanic" — a soft, premium deep-slate dark with a blue-teal
-  tint (Linear / JetBrains Darcula-oceanic calm), a single oceanic cyan accent,
-  and one signal red that means "a violated invariant / the failure". Dark-only —
-  no light palette. Band colors (good/warn/bad) are shared with
-  @vigiles/report-view for the four Lighthouse rings and stay semantic.
+  Theme: warm paper — an off-white ground, near-black warm ink, one ember
+  accent, and one signal red that means "a violated invariant / the failure".
+  Light-only — no dark palette, and no prefers-color-scheme switch. Code blocks
+  stay dark (CodeBlock.tsx). Band colors (good/warn/bad) are the light values of
+  @vigiles/report-view's theme.css and stay semantic.
 
   Tailwind v4: raw HSL/hex tokens on :root, mapped to `--color-*` via @theme
   inline so `bg-background`, `text-muted-foreground`, `border-border`,
@@ -38,13 +38,14 @@
   --color-part-2: var(--part-2);
   --color-part-3: var(--part-3);
   /* The report view's text-colour (ink) tokens, kept apart from the fills
-     above (see packages/report-view/src/theme.css). On this dark ground the
-     fills already pass as text, so only n/a differs. */
-  --color-good-ink: var(--good);
-  --color-warn-ink: var(--warn);
-  --color-bad-ink: var(--bad);
+     above (see packages/report-view/src/theme.css). On a light ground a fill
+     is too pale to read as text, so each ink is a darker shade (≥ 4.5:1 on
+     both the page and the white card). */
+  --color-good-ink: var(--good-ink);
+  --color-warn-ink: var(--warn-ink);
+  --color-bad-ink: var(--bad-ink);
   --color-na-ink: hsl(var(--muted-foreground));
-  --color-band: hsl(var(--card));
+  --color-band: hsl(var(--muted));
   --color-code: hsl(var(--muted));
   --color-track: hsl(var(--border));
   --color-foreground-soft: hsl(var(--foreground));
@@ -65,37 +66,40 @@
 }
 
 :root {
-  color-scheme: dark;
+  color-scheme: light;
 
-  /* Deep blue-slate ground + cool off-white ink (material-oceanic dark tokens).
-     Softer than pure near-black: a hint of blue in bg/card/border, and the ink
-     is a cool off-white (not pure #fff) to cut max-contrast glare. */
-  --background: 219 30% 9%;
-  --foreground: 216 26% 89%;
-  --card: 219 27% 12%;
-  --card-foreground: 216 26% 89%;
-  --muted: 216 24% 18%;
-  --muted-foreground: 216 14% 60%;
-  --accent: 197 58% 60%;
-  --accent-foreground: 219 30% 9%;
-  --border: 216 25% 18%;
+  /* Warm paper ground + warm near-black ink. Contrast (WCAG): muted text
+     5.4:1 on the page and 5.0:1 on a tinted band; the accent 4.9:1 on the page,
+     5.2:1 on white, and white-on-accent 5.2:1. */
+  --background: 43 41.2% 96.7%; /* #faf8f3 */
+  --foreground: 36 9.4% 10.4%; /* #1d1b18 */
+  --card: 0 0% 100%;
+  --card-foreground: 36 9.4% 10.4%;
+  --muted: 44 29.7% 92.7%; /* #f2efe7, the tinted band */
+  --muted-foreground: 40 7.5% 39%; /* #6b665c */
+  --accent: 18 77% 41%; /* #b84a18, ember */
+  --accent-foreground: 0 0% 100%;
+  --border: 42 23.3% 85.7%; /* #e3ded2 */
 
-  /* The one signal color — a soft coral red: a failure, a broken reference. */
-  --signal: #ec7a70;
-  --signal-soft: rgba(236, 122, 112, 0.14);
+  /* The one signal color — a brick red: a failure, a broken reference. */
+  --signal: #b42318;
+  --signal-soft: rgba(180, 35, 24, 0.1);
 
-  /* Lighthouse-ring band colors (shared with @vigiles/report-view dark theme),
-     softened for calm but kept clearly semantic + legible on the slate ground. */
-  --good: #35c98a;
-  --warn: #f2b34d;
-  --bad: #f0726c;
-  --na: #6b7688;
+  /* Lighthouse-ring band fills (the light values of @vigiles/report-view's
+     theme.css) and their darker text inks. */
+  --good: #16a34a;
+  --warn: #d97706;
+  --bad: #dc2626;
+  --na: #a39d92;
+  --good-ink: #1f7a45;
+  --warn-ink: #a3620a;
+  --bad-ink: #b91c1c;
 
-  /* Series colours for parts of a whole (the always-loaded bar), the dark
+  /* Series colours for parts of a whole (the always-loaded bar), the light
      values of @vigiles/report-view's theme.css. Not band colours. */
-  --part-1: #4f86e8;
-  --part-2: #159c8e;
-  --part-3: #e0703a;
+  --part-1: #2563eb;
+  --part-2: #0d9488;
+  --part-3: #ea580c;
 }
 
 @layer base {
@@ -123,19 +127,13 @@
   }
 }
 
-/* A quiet oceanic glow behind the hero — soft cyan + teal, matching the accent. */
+/* A faint ember warmth behind the hero, matching the accent. */
 .hero-glow {
-  background:
-    radial-gradient(
-      60rem 40rem at 50% -10%,
-      rgba(95, 179, 212, 0.1),
-      transparent 60%
-    ),
-    radial-gradient(
-      40rem 30rem at 80% 10%,
-      rgba(80, 200, 190, 0.07),
-      transparent 60%
-    );
+  background: radial-gradient(
+    60rem 40rem at 50% -10%,
+    rgba(184, 74, 24, 0.06),
+    transparent 60%
+  );
 }
 
 /* Subtle scroll-reveal, honoring reduced-motion. */
@@ -166,5 +164,82 @@
   }
   html {
     scroll-behavior: auto;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Landing sections (Hero, TestsEvals, Lint, Start, DemoAudit). Shared layout
+   utilities from the approved mockup. In @layer components so a Tailwind
+   utility on the same element can still override (e.g. a smaller margin).
+   --------------------------------------------------------------------------- */
+@layer components {
+  .section-title {
+    font-family: "Inter Display", var(--font-sans);
+    font-weight: 700;
+    font-size: clamp(30px, 4.4vw, 44px);
+    letter-spacing: -0.03em;
+    line-height: 1.1;
+    margin-bottom: 56px;
+  }
+  .band {
+    padding-block: 128px;
+  }
+  @media (max-width: 639px) {
+    .band {
+      padding-block: 80px;
+    }
+  }
+  /* Full-bleed tint on a width-constrained section: the shadow paints the band
+     out to the viewport edges, clip-path stops it spilling vertically. */
+  .band-tint {
+    background: hsl(var(--muted));
+    box-shadow: 0 0 0 100vmax hsl(var(--muted));
+    clip-path: inset(0 -100vmax);
+  }
+  .sheet {
+    background: hsl(var(--card));
+    border-radius: 20px;
+    box-shadow:
+      0 1px 2px rgba(29, 27, 24, 0.06),
+      0 24px 60px -20px rgba(29, 27, 24, 0.18);
+  }
+  /* Dark terminal card. Every <pre> inside MUST wrap (mobile e2e fails on
+     horizontal overflow at 390px). */
+  .term {
+    background: #1b1a17;
+    color: #e9e4d8;
+    border-radius: 16px;
+    padding: 32px 34px;
+    font-family: var(--font-mono);
+    font-size: 13.5px;
+    line-height: 1.75;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .term pre {
+    margin: 0;
+    font: inherit;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  @media (max-width: 639px) {
+    /* 11px keeps a 46-column audit row (name, score, 22-cell bar) on one line
+       at a 390px viewport; at 13.5px every bar wrapped onto a row of its own. */
+    .term {
+      padding: 20px 16px;
+      font-size: 11px;
+    }
+  }
+  .term .t-mut {
+    color: #8f897c;
+  }
+  .term .t-bad {
+    color: #e06a4f;
+  }
+  .term .t-ok {
+    color: #6fbf73;
+  }
+  .term .t-warn {
+    color: #d9a441;
   }
 }
