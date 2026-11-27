@@ -54,6 +54,19 @@ const NO_BARREL_IMPORTS = {
 const NEVER_PARSE_HOOK_LINES =
   "Never parse a hook command line: a line is compiled only by exact identity with what `compile` would write (src/core/hook-command.ts hookLinePlan); everything else is hand-written. Shell parsing was tried in #359/#361 and removed in #362.";
 
+/**
+ * `typescript` is a 9 MB CommonJS file; a value import of it from an ES module
+ * costs every CLI start ~380 ms, `--help` included (#603). Product code reads it
+ * through `ts` from src/core/typescript-lazy.ts, which loads it on first use.
+ * `import type` is erased at build and stays allowed. Tests are exempt.
+ */
+const NO_EAGER_TYPESCRIPT = {
+  name: "typescript",
+  allowTypeImports: true,
+  message:
+    "Import `ts` from src/core/typescript-lazy.ts instead: a value import of typescript loads it on every CLI start (~380 ms). `import type` is fine.",
+};
+
 /** The shell parser and the modules that wrap it — out of reach outside PARSES_SHELL. */
 const NO_SHELL_PARSER = {
   paths: [{ name: "mvdan-sh", message: NEVER_PARSE_HOOK_LINES }],
@@ -519,7 +532,10 @@ export default [
     rules: {
       "no-restricted-imports": [
         "error",
-        { paths: ONE_COLLECTION_LIBRARY, patterns: [NO_BARREL_IMPORTS] },
+        {
+          paths: [...ONE_COLLECTION_LIBRARY, NO_EAGER_TYPESCRIPT],
+          patterns: [NO_BARREL_IMPORTS],
+        },
       ],
     },
   },
@@ -540,7 +556,11 @@ export default [
       "no-restricted-imports": [
         "error",
         {
-          paths: [...ONE_COLLECTION_LIBRARY, ...NO_SHELL_PARSER.paths],
+          paths: [
+            ...ONE_COLLECTION_LIBRARY,
+            NO_EAGER_TYPESCRIPT,
+            ...NO_SHELL_PARSER.paths,
+          ],
           patterns: [NO_BARREL_IMPORTS, ...NO_SHELL_PARSER.patterns],
         },
       ],
@@ -555,7 +575,11 @@ export default [
       "no-restricted-imports": [
         "error",
         {
-          paths: [...ONE_COLLECTION_LIBRARY, ...NO_SHELL_PARSER.paths],
+          paths: [
+            ...ONE_COLLECTION_LIBRARY,
+            NO_EAGER_TYPESCRIPT,
+            ...NO_SHELL_PARSER.paths,
+          ],
           patterns: NO_SHELL_PARSER.patterns,
         },
       ],

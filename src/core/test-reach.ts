@@ -27,7 +27,8 @@
  *
  * Pure: every read goes through {@link SourceHost}.
  */
-import ts from "typescript";
+import type TS from "typescript";
+import { ts } from "./typescript-lazy.js";
 import {
   dirname,
   extname,
@@ -44,7 +45,7 @@ export interface SourceHost {
   readonly read: (path: string) => string | null;
   readonly isFile: (path: string) => boolean;
   /** tsc's own directory walk (`ts.sys.readDirectory`), for a tsconfig's inputs. */
-  readonly readDirectory: ts.ParseConfigHost["readDirectory"];
+  readonly readDirectory: TS.ParseConfigHost["readDirectory"];
   /** The real path behind a symlink — a workspace package linked into node_modules. */
   readonly realpath: (path: string) => string;
 }
@@ -54,7 +55,7 @@ export interface Project {
   /** Where the build writes and the source it writes from; undefined with no `outDir`. */
   readonly build: OutputLayout | undefined;
   /** Its compiler options, so `paths`/`baseUrl` apply when a bare specifier is resolved. */
-  readonly options: Readonly<ts.CompilerOptions>;
+  readonly options: Readonly<TS.CompilerOptions>;
 }
 
 /** Where a TypeScript build writes, and the source it writes from. Absolute. */
@@ -132,7 +133,7 @@ export function readProject(
 }
 
 function buildLayout(
-  parsed: Readonly<ts.ParsedCommandLine>,
+  parsed: Readonly<TS.ParsedCommandLine>,
   cwd: string,
 ): OutputLayout | undefined {
   const { outDir, rootDir, composite } = parsed.options;
@@ -222,7 +223,7 @@ interface Scope {
   readonly file: string;
   readonly cwd: string;
   /** Each variable's sources: its initializer and every plain assignment. */
-  readonly consts: (name: string) => readonly ts.Expression[];
+  readonly consts: (name: string) => readonly TS.Expression[];
   /** Names being evaluated on the current path — a cycle guard. */
   readonly visiting: ReadonlySet<string>;
 }
@@ -241,7 +242,7 @@ function concatKnown(head: string, b: Val): Val {
   return { k: "pre", s: b.k === "pre" ? head + b.s : head };
 }
 
-function unwrap(e: Readonly<ts.Expression>): Readonly<ts.Expression> {
+function unwrap(e: Readonly<TS.Expression>): Readonly<TS.Expression> {
   return ts.isParenthesizedExpression(e) ||
     ts.isAsExpression(e) ||
     ts.isNonNullExpression(e) ||
@@ -250,7 +251,7 @@ function unwrap(e: Readonly<ts.Expression>): Readonly<ts.Expression> {
     : e;
 }
 
-function evalExpr(raw: Readonly<ts.Expression>, sc: Scope): Val {
+function evalExpr(raw: Readonly<TS.Expression>, sc: Scope): Val {
   const e = unwrap(raw);
   if (ts.isStringLiteralLike(e)) return str(e.text);
   if (ts.isNumericLiteral(e) || ts.isObjectLiteralExpression(e)) return DATA;
@@ -263,29 +264,29 @@ function evalExpr(raw: Readonly<ts.Expression>, sc: Scope): Val {
   return UNK;
 }
 
-const FALLBACK_OPS: ReadonlySet<ts.SyntaxKind> = new Set([
-  ts.SyntaxKind.QuestionQuestionToken,
-  ts.SyntaxKind.BarBarToken,
-]);
+/** A function, not a module constant: reading `ts.SyntaxKind` at load would load typescript. */
+const isFallbackOp = (op: TS.SyntaxKind): boolean =>
+  op === ts.SyntaxKind.QuestionQuestionToken ||
+  op === ts.SyntaxKind.BarBarToken;
 
 /**
  * `process.env.X ?? process.cwd()`: when the left side is not a known path the
  * fallback is taken. An override that points somewhere else is not modelled —
  * the folder rule and the full run on the default branch remain behind it.
  */
-function evalBinary(e: Readonly<ts.BinaryExpression>, sc: Scope): Val {
+function evalBinary(e: Readonly<TS.BinaryExpression>, sc: Scope): Val {
   const op = e.operatorToken.kind;
   if (op === ts.SyntaxKind.PlusToken)
     return concat(evalExpr(e.left, sc), evalExpr(e.right, sc));
-  return FALLBACK_OPS.has(op) ? evalFallback(e, sc) : UNK;
+  return isFallbackOp(op) ? evalFallback(e, sc) : UNK;
 }
 
-function evalFallback(e: Readonly<ts.BinaryExpression>, sc: Scope): Val {
+function evalFallback(e: Readonly<TS.BinaryExpression>, sc: Scope): Val {
   const left = evalExpr(e.left, sc);
   return left.k === "str" ? left : evalExpr(e.right, sc);
 }
 
-function evalTemplate(e: Readonly<ts.TemplateExpression>, sc: Scope): Val {
+function evalTemplate(e: Readonly<TS.TemplateExpression>, sc: Scope): Val {
   return e.templateSpans.reduce(
     (acc, span) =>
       concat(
@@ -330,7 +331,7 @@ const META: Readonly<Record<string, (sc: Scope) => Val>> = {
   dirname: (sc) => str(dirname(sc.file)),
 };
 
-function evalProp(e: Readonly<ts.PropertyAccessExpression>, sc: Scope): Val {
+function evalProp(e: Readonly<TS.PropertyAccessExpression>, sc: Scope): Val {
   const name = e.name.text;
   if (ts.isMetaProperty(e.expression)) return META[name]?.(sc) ?? UNK;
   if (ts.isIdentifier(e.expression) && e.expression.text === "process")
@@ -341,7 +342,7 @@ function evalProp(e: Readonly<ts.PropertyAccessExpression>, sc: Scope): Val {
 }
 
 function calleeName(
-  e: Readonly<ts.CallExpression> | Readonly<ts.NewExpression>,
+  e: Readonly<TS.CallExpression> | Readonly<TS.NewExpression>,
 ): string {
   const c = e.expression;
   if (ts.isIdentifier(c)) return c.text;
@@ -382,7 +383,7 @@ const ARG_CALLS: Readonly<
   cwd: (_, sc) => str(sc.cwd),
 };
 
-function evalCall(e: Readonly<ts.CallExpression>, sc: Scope): Val {
+function evalCall(e: Readonly<TS.CallExpression>, sc: Scope): Val {
   const name = calleeName(e);
   if (TEMP_DIRS.has(name)) return TMP;
   if (SAME_PATH.has(name) && ts.isPropertyAccessExpression(e.expression))
@@ -397,7 +398,7 @@ function evalCall(e: Readonly<ts.CallExpression>, sc: Scope): Val {
 }
 
 /** `new URL(rel, base)` → a path; a URL is carried as the path it names. */
-function evalNewUrl(e: Readonly<ts.NewExpression>, sc: Scope): Val {
+function evalNewUrl(e: Readonly<TS.NewExpression>, sc: Scope): Val {
   if (calleeName(e) !== "URL") return UNK;
   const [rel, base] = (e.arguments ?? []).map((a) => evalExpr(a, sc));
   const r = rel?.k === "str" ? str(rel.s.replace(/^file:\/\//, "")) : UNK;
@@ -442,7 +443,7 @@ interface PathArg {
 }
 
 function argvOf(
-  e: Readonly<ts.Expression> | undefined,
+  e: Readonly<TS.Expression> | undefined,
   sc: Scope,
 ): readonly Val[] {
   if (e === undefined || ts.isObjectLiteralExpression(e)) return [];
@@ -471,7 +472,7 @@ function tokensOf(v: Val): readonly Val[] {
 
 /** The `cwd` option: run cwd when absent, its value when known, else unnameable. */
 function cwdOption(
-  opts: Readonly<ts.Expression> | undefined,
+  opts: Readonly<TS.Expression> | undefined,
   sc: Scope,
 ): string | undefined {
   if (opts === undefined || !ts.isObjectLiteralExpression(opts)) return sc.cwd;
@@ -486,7 +487,7 @@ function cwdOption(
 }
 
 function effectArgs(
-  e: Readonly<ts.CallExpression>,
+  e: Readonly<TS.CallExpression>,
   name: string,
   sc: Scope,
 ): readonly PathArg[] {
@@ -523,16 +524,16 @@ interface Ctx {
   readonly host: SourceHost;
   readonly layout: OutputLayout | undefined;
   /** Module resolution: the fixed options, over the tsconfig's own. */
-  readonly resolveOptions: Readonly<ts.CompilerOptions>;
-  readonly resolver: ts.ModuleResolutionHost;
+  readonly resolveOptions: Readonly<TS.CompilerOptions>;
+  readonly resolver: TS.ModuleResolutionHost;
   /** One cache per run: every harness resolves the same bare specifiers. */
-  readonly cache: ts.ModuleResolutionCache;
+  readonly cache: TS.ModuleResolutionCache;
 }
 
 function allNodes(
-  n: Readonly<ts.Node>,
-  sf: Readonly<ts.SourceFile>,
-): readonly ts.Node[] {
+  n: Readonly<TS.Node>,
+  sf: Readonly<TS.SourceFile>,
+): readonly TS.Node[] {
   return [n, ...n.getChildren(sf).flatMap((c) => allNodes(c, sf))];
 }
 
@@ -542,10 +543,10 @@ function allNodes(
  * stay unknown. Shadowed names merge, which can only make a value unknown.
  */
 function bindingsOf(
-  nodes: readonly ts.Node[],
-): (name: string) => readonly ts.Expression[] {
+  nodes: readonly TS.Node[],
+): (name: string) => readonly TS.Expression[] {
   const pairs = nodes.flatMap(
-    (n): readonly (readonly [string, ts.Expression])[] => {
+    (n): readonly (readonly [string, TS.Expression])[] => {
       if (
         ts.isVariableDeclaration(n) &&
         ts.isIdentifier(n.name) &&
@@ -617,7 +618,7 @@ function isEffectModule(m: string): boolean {
 
 /** `{ exec as run }` / `{ exec: run }` → [run, exec]. */
 function aliasPairs(
-  els: readonly (ts.ImportSpecifier | ts.BindingElement)[],
+  els: readonly (TS.ImportSpecifier | TS.BindingElement)[],
 ): readonly (readonly [string, string])[] {
   return els.flatMap((el) => {
     if (!ts.isIdentifier(el.name)) return [];
@@ -635,7 +636,7 @@ interface ModuleUse {
   readonly whole: readonly string[];
 }
 
-function importUse(d: Readonly<ts.ImportDeclaration>): ModuleUse | undefined {
+function importUse(d: Readonly<TS.ImportDeclaration>): ModuleUse | undefined {
   if (!ts.isStringLiteral(d.moduleSpecifier)) return undefined;
   const clause = d.importClause;
   const nb = clause?.namedBindings;
@@ -649,7 +650,7 @@ function importUse(d: Readonly<ts.ImportDeclaration>): ModuleUse | undefined {
   };
 }
 
-function requireUse(n: Readonly<ts.Node>): ModuleUse | undefined {
+function requireUse(n: Readonly<TS.Node>): ModuleUse | undefined {
   if (!ts.isVariableDeclaration(n) || n.initializer === undefined)
     return undefined;
   const init = n.initializer;
@@ -671,7 +672,7 @@ function requireUse(n: Readonly<ts.Node>): ModuleUse | undefined {
   };
 }
 
-function apiBindings(nodes: readonly ts.Node[]): ApiBindings {
+function apiBindings(nodes: readonly TS.Node[]): ApiBindings {
   const uses = [
     ...nodes.filter(ts.isImportDeclaration).map(importUse),
     ...nodes.map(requireUse),
@@ -691,7 +692,7 @@ function apiBindings(nodes: readonly ts.Node[]): ApiBindings {
  * `RegExp.prototype.exec` shares the name; every other API name is taken as it
  * is (an extra dependency costs a run, not a miss).
  */
-function apiName(call: Readonly<ts.CallExpression>, b: ApiBindings): string {
+function apiName(call: Readonly<TS.CallExpression>, b: ApiBindings): string {
   const c = call.expression;
   if (ts.isIdentifier(c))
     return b.aliases.get(c.text) ?? (c.text === "exec" ? "" : c.text);
@@ -707,7 +708,7 @@ function isEffectApi(name: string): boolean {
 
 function effectsIn(
   abs: string,
-  sf: Readonly<ts.SourceFile>,
+  sf: Readonly<TS.SourceFile>,
   ctx: Ctx,
 ): Pick<Facts, "deps" | "unresolved"> {
   const nodes = allNodes(sf, sf);
@@ -740,12 +741,12 @@ function effectsIn(
  * so `./x.js` finds `x.ts` the way a NodeNext project writes it, and an
  * extensionless specifier resolves. The literal path is kept too.
  */
-const RESOLVE_OPTIONS: Readonly<ts.CompilerOptions> = {
+const resolveOptions = (): Readonly<TS.CompilerOptions> => ({
   allowJs: true,
   resolveJsonModule: true,
   module: ts.ModuleKind.ESNext,
   moduleResolution: ts.ModuleResolutionKind.Bundler,
-};
+});
 
 const CODE_EXT = /\.(?:[cm]?[jt]s|[jt]sx)$/;
 
@@ -936,7 +937,7 @@ function ctxOf(input: ReachSetup): Ctx {
     cwd,
     host,
     layout: project?.build,
-    resolveOptions: { ...project?.options, ...RESOLVE_OPTIONS },
+    resolveOptions: { ...project?.options, ...resolveOptions() },
     resolver: {
       fileExists: host.isFile,
       readFile: (p) => host.read(p) ?? undefined,

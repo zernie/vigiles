@@ -26,7 +26,8 @@
  * cross-referencing moat works on generators too (literal args only).
  */
 
-import ts from "typescript";
+import type TS from "typescript";
+import { ts } from "./typescript-lazy.js";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
@@ -49,10 +50,10 @@ interface GateRef {
 
 /** Find the first generator function (`function*`) in a source file. */
 function findGenerator(
-  sf: ts.SourceFile,
-): ts.FunctionExpression | ts.FunctionDeclaration | null {
-  let found: ts.FunctionExpression | ts.FunctionDeclaration | null = null;
-  const visit = (n: ts.Node): void => {
+  sf: TS.SourceFile,
+): TS.FunctionExpression | TS.FunctionDeclaration | null {
+  let found: TS.FunctionExpression | TS.FunctionDeclaration | null = null;
+  const visit = (n: TS.Node): void => {
     if (found) return;
     if (
       (ts.isFunctionExpression(n) || ts.isFunctionDeclaration(n)) &&
@@ -68,7 +69,7 @@ function findGenerator(
 }
 
 /** The called function's name, handling both `act(...)` and `ns.act(...)`. */
-function calleeName(call: ts.CallExpression): string {
+function calleeName(call: TS.CallExpression): string {
   const e = call.expression;
   if (ts.isIdentifier(e)) return e.text;
   if (ts.isPropertyAccessExpression(e)) return e.name.text;
@@ -76,10 +77,10 @@ function calleeName(call: ts.CallExpression): string {
 }
 
 /** A `cmd("…")` / `file("…")` / `project("…")` call → a gate reference. */
-function extractGateRef(node: ts.Expression | undefined): GateRef | null {
+function extractGateRef(node: TS.Expression | undefined): GateRef | null {
   if (!node || !ts.isCallExpression(node)) return null;
   const name = calleeName(node);
-  const a = node.arguments[0] as ts.Expression | undefined;
+  const a = node.arguments[0] as TS.Expression | undefined;
   if (!a || !ts.isStringLiteralLike(a)) return null;
   if (name === "cmd") return { kind: "cmd", value: a.text };
   if (name === "file") return { kind: "file", value: a.text };
@@ -88,9 +89,9 @@ function extractGateRef(node: ts.Expression | undefined): GateRef | null {
 }
 
 /** The first YieldExpression inside a statement (e.g. `const x = yield act(...)`). */
-function findYield(node: ts.Node): ts.YieldExpression | null {
-  let y: ts.YieldExpression | null = null;
-  const visit = (n: ts.Node): void => {
+function findYield(node: TS.Node): TS.YieldExpression | null {
+  let y: TS.YieldExpression | null = null;
+  const visit = (n: TS.Node): void => {
     if (y) return;
     if (ts.isYieldExpression(n)) {
       y = n;
@@ -117,7 +118,7 @@ function gateLabel(ref: GateRef): string {
 
 /** Render a single `yield act/gate/result(...)` into markdown lines. */
 function renderYield(
-  y: ts.YieldExpression,
+  y: TS.YieldExpression,
   lines: string[],
   refs: GateRef[],
 ): void {
@@ -125,13 +126,13 @@ function renderYield(
   if (!call || !ts.isCallExpression(call)) return;
   const name = calleeName(call);
   if (name === "act") {
-    const a = call.arguments[0] as ts.Expression | undefined;
+    const a = call.arguments[0] as TS.Expression | undefined;
     if (a && ts.isStringLiteralLike(a)) lines.push(a.text.trim(), "");
     return;
   }
   const terminal = name === "finish" || name === "result";
   if (!terminal && name !== "gate" && name !== "checkpoint") return;
-  const ref = extractGateRef(call.arguments[0] as ts.Expression | undefined);
+  const ref = extractGateRef(call.arguments[0] as TS.Expression | undefined);
   if (!ref) return;
   refs.push(ref);
   if (terminal) {
@@ -154,15 +155,15 @@ function renderYield(
 }
 
 /** A renderer bound to one source file (for `getText` of conditions). */
-function makeRenderer(sf: ts.SourceFile, refs: GateRef[]) {
+function makeRenderer(sf: TS.SourceFile, refs: GateRef[]) {
   const lines: string[] = [];
 
-  const renderBlock = (stmt: ts.Statement): void => {
+  const renderBlock = (stmt: TS.Statement): void => {
     if (ts.isBlock(stmt)) renderStatements(stmt.statements);
     else renderStatements([stmt]);
   };
 
-  const renderIf = (s: ts.IfStatement): void => {
+  const renderIf = (s: TS.IfStatement): void => {
     lines.push(`### If ${s.expression.getText(sf)}`, "");
     renderBlock(s.thenStatement);
     if (s.elseStatement) {
@@ -175,7 +176,7 @@ function makeRenderer(sf: ts.SourceFile, refs: GateRef[]) {
     }
   };
 
-  const renderLoop = (s: ts.IterationStatement): void => {
+  const renderLoop = (s: TS.IterationStatement): void => {
     let header = "each iteration";
     if (ts.isWhileStatement(s)) header = `while ${s.expression.getText(sf)}`;
     else if (ts.isForOfStatement(s))
@@ -184,7 +185,7 @@ function makeRenderer(sf: ts.SourceFile, refs: GateRef[]) {
     renderBlock(s.statement);
   };
 
-  function renderStatements(stmts: readonly ts.Statement[]): void {
+  function renderStatements(stmts: readonly TS.Statement[]): void {
     for (const s of stmts) {
       if (ts.isVariableStatement(s) || ts.isExpressionStatement(s)) {
         const y = findYield(s);
@@ -211,7 +212,7 @@ function makeRenderer(sf: ts.SourceFile, refs: GateRef[]) {
   }
 
   return {
-    run(body: ts.Block): string {
+    run(body: TS.Block): string {
       renderStatements(body.statements);
       return lines.join("\n").trimEnd();
     },
@@ -250,9 +251,9 @@ function verifyRef(ref: GateRef, basePath: string): GeneratorError | null {
 }
 
 /** Find the `genSkill({…}, function* () {…})` call in a source file. */
-function findGenSkillCall(sf: ts.SourceFile): ts.CallExpression | null {
-  let found: ts.CallExpression | null = null;
-  const visit = (n: ts.Node): void => {
+function findGenSkillCall(sf: TS.SourceFile): TS.CallExpression | null {
+  let found: TS.CallExpression | null = null;
+  const visit = (n: TS.Node): void => {
     if (found) return;
     if (ts.isCallExpression(n) && calleeName(n) === "genSkill") {
       found = n;
@@ -271,7 +272,7 @@ interface SkillMeta {
 }
 
 /** Extract name/description/disable-model-invocation from a meta object literal. */
-function extractMeta(obj: ts.ObjectLiteralExpression): SkillMeta {
+function extractMeta(obj: TS.ObjectLiteralExpression): SkillMeta {
   const meta: SkillMeta = {};
   for (const p of obj.properties) {
     if (!ts.isPropertyAssignment(p) || !ts.isIdentifier(p.name)) continue;

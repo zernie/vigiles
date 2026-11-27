@@ -19,7 +19,8 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import ts from "typescript";
+import type TS from "typescript";
+import { ts } from "./typescript-lazy.js";
 import { resolve } from "node:path";
 import { globSync } from "glob";
 
@@ -152,7 +153,7 @@ function callsIn(
     ts.ScriptKind.TS,
   );
   const out: DocRef[] = [];
-  const visit = (node: ts.Node): void => {
+  const visit = (node: TS.Node): void => {
     if (ts.isCallExpression(node) && ts.isIdentifier(node.expression)) {
       const kind = node.expression.text;
       if (KINDS.has(kind)) {

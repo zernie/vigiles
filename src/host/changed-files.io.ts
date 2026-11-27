@@ -3,7 +3,7 @@
  * and the file reads the import closure needs. The decision is pure and lives
  * in `src/core/test-selection.ts`.
  */
-import ts from "typescript";
+import { ts } from "../core/typescript-lazy.js";
 import { execFileSync } from "node:child_process";
 import { readFileSync, realpathSync, statSync } from "node:fs";
 import { join } from "node:path";
