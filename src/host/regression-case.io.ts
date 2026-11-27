@@ -32,7 +32,7 @@ import { dirname, join } from "node:path";
 import type { RegressionCaseHost, ScoringRun } from "../core/case-scoring.js";
 import { scrubbedRunEnv } from "../core/run-env.js";
 import { makeTmpDir } from "../core/tmp-root.js";
-import type { TouchedRow } from "../core/workspace.js";
+import type { TouchedEntry, TouchedRow } from "../core/workspace.js";
 import { gitEnv } from "./git-env.io.js";
 import { escapingLinks } from "./link-probe.io.js";
 
@@ -63,7 +63,7 @@ export function carryRows(
   const removed = deletes.filter(
     (row) => openWay(dest, row.path) && removeEntry(join(dest, row.path)),
   );
-  const files = rows.filter((row) => row.entry.kind === "file");
+  const files = rows.filter(isFileRow);
   const writable = files.filter(
     (row) => openWay(dest, row.path) && clearFor(join(dest, row.path)),
   );
@@ -115,8 +115,15 @@ function plainDirOrMissing(path: string): boolean {
   return stat === undefined || stat.isDirectory();
 }
 
-function writeRow(gitDir: string, row: TouchedRow, dest: string): void {
-  if (row.entry.kind !== "file") return;
+type FileRow = TouchedRow & {
+  readonly entry: Extract<TouchedEntry, { kind: "file" }>;
+};
+
+function isFileRow(row: TouchedRow): row is FileRow {
+  return row.entry.kind === "file";
+}
+
+function writeRow(gitDir: string, row: FileRow, dest: string): void {
   const full = join(dest, row.path);
   mkdirSync(dirname(full), { recursive: true });
   writeFileSync(
