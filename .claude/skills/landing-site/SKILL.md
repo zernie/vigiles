@@ -5,7 +5,7 @@ description: The purpose, UX flow, and modern-minimalist design bar for the vigi
 
 # Landing site — purpose, UX, and design bar
 
-The front door is `site/` (Vite + React + Tailwind, dark-only), deployed to
+The front door is `site/` (Vite + React + Tailwind, light-only: warm paper, no dark palette and no `prefers-color-scheme` switch; only code blocks stay dark), deployed to
 **vigiles.sh**. This skill is the standard every change is held to. The recurring
 failure it exists to stop: **adding elements instead of removing them**, which
 makes the page feel crowded and template-y ("tilda-like") instead of modern.
@@ -118,11 +118,11 @@ real iteration to reach; don't silently undo one.
   floating below the frame. If the site explains the report in two places, cut the
   echo (this is why the Wedge five-category strip and the standalone "Your rules →
   enforced" card were removed — the report already carries both).
-- **ONE INPUT AFFORDANCE AT A TIME — Public/Private tabs, not a stack.** The hero
-  input was input + "public API" caption + private command hand-off + privacy line all
-  stacked (crowded). It's now **Public | Private tabs** in `DemoAudit`: Public = the
-  live type-a-repo combobox; Private = the `npx vigiles audit` command copy. One
-  affordance visible at a time.
+- **ONE INPUT LINE, NOT A STACK OR TABS.** The try section is one `github.com/`
+  input, the featured repos as quiet "Or try" text links with their grade, and the
+  private answer as ONE sentence under the result ("Private repo? Run `npx vigiles
+audit` inside it."). Tabs hid that sentence behind a click; a stack of captions
+  crowded the input.
 - **HONEST TEASE, NEVER BLUR/FAKE (supersedes any older "render it blurred" note).**
   The model-gated row uses em-dash placeholders (`recall — · precision —`), NOT
   blurred fake numbers. Blur reads as a render bug AND a paywall dark pattern, and

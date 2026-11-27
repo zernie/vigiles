@@ -70,20 +70,4 @@ describe("LinterAdapter conformance", () => {
     // a linter added to the registry but not the table (or vice-versa) fails.
     expect([...docLinterNames()].sort()).toEqual(Object.keys(LINTERS).sort());
   });
-
-  // The site's own derivation is asserted ON THE SITE, in
-  // site/src/lib/linters.browser.test.ts, which recomputes LINTER_NAMES and
-  // LANGUAGES from BUILTIN_LINTERS and compares VALUES.
-  //
-  // 🔴 A test used to sit here that read two files under site/ off disk and
-  // regexed their SOURCE for an import line and against a phrase. Three things
-  // were wrong with it and only the third was visible: it asserted the shape of
-  // the text rather than the value, so a rename or a reformat broke it; a
-  // substring search cannot tell an assertion from a comment discussing one, and
-  // it had already fired on exactly that; and it made a ROOT test depend on a
-  // SITE file, so when #219 (site-only) deleted one, the `changes` filter skipped
-  // the root jobs, the PR merged green and main went red on an ENOENT. Deleted
-  // 2026-09-09 rather than patched a third time. src/ci-path-filter.test.ts now
-  // asserts that NO root test reads site/, which is the invariant the CI filter
-  // always claimed and never checked.
 });
