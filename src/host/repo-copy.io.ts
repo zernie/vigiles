@@ -269,7 +269,11 @@ export function touchedPaths(base: TrialBase, cwd: string): TouchedSet {
   };
 }
 
-/** The shadow can still read its base and write an object; else throw. */
+/**
+ * The shadow can still read its base, write an object and lock its index;
+ * else throw. The index probe forces a write: a plain refresh with nothing
+ * to write exits 0 past a held lock.
+ */
 function assertShadowHealthy(
   base: TrialBase,
   cwd: string,
@@ -278,7 +282,15 @@ function assertShadowHealthy(
   const dir = `--git-dir=${base.gitDir}`;
   const readable = gitOk(cwd, [dir, "cat-file", "-e", base.baseTree]);
   const writable = gitOk(cwd, [dir, "hash-object", "-w", "--stdin"], "probe\n");
-  if (!readable || !writable) {
+  const lockable = gitOk(cwd, [
+    dir,
+    `--work-tree=${cwd}`,
+    "update-index",
+    "-q",
+    "--refresh",
+    "--force-write-index",
+  ]);
+  if (!readable || !writable || !lockable) {
     throw new ShadowUnhealthyError(
       `the trial's base record is broken (${base.gitDir}): ${stderr.trim()}`,
     );

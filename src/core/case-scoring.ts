@@ -183,8 +183,12 @@ function scored(
  * without the user's global and system git config.
  */
 export interface RegressionCaseHost {
-  /** Write the kept rows into `dest`: a file's blob from `gitDir`, a deletion removed. */
-  carryRows(gitDir: string, rows: readonly TouchedRow[], dest: string): void;
+  /**
+   * Write the kept rows into `dest`: a file's blob from `gitDir`, a deletion
+   * removed. Returns how many rows it refused because a directory on their
+   * way in is a link or a file; the caller counts them as dropped edits.
+   */
+  carryRows(gitDir: string, rows: readonly TouchedRow[], dest: string): number;
   /** Links under `root` (not followed) that would reach out of it, as `path -> target`. */
   linksOutsideTree(root: string): readonly string[];
   /**

@@ -115,6 +115,69 @@ describe("carryRows on other rows", () => {
   });
 });
 
+describe("carryRows through what the tree already holds", () => {
+  it("refuses a row whose way into the tree goes through a link the template holds", () => {
+    const { gitDir, blob } = blobIn("process.exit(0);\n");
+    const dest = tmp("case-dest");
+    write(dest, "test/oracle.js", "real oracle\n");
+    write(dest, "test/keep.js", "kept\n");
+    mkdirSync(join(dest, "src"));
+    symlinkSync("../test", join(dest, "src/alias"));
+    const refused = carryRows(
+      gitDir,
+      [
+        {
+          status: "A",
+          path: "src/alias/oracle.js",
+          entry: { kind: "file", mode: "100644", blob },
+        },
+        { status: "D", path: "src/alias/keep.js", entry: { kind: "absent" } },
+      ],
+      dest,
+    );
+    // Guards: a kept write under an internal link would land on the oracle and fake a pass.
+    expect(readFileSync(join(dest, "test/oracle.js"), "utf-8")).toBe(
+      "real oracle\n",
+    );
+    expect(existsSync(join(dest, "test/keep.js"))).toBe(true);
+    expect(refused).toBe(2);
+  });
+});
+
+describe("carryRows when the way in changes", () => {
+  it("refuses a row under a file, and carries one whose link a kept row removed first", () => {
+    const { gitDir, blob } = blobIn("new\n");
+    const dest = tmp("case-dest");
+    write(dest, "src/a", "a file\n");
+    write(dest, "test/oracle.js", "real oracle\n");
+    symlinkSync("../test", join(dest, "src/alias"));
+    const refused = carryRows(
+      gitDir,
+      [
+        {
+          status: "A",
+          path: "src/a/b.js",
+          entry: { kind: "file", mode: "100644", blob },
+        },
+        { status: "D", path: "src/alias", entry: { kind: "absent" } },
+        {
+          status: "A",
+          path: "src/alias/oracle.js",
+          entry: { kind: "file", mode: "100644", blob },
+        },
+      ],
+      dest,
+    );
+    // Guards: a file on the way is refused; a link the agent deleted is gone before the write.
+    expect(refused).toBe(1);
+    expect(readFileSync(join(dest, "src/a"), "utf-8")).toBe("a file\n");
+    expect(lstatSync(join(dest, "src/alias")).isDirectory()).toBe(true);
+    expect(readFileSync(join(dest, "test/oracle.js"), "utf-8")).toBe(
+      "real oracle\n",
+    );
+  });
+});
+
 /**
  * Whether `pid` still runs. A killed process whose parent is gone can stay a
  * zombie under a container's PID 1 that never reaps; a zombie runs nothing.

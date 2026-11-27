@@ -291,6 +291,17 @@ describe("touchedPaths against what could move the base", () => {
     );
   });
 
+  it("throws when the shadow cannot lock its index, rather than calling the tree unstaged", () => {
+    const src = sourceRepo({ "src/a.ts": "a\n" });
+    const trial = startTrial(src);
+    write(trial.cwd, "src/a.ts", "b\n");
+    writeFileSync(join(trial.view.gitDir, "index.lock"), "");
+    // Guards: a stale lock is the machine's fault; reading it as `unstaged` would blame the agent.
+    expect(() => touchedPaths(trial.view, trial.cwd)).toThrow(
+      ShadowUnhealthyError,
+    );
+  });
+
   it("the agent's git history operations in the trial do not move the base", () => {
     const src = sourceRepo({ "src/a.ts": "a\n", "src/b.ts": "b\n" });
     const trial = startTrial(src);

@@ -9,14 +9,22 @@
  * - Kept edits are carried as blobs read from the trial's base git dir, never
  *   as a patch over the trial dir: only a regular file's bytes and its exec
  *   bit reach the scoring tree, and an existing entry at the path (a link, a
- *   directory) is removed first, so a write never goes through it.
+ *   directory) is removed first, so a write never goes through it. A row
+ *   whose way in passes a link or a file is refused and counted, never
+ *   followed: a link inside the tree can point at the tests.
  * - A scoring process runs with a fresh HOME, a scrubbed env and `CI=1`, in
  *   its own process group; the group is killed at the timeout and again after
  *   the process exits, so a server or watcher it left does not outlive it.
  *   Not confined: it can write anywhere the user can.
  */
 import { execFileSync, spawn } from "node:child_process";
-import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import type { RegressionCaseHost, ScoringRun } from "../core/case-scoring.js";
 import { scrubbedRunEnv } from "../core/run-env.js";
@@ -37,18 +45,42 @@ function gitBytes(cwd: string, args: readonly string[]): Buffer {
 /**
  * Write the kept rows into `dest`: deletions first (a file may replace a
  * directory the agent emptied), then each file's blob with its exec bit.
+ * A row whose way into `dest` passes a link or a file is refused, not
+ * followed: checked before the deletions and again before the writes, since
+ * a kept deletion may remove the link. Returns how many rows were refused.
  */
 export function carryRows(
   gitDir: string,
   rows: readonly TouchedRow[],
   dest: string,
-): void {
-  rows.forEach((row) => {
-    rmSync(join(dest, row.path), { recursive: true, force: true });
-  });
-  rows.forEach((row) => {
+): number {
+  const refusedDeletes = rows.filter(
+    (row) => row.entry.kind !== "file" && !openWay(dest, row.path),
+  ).length;
+  rows
+    .filter((row) => openWay(dest, row.path))
+    .forEach((row) => {
+      rmSync(join(dest, row.path), { recursive: true, force: true });
+    });
+  const files = rows.filter((row) => row.entry.kind === "file");
+  const writable = files.filter((row) => openWay(dest, row.path));
+  writable.forEach((row) => {
     writeRow(gitDir, row, dest);
   });
+  return refusedDeletes + files.length - writable.length;
+}
+
+/** Every directory between `dest` and `path` is a real directory or not there yet. */
+function openWay(dest: string, path: string): boolean {
+  const dirs = path.split("/").slice(0, -1);
+  return dirs.every((_, i) =>
+    plainDirOrMissing(join(dest, ...dirs.slice(0, i + 1))),
+  );
+}
+
+function plainDirOrMissing(path: string): boolean {
+  const stat = lstatSync(path, { throwIfNoEntry: false });
+  return stat === undefined || stat.isDirectory();
 }
 
 function writeRow(gitDir: string, row: TouchedRow, dest: string): void {
