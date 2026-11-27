@@ -67,7 +67,7 @@ export type TreeRemoval =
   | {
       readonly kind: "left-behind";
       readonly path: string;
-      /** The errno code (`ENOTEMPTY`, `EBUSY`), else the message; `recreated` when the delete worked and the dir came back. */
+      /** The errno code (`ENOTEMPTY`, `EBUSY`), else the error's message; `recreated` when the delete worked and the dir came back. */
       readonly reason: string;
     };
 
@@ -99,7 +99,8 @@ export function removeTree(
   path: string,
   fs: Partial<RemoveTreeFs> = {},
 ): TreeRemoval {
-  const { rm, exists } = { ...REAL_FS, ...fs };
+  const rm = fs.rm ?? REAL_FS.rm;
+  const exists = fs.exists ?? REAL_FS.exists;
   const failure = failureOf(() => {
     rm(path);
   });
@@ -117,8 +118,54 @@ function failureOf(run: () => void): string | undefined {
     run();
     return undefined;
   } catch (e) {
-    return e instanceof Error && "code" in e && typeof e.code === "string"
-      ? e.code
-      : String(e);
+    return reasonOf(e);
   }
+}
+
+function reasonOf(e: unknown): string {
+  if (!(e instanceof Error)) return String(e);
+  return "code" in e && typeof e.code === "string" ? e.code : e.message;
+}
+
+/** What {@link removeTrees} calls; replaced in tests. */
+export interface RemoveTreesDeps {
+  readonly remove: (path: string) => TreeRemoval;
+  readonly warn: (msg: string) => void;
+}
+
+/**
+ * The cleanup of every dir an agent ran in, which must never throw.
+ *
+ * An agent can start a process that outlives it (a background `vitest` in a
+ * new session) and keeps writing there. A throw from a trial's `finally`
+ * would replace the score already computed and end the whole run (#626). So
+ * each path is removed in order, an absent one skipped, and one that will not
+ * go is named in one warning line without stopping the next. List a
+ * credential copy before the dir that holds it, so the secret goes first.
+ */
+export function removeTrees(
+  paths: readonly (string | undefined)[],
+  deps: Partial<RemoveTreesDeps> = {},
+): readonly TreeRemoval[] {
+  const remove = deps.remove ?? ((path: string) => removeTree(path));
+  const warn =
+    deps.warn ??
+    ((msg: string) => {
+      console.warn(msg);
+    });
+  const removals = paths
+    .filter((path): path is string => path !== undefined)
+    .map((path) => remove(path));
+  removals.forEach((r) => {
+    if (r.kind === "left-behind") warn(leftBehindMessage(r.path, r.reason));
+  });
+  return removals;
+}
+
+function leftBehindMessage(path: string, reason: string): string {
+  return (
+    `vigiles: could not remove ${path} (${reason}): a process the agent ` +
+    `started may still be writing there, and may have changed what the ` +
+    `trial scored. The score is kept; delete the folder by hand.`
+  );
 }
