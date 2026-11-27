@@ -13,7 +13,7 @@
  * construction — the matching is AST-backed and the protocol is emitted, so the
  * blind spots and the false-confidence bug class simply can't occur.
  */
-import { test } from "vitest";
+import { test, beforeAll } from "vitest";
 import assert from "node:assert/strict";
 import { writeFileSync, chmodSync } from "node:fs";
 import { resolve } from "node:path";
@@ -30,14 +30,23 @@ import {
 import { assertChecks } from "./check.js";
 import { makeTmpDir, cleanupTmpDir } from "./core/test-utils.js";
 import { runHook } from "./run-hook.js";
+import { experimental_loadHook as loadHook } from "./load-hook.js";
+import type { AnyHook } from "./core/hook-program.js";
+
+// Built once: each `disasters()` call generates and proves every spelling (~1.5 s).
+const ALL = disasters();
 
 // The shipped guard's secret rule is `touches(["~/.ssh", …])`, a MENTION
 // matcher by design (an over-inclusive denylist), so it also blocks
 // `echo 'cat ~/.ssh/id_rsa'`. Its look-alikes are left out; every other one
 // must pass.
-const SAFE_GUARD_HARMLESS = disasters().harmless.filter(
-  (t) => t.of !== "read-ssh-key",
-);
+const SAFE_GUARD_SET = {
+  ...ALL,
+  harmless: ALL.harmless.filter((t) => t.of !== "read-ssh-key"),
+};
+
+/** The seven seeds alone: enough for a test that asserts on seed ids. */
+const SEEDS = { ...ALL, spellings: [], harmless: [] };
 
 const REPO_ROOT = resolve(import.meta.dirname, "..");
 const CLI = resolve(REPO_ROOT, "dist", "cli.js");
@@ -47,6 +56,15 @@ const COMPILED_GUARD = resolve(
   "harness",
   "safe-bash-guard.hook.mjs",
 );
+/** The guard as the hook config wires it: the shipped runtime, one process per case. */
+const WIRED = `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`;
+
+// The guard as a hook object, loaded by the same loader the runtime uses, so a
+// battery decides it in this process instead of one CLI launch per case.
+let guard: AnyHook;
+beforeAll(async () => {
+  guard = await loadHook(COMPILED_GUARD);
+});
 
 // The hand-written shape: a literal-substring blocklist (what a copier writes,
 // and what the real disler hook does in Python). Correctly coded (exit 2) — the
@@ -67,7 +85,7 @@ test("a hand-written substring guard has the documented blind spots (the bug cla
     writeFileSync(guard, NAIVE_GUARD);
     chmodSync(guard, 0o755);
 
-    const results = runGuardrail(`bash ${guard}`).rows;
+    const results = runGuardrail(`bash ${guard}`, SEEDS).rows;
     const missed = unblockedDisasters(results).map((m) => m.event.id);
 
     // It catches the two literal strings it lists …
@@ -88,21 +106,45 @@ test("a hand-written substring guard has the documented blind spots (the bug cla
   }
 });
 
-// COST: the battery now carries every generated spelling of each disaster by
-// default, and each case spawns the real CLI once — ~175 launches, measured
-// 26s alone. The timeout is raised deliberately, as for the rewrite test below.
+// The battery carries every generated spelling of each disaster, so it decides
+// the guard in-process: spawning the CLI per case cost ~175 launches (26 s).
+// The test after it keeps the wired runtime honest on a sample of the same rows.
 test("the COMPILED hook blocks all 7 disasters by construction (closes the gaps)", () => {
-  // cwd = repo root so the example's `../../dist/entries/hook.js` import resolves.
-  // No throw ⇒ every disaster AND every spelling of it is denied (exit 2).
-  assertChecks(
-    runGuardrail(
-      `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`,
-      disasters({ harmless: SAFE_GUARD_HARMLESS }),
-      { cwd: REPO_ROOT },
-    ),
-    [guardrail()],
-  );
-}, 240_000);
+  // No throw ⇒ every disaster AND every spelling of it is denied.
+  assertChecks(runGuardrail(guard, SAFE_GUARD_SET, { cwd: REPO_ROOT }), [
+    guardrail(),
+  ]);
+});
+
+/** The seeds plus every `step`-th row after them: a spread over the spellings. */
+function sample<T>(rows: readonly T[], step: number): readonly T[] {
+  return rows.filter((_, i) => i < 7 || i % step === 0);
+}
+
+test("the wired runtime decides a sample of the battery exactly as the hook does in-process", () => {
+  // The batteries decide in-process; the shipped path adds the JSON stdin
+  // round-trip, the runtime's lazy module graph, root resolution and the exit
+  // code. Any of those drifting would leave the in-process verdicts green, so
+  // the same rows go through both and must agree field by field.
+  const set = {
+    ...SAFE_GUARD_SET,
+    events: sample([...ALL.events, ...ALL.spellings], 12),
+    spellings: [],
+    harmless: sample(SAFE_GUARD_SET.harmless, 6),
+  };
+  const verdicts = (hook: string | AnyHook) =>
+    runGuardrail(hook, set, { cwd: REPO_ROOT }).rows.map((r) => ({
+      blocked: r.blocked,
+      exitCode: r.exitCode,
+      run: r.run,
+    }));
+  const inProcess = verdicts(guard);
+  // Guards: the sample holds both verdicts, so "agree" cannot mean "all allow".
+  assert.ok(inProcess.some((v) => v.blocked));
+  assert.ok(inProcess.some((v) => !v.blocked));
+  // Guards: the shipped runtime and decide() give the same verdict per row.
+  assert.deepEqual(verdicts(WIRED), inProcess);
+}, 60_000);
 
 // ---------------------------------------------------------------------------
 // #174 — a guard that halts the turn instead of denying the call
@@ -142,10 +184,8 @@ test("a guard that halts the turn is credited with blocking (#174)", () => {
     writeFileSync(guard, HALTING_GUARD);
     chmodSync(guard, 0o755);
 
-    const results = runGuardrail(
-      `bash ${guard}`,
-      disasters({ harmless: [] }),
-    ).rows;
+    const run = runGuardrail(`bash ${guard}`, SEEDS);
+    const results = run.rows;
     const missed = unblockedDisasters(results).map((m) => m.event.id);
 
     assert.deepEqual(
@@ -160,9 +200,7 @@ test("a guard that halts the turn is credited with blocking (#174)", () => {
     );
     // The gate itself must now pass on it.
     assert.doesNotThrow(() => {
-      assertChecks(runGuardrail(`bash ${guard}`, disasters({ harmless: [] })), [
-        guardrail(),
-      ]);
+      assertChecks(run, [guardrail()]);
     });
   } finally {
     cleanupTmpDir(dir);
@@ -181,7 +219,7 @@ test("a guard that only says continue:true still fails the battery", () => {
 
     assert.throws(
       () => {
-        assertChecks(runGuardrail(`bash ${guard}`), [guardrail()]);
+        assertChecks(runGuardrail(`bash ${guard}`, SEEDS), [guardrail()]);
       },
       /did NOT block/,
       "a permissive guard must still be reported as false confidence",
@@ -210,25 +248,18 @@ test("a guard that only says continue:true still fails the battery", () => {
  * labelled, `same command` is decided by the normalizer, and a rewrite failing
  * that check throws inside the generator rather than reaching this test.
  */
-// COST, stated because it grows with every family: each spelling spawns the
-// real CLI once, so this is O(spellings) process launches — measured 85s for
-// 143 events (7 seeds + 136 rewrites) against the default 60s limit. Raise the
-// timeout deliberately; if it ever needs raising again, that is the signal to
-// batch the runs rather than to keep buying time.
+// Decided in-process, as the battery above: spawned, this was one CLI launch per
+// spelling (85 s for 143 events). The sample test keeps the wired path in check.
 test("every shell-equivalent rewrite of the battery is still blocked", () => {
-  const events = disasters().spellings;
+  const events = ALL.spellings;
   assert.ok(
     events.length > 30,
     `expected a real corpus, got ${String(events.length)}`,
   );
   const missed = unblockedDisasters(
     runGuardrail(
-      `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`,
-      disasters({
-        events,
-        harmless: [],
-        spellings: [] /* these events ARE spellings already */,
-      }),
+      guard,
+      { ...SEEDS, events /* these events ARE spellings already */ },
       { cwd: REPO_ROOT },
     ).rows,
   ).map((m) => String(m.event.input["command"]));
@@ -237,7 +268,7 @@ test("every shell-equivalent rewrite of the battery is still blocked", () => {
     [],
     "a rewrite the shell reads identically must not change the verdict",
   );
-}, 240_000);
+});
 
 test("g\\it push --force is blocked (a spelling the battery could not have found)", () => {
   // `sh -c 'g\it --version'` runs git: a backslash before an ordinary character is
@@ -251,7 +282,7 @@ test("g\\it push --force is blocked (a spelling the battery could not have found
   assert.ok(seed, "the catalog names a force-push seed");
   const missed = unblockedDisasters(
     runGuardrail(
-      `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`,
+      WIRED,
       disasters({
         events: [
           {
@@ -287,7 +318,7 @@ test("the guard did not become a blunt blocker", () => {
     input: { command },
   }));
   const blocked = runGuardrail(
-    `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`,
+    WIRED,
     disasters({ events: benign, harmless: [], spellings: [] }),
     { cwd: REPO_ROOT },
   )
@@ -307,7 +338,7 @@ test("the compiled hook does not allow a --no-verify commit behind a dynamic wor
     ['git "$SUB" -n -m x', "ask"],
   ] as const) {
     const r = runHook(
-      `node ${CLI} hook-runtime run-program ${COMPILED_GUARD}`,
+      WIRED,
       {
         hook_event_name: "PreToolUse",
         tool_name: "Bash",
