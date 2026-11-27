@@ -26,6 +26,7 @@ import {
   statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
+import { removeTrees } from "../../core/tmp-root.js";
 import { join } from "node:path";
 
 import type { RequestCapture, RequestChannel } from "../../core/runtime.js";
@@ -130,8 +131,10 @@ function openChannel(): RequestChannel {
       mkdirSync(dir, { recursive: true });
     },
     firstRequest: () => firstClaudeRequest(dir),
+    // Never throws: a process the agent started can still be writing request
+    // bodies here, and a throw from the trial's cleanup loses its score (#626).
     close: () => {
-      rmSync(dir, { recursive: true, force: true });
+      removeTrees([dir]);
     },
   };
 }

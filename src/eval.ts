@@ -144,12 +144,7 @@ import {
   serializeIntercepts,
   INTERCEPT_TOOLS_ENV,
 } from "./tool-intercept.js";
-import {
-  readStubCalls,
-  removeStubDir,
-  resetStubCalls,
-  writeStubDir,
-} from "./tool-stub.js";
+import { readStubCalls, resetStubCalls, writeStubDir } from "./tool-stub.js";
 import {
   isUnanswered,
   unloggedMisses,
@@ -172,7 +167,7 @@ import {
 } from "./eval-workspace.js";
 import { isRateLimited } from "./eval-rate-limit.js";
 export { isRateLimited };
-import { makeTmpDir } from "./core/tmp-root.js";
+import { makeTmpDir, removeTrees } from "./core/tmp-root.js";
 import type { ContextEvidence } from "./core/context-evidence.js";
 import { startContextCapture } from "./eval-context.js";
 import {
@@ -1076,7 +1071,7 @@ export async function runSkillSelectionTrial(args: {
     const trace = makeContext(cwd, out, args.parse ?? parseClaudeRun);
     return { fired: whichSkillsFired(trace), errored: false };
   } finally {
-    rmSync(cwd, { recursive: true, force: true });
+    removeTrees([cwd]); // never throws (#626)
   }
 }
 
@@ -1630,11 +1625,18 @@ async function executeTrial(
     };
   } finally {
     observed.dispose();
-    rmSync(cwd, { recursive: true, force: true });
-    rmSync(home, { recursive: true, force: true });
-    if (stubDir !== undefined) removeStubDir(stubDir);
-    if (baseDir !== undefined)
-      rmSync(baseDir, { recursive: true, force: true });
+    // Never throws: an agent's leftover process must not cost the score
+    // computed above (#626). The credential copy goes first, so it is gone
+    // even when its `home` stays behind.
+    removeTrees([
+      ...(EVAL_RUNTIME.runEnv?.keepHomeFiles ?? []).map((rel) =>
+        join(home, rel),
+      ),
+      cwd,
+      home,
+      stubDir?.root,
+      baseDir,
+    ]);
   }
 }
 
@@ -3212,7 +3214,7 @@ async function runTriggerTrial(
       usage: ctx.usage,
     };
   } finally {
-    rmSync(cwd, { recursive: true, force: true });
+    removeTrees([cwd]); // never throws (#626)
     await sleep(cfg.spacing);
   }
 }

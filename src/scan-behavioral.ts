@@ -50,7 +50,7 @@ import {
 } from "./core/live-driver.js";
 import type { HarnessAdapter } from "./core/adapter.js";
 import { defaultAdapter, getAdapter } from "./adapter-registry.js";
-import { makeTmpDir } from "./core/tmp-root.js";
+import { makeTmpDir, removeTrees } from "./core/tmp-root.js";
 
 /** Author-supplied prompt sets for one skill (bare skill name → these). */
 export interface SkillPrompts {
@@ -996,7 +996,7 @@ async function runGateAttack(
   } catch {
     return { output: "", errored: true };
   } finally {
-    rmSync(cwd, { recursive: true, force: true });
+    removeTrees([cwd]); // never throws (#626)
   }
 }
 

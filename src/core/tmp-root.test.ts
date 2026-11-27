@@ -7,9 +7,10 @@
  * a green that means "this platform has no trap", not "the trap is closed".
  * Creating the symlink explicitly reproduces the macOS shape on any platform.
  */
-import { test } from "vitest";
+import { test, vi } from "vitest";
 import assert from "node:assert/strict";
 import {
+  existsSync,
   mkdirSync,
   mkdtempSync,
   realpathSync,
@@ -19,7 +20,12 @@ import {
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
-import { makeTmpDir, cleanupTmpDir } from "./tmp-root.js";
+import {
+  makeTmpDir,
+  cleanupTmpDir,
+  removeTree,
+  removeTrees,
+} from "./tmp-root.js";
 
 test("makeTmpDir returns a path with no symlink left in it", () => {
   const dir = makeTmpDir("tmp-root");
@@ -99,5 +105,99 @@ test("a harness's OWN symlink is still testable — the fix does not swallow it"
     );
   } finally {
     cleanupTmpDir(dir);
+  }
+});
+
+test("removeTree deletes a real tree and reports it removed", () => {
+  const dir = makeTmpDir("tmp-root-remove");
+  mkdirSync(join(dir, "nested"));
+  assert.deepEqual(removeTree(dir), { kind: "removed", path: dir });
+  // Guards: "removed" is claimed only for a tree that is really gone.
+  assert.equal(existsSync(dir), false);
+});
+
+test("removeTree never throws: a delete that fails is reported with its code", () => {
+  const busy = (): never => {
+    throw Object.assign(new Error("directory not empty"), {
+      code: "ENOTEMPTY",
+    });
+  };
+  // Guards: a throw here would replace a trial score already computed (#626).
+  assert.deepEqual(removeTree("/nowhere", { rm: busy }), {
+    kind: "left-behind",
+    path: "/nowhere",
+    reason: "ENOTEMPTY",
+  });
+});
+
+test("a failure without an errno code is still reported, by its message", () => {
+  const odd = (): never => {
+    throw new Error("odd failure");
+  };
+  // Guards: a non-errno failure is not silently read as a success.
+  assert.deepEqual(removeTree("/nowhere", { rm: odd }), {
+    kind: "left-behind",
+    path: "/nowhere",
+    reason: "odd failure",
+  });
+  const thrownString = (): never => {
+    // eslint-disable-next-line @typescript-eslint/only-throw-error -- the case under test
+    throw "not an Error";
+  };
+  // Guards: a non-Error throw is reported too.
+  assert.equal(
+    removeTree("/nowhere", { rm: thrownString }).kind,
+    "left-behind",
+  );
+});
+
+test("a tree recreated right after a delete that succeeded is not claimed removed", () => {
+  const outcome = removeTree("/nowhere", { rm: () => {}, exists: () => true });
+  // Guards: a writer still running can rebuild the dir between delete and return.
+  assert.deepEqual(outcome, {
+    kind: "left-behind",
+    path: "/nowhere",
+    reason: "recreated",
+  });
+});
+
+test("a dir that will not go is warned about once, and the next dir is still removed", () => {
+  const next = makeTmpDir("trial-cleanup");
+  const warnings: string[] = [];
+  const removals = removeTrees([join(next, "stuck"), undefined, next], {
+    remove: (dir) =>
+      dir.endsWith("stuck")
+        ? { kind: "left-behind", path: dir, reason: "ENOTEMPTY" }
+        : removeTree(dir),
+    warn: (msg) => warnings.push(msg),
+  });
+  // Guards: an absent dir (no stub dir, no workspace) is skipped, not removed.
+  assert.equal(removals.length, 2);
+  // Guards: the failure does not stop the dirs after it.
+  assert.equal(existsSync(next), false);
+  // Guards: exactly one line, naming the path and the code, per dir left behind.
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0] ?? "", /stuck.*ENOTEMPTY/);
+});
+
+test("a clean cleanup prints nothing", () => {
+  const dir = makeTmpDir("trial-cleanup-clean");
+  mkdirSync(join(dir, "a"));
+  const warnings: string[] = [];
+  removeTrees([dir], { warn: (msg) => warnings.push(msg) });
+  // Guards: no warning noise on the normal path.
+  assert.deepEqual(warnings, []);
+});
+
+test("by default the warning goes to stderr, one line", () => {
+  const stderr = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+  try {
+    removeTrees(["/stuck"], {
+      remove: (dir) => ({ kind: "left-behind", path: dir, reason: "EBUSY" }),
+    });
+    // Guards: a dir left behind is never silent (the no-silent-skips rule).
+    assert.equal(stderr.mock.calls.length, 1);
+  } finally {
+    stderr.mockRestore();
   }
 });

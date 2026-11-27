@@ -34,7 +34,7 @@
  * platform can hold the fix in place. What holds it is the regression test beside
  * this file, which builds its own symlink rather than relying on the platform's.
  */
-import { mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -59,4 +59,113 @@ export function makeTmpDir(suffix: string = "test"): string {
  */
 export function cleanupTmpDir(dir: string): void {
   rmSync(dir, { recursive: true, force: true });
+}
+
+/** What removing one tree did: it is gone, or it is still on disk, and why. */
+export type TreeRemoval =
+  | { readonly kind: "removed"; readonly path: string }
+  | {
+      readonly kind: "left-behind";
+      readonly path: string;
+      /** The errno code (`ENOTEMPTY`, `EBUSY`), else the error's message; `recreated` when the delete worked and the dir came back. */
+      readonly reason: string;
+    };
+
+/** The two file-system calls {@link removeTree} makes; replaced in tests. */
+export interface RemoveTreeFs {
+  readonly rm: (path: string) => void;
+  readonly exists: (path: string) => boolean;
+}
+
+const REAL_FS: RemoveTreeFs = {
+  // Node's own retry (ENOTEMPTY, EBUSY, EPERM), linear backoff. Kept short:
+  // `rmSync` sleeps synchronously, so a long budget stalls every other trial.
+  rm: (path) => {
+    rmSync(path, {
+      recursive: true,
+      force: true,
+      maxRetries: 3,
+      retryDelay: 50,
+    });
+  },
+  exists: existsSync,
+};
+
+/**
+ * Remove a tree and say what happened, never throwing. For a dir something
+ * else may still be writing to: a process the agent started that outlived it.
+ */
+export function removeTree(
+  path: string,
+  fs: Partial<RemoveTreeFs> = {},
+): TreeRemoval {
+  const rm = fs.rm ?? REAL_FS.rm;
+  const exists = fs.exists ?? REAL_FS.exists;
+  const failure = failureOf(() => {
+    rm(path);
+  });
+  if (failure !== undefined)
+    return { kind: "left-behind", path, reason: failure };
+  // A writer still running can rebuild the dir between the delete and here.
+  return exists(path)
+    ? { kind: "left-behind", path, reason: "recreated" }
+    : { kind: "removed", path };
+}
+
+/** The errno code (else the message) of what `run` threw; undefined when it returned. */
+function failureOf(run: () => void): string | undefined {
+  try {
+    run();
+    return undefined;
+  } catch (e) {
+    return reasonOf(e);
+  }
+}
+
+function reasonOf(e: unknown): string {
+  if (!(e instanceof Error)) return String(e);
+  return "code" in e && typeof e.code === "string" ? e.code : e.message;
+}
+
+/** What {@link removeTrees} calls; replaced in tests. */
+export interface RemoveTreesDeps {
+  readonly remove: (path: string) => TreeRemoval;
+  readonly warn: (msg: string) => void;
+}
+
+/**
+ * The cleanup of every dir an agent ran in, which must never throw.
+ *
+ * An agent can start a process that outlives it (a background `vitest` in a
+ * new session) and keeps writing there. A throw from a trial's `finally`
+ * would replace the score already computed and end the whole run (#626). So
+ * each path is removed in order, an absent one skipped, and one that will not
+ * go is named in one warning line without stopping the next. List a
+ * credential copy before the dir that holds it, so the secret goes first.
+ */
+export function removeTrees(
+  paths: readonly (string | undefined)[],
+  deps: Partial<RemoveTreesDeps> = {},
+): readonly TreeRemoval[] {
+  const remove = deps.remove ?? ((path: string) => removeTree(path));
+  const warn =
+    deps.warn ??
+    ((msg: string) => {
+      console.warn(msg);
+    });
+  const removals = paths
+    .filter((path): path is string => path !== undefined)
+    .map((path) => remove(path));
+  removals.forEach((r) => {
+    if (r.kind === "left-behind") warn(leftBehindMessage(r.path, r.reason));
+  });
+  return removals;
+}
+
+function leftBehindMessage(path: string, reason: string): string {
+  return (
+    `vigiles: could not remove ${path} (${reason}): a process the agent ` +
+    `started may still be writing there, and may have changed what the ` +
+    `trial scored. The score is kept; delete the folder by hand.`
+  );
 }
