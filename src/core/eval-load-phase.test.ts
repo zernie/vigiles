@@ -18,6 +18,7 @@ import {
   inEvalLoad,
   inVigilesRunner,
   outsideRunnerRefusal,
+  refuseCommandOutsideRunner,
   refuseOutsideRunner,
   withEvalLoad,
   withVigilesRunner,
@@ -231,4 +232,20 @@ test("the wiring test FIRES on a commented-out call (the mutation that once pass
   writeFileSync(dead, `function d() { /* refuseOutsideRunner("x"); */ }\n`);
   assert.equal(callsTo(live, "refuseOutsideRunner").length, 1);
   assert.equal(callsTo(dead, "refuseOutsideRunner").length, 0);
+});
+
+test("a regression case's commands run only inside a runner, never while an eval file loads", () => {
+  // Guards: the user's build and tests never run on import or outside a runner.
+  assert.throws(() => {
+    refuseCommandOutsideRunner("the build");
+  }, /refused to run the build: outside a vigiles runner/);
+  const whileLoading = (): void => {
+    assert.throws(() => {
+      refuseCommandOutsideRunner("the build");
+    }, /while an eval file was being IMPORTED/);
+  };
+  withVigilesRunner("eval-cli", () => {
+    refuseCommandOutsideRunner("the build"); // does not throw
+    withEvalLoad(whileLoading);
+  });
 });
