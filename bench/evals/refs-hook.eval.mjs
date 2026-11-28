@@ -21,7 +21,7 @@ const CLI = resolve("dist/cli.js");
 export default defineEval({
   runEval: {
     name: "refs-hook: forcing marks → verifiable references?",
-    env: { kind: "ephemeral" },
+    env: { kind: "local", inherit: "none" },
     fixture: {
       "package.json": JSON.stringify({
         name: "shop",

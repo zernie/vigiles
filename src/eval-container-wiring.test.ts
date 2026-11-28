@@ -1,5 +1,5 @@
 /**
- * `execution: { kind: "container" }` (vigiles#599) through the trial pipeline
+ * `env: { kind: "docker" }` (vigiles#599) through the trial pipeline
  * of `./eval.ts`, driven by `runEvalWith` against a FAKE `ContainerHost` — no
  * Docker. What the fake records is what the real adapter would be asked: one
  * `run` per attempt, after the attempt's world is reset; a preflight before
@@ -114,8 +114,7 @@ type Spec = Extract<
 
 const spec = (extra: Partial<Spec> = {}): Spec => ({
   name: "box",
-  env: { kind: "ephemeral" },
-  execution: { kind: "container" },
+  env: { kind: "docker" },
   arms: { a: { files: { "x.txt": "1" } } },
   task: "do it",
   trials: 1,
@@ -223,7 +222,11 @@ test("a cache hit replays without asking the container host to run anything", as
 test("a host run's cache record is never replayed into a container run", async () => {
   const cacheDir = makeTmpDir("box-cache");
   await runEvalWith(
-    spec({ execution: { kind: "host" }, cache: "readwrite", cacheDir }),
+    spec({
+      env: { kind: "local", inherit: "none" },
+      cache: "readwrite",
+      cacheDir,
+    }),
     hostRunner().run,
   );
   const fake = fakeContainer();
@@ -232,7 +235,7 @@ test("a host run's cache record is never replayed into a container run", async (
     hostRunner().run,
     hostWith(fake.port),
   );
-  // Guards: the container attempt's key carries its execution, so the host
+  // Guards: the container attempt's key carries its container, so the host
   // record misses and the attempt runs in a container.
   assert.equal(fake.runs.length, 1);
 });
@@ -296,7 +299,7 @@ test("a preflight that is not ready stops the run before trial 1, with its one l
     (err: unknown) =>
       err instanceof ContainerRefusalError &&
       err.message.startsWith(
-        'execution: { kind: "container" } needs Docker, and no Docker daemon answered. ' +
+        'env: { kind: "docker" } needs Docker, and no Docker daemon answered. ' +
           "Start Docker Desktop (macOS) or the docker service (Linux), then re-run.",
       ),
   );
@@ -351,10 +354,10 @@ test("a container run's lock inputs differ from the host's, and between two opti
     );
     return readLock(dir, "box")?.inputsHash ?? "";
   };
-  const host = await hashOf({ execution: { kind: "host" } });
+  const host = await hashOf({ env: { kind: "local", inherit: "none" } });
   const box = await hashOf({});
   const offline = await hashOf({
-    execution: { kind: "container", networkMode: "none" },
+    env: { kind: "docker", networkMode: "none" },
   });
   // Guards: a host lock never vouches for a container run, or the reverse.
   assert.notEqual(host, box);
@@ -366,7 +369,7 @@ test("a host run says once per run what it cannot end; a container run says noth
   const errors = vi.spyOn(console, "error").mockImplementation(() => undefined);
   try {
     const host = await runEvalReporting(
-      spec({ execution: { kind: "host" }, trials: 2 }),
+      spec({ env: { kind: "local", inherit: "none" }, trials: 2 }),
       hostRunner().run,
     );
     const said = errors.mock.calls.filter(
@@ -391,4 +394,45 @@ test("a host run says once per run what it cannot end; a container run says noth
   } finally {
     errors.mockRestore();
   }
+});
+
+test("a container env's seed is laid into the HOME the attempt mounts", async () => {
+  let seeded = "";
+  const fake = fakeContainer((_n, a) => {
+    seeded = readFileSync(join(a.run.env?.HOME ?? "", ".gitconfig"), "utf8");
+    return { kind: "ran", out: RESULT };
+  });
+  await runEvalWith(
+    spec({
+      env: {
+        kind: "docker",
+        home: { kind: "files", files: { ".gitconfig": "[user]\n" } },
+      },
+    }),
+    hostRunner().run,
+    hostWith(fake.port),
+  );
+  // Guards: `home` seeds a container's throwaway HOME the same way it seeds an
+  // ephemeral one, so the two kinds differ only in where the process runs.
+  assert.equal(seeded, "[user]\n");
+});
+
+test('an `execution` key is refused before trial 1, pointing at env: { kind: "docker" }', async () => {
+  const fake = fakeContainer();
+  const host = hostRunner();
+  // As a plain-JS eval file would write it; TypeScript refuses the key itself.
+  const raw = {
+    ...spec({ env: { kind: "local", inherit: "none" } }),
+    execution: { kind: "container" },
+  };
+  const run = runEvalWith(raw, host.run, hostWith(fake.port));
+  // Guards: a container asked for under any other key never runs on the host
+  // in silence: the unknown field is refused and names the spelling that works.
+  await assert.rejects(
+    run,
+    /unknown EvalSpec field "execution" — where an attempt runs is `env`; env: \{ kind: "docker" \}/,
+  );
+  // Guards: refused before anything ran, here or in a container.
+  assert.equal(host.calls(), 0);
+  assert.deepEqual(fake.log, []);
 });

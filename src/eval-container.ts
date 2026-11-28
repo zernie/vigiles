@@ -1,5 +1,5 @@
 /**
- * `execution: { kind: "container" }` for `runEval` (vigiles#599): deciding a
+ * `env: { kind: "docker" }` for `runEval` (vigiles#599): deciding a
  * run can be a container run, and the machine checks before its first trial.
  * Each ATTEMPT then runs in a fresh container that is stopped before the
  * attempt is scored, so a process the agent started cannot write into the
@@ -16,15 +16,17 @@
  * temp dirs and the `--version` read stay in `./eval.ts`, and Docker stays in
  * the machine adapter behind the `ContainerHost` port (`./core/container.ts`).
  */
+import { omit } from "remeda";
+
 import type {
   ContainerHost,
   ContainerOptions,
   ContainerPreflight,
-  Execution,
   HarnessImageRecipe,
   Mount,
 } from "./core/container.js";
 import type { EngineFingerprint, EvalHost } from "./core/eval-host.js";
+import type { DockerRunEnv, NormalizedRunEnv } from "./core/run-env.js";
 import type {
   ContainerImageDeclaration,
   HarnessRuntime,
@@ -39,9 +41,12 @@ export class ContainerRefusalError extends Error {
 }
 
 /** How the refusals name the setting, as the spec spells it. */
-export const CONTAINER = 'execution: { kind: "container" }';
+export const CONTAINER = 'env: { kind: "docker" }';
 
-/** What a run's `execution` became once its harness and machine are known. */
+/** The run that stays on this machine, as the refusals name it. */
+const ON_HOST = 'env: { kind: "local", inherit: "none" }';
+
+/** Where a run's agent process runs, once its harness and machine are known. */
 export type ExecutionPlan =
   | { readonly kind: "host" }
   | {
@@ -72,23 +77,41 @@ export type TrialExecution =
 
 const noImage = (harness: string): string =>
   `${CONTAINER} is not supported for the ${harness} harness yet: its adapter declares no ` +
-  `container image. Use execution: { kind: "host" } (the default).`;
+  `container image. Use ${ON_HOST}.`;
 
 const NO_ADAPTER =
   `${CONTAINER} needs the container adapter, and this run was not given one. Run the eval ` +
   "with `vigiles eval <file>` or `paid_runEval` from vigiles/eval.";
 
 /**
- * Decide, at the spec boundary, whether this run can be a container run: the
- * harness must declare its image and the root must have wired the container
- * adapter. Throws a {@link ContainerRefusalError} naming which is missing.
+ * Decide, at the spec boundary, where this run's agent process runs: on the
+ * host for `local`; for `docker`, the harness must declare
+ * its image and the root must have wired the container adapter. Throws a
+ * {@link ContainerRefusalError} naming which is missing.
  */
 export function planExecution(
-  execution: Execution,
+  env: NormalizedRunEnv,
   runtime: Pick<HarnessRuntime, "name" | "agentBinary" | "containerImage">,
   host: EvalHost | undefined,
 ): ExecutionPlan {
-  if (execution.kind === "host") return execution;
+  switch (env.kind) {
+    case "local":
+      return { kind: "host" };
+    case "docker":
+      return containerPlan(containerOptionsOf(env), runtime, host);
+  }
+}
+
+/** A docker env's {@link ContainerOptions}: everything but `kind` and `home`. */
+function containerOptionsOf(env: DockerRunEnv): ContainerOptions {
+  return omit(env, ["kind", "home"]);
+}
+
+function containerPlan(
+  options: ContainerOptions,
+  runtime: Pick<HarnessRuntime, "name" | "agentBinary" | "containerImage">,
+  host: EvalHost | undefined,
+): ContainerPlan {
   const image = runtime.containerImage;
   if (image === undefined)
     throw new ContainerRefusalError(noImage(runtime.name));
@@ -97,7 +120,7 @@ export function planExecution(
     throw new ContainerRefusalError(NO_ADAPTER);
   return {
     kind: "container",
-    options: execution.options,
+    options,
     image,
     binary: runtime.agentBinary,
     port,
@@ -119,7 +142,7 @@ export function preflightRefusal(p: ContainerPreflight): string | undefined {
     case "testcontainers-failed":
       return `${CONTAINER} could not load the testcontainers package (${oneLine(p.detail)}). Reinstall it with \`npm i -D testcontainers\`, ${RERUN}`;
     case "node-too-old":
-      return `${CONTAINER} needs Node ${p.need} or newer (testcontainers requires it), and this is Node ${p.have}. Upgrade Node, or use execution: { kind: "host" }, ${RERUN}`;
+      return `${CONTAINER} needs Node ${p.need} or newer (testcontainers requires it), and this is Node ${p.have}. Upgrade Node, or use ${ON_HOST}, ${RERUN}`;
     case "ryuk-disabled":
       return `${CONTAINER} needs Ryuk, the testcontainers reaper that removes a container vigiles could not, and TESTCONTAINERS_RYUK_DISABLED turns it off. Unset it, ${RERUN}`;
     case "mount-failed":
@@ -160,8 +183,12 @@ export function macAuthRefusal(
 
 /** The machine facts {@link readyExecution} reads, passed in so it stays testable. */
 export interface ReadyMachine {
-  /** The raw `--version` output of the host's binary ("unknown" when absent). */
-  readonly rawVersion: () => string;
+  /**
+   * Reads the raw `--version` output of the binary the runner drives ("unknown"
+   * when that binary is absent). Undefined when the runner drives no binary
+   * vigiles knows: one passed in without a registered version.
+   */
+  readonly rawVersion: (() => string) | undefined;
   readonly platform: string;
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Directories of the same kind trial 1 mounts, and how to remove them. */
@@ -182,7 +209,7 @@ export async function readyExecution(
   machine: ReadyMachine,
 ): Promise<TrialExecution> {
   if (plan.kind === "host") return plan;
-  const recipe = recipeOrRefuse(plan, machine.rawVersion());
+  const recipe = recipeOrRefuse(plan, machine.rawVersion);
   refuseIf(macAuthRefusal(machine.platform, machine.env, plan.image));
   const probe = machine.probeMounts();
   try {
@@ -201,8 +228,15 @@ export async function readyExecution(
 
 function recipeOrRefuse(
   plan: ContainerPlan,
-  rawVersion: string,
+  readVersion: (() => string) | undefined,
 ): HarnessImageRecipe {
+  if (readVersion === undefined)
+    throw new ContainerRefusalError(
+      `${CONTAINER} builds its image with the version of the ${plan.binary} the run drives, and this ` +
+        `run's agent runner names no binary. Run the eval with \`vigiles eval <file>\` or \`paid_runEval\` ` +
+        `from vigiles/eval, ${RERUN}`,
+    );
+  const rawVersion = readVersion();
   const recipe = plan.image.recipe(rawVersion);
   if (recipe !== undefined) return recipe;
   throw new ContainerRefusalError(

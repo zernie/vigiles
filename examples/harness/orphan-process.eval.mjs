@@ -1,5 +1,6 @@
 /**
- * Example — ending every process an attempt started (`execution`).
+ * Example — ending every process an attempt started
+ * (`env: { kind: "docker" }`).
  *
  * `.mjs` like every example here: it runs in plain node against the built
  * `dist/`, with no TypeScript loader.
@@ -23,8 +24,7 @@ export default defineEval({
   runEval: {
     // Named, so `vigiles eval --update` writes a committed lock.
     name: "orphan-process-container",
-    env: { kind: "ephemeral" }, // required with a container
-    execution: { kind: "container" },
+    env: { kind: "docker" }, // a throwaway HOME, in a container per attempt
     task: ORPHAN_TASK,
     measure: measureOrphan,
     trials: 3,

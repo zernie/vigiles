@@ -94,7 +94,8 @@ import { ARGV_REST } from "./core/stub-rules.js";
 
 /** These specs drive a fake runner, so nothing is inherited by a real child. */
 const INHERIT = {
-  kind: "inherit",
+  kind: "local",
+  inherit: "all",
   reason: "unit test: a fake runner",
 } as const;
 
@@ -3612,7 +3613,7 @@ test("stubs (ephemeral env): prepends the stub bin dir to the scrubbed PATH", as
       task: "t",
       trials: 1,
       spacingSec: 0,
-      env: { kind: "ephemeral" },
+      env: { kind: "local", inherit: "none" },
       stubs: [
         {
           name: "psql",
@@ -3662,7 +3663,7 @@ test("ephemeral env + interceptTools: the intercept overlay survives the scrub",
       task: "t",
       trials: 1,
       spacingSec: 0,
-      env: { kind: "ephemeral" },
+      env: { kind: "local", inherit: "none" },
       measure: () => ({ ok: true }),
     },
     runner,
@@ -3724,7 +3725,7 @@ test("env ephemeral: runner gets a replaceEnv scrubbed env with auth + allowed e
         task: "t",
         trials: 1,
         spacingSec: 0,
-        env: { kind: "ephemeral" },
+        env: { kind: "local", inherit: "none" },
         measure: () => ({ ok: true }),
       },
       runner,

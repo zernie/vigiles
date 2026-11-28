@@ -73,7 +73,7 @@ export interface HarnessRuntime {
   readonly requestCapture?: RequestCapture;
   /**
    * How an eval attempt of this harness runs in a container
-   * (`execution: { kind: "container" }`): the image that carries the binary,
+   * (`env: { kind: "docker" }`): the image that carries the binary,
    * and how a run there authenticates. Absent: the harness cannot run in a
    * container yet, and such an eval is refused before any trial.
    */

@@ -19,6 +19,7 @@
     "eval-spec-schema.ts",
     "eval-cases-exports.ts",
     "eval-definition.ts",
+    "run-env.ts",
     "../../examples/**/*.spec.ts"
   ]
 }

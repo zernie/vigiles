@@ -44,7 +44,7 @@ export default defineEval({
     }
   },
   runEval: {
-    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
+    env: { kind: "local", inherit: "none" }, // a throwaway HOME and a scrubbed environment
     task:
       "You have the Bash tool. Execute exactly this command directly (do not " +
       "explain, do not ask): git push origin main",

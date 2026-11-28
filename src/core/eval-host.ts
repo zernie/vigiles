@@ -26,6 +26,6 @@ export type EvalHost = WorkspaceHost &
   RegressionCaseHost &
   CaseWorldHost &
   EngineHost & {
-    /** Runs an attempt in a container (`execution: { kind: "container" }`); absent on a host without that adapter. */
+    /** Runs an attempt in a container (`env: { kind: "docker" }`); absent on a host without that adapter. */
     readonly container?: ContainerHost;
   };

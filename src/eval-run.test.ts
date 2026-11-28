@@ -47,7 +47,7 @@ test("a malformed case list is refused before skipIf runs", async () => {
   const definition = {
     [EVAL_DEFINITION]: true,
     runEval: {
-      env: { kind: "inherit", reason: "unit test" },
+      env: { kind: "local", inherit: "all", reason: "unit test" },
       experimental_regressionCases: [{ id: "no-repo" }],
     },
     skipIf: () => {

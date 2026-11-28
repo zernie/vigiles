@@ -8,7 +8,7 @@
  * benchmark harness under `bench/` — the empirical half of testing your harness.
  *
  *   const report = await runEval({
- *     env: { kind: "ephemeral" },
+ *     env: { kind: "local", inherit: "none" },
  *     fixture: { "src/billing.ts": "export function chargeCard(){}" },
  *     arms: {
  *       vanilla: {},
@@ -48,6 +48,9 @@ import {
   scrubbedRunEnv,
   withoutSessionIdentity,
   type HomeFiles,
+  type HomeSeed,
+  type LocalRunEnv,
+  type NormalizedRunEnv,
   type RunEnv,
 } from "./core/run-env.js";
 import {
@@ -152,15 +155,8 @@ import {
   type StubCall,
   type ToolStub,
 } from "./core/stub-rules.js";
-import {
-  parseRepoWorkspace,
-  parseRunEnv,
-  parseToolStubs,
-} from "./core/eval-spec-parse.js";
-import {
-  parseExecution,
-  type ExecutionSpec,
-} from "./core/eval-execution-parse.js";
+import { parseRepoWorkspace, parseToolStubs } from "./core/eval-spec-parse.js";
+import { parseRunEnv } from "./core/run-env-parse.js";
 import {
   planExecution,
   readyExecution,
@@ -429,41 +425,41 @@ export type EvalSpec<M extends Metrics = Metrics> = {
   /** Base backoff ms (doubled each retry). Default 1000. */
   readonly retryBackoffMs?: number;
   /**
-   * **Where each trial runs — required, no default.**
+   * **Where each trial runs — required, no default.** Three kinds, a ladder:
    *
-   * - `{ kind: "ephemeral" }` — a throwaway HOME (under the trial's temp dir) and
+   * - `{ kind: "local", inherit: "all", reason }` — your real HOME and
+   *   environment, minus the parent session's identity, on your machine.
+   *   `reason` is printed with the report.
+   * - `{ kind: "local", inherit: "none" }` — a throwaway HOME (under the trial's temp dir) and
    *   a scrubbed environment: the OS essentials, the harness's own auth
    *   (`runEnv.keep`, plus its auth file copied in), the eval's own `VIGILES_*`
    *   variables, and nothing else. `home: { kind: "files", files }` seeds that
    *   HOME first (HOME-relative paths; the harness's auth file cannot be
    *   overwritten). Running a model-driven skill is itself a side effect, so a
-   *   `git push` or a write to `~` lands in a disposable HOME.
-   * - `{ kind: "inherit", reason }` — your real HOME and environment, minus the
-   *   parent session's identity. `reason` is printed with the report.
+   *   `git push` or a write to `~` lands in a disposable HOME. A process the
+   *   agent started in the background can still outlive its trial and write
+   *   into the trial's folder while it is scored.
+   * - `{ kind: "docker", home?, …options }` — the same throwaway HOME and
+   *   environment, with every ATTEMPT in a fresh container, stopped before the
+   *   attempt is scored, so nothing the agent started survives into scoring.
+   *   Needs Docker and the `testcontainers` package; the trial's folders are
+   *   mounted at their own paths. The options are the settings that cannot
+   *   break that containment (`image`, `platform`, `pullPolicy`, `networkMode`,
+   *   `resourcesQuota`, `sharedMemorySize`, `ulimits`, `extraHosts`, `tmpFs`,
+   *   `droppedCapabilities`); any other field is refused. Hashed into the
+   *   cache and the lock.
    *
-   * There is no default because both are wrong silently in one case: inheriting
-   * measures the author's machine (their config, their tokens), and an
-   * ephemeral run fails if a user's credential is not where the harness says it
-   * is — loudly, on trial 1, which is why it is the one to try first. See
+   * `{ kind: "inherit", reason }` and `{ kind: "ephemeral", home? }` still
+   * parse, as the first two kinds, and print one deprecation warning naming the
+   * new spelling; a lock recorded under either stays valid.
+   *
+   * There is no default because each is wrong silently in one case: inheriting
+   * measures the author's machine (their config, their tokens), and a
+   * throwaway HOME fails if a user's credential is not where the harness says
+   * it is — loudly, on trial 1, which is why it is the one to try first. See
    * `docs/safety.md` (what a child run inherits).
    */
   readonly env: RunEnv;
-  /**
-   * **Where the agent PROCESS runs.** Default `{ kind: "host" }`: on your
-   * machine, as always — a process the agent started in the background can
-   * outlive its trial and write into the trial's folder while it is scored.
-   *
-   * `{ kind: "container", …options }` runs every ATTEMPT in a fresh container,
-   * stopped before the attempt is scored, so nothing the agent started
-   * survives into scoring. Needs `env: { kind: "ephemeral" }`, Docker and the
-   * `testcontainers` package; the trial's folders are mounted at their own
-   * paths. The options are the settings that cannot break that containment
-   * (`image`, `platform`, `pullPolicy`, `networkMode`, `resourcesQuota`,
-   * `sharedMemorySize`, `ulimits`, `extraHosts`, `tmpFs`,
-   * `droppedCapabilities`); any other field is refused. Hashed into the cache
-   * and the lock.
-   */
-  readonly execution?: ExecutionSpec;
   /**
    * **Tool stubs on PATH (rung R2)** — fake binaries that answer PER INVOCATION.
    * Build each with {@link experimental_stub}: a list of rules over the argv
@@ -579,7 +575,7 @@ function writeFiles(cwd: string, files: Record<string, string>): void {
 
 /**
  * Resolve the environment a trial's subprocess actually runs with — the
- * SECURITY-CRITICAL decision behind `env: { kind: "ephemeral" }`. When `replaceEnv` is set, the
+ * SECURITY-CRITICAL decision behind `env: { kind: "local", inherit: "none" }`. When `replaceEnv` is set, the
  * scrubbed `env` is the COMPLETE environment, so the real `$HOME` and inherited
  * secrets are DROPPED; otherwise `env` is an overlay on `base`. In BOTH, the
  * harness's declared session identity (`runEnv.sessionIdentity`) is removed: a
@@ -1462,21 +1458,48 @@ export function seedEphemeralHome(
 }
 
 /**
- * The parts of a {@link RunEnv} that move behaviour — the kind and the seed —
- * for the cache key and the lock. Never the per-trial HOME path, and never an
- * `inherit` reason (prose, not an input).
+ * The parts of a run environment that move behaviour — where it runs and the
+ * seed — for the cache key and the lock. Never the per-trial HOME path, and
+ * never an `inherit: "all"` reason (prose, not an input). The key's kind
+ * tokens are fixed (`inherit`, `ephemeral`, `docker`) and independent of how a
+ * spec spells its env, so both spellings of one env hash the same and a
+ * committed lock stays valid.
  */
-function runEnvKeyView(env: RunEnv): unknown {
-  return env.kind === "ephemeral"
-    ? { kind: env.kind, home: env.home }
-    : { kind: env.kind };
+function runEnvKeyView(env: NormalizedRunEnv): unknown {
+  switch (env.kind) {
+    case "docker":
+      return { kind: "docker", home: env.home };
+    case "local":
+      return localKeyView(env);
+  }
 }
 
-/** The run environment as a report carries it: the kind, and an inherit's reason. */
-function runEnvReportView(env: RunEnv): EvalReport["env"] {
-  return env.kind === "ephemeral"
-    ? { kind: "ephemeral" }
-    : { kind: "inherit", reason: env.reason };
+function localKeyView(env: LocalRunEnv): unknown {
+  switch (env.inherit) {
+    case "none":
+      return { kind: "ephemeral", home: env.home };
+    case "all":
+      return { kind: "inherit" };
+  }
+}
+
+/** The run environment as a report carries it: where it ran, and an `inherit: "all"` reason. */
+function runEnvReportView(env: NormalizedRunEnv): EvalReport["env"] {
+  switch (env.kind) {
+    case "docker":
+      return { kind: "docker" };
+    case "local":
+      return localReportView(env);
+  }
+}
+
+function localReportView(env: LocalRunEnv): EvalReport["env"] {
+  switch (env.inherit) {
+    case "none":
+      return { kind: "local", inherit: "none" };
+    case "all":
+      return { kind: "local", inherit: "all", reason: env.reason };
+  }
 }
 
 /** Write a seed's files under a throwaway HOME, parents created. Effects only. */
@@ -1496,62 +1519,99 @@ interface TrialEnv {
 }
 
 /**
- * Build a trial's environment from the spec's {@link RunEnv}. `ephemeral`: a
- * throwaway HOME (`home`, a directory BESIDE the trial cwd — never in it, or a
- * cache snapshot of the cwd would carry the credentials and the seed), seeded
- * (the seed first, then the harness's own auth file), and a scrubbed allowlist env — the eval's injected
- * keys (`VIGILES_INTERCEPT_TOOLS`) allowlisted through so interception works.
- * `inherit`: an overlay on the caller's env. Either way the stub bin dir, when
- * there is one, goes first on PATH.
+ * Build a trial's environment from the spec's run environment.
+ * `inherit: "none"` and `docker`: a throwaway HOME (`home`, a directory BESIDE
+ * the trial cwd — never in it, or a cache snapshot of the cwd would carry the
+ * credentials and the seed), seeded (the seed first, then the harness's own
+ * auth file), and a scrubbed allowlist env — the eval's injected keys
+ * (`VIGILES_INTERCEPT_TOOLS`) allowlisted through so interception works.
+ * `inherit: "all"`: an overlay on the caller's env. The stub bin dir, when
+ * there is one, goes first on PATH; in a container the host's PATH is dropped
+ * (`containerPath`).
  */
 function trialEnv(
-  runEnv: RunEnv,
+  runEnv: NormalizedRunEnv,
   home: string,
   overlay: Record<string, string> | undefined,
   stubBin: string | undefined,
-  where: TrialExecution["kind"],
 ): TrialEnv {
-  const withStubs = (path: string | undefined): string =>
-    stubBin === undefined
-      ? (path ?? "")
-      : path === undefined || path === ""
-        ? stubBin
-        : `${stubBin}${delimiter}${path}`;
   switch (runEnv.kind) {
-    case "ephemeral": {
-      // The seed was validated at the spec boundary (`parseRunEnv`): every
-      // path HOME-relative, inside HOME, and not the harness's auth file.
-      materializeHome(home, runEnv.home?.files ?? {});
-      // Carry the harness's own auth FILE (local OAuth) into the fresh HOME —
-      // env-var/host-brokered auth is covered by ephemeralRunEnv's allowlist.
-      seedEphemeralHome(home, process.env.HOME ?? homedir());
-      const base = {
-        ...ephemeralRunEnv(process.env, {
-          home,
-          allow: overlay ? Object.keys(overlay) : [],
-        }),
-        ...overlay,
-      };
-      const hostEnv =
-        stubBin === undefined ? base : { ...base, PATH: withStubs(base.PATH) };
+    case "docker": {
+      const base = throwawayEnv(runEnv.home, home, overlay);
       return {
-        env: where === "container" ? containerPath(base, stubBin) : hostEnv,
+        env: containerPath(base, stubBin),
         replaceEnv: true,
         keyEnv: base,
       };
     }
-    case "inherit":
+    case "local":
+      return localTrialEnv(runEnv, { home, overlay, stubBin });
+  }
+}
+
+/** Where a trial's env is laid: its throwaway HOME, the eval's overlay, the stub bin dir. */
+interface TrialEnvAt {
+  readonly home: string;
+  readonly overlay: Readonly<Record<string, string>> | undefined;
+  readonly stubBin: string | undefined;
+}
+
+function localTrialEnv(
+  runEnv: LocalRunEnv,
+  { home, overlay, stubBin }: TrialEnvAt,
+): TrialEnv {
+  switch (runEnv.inherit) {
+    case "none": {
+      const base = throwawayEnv(runEnv.home, home, overlay);
+      const env =
+        stubBin === undefined
+          ? base
+          : { ...base, PATH: withStubs(stubBin, base.PATH) };
+      return { env, replaceEnv: true, keyEnv: base };
+    }
+    case "all":
       // `spawnAgent` spreads `{ ...process.env, ...env }`, so a stub PATH is
       // set in the overlay as the stub dir prepended over process.env.PATH.
       return {
         env:
           stubBin === undefined
             ? overlay
-            : { ...overlay, PATH: withStubs(process.env.PATH) },
+            : { ...overlay, PATH: withStubs(stubBin, process.env.PATH) },
         replaceEnv: false,
         keyEnv: overlay,
       };
   }
+}
+
+/** `path` with the stub bin dir first. */
+function withStubs(stubBin: string, path: string | undefined): string {
+  return path === undefined || path === ""
+    ? stubBin
+    : `${stubBin}${delimiter}${path}`;
+}
+
+/**
+ * Lay a throwaway HOME (the seed, then the harness's own auth file) and return
+ * the scrubbed env that points at it, the overlay allowlisted through.
+ */
+function throwawayEnv(
+  seed: HomeSeed | undefined,
+  home: string,
+  overlay: Readonly<Record<string, string>> | undefined,
+): Readonly<Record<string, string>> {
+  // The seed was validated at the spec boundary (`parseRunEnv`): every
+  // path HOME-relative, inside HOME, and not the harness's auth file.
+  materializeHome(home, seed?.files ?? {});
+  // Carry the harness's own auth FILE (local OAuth) into the fresh HOME —
+  // env-var/host-brokered auth is covered by ephemeralRunEnv's allowlist.
+  seedEphemeralHome(home, process.env.HOME ?? homedir());
+  return {
+    ...ephemeralRunEnv(process.env, {
+      home,
+      allow: overlay ? Object.keys(overlay) : [],
+    }),
+    ...overlay,
+  };
 }
 
 /**
@@ -1633,9 +1693,9 @@ async function executeTrial(
     enabled: spec.experimental_contextCheck !== false,
   });
   const cwd = makeTmpDir("eval");
-  // The ephemeral env's HOME: beside the work dir, so `snapshotDir(cwd)` (the
+  // The throwaway HOME: beside the work dir, so `snapshotDir(cwd)` (the
   // cache record) never sees the credentials file or the seed, and the agent's
-  // `ls -a` of its project does not show it. An `inherit` run leaves it empty.
+  // `ls -a` of its project does not show it. An `inherit: "all"` run leaves it empty.
   const home = makeTmpDir("home");
   // Tool stubs (rung R2): a shim per stub in a temp dir BESIDE the work dir —
   // not in it, so the agent does not find vigiles plumbing in its project.
@@ -1656,13 +1716,7 @@ async function executeTrial(
       intercepts.length > 0
         ? { [INTERCEPT_TOOLS_ENV]: serializeIntercepts(intercepts) }
         : undefined;
-    const run = trialEnv(
-      spec.env,
-      home,
-      overlay,
-      stubDir?.binDir,
-      execution.kind,
-    );
+    const run = trialEnv(spec.env, home, overlay, stubDir?.binDir);
     // Every host directory the attempt touches, mounted at its own path when
     // the attempt runs in a container.
     const mounts = attemptMounts(
@@ -2321,12 +2375,17 @@ const EVAL_SPEC_KEYS = {
   rateLimitRetries: true,
   retryBackoffMs: true,
   env: true,
-  execution: true,
   stubs: true,
   lock: true,
   experimental_contextCheck: true,
   experimental_workspace: true,
 } satisfies Record<keyof EvalSpec, true>;
+
+/** Where the job of a field an author may reach for is done instead. */
+const EVAL_SPEC_POINTERS = {
+  execution:
+    'where an attempt runs is `env`; env: { kind: "docker" } runs each attempt in its own container.',
+};
 
 const TRIGGER_RATE_SPEC_KEYS = {
   name: true,
@@ -2365,14 +2424,14 @@ type ParsedEvalSpec = Omit<
   | "experimental_regressionCases"
   | "stubs"
   | "env"
-  | "execution"
   | (typeof SINGLE_ARM_KEYS)[number]
 > &
   EvalShape & {
     /** Each arm's install namespace, read before the install is resolved. */
     readonly namespaces: Readonly<Record<string, string | undefined>>;
     readonly stubs: readonly ToolStub[];
-    readonly env: RunEnv;
+    /** The spec's `env` in its current spelling (`parseRunEnv`). */
+    readonly env: NormalizedRunEnv;
     /** Where each attempt runs, its harness support and adapter already checked. */
     readonly execution: ExecutionPlan;
     /** The checked workspace, when the spec sets one. */
@@ -2425,8 +2484,8 @@ export async function runEvalWith<M extends Metrics>(
   if (Object.hasOwn(input, "ephemeralEnv"))
     throw new Error(
       "runEval: `ephemeralEnv` was replaced by `env`, which is required:\n" +
-        '    ephemeralEnv: true            → env: { kind: "ephemeral" }\n' +
-        '    ephemeralEnv: false / absent  → env: { kind: "inherit", reason: "…" }  (your real HOME; the reason is printed with the report)',
+        '    ephemeralEnv: true            → env: { kind: "local", inherit: "none" }\n' +
+        '    ephemeralEnv: false / absent  → env: { kind: "local", inherit: "all", reason: "…" }  (your real HOME; the reason is printed with the report)',
     );
   // Refuse a stray field BEFORE spending a token: an eval file is plain JS, so a
   // typo'd or misplaced key would otherwise vanish and the run would report a
@@ -2434,6 +2493,7 @@ export async function runEvalWith<M extends Metrics>(
   assertKnownKeys(input, EVAL_SPEC_KEYS, {
     caller: "runEval",
     type: "EvalSpec",
+    pointers: EVAL_SPEC_POINTERS,
   });
   // The two exactly-one choices — `arms` or none, `checks` or `measure` — are
   // read HERE, before a token is spent: the type forbids "both" and "neither",
@@ -2456,18 +2516,16 @@ export async function runEvalWith<M extends Metrics>(
   // stateful RegExp, a missing `env`, a seed path outside HOME — each refused
   // with its rewrite before a token is spent. The runner trusts the result.
   const stubs = parseToolStubs(input.stubs, "runEval");
-  const env = parseRunEnv(
+  const { env, deprecation } = parseRunEnv(
     input.env,
     "runEval",
     EVAL_RUNTIME.runEnv?.keepHomeFiles ?? [],
   );
-  // Where each attempt runs, refused here when the harness declares no image
-  // or no container adapter was wired. Docker itself is asked before trial 1.
-  const execution = planExecution(
-    parseExecution(input.execution, "runEval", env),
-    EVAL_RUNTIME,
-    host,
-  );
+  if (deprecation !== undefined) emitLockMessage(deprecation, true);
+  // Where each attempt runs (`env: { kind: "docker" }` in a container),
+  // refused here when the harness declares no image or no container adapter
+  // was wired. Docker itself is asked before trial 1.
+  const execution = planExecution(env, EVAL_RUNTIME, host);
   const { arms: resolvedArms, packaged } = resolveArmInstalls(
     shape.arms,
     input.stubSkillBodies ?? false,
@@ -2540,7 +2598,7 @@ function definedEnv(
 function readyMachine(spec: ParsedEvalSpec, runner: AgentRunner): ReadyMachine {
   const { platform, env } = process;
   return {
-    rawVersion: AGENT_VERSIONS.get(runner) ?? (() => "unknown"),
+    rawVersion: AGENT_VERSIONS.get(runner),
     platform,
     env,
     probeMounts: () => probeMounts(spec),
@@ -2715,7 +2773,7 @@ async function runResolvedEval(
   // case is qualified: its key is read from git.
   const inputs =
     lock.mode === "off" ? undefined : evalArmsInputs(spec, cfg, scoring);
-  return withEvalLock(
+  const report = await withEvalLock(
     {
       name: spec.name,
       inputs,
@@ -2754,6 +2812,9 @@ async function runResolvedEval(
       }
     },
   );
+  // A replayed report carries `env` as the lock recorded it. The inputs hash
+  // matched, so the spec's env is the same run; report it as it is spelled now.
+  return { ...report, env: runEnvReportView(spec.env) };
 }
 
 /** The qualified cases of a case spec; none for any other spec. */

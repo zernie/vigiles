@@ -1,16 +1,13 @@
 /**
- * The eval spec boundary for `stubs` and `env`: parsed once, before a token is
- * spent, with messages that teach the new shape. An eval file is often plain JS,
+ * The eval spec boundary for `stubs`: parsed once, before a token is spent,
+ * with messages that teach the new shape. An eval file is often plain JS,
  * so nothing type-checks the literal; this parse is the guard.
  */
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import { parseRunEnv, parseToolStubs } from "./eval-spec-parse.js";
+import { parseToolStubs } from "./eval-spec-parse.js";
 import { ARGV_REST } from "./stub-rules.js";
-
-/** A made-up harness auth file: the core names no real harness. */
-const KEEP = [".acme/token"];
 
 // --- stubs ------------------------------------------------------------------
 
@@ -144,125 +141,4 @@ test("names: non-empty, no path separator, no duplicates", () => {
   );
   assert.deepEqual(parseToolStubs(undefined, "runEval"), []);
   assert.throws(() => parseToolStubs("gh", "runEval"), /stubs: /);
-});
-
-// --- env --------------------------------------------------------------------
-
-test("env is required: no default, and the message names both choices", () => {
-  assert.throws(
-    () => parseRunEnv(undefined, "runEval", KEEP),
-    (e: Error) => {
-      assert.match(e.message, /runEval: `env` is required/);
-      assert.match(e.message, /env: \{ kind: "ephemeral" \}/);
-      assert.match(e.message, /env: \{ kind: "inherit", reason: "…" \}/);
-      return true;
-    },
-  );
-});
-
-test("ephemeral, with or without a seeded HOME; inherit with a reason", () => {
-  assert.deepEqual(parseRunEnv({ kind: "ephemeral" }, "runEval", KEEP), {
-    kind: "ephemeral",
-  });
-  assert.deepEqual(
-    parseRunEnv(
-      {
-        kind: "ephemeral",
-        home: { kind: "files", files: { ".config/x/y.txt": "z" } },
-      },
-      "runEval",
-      KEEP,
-    ),
-    {
-      kind: "ephemeral",
-      home: { kind: "files", files: { ".config/x/y.txt": "z" } },
-    },
-  );
-  assert.deepEqual(
-    parseRunEnv(
-      { kind: "inherit", reason: "needs my gh auth" },
-      "runEval",
-      KEEP,
-    ),
-    { kind: "inherit", reason: "needs my gh auth" },
-  );
-});
-
-test("home exists only on ephemeral: seeding it on inherit would write into your real HOME", () => {
-  assert.throws(
-    () =>
-      parseRunEnv(
-        {
-          kind: "inherit",
-          reason: "r",
-          home: { kind: "files", files: { a: "b" } },
-        },
-        "runEval",
-        KEEP,
-      ),
-    /`home` exists only on an ephemeral env: seeding would write into your real HOME/,
-  );
-  assert.throws(
-    () => parseRunEnv({ kind: "inherit", reason: "  " }, "runEval", KEEP),
-    /env\.reason/,
-  );
-  assert.throws(
-    () => parseRunEnv({ kind: "sandbox" }, "runEval", KEEP),
-    /env\.kind/,
-  );
-});
-
-test("a seed path outside HOME, or over the harness's own auth file, is refused before any trial", () => {
-  const seed = (path: string) =>
-    parseRunEnv(
-      { kind: "ephemeral", home: { kind: "files", files: { [path]: "x" } } },
-      "runEval",
-      KEEP,
-    );
-  for (const p of ["../escape", "/etc/x", "a/../../b", "", "a//b", "./a"])
-    assert.throws(() => seed(p), /env\.home\.files: /);
-  assert.throws(
-    () => seed(".acme/token"),
-    /env\.home\.files: ".acme\/token" is the harness's own auth file/,
-  );
-  assert.throws(
-    () =>
-      parseRunEnv(
-        { kind: "ephemeral", home: { kind: "files", files: {} } },
-        "runEval",
-        KEEP,
-      ),
-    /env\.home\.files: .*no files/,
-  );
-});
-
-test("seed paths that cannot coexist are refused at the boundary, naming both", () => {
-  const seed = (files: Record<string, string>) =>
-    parseRunEnv(
-      { kind: "ephemeral", home: { kind: "files", files } },
-      "runEval",
-      KEEP,
-    );
-  // a file and a path beneath it
-  assert.throws(
-    () => seed({ a: "x", "a/b": "y" }),
-    /env\.home\.files: "a" is written as a file but "a\/b" needs it to be a directory/,
-  );
-  assert.throws(
-    () => seed({ "a/b": "y", "a/b/c/d": "z", e: "w" }),
-    /"a\/b" is written as a file but "a\/b\/c\/d" needs it/,
-  );
-  // a seed file standing where the harness's own auth file needs a directory
-  assert.throws(
-    () => seed({ ".acme": "x" }),
-    /"\.acme" is written as a file but "\.acme\/token" \(the harness's own auth file\) needs it to be a directory/,
-  );
-  // a seed path beneath the auth file, which is a file
-  assert.throws(
-    () => seed({ ".acme/token/x": "x" }),
-    /"\.acme\/token" \(the harness's own auth file\) is written as a file but "\.acme\/token\/x" needs it to be a directory/,
-  );
-  // siblings and a shared directory are fine, and so is a name that only SHARES A PREFIX
-  assert.doesNotThrow(() => seed({ "a/b": "1", "a/c": "2", ab: "3" }));
-  assert.doesNotThrow(() => seed({ ".acme/other": "1" }));
 });

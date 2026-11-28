@@ -103,7 +103,7 @@ function caseEntry(id: string, sum = 4): RegressionCaseEntry {
 }
 
 const spec = (cases: readonly RegressionCaseEntry[]): EvalSpec => ({
-  env: { kind: "inherit", reason: "unit test: a fake runner" },
+  env: { kind: "local", inherit: "all", reason: "unit test: a fake runner" },
   experimental_regressionCases: cases,
   trials: 1,
   spacingSec: 0,

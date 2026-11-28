@@ -10,7 +10,7 @@
  * exports nothing — a listener on `OTEL_EXPORTER_OTLP_ENDPOINT` received zero
  * requests — so the bodies (the whole prompt) never leave the machine. Setting
  * the exporters explicitly also overrides an `otlp` exporter a user's own
- * environment carries into an `inherit` run.
+ * environment carries into an `inherit: "all"` run.
  *
  * It is the one channel that sees both `CLAUDE.md` and a lone `AGENTS.md`: the
  * `InstructionsLoaded` hook stays silent on the second, and `system/init` names

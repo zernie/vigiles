@@ -85,7 +85,7 @@ import { paid_judged, assertRates } from "vigiles/eval";
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
+    env: { kind: "local", inherit: "none" }, // a throwaway HOME and a scrubbed environment
     task: "Summarize in.txt in one sentence. Write it to out.txt, then stop.",
     fixture: { "in.txt": "…" },
     model: "sonnet",

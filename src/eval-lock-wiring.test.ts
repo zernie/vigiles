@@ -21,6 +21,7 @@ import {
 import { readLock, lockPath } from "./eval-lock.js";
 import { skill } from "./check.js";
 import { ARGV_REST } from "./core/stub-rules.js";
+import type { RunEnv } from "./core/run-env.js";
 
 function tmp(): string {
   return mkdtempSync(join(tmpdir(), "vig-lockwire-"));
@@ -70,7 +71,8 @@ function countingRunner(): {
 
 /** These specs drive a fake runner, so nothing is inherited by a real child. */
 const INHERIT = {
-  kind: "inherit",
+  kind: "local",
+  inherit: "all",
   reason: "unit test: a fake runner",
 } as const;
 function spec(dir: string, mode: "off" | "check" | "update", task = "do it") {
@@ -477,6 +479,87 @@ test("lock messages WITHOUT GITHUB_ACTIONS take the plain stderr/stdout path", a
   }
 });
 
+/** Run `body` with `console.warn` captured and GITHUB_ACTIONS unset; the deprecation lines it saw. */
+async function deprecationsDuring(
+  body: () => Promise<void>,
+): Promise<string[]> {
+  const warns: string[] = [];
+  const origWarn = console.warn;
+  const prev = process.env.GITHUB_ACTIONS;
+  delete process.env.GITHUB_ACTIONS;
+  console.warn = (m?: unknown) => {
+    warns.push(String(m));
+  };
+  try {
+    await body();
+  } finally {
+    console.warn = origWarn;
+    if (prev === undefined) delete process.env.GITHUB_ACTIONS;
+    else process.env.GITHUB_ACTIONS = prev;
+  }
+  return warns.filter((w) => w.includes("is deprecated"));
+}
+
+/** Put `env` into a committed lock's report, as a lock recorded before the `local` spelling holds it. */
+function withRecordedEnv(dir: string, env: unknown): void {
+  const lock = readLock(dir, "wiring eval");
+  assert.ok(lock, "the recording run wrote a lock");
+  assert.ok(typeof lock.report === "object" && lock.report !== null);
+  writeFileSync(
+    lockPath(dir, "wiring eval"),
+    JSON.stringify({ ...lock, report: { ...lock.report, env } }),
+  );
+}
+
+test("the deprecated spelling warns once per run, naming the new one; the current one does not", async () => {
+  const dir = tmp();
+  try {
+    const old = await deprecationsDuring(async () => {
+      await runEvalWith(
+        { ...spec(dir, "update"), env: { kind: "inherit", reason: "r" } },
+        countingRunner().run,
+      );
+    });
+    // Guards: one warning per run, naming the spelling to write instead.
+    assert.equal(old.length, 1);
+    assert.match(
+      old[0] ?? "",
+      /env: \{ kind: "local", inherit: "all", reason: "…" \}/,
+    );
+    const current = await deprecationsDuring(async () => {
+      await runEvalWith(spec(dir, "update"), countingRunner().run);
+    });
+    // Guards: a spec in the current spelling prints no deprecation.
+    assert.deepEqual(current, []);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("a lock recorded under the deprecated spelling replays under the new one, reported as the new one", async () => {
+  const dir = tmp();
+  try {
+    const old = { kind: "inherit", reason: "recorded" } as const;
+    await runEvalWith(
+      { ...spec(dir, "update"), env: old },
+      countingRunner().run,
+    );
+    withRecordedEnv(dir, old);
+    const r = countingRunner();
+    const replayed = await runEvalWith(spec(dir, "check"), r.run);
+    // Guards: the new spelling hashes the same, so the old lock replays.
+    assert.equal(r.calls(), 0);
+    // Guards: the replayed report names the env as the spec spells it now.
+    assert.deepEqual(replayed.env, {
+      kind: "local",
+      inherit: "all",
+      reason: INHERIT.reason,
+    });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 /**
  * Would a lock recorded with `recorded` be STALE under `checked`? `--check`
  * compares exactly this hash (`decideLock`), so equal hashes replay and
@@ -571,12 +654,13 @@ test("lock CHECK on an unnamed eval: throws (never calls the model in CI)", asyn
 test("lock check after an env change: stale for the kind and the seed, replayed for an inherit reason", async () => {
   const ephemeral = (s: ReturnType<typeof spec>) => ({
     ...s,
-    env: { kind: "ephemeral" },
+    env: { kind: "local", inherit: "none" },
   });
   const seeded = (contents: string) => (s: ReturnType<typeof spec>) => ({
     ...s,
     env: {
-      kind: "ephemeral",
+      kind: "local",
+      inherit: "none",
       home: { kind: "files", files: { ".config/x/y.txt": contents } },
     },
   });
@@ -598,7 +682,10 @@ test("lock check after an env change: stale for the kind and the seed, replayed 
   assert.equal(
     await staleAfter(
       (s) => s,
-      (s) => ({ ...s, env: { kind: "inherit", reason: "reworded" } }),
+      (s) => ({
+        ...s,
+        env: { kind: "local", inherit: "all", reason: "reworded" },
+      }),
     ),
     "replayed",
     "the reason is prose, not an input",
@@ -800,10 +887,14 @@ test("COMPLETENESS: every model-facing runEval input changes the lock hash", asy
         arms: { run: { interceptTools: [{ tool: "Bash" }] } },
       }),
       stubs: withStubs(ghStub(/^repos\//)),
-      "env.kind": (s) => ({ ...s, env: { kind: "ephemeral" } }),
+      "env.kind": (s) => ({ ...s, env: { kind: "local", inherit: "none" } }),
       "env.home": (s) => ({
         ...s,
-        env: { kind: "ephemeral", home: { kind: "files", files: { a: "b" } } },
+        env: {
+          kind: "local",
+          inherit: "none",
+          home: { kind: "files", files: { a: "b" } },
+        },
       }),
       // each run's --max-budget-usd derives from it, and a cap can end a turn
       maxCostUsd: (s) => ({ ...s, maxCostUsd: 0.5 }),
@@ -878,12 +969,10 @@ test("COMPLETENESS: every model-facing trigger-rate input changes the lock hash"
   }
 });
 
-test("a host run's lock inputsHash keeps its bytes once `execution` exists", async () => {
+test("a host run's lock inputsHash keeps its bytes, in the current and the deprecated spelling", async () => {
   const dir = tmp();
   try {
-    const hashFor = async (
-      env: { kind: "ephemeral" } | { kind: "inherit"; reason: string },
-    ): Promise<string | undefined> => {
+    const hashFor = async (env: RunEnv): Promise<string | undefined> => {
       await runEvalWith(
         {
           name: "pin",
@@ -901,8 +990,18 @@ test("a host run's lock inputsHash keeps its bytes once `execution` exists", asy
       );
       return readLock(dir, "pin")?.inputsHash;
     };
-    // Guards: a lock committed before container runs existed is not made stale
-    // by them (both pinned at the commit before `execution`).
+    // Guards: a lock committed before container runs and the `local` spelling
+    // existed is not made stale by them (both pinned at the commit before).
+    assert.equal(
+      await hashFor({ kind: "local", inherit: "all", reason: "pin" }),
+      "b0099dd8f5618070",
+    );
+    assert.equal(
+      await hashFor({ kind: "local", inherit: "none" }),
+      "2b3b4efcf78e330c",
+    );
+    // Guards: the deprecated spelling of each hashes the same, so a spec
+    // rewritten to the new spelling replays the lock it already has.
     assert.equal(
       await hashFor({ kind: "inherit", reason: "pin" }),
       "b0099dd8f5618070",

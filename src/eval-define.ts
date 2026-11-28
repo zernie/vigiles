@@ -315,7 +315,7 @@ export function ranAsEntryRefusal(argv1: string): string {
  *
  * export default defineEval({
  *   runEval: {
- *     env: { kind: "ephemeral" },
+ *     env: { kind: "local", inherit: "none" },
  *     pluginDir, task: "…", checks: [check.skill("my:skill")], trials: 3,
  *   },
  *   assert: (report) => assertRates(report, { min: 0.6 }),

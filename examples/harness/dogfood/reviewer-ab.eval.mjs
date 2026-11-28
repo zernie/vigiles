@@ -63,7 +63,7 @@ const dir = (p) => fileURLToPath(new URL(p, import.meta.url));
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
+    env: { kind: "local", inherit: "none" }, // a throwaway HOME and a scrubbed environment
     // A planted, unambiguous defect: `add` subtracts.
     fixture: {
       "app.js":

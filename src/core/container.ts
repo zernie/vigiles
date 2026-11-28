@@ -43,11 +43,6 @@ export interface ContainerOptions {
   readonly droppedCapabilities?: readonly string[];
 }
 
-/** Where the agent of an eval runs. The default is the host. */
-export type Execution =
-  | { readonly kind: "host" }
-  | { readonly kind: "container"; readonly options: ContainerOptions };
-
 /** A host directory mounted into the container at the SAME absolute path. */
 export interface Mount {
   readonly path: string;

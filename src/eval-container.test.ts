@@ -1,5 +1,5 @@
 /**
- * `execution: { kind: "container" }` (vigiles#599): deciding a run can be a
+ * `env: { kind: "docker" }` (vigiles#599): deciding a run can be a
  * container run (`planExecution`) and the checks before trial 1
  * (`readyExecution`), against a FAKE `ContainerHost` and a made-up harness —
  * no Docker, and the core names no real harness. The pipeline driving them is
@@ -77,7 +77,7 @@ const runtime = (
   containerImage,
 });
 
-const CONTAINER = { kind: "container", options: {} } as const;
+const CONTAINER = { kind: "docker" } as const;
 
 test("a harness whose adapter declares no image refuses a container run at plan time", () => {
   // Guards: a harness without an image (Codex today) fails loudly, by the
@@ -105,10 +105,31 @@ test("a container run without the container adapter is refused, naming the door 
   }
 });
 
-test("the host plan stays the host plan", () => {
-  // Guards: the default needs no image, no adapter and no host.
-  assert.deepEqual(planExecution({ kind: "host" }, runtime(), undefined), {
-    kind: "host",
+test("a local env, inheriting all or none, plans a host run", () => {
+  for (const env of [
+    { kind: "local", inherit: "all", reason: "my plugins" },
+    { kind: "local", inherit: "none" },
+  ] as const)
+    // Guards: neither needs an image, an adapter or a host.
+    assert.deepEqual(planExecution(env, runtime(), undefined), {
+      kind: "host",
+    });
+});
+
+test("a container env's options reach the plan, without its kind or seed", () => {
+  const plan = planExecution(
+    {
+      kind: "docker",
+      home: { kind: "files", files: { ".gitconfig": "x" } },
+      networkMode: "none",
+    },
+    runtime(IMAGE),
+    hostWith(fakePort().port),
+  );
+  // Guards: the container adapter is handed only `ContainerOptions` — the
+  // seed is laid into the mounted HOME, never passed as a container setting.
+  assert.deepEqual(plan.kind === "container" ? plan.options : undefined, {
+    networkMode: "none",
   });
 });
 
@@ -135,6 +156,20 @@ const machine = (
 
 const planned = (port: ContainerHost) =>
   planExecution(CONTAINER, runtime(IMAGE), hostWith(port));
+
+test("readiness: a runner that names no binary refuses before Docker is asked", async () => {
+  const fake = fakePort();
+  // Guards: with no binary there is no version for the image to install, so
+  // the run is refused with the door that drives one, not built blind.
+  await assert.rejects(
+    readyExecution(planned(fake.port), machine({ rawVersion: undefined })),
+    (err: unknown) =>
+      err instanceof ContainerRefusalError &&
+      err.message.includes("names no binary"),
+  );
+  // Guards: the container host was not asked anything.
+  assert.deepEqual(fake.log, []);
+});
 
 test("readiness: an unreadable binary version refuses before Docker is asked", async () => {
   const fake = fakePort();

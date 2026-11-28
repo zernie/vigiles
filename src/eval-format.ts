@@ -122,14 +122,19 @@ export function formatEvalReport(
         `  ⚠ ${arm}: ${String(r.unansweredStubCalls.length)} stub call(s) went unanswered — the report is not a measurement`,
       );
   }
-  const inherit =
-    report.env?.kind === "inherit" ? [inheritLine(report.env.reason)] : [];
   return [
     ...lines,
     ...(report.experimental_regressionCases ?? []).map(caseLine),
     ...verdictLines(report, opts.baseline),
-    ...inherit,
+    ...inheritLines(report.env),
   ].join("\n");
+}
+
+/** The line an `inherit: "all"` run's report ends with; none for a throwaway HOME. */
+function inheritLines(env: EvalReport["env"]): readonly string[] {
+  return env?.kind === "local" && env.inherit === "all"
+    ? [inheritLine(env.reason)]
+    : [];
 }
 
 /** One line per regression case: its id, the head it ran at, and each arm's solved count. */

@@ -207,6 +207,14 @@ export type DeliveryChannel =
 | "decision-reason";
 
 // @public
+export interface DockerRunEnv extends ContainerOptions {
+    // (undocumented)
+    readonly home?: HomeSeed;
+    // (undocumented)
+    readonly kind: "docker";
+}
+
+// @public
 export type EmitFieldSchema = {
     readonly type: "string";
 } | {
@@ -308,10 +316,14 @@ export interface EvalReport {
         readonly why: "host-runner";
     };
     readonly env?: {
-        readonly kind: "ephemeral";
+        readonly kind: "local";
+        readonly inherit: "none";
     } | {
-        readonly kind: "inherit";
+        readonly kind: "local";
+        readonly inherit: "all";
         readonly reason: string;
+    } | {
+        readonly kind: "docker";
     };
     readonly experimental_regressionCases?: readonly CaseResult[];
     // (undocumented)
@@ -351,7 +363,6 @@ export type EvalSpec<M extends Metrics = Metrics> = {
     readonly rateLimitRetries?: number;
     readonly retryBackoffMs?: number;
     readonly env: RunEnv;
-    readonly execution?: ExecutionSpec;
     readonly stubs?: readonly ToolStub[];
     readonly lock?: EvalLockOptions;
     readonly experimental_contextCheck?: false;
@@ -399,13 +410,6 @@ export interface EvalUsage {
     // (undocumented)
     readonly outputTokens: number;
 }
-
-// @public
-export type ExecutionSpec = {
-    readonly kind: "host";
-} | ({
-    readonly kind: "container";
-} & ContainerOptions);
 
 // @beta
 export function experimental_assertEmittedOk(toolCalls: readonly ToolCall[], contract: OutputContract, options?: {
@@ -717,11 +721,19 @@ export interface RunContext extends Trace {
 
 // @public
 export type RunEnv = {
-    readonly kind: "ephemeral";
-    readonly home?: HomeSeed;
+    readonly kind: "local";
+    readonly inherit: "all";
+    readonly reason: string;
 } | {
+    readonly kind: "local";
+    readonly inherit: "none";
+    readonly home?: HomeSeed;
+} | DockerRunEnv | /** @deprecated Use `{ kind: "local", inherit: "all", reason }`. */ {
     readonly kind: "inherit";
     readonly reason: string;
+} | /** @deprecated Use `{ kind: "local", inherit: "none", home? }`. */ {
+    readonly kind: "ephemeral";
+    readonly home?: HomeSeed;
 };
 
 // @public

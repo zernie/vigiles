@@ -14,7 +14,7 @@ Testing a hook or a third-party plugin means **executing its code with your priv
 
 bwrap is the only tier that actually confines. Docker/podman-rootless rely on the **same** unprivileged-user-namespace primitive, so they are not a way around its absence. The honest non-Docker alternative for hosts where user namespaces are hard-disabled is [Landlock](https://docs.kernel.org/userspace-api/landlock.html) (unprivileged FS, and network from kernel 6.7) — a future tier, not shipped.
 
-**The eval container is not one of these tiers.** `runEval`'s `execution: { kind: "container" }` runs each attempt in Docker so that every process it started ends before scoring. It is not a confinement tier: its network stays open (the harness needs the model API) and the trial's own directories are mounted writable, so it guards the score, not your machine: [Ending every process an attempt started](measuring-skills.md#ending-every-process-an-attempt-started--execution).
+**The eval container is not one of these tiers.** `runEval`'s `env: { kind: "docker" }` runs each attempt in Docker so that every process it started ends before scoring. It is not a confinement tier: its network stays open (the harness needs the model API) and the trial's own directories are mounted writable, so it guards the score, not your machine: [Ending every process an attempt started](measuring-skills.md#ending-every-process-an-attempt-started--docker).
 
 > **macOS is coming via a native backend, not a VM.** bwrap is Linux-only by
 > design (it _is_ Linux namespaces), so Mac confinement comes from a second backend
@@ -139,7 +139,7 @@ The same `session-start` hook is dogfooded a second time under `egress: { allow:
 ## See also
 
 - [Testing your harness](harness-testing.md) — the three tiers + the sandbox boundary.
-- [Ending every process an attempt started](measuring-skills.md#ending-every-process-an-attempt-started--execution) — `runEval`'s per-attempt Docker container: what it ends, and why it is not a sandbox.
+- [Ending every process an attempt started](measuring-skills.md#ending-every-process-an-attempt-started--docker) — `runEval`'s per-attempt Docker container: what it ends, and why it is not a sandbox.
 - [Testing API](testing-api.md) — `interceptTools` / `check.tool(name, { max: 0 })`:
   preventing a real model's tool side effects at the eval tier.
 - [`src/sandbox.ts`](../src/sandbox.ts) — `decideSandbox` (the pure policy), `bwrapArgs`, `parseEgressLog`.

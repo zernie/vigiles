@@ -7,7 +7,12 @@
 import { test } from "vitest";
 import assert from "node:assert/strict";
 
-import { scrubbedRunEnv, withoutSessionIdentity } from "./run-env.js";
+import {
+  normalizeRunEnv,
+  runHome,
+  scrubbedRunEnv,
+  withoutSessionIdentity,
+} from "./run-env.js";
 import type { RunEnvPolicy } from "./runtime.js";
 
 /** A harness that authenticates with ACME_TOKEN and marks its session with two vars. */
@@ -99,4 +104,46 @@ test("withoutSessionIdentity without a policy: the inherited env, minus unset va
   const env = withoutSessionIdentity(parent);
   assert.equal(env.ACME_SESSION_ID, "parent-session");
   assert.equal("UNSET" in env, false);
+});
+
+// --- which HOME a run gets ----------------------------------------------------
+
+const SEED = { kind: "files", files: { ".gitconfig": "x" } } as const;
+
+test("runHome: inherit none and docker get a throwaway HOME with their seed; inherit all gets your real one", () => {
+  // Guards: a container's HOME is the local throwaway one, seed included.
+  assert.deepEqual(runHome({ kind: "docker", home: SEED }), {
+    kind: "throwaway",
+    seed: SEED,
+  });
+  assert.deepEqual(runHome({ kind: "local", inherit: "none" }), {
+    kind: "throwaway",
+    seed: undefined,
+  });
+  // Guards: `inherit: "all"` is the one case that runs on your real HOME.
+  assert.deepEqual(runHome({ kind: "local", inherit: "all", reason: "r" }), {
+    kind: "real",
+  });
+});
+
+test("normalizeRunEnv: the deprecated kinds become their local forms; the current ones pass as they are", () => {
+  // Guards: an old spelling and its new one are the same run after the parse.
+  assert.deepEqual(normalizeRunEnv({ kind: "inherit", reason: "r" }), {
+    kind: "local",
+    inherit: "all",
+    reason: "r",
+  });
+  assert.deepEqual(normalizeRunEnv({ kind: "ephemeral", home: SEED }), {
+    kind: "local",
+    inherit: "none",
+    home: SEED,
+  });
+  // Guards: a seedless ephemeral gains no `home: undefined` key.
+  assert.deepEqual(normalizeRunEnv({ kind: "ephemeral" }), {
+    kind: "local",
+    inherit: "none",
+  });
+  const docker = { kind: "docker", image: "img" } as const;
+  // Guards: a current spelling is returned as given.
+  assert.equal(normalizeRunEnv(docker), docker);
 });

@@ -1,5 +1,5 @@
 /**
- * One container ATTEMPT of `execution: { kind: "container" }` (vigiles#599):
+ * One container ATTEMPT of `env: { kind: "docker" }` (vigiles#599):
  * its mounts, how a command the eval writes calls back into vigiles inside the
  * image, the runner that is one `ContainerHost.run`, and what the attempt adds
  * to the cache key, the lock and the report. Deciding a run can be a container
@@ -92,7 +92,7 @@ export function hookCouldNotRun(
   return (
     `hook could not run (exit ${String(broken.exitCode)}): its command is missing in the container image — ` +
     `${broken.name || broken.event}${tail}. The attempt is not scored. ` +
-    `Use an image that has the command (execution.image), or execution: { kind: "host" }.`
+    `Use an image that has the command (env.image), or env: { kind: "local", inherit: "none" }.`
   );
 }
 

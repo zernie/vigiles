@@ -120,7 +120,7 @@ const arms = await experimental_outputStyleArms(
 // Paid: a real model, both arms — run by `npx vigiles eval <file>`.
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" },
+    env: { kind: "local", inherit: "none" },
     arms,
     task: "summarise README.md",
     checks: [
@@ -142,7 +142,7 @@ request is captured (`modelRequests` is empty). The free run writes the same
 files and settings the "with" arm gets, through the same binary.
 
 The "without" arm is not empty: it selects the harness's default style. A
-paid run with `env: { kind: "inherit" }` uses your real home directory, so a style
+paid run with `env: { kind: "local", inherit: "all" }` uses your real home directory, so a style
 switched on for every project in `~/.claude/settings.json` would load in both
 arms, and the eval would compare the style with itself. On Claude Code the arm
 sets `outputStyle: "default"`, which wins over the user-wide setting (measured

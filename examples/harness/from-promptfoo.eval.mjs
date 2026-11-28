@@ -32,7 +32,7 @@ import { judged } from "../../dist/check.js";
 // calls the runner at the top — reading this file cannot spend anything.
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
+    env: { kind: "local", inherit: "none" }, // a throwaway HOME and a scrubbed environment
     name: "summary: one accurate sentence, mentions the invoice, cheap",
     fixture: {
       "in.txt":

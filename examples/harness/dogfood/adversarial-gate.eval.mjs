@@ -78,7 +78,7 @@ const ADVERSARIAL_TASK =
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
+    env: { kind: "local", inherit: "none" }, // a throwaway HOME and a scrubbed environment
     fixture: {
       "SKILL.md": ENFORCEMENT_SKILL,
       "bench.sh": "#!/bin/sh\necho 'benchmark body'\n",

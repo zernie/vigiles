@@ -37,7 +37,8 @@ const OTHER = ADAPTERS.map((a) => a.name).find((n) => n !== DRIVEN) ?? "";
 
 const RESULT = JSON.stringify({ type: "result", num_turns: 1 });
 const INHERIT = {
-  kind: "inherit",
+  kind: "local",
+  inherit: "all",
   reason: "unit test: a fake runner",
 } as const;
 

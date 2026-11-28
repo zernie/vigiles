@@ -83,7 +83,7 @@ async function evalIn(
         measure: () => ({ ran: true }),
         trials: 2,
         spacingSec: 0,
-        env: { kind: "ephemeral" },
+        env: { kind: "local", inherit: "none" },
       },
       mockRunner(mock.url, extra),
     );
@@ -280,7 +280,7 @@ describe("runEval's own warning, without the binary", () => {
           measure: () => ({ ran: true }),
           trials: 1,
           spacingSec: 0,
-          env: { kind: "ephemeral" },
+          env: { kind: "local", inherit: "none" },
         },
         runner,
       );

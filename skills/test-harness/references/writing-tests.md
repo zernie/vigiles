@@ -66,7 +66,7 @@ import { paid_judged, assertRates } from "vigiles/eval";
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" }, // required: a throwaway HOME, or { kind: "inherit", reason }
+    env: { kind: "local", inherit: "none" }, // required: a throwaway HOME, or { kind: "local", inherit: "all", reason }
     pluginDir: "./", // no `arms`: one configuration, reported as the arm "default"
     task: "…a task the skill should handle…",
     checks: [
@@ -92,7 +92,7 @@ import { assertImproves } from "vigiles/eval";
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" }, // required: a throwaway HOME, or { kind: "inherit", reason }
+    env: { kind: "local", inherit: "none" }, // required: a throwaway HOME, or { kind: "local", inherit: "all", reason }
     arms: { off: {}, on: { pluginDir: "./" } },
     task: "…a task the harness change should affect…",
     measure: (ctx) => ({ ok: /* a bare predicate over the trace */ true }), // or `checks: [...]`

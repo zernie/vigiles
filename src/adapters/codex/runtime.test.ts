@@ -9,7 +9,7 @@ import { codexRuntime } from "./runtime.js";
 
 test("Codex declares no container image, so a container eval of it is refused at plan time", () => {
   // Guards: `planExecution` refuses a runtime without this declaration, so a
-  // Codex eval asking for `execution: { kind: "container" }` fails loudly
+  // Codex eval asking for `env: { kind: "docker" }` fails loudly
   // instead of running on the host — without the core naming the harness.
   assert.equal(codexRuntime.containerImage, undefined);
 });

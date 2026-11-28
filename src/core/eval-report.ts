@@ -124,15 +124,20 @@ export interface EvalReport {
   readonly aborted: boolean;
   /**
    * The run environment the trials used, without seeded file contents — so an
-   * `inherit` run's reason travels with the report and is printed with it.
-   * Absent on a report built before `env` existed.
+   * `inherit: "all"` run's reason travels with the report and is printed with
+   * it. Absent on a report built before `env` existed.
    */
   readonly env?:
-    | { readonly kind: "ephemeral" }
-    | { readonly kind: "inherit"; readonly reason: string };
+    | { readonly kind: "local"; readonly inherit: "none" }
+    | {
+        readonly kind: "local";
+        readonly inherit: "all";
+        readonly reason: string;
+      }
+    | { readonly kind: "docker" };
   /**
    * What ended the processes each attempt started before it was scored: a
-   * container (`execution: { kind: "container" }`, stopped before scoring), or
+   * container (`env: { kind: "docker" }`, stopped before scoring), or
    * nothing — on the host runner a process the agent started in the
    * background can outlive its trial and write while it is scored. Absent on
    * a report built before this field existed.

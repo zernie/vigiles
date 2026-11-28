@@ -1,6 +1,6 @@
 /**
  * The task and the score shared by the two orphan-process evals (host and
- * container), so the only difference between them is `execution`.
+ * container), so the only difference between them is the `env` kind.
  *
  * `.mjs` like every example here: it runs in plain node against the built
  * `dist/`, with no TypeScript loader.

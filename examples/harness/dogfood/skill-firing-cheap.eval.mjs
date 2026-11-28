@@ -29,7 +29,7 @@ const pluginDir = fileURLToPath(new URL("../../../", import.meta.url));
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
+    env: { kind: "local", inherit: "none" }, // a throwaway HOME and a scrubbed environment
     pluginDir,
     stubSkillBodies: true, // measure SELECTION only — bodies stubbed, ~18x cheaper
     task: "Strengthen the vigiles rules in my CLAUDE.md spec: scan the guidance() rules and find existing linter rules that could back them as enforce(). Use the right skill for this.",

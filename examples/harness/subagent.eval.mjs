@@ -23,7 +23,7 @@ const pluginDir = fileURLToPath(
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
+    env: { kind: "local", inherit: "none" }, // a throwaway HOME and a scrubbed environment
     pluginDir,
     fixture: {
       "app.js": `function add(a, b) { return a - b; } // bug: subtracts\nmodule.exports = { add };\n`,

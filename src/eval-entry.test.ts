@@ -341,7 +341,7 @@ const STUBBED_EVAL =
   `    task: "file it",\n` +
   `    trials: 1,\n` +
   `    spacingSec: 0,\n` +
-  `    env: { kind: "inherit", reason: "test: a fake claude on PATH" },\n` +
+  `    env: { kind: "local", inherit: "all", reason: "test: a fake claude on PATH" },\n` +
   `    stubs: [experimental_stub("gh", [{ argv: ["issue", "create", rest], reply: { kind: "always", stdout: "https://github.com/o/r/issues/1\\n" } }])],\n` +
   `    measure: () => ({ ok: true }),\n` +
   `  },\n` +

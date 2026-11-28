@@ -224,9 +224,9 @@ function removedKindProblem(kind: RemovedEvalKind): string {
     kind === "measureArms" ? "keep `arms`" : "drop `arms` (one arm, `default`)";
   return (
     `\`defineEval({ ${kind}: … })\` was folded into \`runEval\` in v55 — rename the key:\n` +
-    `      defineEval({ runEval: { env: { kind: "inherit", reason: "…" }, …the same spec… } })\n` +
-    `  \`runEval\` takes \`checks\` as before (${arms}), and needs \`env\`: \`{ kind: "ephemeral" }\`, or\n` +
-    `  \`{ kind: "inherit", reason }\` for the HOME and environment ${kind} used. Its default model is\n` +
+    `      defineEval({ runEval: { env: { kind: "local", inherit: "all", reason: "…" }, …the same spec… } })\n` +
+    `  \`runEval\` takes \`checks\` as before (${arms}), and needs \`env\`: \`{ kind: "local", inherit: "none" }\`, or\n` +
+    `  \`{ kind: "local", inherit: "all", reason }\` for the HOME and environment ${kind} used. Its default model is\n` +
     `  \`haiku\` where ${kind}'s was \`sonnet\` — set \`model\` to keep measuring the same thing.`
   );
 }
