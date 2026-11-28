@@ -3121,6 +3121,68 @@ test("startFailure lets a timed-out run through, and still stops one that never 
   assert.notEqual(startFailure({ ...silent, code: 2 }), null);
 });
 
+// vigiles#645: the `result` event of a logged-out run, verbatim from Claude Code.
+const resultLine = (fields: Record<string, unknown>): string =>
+  JSON.stringify({ type: "result", subtype: "success", ...fields });
+const LOGGED_OUT = {
+  is_error: true,
+  terminal_reason: "api_error",
+  result: "Not logged in · Please run /login",
+  num_turns: 1,
+  duration_ms: 109,
+  duration_api_ms: 0,
+  total_cost_usd: 0,
+  usage: { input_tokens: 0, output_tokens: 0 },
+};
+
+test("startFailure stops a run whose result is an error made before any model call", () => {
+  const failure = startFailure({ code: 0, stdout: resultLine(LOGGED_OUT) });
+  // Guards: a logged-out run is never scored, and the harness's own words say why.
+  assert.ok(failure?.includes(LOGGED_OUT.result));
+  // Measured on 2.1.332 against a local server: a rejected key, and a refused
+  // connection after the harness's own retries. Both repeat on every trial.
+  const deterministic = [
+    {
+      ...LOGGED_OUT,
+      api_error_status: 401,
+      api_error_type: "authentication_error",
+    },
+    { ...LOGGED_OUT, api_error_status: null },
+  ];
+  for (const fields of deterministic) {
+    // Guards: a cause that repeats on every trial stops the eval, whatever the exit code.
+    assert.notEqual(
+      startFailure({ code: 1, stdout: resultLine(fields) }),
+      null,
+    );
+  }
+  // Guards: a refused run with no message text still stops the eval.
+  const silent = resultLine({ ...LOGGED_OUT, result: undefined });
+  assert.notEqual(startFailure({ code: 0, stdout: silent }), null);
+});
+
+test("startFailure lets a result through when the run reached the model or did not err", () => {
+  const scored = [
+    // a model-made error mid-run is a measured outcome
+    { ...LOGGED_OUT, duration_api_ms: 1738 },
+    { ...LOGGED_OUT, usage: { input_tokens: 2, output_tokens: 14 } },
+    // a prompt a UserPromptSubmit hook blocked: no model call, but no error either
+    { ...LOGGED_OUT, is_error: false, num_turns: 0 },
+    // a harness that reports no API time cannot show it never called the model
+    { is_error: true, result: "boom", usage: {} },
+    // a rate limit is the retry loop's to handle, not a run that never started
+    { ...LOGGED_OUT, api_error_status: 429 },
+    // a 5xx (measured on 2.1.332, same 0 ms / 0 tokens) is transient: one trial, not the eval
+    { ...LOGGED_OUT, api_error_status: 500, api_error_type: "api_error" },
+  ];
+  for (const fields of scored) {
+    // Guards: only an error with no API time and no tokens is refused.
+    assert.equal(startFailure({ code: 0, stdout: resultLine(fields) }), null);
+  }
+  // Guards: a clean exit with no result event is not a start failure (as on main).
+  assert.equal(startFailure({ code: 0, stdout: "" }), null);
+});
+
 test("formatEvalReport never shows a run that reported no cost as $0", () => {
   const base = {
     name: "e",
