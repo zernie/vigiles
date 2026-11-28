@@ -185,6 +185,7 @@ import {
   seedTrial,
   type PreparedWorkspace,
 } from "./eval-workspace.js";
+import { z } from "zod";
 import { isRateLimited } from "./eval-rate-limit.js";
 export { isRateLimited };
 import { makeTmpDir, removeTrees } from "./core/tmp-root.js";
@@ -729,15 +730,47 @@ export function buildAgentArgs(a: AgentRunArgs): string[] {
  * a trial it reads as a miss on every check that needs output and a pass on
  * every bound it cannot break. A run that reached the model and then broke is a
  * scored outcome, not this. Rate-limited runs are left to the retry loop.
+ *
+ * A `result` event does not prove the model was asked (vigiles#645): logged
+ * out, Claude Code exits 0 with a result that is an error, 0 ms of API time
+ * and 0 tokens. A prompt a `UserPromptSubmit` hook blocked also has 0 ms and
+ * 0 tokens, but no error, and stays a scored outcome (measured on 2.1.332).
  */
 export function startFailure(out: Readonly<RunOut>): string | null {
-  if (out.code === 0 || parseResultEvent(out.stdout) !== null) return null;
+  const result = parseResultEvent(out.stdout);
+  if (result === null) return exitedBeforeModel(out);
+  return isRateLimited(out) ? null : erredBeforeModel(result);
+}
+
+/** Why a run that printed no `result` never reached the model, or null. Pure. */
+function exitedBeforeModel(out: Readonly<RunOut>): string | null {
+  if (out.code === 0) return null;
   // The timeout killed it, possibly while its first request was in flight. That
   // is a scored, charged outcome (vigiles#416), not a command that never started.
   if (out.timedOut === true) return null;
   if (reachedModel(out.stdout) || isRateLimited(out)) return null;
   const said = (out.stderr ?? "").trim().split("\n").slice(-5).join("\n");
   return `the harness exited ${String(out.code)} before calling the model: ${said || "(no stderr)"}`;
+}
+
+/**
+ * The `result` fields that tell an error made before any model call. A field a
+ * harness leaves out reads as absent, so its run is scored, never refused.
+ */
+const PreModelResult = z.object({
+  is_error: z.literal(true),
+  duration_api_ms: z.literal(0),
+  usage: z.object({ input_tokens: z.literal(0), output_tokens: z.literal(0) }),
+  result: z.string().catch(""),
+});
+
+/** Why a run that printed `result` never reached the model, or null. Pure. */
+function erredBeforeModel(
+  result: Readonly<Record<string, unknown>>,
+): string | null {
+  const parsed = PreModelResult.safeParse(result);
+  if (!parsed.success) return null;
+  return `the harness ended before calling the model: ${parsed.data.result || "(no message)"}`;
 }
 
 /**
