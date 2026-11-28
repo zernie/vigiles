@@ -172,6 +172,7 @@
     "picomatch": "^4.0.4",
     "prettier": "^3.8.1",
     "semantic-release": "25.0.9",
+    "testcontainers": "^12.2.2",
     "tsx": "^4.21.0",
     "typedoc": "^0.28.19",
     "typescript": "^5.9.3",
@@ -179,10 +180,14 @@
   },
   "peerDependencies": {
     "jest": ">=28",
+    "testcontainers": "^12.2.2",
     "vitest": ">=1"
   },
   "peerDependenciesMeta": {
     "jest": {
+      "optional": true
+    },
+    "testcontainers": {
       "optional": true
     },
     "vitest": {
