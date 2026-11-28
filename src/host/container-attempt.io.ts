@@ -19,6 +19,7 @@ import type {
   Mount,
 } from "../core/container.js";
 import type { RunOut } from "../core/eval-driver.js";
+import { execEnv, hostUser, imagePathOf } from "./container-env.io.js";
 
 export type Tc = typeof import("testcontainers");
 type Fx = typeof import("effect");
@@ -57,6 +58,8 @@ type Ending =
 export interface Held {
   readonly container: Readonly<Started>;
   readonly teardown: Effect<void, Error>;
+  /** The image's own `PATH`, read from the started container. */
+  readonly imagePath: string | undefined;
 }
 
 /** What a container is started from. */
@@ -105,16 +108,12 @@ const optionSteps = (
   ...when(o.droppedCapabilities, (v) => (b) => b.withDroppedCapabilities(...v)),
 ];
 
-const hostUser = (): string => {
-  if (process.getuid === undefined || process.getgid === undefined)
-    throw new Error("the container runner needs a POSIX host (uid:gid)");
-  return `${String(process.getuid())}:${String(process.getgid())}`;
-};
-
 /** A fresh container: the mounts at their own paths, the host's uid:gid, idle until exec. */
-async function startContainer(
-  s: StartSpec,
-): Promise<{ readonly c: Started; readonly id: string }> {
+async function startContainer(s: StartSpec): Promise<{
+  readonly c: Started;
+  readonly id: string;
+  readonly imagePath: string | undefined;
+}> {
   const id = randomUUID();
   const base = new s.tc.GenericContainer(s.image)
     .withCommand(["sleep", "infinity"])
@@ -127,7 +126,8 @@ async function startContainer(
     (b, step) => step(b),
     base,
   );
-  return { c: await builder.start(), id };
+  const c = await builder.start();
+  return { c, id, imagePath: await imagePathOf(s.tc, c) };
 }
 
 // ── teardown ────────────────────────────────────────────────────────────────
@@ -163,7 +163,7 @@ export function withContainer<A>(
 ): Effect<A, Error> {
   const { Effect } = fx;
   const acquire = Effect.gen(function* () {
-    const { c, id } = yield* Effect.tryPromise({
+    const { c, id, imagePath } = yield* Effect.tryPromise({
       try: () => startContainer(s),
       catch: (e) =>
         new TransportError(`container start failed: ${messageOf(e)}`),
@@ -174,7 +174,7 @@ export function withContainer<A>(
         catch: (e) => new Error(messageOf(e)),
       }),
     );
-    return { container: c, teardown };
+    return { container: c, teardown, imagePath };
   });
   return Effect.acquireUseRelease(acquire, use, (h) =>
     Effect.ignore(h.teardown),
@@ -292,7 +292,7 @@ export const attemptIn =
       const exec = yield* fx.Effect.sync(() =>
         settle(
           h.container.exec([args.recipe.binary, ...args.argv], {
-            env: { ...args.run.env },
+            env: { ...execEnv(args.run.env ?? {}, h.imagePath) },
             workingDir: args.run.cwd,
           }),
         ),

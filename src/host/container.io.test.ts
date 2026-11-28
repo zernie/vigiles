@@ -202,6 +202,23 @@ withDocker("container run: what comes back", () => {
     expect(out.stdout.replaceAll("a", "")).toBe("");
   });
 
+  it("puts the run's PATH in front of the image's, so a stub wins and the image stays reachable", async () => {
+    const dir = freshDir();
+    const bin = join(dir, "bin");
+    mkdirSync(bin);
+    writeFileSync(join(bin, "git"), "#!/bin/sh\necho stub-git\n");
+    chmodSync(join(bin, "git"), 0o755);
+    const out = await ran({
+      ...attempt(dir, "git; command -v node"),
+      run: { ...attempt(dir, "").run, env: { HOME: dir, PATH: bin } },
+    });
+    // Guards: the stub dir shadows the image's git, and the image's own PATH still resolves node.
+    expect(out).toMatchObject({
+      code: 0,
+      stdout: "stub-git\n/usr/local/bin/node\n",
+    });
+  });
+
   it("keeps a mounted file executable, at the same path", async () => {
     const dir = freshDir();
     writeFileSync(join(dir, "tool.sh"), "#!/bin/sh\necho tool-ran\n");
