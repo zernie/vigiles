@@ -28,7 +28,7 @@ Each rule is checked against your real linter config. Typos get closest-match su
 
 **You rarely hand-write one.** The `edit-spec` and `strengthen` skills write and update the spec from a plain-English ask. A hook recompiles it on save. The spec is what `init` sets up, and the agent manages it — not a chore. The deeper **compiler-grade guarantees** are gradual and opt-in, like TypeScript's `strict` — [why opt-in?](faq.md#why-are-the-strongest-guarantees-opt-in-not-the-default)
 
-**Markdown mode is not a lesser tier for verification.** It squiggles rule typos at edit time (via the YAML schema `init` generates). Its inline marks — `vigiles:file`, `vigiles:cmd`, `vigiles:symbol`, `vigiles:enforce` — verify file paths, scripts, symbols, and linter rules woven into the prose, exactly like the spec. If you have one instruction file and don't need to generate or share rules, stay in markdown. You give up nothing on reference verification.
+**Markdown mode is not a lesser tier for verification.** It squiggles rule typos at edit time (via the YAML schema `init` generates). Its [inline marks](#inline-marks) — `vigiles:file`, `vigiles:cmd`, `vigiles:symbol`, `vigiles:enforce`, `vigiles:mcp` — verify file paths, scripts, symbols, and linter rules woven into the prose, exactly like the spec. If you have one instruction file and don't need to generate or share rules, stay in markdown. You give up nothing on reference verification.
 
 **A typed spec adds one thing markdown can't: rules and instructions become composable, type-checked code.**
 
@@ -107,10 +107,131 @@ export default instructionFile({
 });
 ```
 
-There's a small family of inline **marks** that `lint` checks, each binding a reference to its real source:
+### Inline marks
 
-- `` `vigiles:symbol file#name` `` — **the named file actually defines that symbol** (function, class, method, constant), parsed with [ast-grep](https://ast-grep.github.io) across JS/TS, Python, Ruby, Rust, and CSS. Rename it and `lint` fails. In markdown mode the `refs-hook` forces the mark, blocking edits that leave a code reference bare.
-- `` `vigiles:mcp server#tool` `` — **the referenced MCP tool exists on its server.** `lint` reads `.mcp.json`, starts the server, lists its tools, and flags a renamed/removed one with a "did you mean" — catching e.g. the GitHub MCP server renaming `create_issue` → `issue_write`, which otherwise fails silently.
+Without a spec, you verify a reference by writing a **mark** next to it in the markdown. `vigiles lint` finds the marks and checks each one. A `<!-- vigiles:… -->` comment it cannot parse is an error, so a typo in a comment mark fails `lint`. Three limits: `lint` reads one comment mark per line and only comments on one line, and a span mark that does not match its syntax is read as plain text, not reported. Five marks verify a reference, three opt a block or a file out of a check.
+
+| Mark                                         | Written as   | Verifies                                                    |
+| -------------------------------------------- | ------------ | ----------------------------------------------------------- |
+| [`vigiles:enforce`](#vigilesenforce)         | HTML comment | the linter rule exists and is enabled                       |
+| [`vigiles:file`](#vigilesfile)               | HTML comment | the file exists                                             |
+| [`vigiles:cmd`](#vigilescmd)                 | HTML comment | the npm script exists                                       |
+| [`vigiles:symbol`](#vigilessymbol)           | code span    | the file defines the symbol                                 |
+| [`vigiles:mcp`](#vigilesmcp)                 | code span    | the MCP server has the tool                                 |
+| [`vigiles:ignore`](#vigilesignore)           | HTML comment | opt-out: the next block or this line                        |
+| [`vigiles:ignore-file`](#vigilesignore-file) | HTML comment | opt-out: the whole file                                     |
+| [`vigiles:ignore-test`](#vigilesignore-test) | HTML comment | opt-out: this skill, subagent or output style needs no test |
+
+A comment mark sits on its own line, under the rule it backs. A span mark is the text of an inline code span, so it reads as code in the rendered page. Marks inside fenced code blocks and inside other code spans are examples, not marks, and are skipped.
+
+#### `vigiles:enforce`
+
+```text
+<!-- vigiles:enforce <linter>/<rule> "<why>" -->
+```
+
+Binds a prose rule to the linter rule that enforces it. `lint` resolves the name against that linter's own rule catalog and reads your config to check the rule is turned on, so a typo or a disabled rule fails.
+
+```markdown
+- Always await promises.
+<!-- vigiles:enforce eslint/no-floating-promises "An unawaited promise loses its error" -->
+```
+
+With a typo in the rule name, `lint` prints:
+
+```text
+✗ line 9: Rule "no-floating-promisez" not found in eslint.
+```
+
+#### `vigiles:file`
+
+```text
+<!-- vigiles:file <path> -->
+```
+
+Binds a rule to a file it names, most often the script or hook that enforces it. The path is relative to the repository root. Rename or delete the file and `lint` fails, so a rule never points at a script that is gone.
+
+```markdown
+- Never add a Co-Authored-By trailer; a hook blocks it.
+<!-- vigiles:file hooks/git/pr-comment-block.sh -->
+```
+
+When the file is missing, `lint` prints:
+
+```text
+✗ line 4: File not found: "hooks/git/pr-comment-block.sh"
+```
+
+A hook line in `.claude/settings.json` that vigiles did not write is reported by [`hand-written-hook`](rules/hand-written-hook.md); this mark is how the rule that relies on that hook keeps its script path checked.
+
+#### `vigiles:cmd`
+
+```text
+<!-- vigiles:cmd "<command>" -->
+```
+
+Binds a rule to a command. For `npm run <script>`, `npm test` and the other npm forms, `lint` checks the script exists in `package.json`. The quotes are required, because a command has spaces.
+
+```markdown
+- Run the suite before pushing.
+<!-- vigiles:cmd "npm test" -->
+```
+
+With `npm run tset` instead, `lint` prints:
+
+```text
+✗ line 6: Script "tset" not found in package.json
+```
+
+#### `vigiles:symbol`
+
+```text
+`vigiles:symbol <file>#<name>`
+```
+
+Binds a mention of a function, class, method or constant to its definition. `lint` parses the file with [ast-grep](https://ast-grep.github.io) (JS/TS, Python, Ruby, Rust, CSS) and fails when the file no longer defines the name. `<file>::<name>` works too. In markdown mode the `refs-hook` asks for the mark when an edit leaves a code reference bare.
+
+```markdown
+- Compile specs with `vigiles:symbol src/core/compile.ts#compileClaude`.
+```
+
+When the symbol is gone, `lint` prints:
+
+```text
+✗ CLAUDE.md:7 "realFun" is not defined in util.ts
+```
+
+#### `vigiles:mcp`
+
+```text
+`vigiles:mcp <server>#<tool>`
+```
+
+Binds a mention of an MCP tool to the server that serves it. `lint` reads `.mcp.json`, starts the server, lists its tools and fails on a renamed or removed one with a suggestion. This catches, for example, the GitHub MCP server renaming `create_issue` to `issue_write`, which otherwise fails silently.
+
+```markdown
+- File bugs with `vigiles:mcp github#create_issue`.
+```
+
+With a typo in the tool name, `lint` prints:
+
+```text
+✗ CLAUDE.md:10 MCP tool "github#create_isue" not found — did you mean "create_issue"?
+```
+
+#### `vigiles:ignore`
+
+Written as `<!-- vigiles:ignore -->`. Opts one place out of a check. On its own line right before a fenced code block, it skips the references in that block (an illustrative typo, a placeholder). Anywhere on a line of an instruction file, it silences [`unmarked-refs`](rules/unmarked-refs.md) for that line.
+
+#### `vigiles:ignore-file`
+
+Written as `<!-- vigiles:ignore-file -->`. Opts the whole file out of the reference checks, for a page that is entirely illustrative. The doc-reference check honours it only on a line of its own, and there even inside a code block. [`unmarked-refs`](rules/unmarked-refs.md) honours it anywhere in the file, a code span included.
+
+#### `vigiles:ignore-test`
+
+Written as `<!-- vigiles:ignore-test -->`. Marks a skill, subagent or output style as deliberately untested. The coverage rules ([`untested-skill`](rules/untested-skill.md) and its siblings) report it as `exempt`, so the skip stays visible instead of silent.
+
+Four more marks are written by `vigiles compile`, never by hand: `vigiles:gate` and `vigiles:result` in a skill's `SKILL.md` (see [skills](skills.md)), `vigiles:effect` around an `effect()` block, and `vigiles:purity:<level>` on a compiled agent or skill.
 
 **Nothing to install for any language.** JS/TS and CSS use the grammars built into `@ast-grep/napi`; Python, Ruby and Rust use WebAssembly builds of their tree-sitter grammars that ship with vigiles (`@vscode/tree-sitter-wasm`). No install scripts run, so a default `npm install`, `pnpm add` or `yarn add` needs no approval, and those three languages need no platform-specific binary.
 

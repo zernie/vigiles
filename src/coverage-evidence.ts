@@ -256,7 +256,7 @@ export function unmeasuredHooksNote(n: number): readonly string[] {
   return n === 0
     ? []
     : [
-        `  ${String(n)} hand-written hook line(s): coverage not measured — vigiles does not read what they run`,
+        `  ${String(n)} hand-written hook line(s): coverage not measured — vigiles does not read what they run; \`<!-- vigiles:file <path> -->\` beside a rule keeps its script checked`,
       ];
 }
 

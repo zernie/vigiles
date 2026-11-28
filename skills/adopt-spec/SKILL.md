@@ -7,6 +7,8 @@ argument-hint: <path to CLAUDE.md, defaults to CLAUDE.md>
 
 Start a typed `CLAUDE.md.spec.ts` from an existing hand-written CLAUDE.md (or AGENTS.md). This is the non-destructive adoption path — you keep your existing instruction file as the starting point and get type safety going forward.
 
+**Say that this skill is running.** Start your first reply with one line: `Running the adopt-spec skill on <file>.` The user should see that adoption started, and on which file, without opening the tool output.
+
 ## Adoption rules
 
 Adoption is the **safe, faithful on-ramp — never an upgrade in disguise.** These are non-negotiable:
@@ -16,7 +18,7 @@ Adoption is the **safe, faithful on-ramp — never an upgrade in disguise.** The
 - **Don't escalate enforcement.** Keep `guidance()` as `guidance()`. Upgrading to `enforce()` has a cost (config/plugins, possible false positives) and is a separate opt-in step — the `strengthen` skill. Adoption is **not** turning on strict / `workflow` gating.
 - **Reversible.** `vigiles eject <file>` hands the file back as plain hand-owned markdown anytime — it's never a one-way door. Tell the user this.
 - **Ask before writing.** Present the generated spec and a conversion summary first; write only on the user's yes.
-- **A lighter touch exists.** For no spec at all, inline `<!-- vigiles:enforce ... -->` comments are verified by `vigiles lint` with the same engine.
+- **A lighter touch exists.** For no spec at all, inline marks in the markdown are verified by `vigiles lint` with the same engine: `<!-- vigiles:enforce ... -->` for a linter rule, `<!-- vigiles:file <path> -->` for a file, `<!-- vigiles:cmd "<command>" -->` for a script (every mark: `docs/verifying-instruction-files.md#inline-marks` in the vigiles repository).
 
 ## Instructions
 
@@ -85,6 +87,7 @@ export default instructionFile({
 
 - Use `file()` refs in sections where file paths appear in backticks — this enables stale reference detection
 - 🔴 **Never emit `keyFiles`.** The field is deprecated and removed in the next major (`vigiles lint` warns as `deprecated-key-files`). For a "Key Files" / file-map section in the original, apply the migration recipe (`docs/rules/deprecated-key-files.md` in the vigiles repository) and show the user, per entry, where it goes — the first that fits: (1) the file's header, the docs or the path already say it (or the path no longer exists) → delete it; (2) a fact about that one file → that file's header comment; (3) a rule for working in one folder → that folder's nested `CLAUDE.md` (its own `<folder>/CLAUDE.md.spec.ts`); (4) nothing else would lead an agent to the file → a one-line `file()` pointer in the section where the decision that needs it is written. Where each entry goes is the user's call; that the map does not become `keyFiles` is not. Until they decide, carry the list over as a plain prose section so adoption stays faithful
+- 🔴 **A rule that names the script or hook enforcing it** ("a hook blocks X", "`scripts/check.sh` fails on Y") gets that path as a `file()` ref inside the rule's text, so `lint` fails when the script is renamed or deleted. Say so in the conversion summary. If the user keeps the file hand-written instead, offer the same check as a `<!-- vigiles:file <path> -->` line under the rule
 - Use `cmd()` refs for any `npm run` commands mentioned in sections
 - Convert `**Enforced by:** \`code-review\``rules to`guidance()` — code review is not a mechanical enforcement
 - For rules with no annotation, add a `// TODO: classify as enforce() or guidance()` comment

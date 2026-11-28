@@ -997,7 +997,9 @@ export function handWrittenHookMessage(hook: HandWrittenHook): string {
     `${hook.event} hook \`${hook.command}\`: vigiles did not write this line, ` +
     "so it cannot check what it runs or whether it swallows its own failure. " +
     "Compile it with `vigiles/hook` (docs/compiled-hooks.md); until then, " +
-    "`vigiles test` (`runHook`) checks it by running it."
+    "`vigiles test` (`runHook`) checks it by running it, and " +
+    "`<!-- vigiles:file <path> -->` beside a rule that relies on its script " +
+    "fails `lint` when the script is gone."
   );
 }
 
