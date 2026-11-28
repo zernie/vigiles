@@ -39,7 +39,7 @@ const truthy = (value: string | undefined): boolean =>
 /**
  * The Node testcontainers 12 declares (`engines.node: ">= 22.22"`). On an older
  * Node its import throws an error that names nothing (`reading 'bind'` on
- * Node 20), so the version is asked first. `container.io.test.ts` holds this
+ * Node 20), so the version is asked first. `container-preflight.io.test.ts` holds this
  * against the installed package's own `engines`.
  */
 export const TESTCONTAINERS_NODE = { major: 22, minor: 22 } as const;

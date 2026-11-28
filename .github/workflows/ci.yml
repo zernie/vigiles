@@ -391,8 +391,8 @@ jobs:
     needs: changes
     if: needs.changes.outputs.root == 'true'
     runs-on: ubuntu-latest
-    # Not yet measured: a guess until the first CI run, then ~3x that run.
-    timeout-minutes: 10
+    # Measured: 50 s on the first run (2026-11-28); ~3x that.
+    timeout-minutes: 3
     steps:
       - uses: actions/checkout@v7
 
