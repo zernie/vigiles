@@ -153,6 +153,8 @@ function deprecationOf(env: RunEnv, caller: string): string | undefined {
 /** A parsed `env`: its current spelling, and the warning to print once when the spec used an old one. */
 export interface ParsedRunEnv {
   readonly env: NormalizedRunEnv;
+  /** The kind the spec wrote, so a report echoes an old spelling as it was written. */
+  readonly written: RunEnv["kind"];
   readonly deprecation: string | undefined;
 }
 
@@ -176,5 +178,9 @@ export function parseRunEnv(
   const env = normalizeRunEnv(parsed.data);
   const seed = seedRefusal(env, caller, keepHomeFiles);
   if (seed !== undefined) throw new Error(seed);
-  return { env, deprecation: deprecationOf(parsed.data, caller) };
+  return {
+    env,
+    written: parsed.data.kind,
+    deprecation: deprecationOf(parsed.data, caller),
+  };
 }

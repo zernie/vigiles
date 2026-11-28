@@ -324,6 +324,11 @@ export interface EvalReport {
         readonly reason: string;
     } | {
         readonly kind: "docker";
+    } | /** @deprecated reported for a spec that writes `env: { kind: "ephemeral" }` */ {
+        readonly kind: "ephemeral";
+    } | /** @deprecated reported for a spec that writes `env: { kind: "inherit" }` */ {
+        readonly kind: "inherit";
+        readonly reason: string;
     };
     readonly experimental_regressionCases?: readonly CaseResult[];
     // (undocumented)

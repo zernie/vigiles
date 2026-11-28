@@ -1483,13 +1483,31 @@ function localKeyView(env: LocalRunEnv): unknown {
   }
 }
 
-/** The run environment as a report carries it: where it ran, and an `inherit: "all"` reason. */
-function runEnvReportView(env: NormalizedRunEnv): EvalReport["env"] {
+/**
+ * The run environment as a report carries it: where it ran, and an
+ * `inherit: "all"` reason, in the spelling the spec wrote (a deprecated
+ * `inherit`/`ephemeral` comes back as written).
+ */
+function runEnvReportView(
+  env: NormalizedRunEnv,
+  written: RunEnv["kind"],
+): EvalReport["env"] {
   switch (env.kind) {
     case "docker":
       return { kind: "docker" };
     case "local":
-      return localReportView(env);
+      return written === "inherit" || written === "ephemeral"
+        ? deprecatedReportView(env)
+        : localReportView(env);
+  }
+}
+
+function deprecatedReportView(env: LocalRunEnv): EvalReport["env"] {
+  switch (env.inherit) {
+    case "none":
+      return { kind: "ephemeral" };
+    case "all":
+      return { kind: "inherit", reason: env.reason };
   }
 }
 
@@ -2432,6 +2450,8 @@ type ParsedEvalSpec = Omit<
     readonly stubs: readonly ToolStub[];
     /** The spec's `env` in its current spelling (`parseRunEnv`). */
     readonly env: NormalizedRunEnv;
+    /** The `env` kind the spec wrote; a report echoes a deprecated one. */
+    readonly envWritten: RunEnv["kind"];
     /** Where each attempt runs, its harness support and adapter already checked. */
     readonly execution: ExecutionPlan;
     /** The checked workspace, when the spec sets one. */
@@ -2516,7 +2536,7 @@ export async function runEvalWith<M extends Metrics>(
   // stateful RegExp, a missing `env`, a seed path outside HOME — each refused
   // with its rewrite before a token is spent. The runner trusts the result.
   const stubs = parseToolStubs(input.stubs, "runEval");
-  const { env, deprecation } = parseRunEnv(
+  const { env, written, deprecation } = parseRunEnv(
     input.env,
     "runEval",
     EVAL_RUNTIME.runEnv?.keepHomeFiles ?? [],
@@ -2543,6 +2563,7 @@ export async function runEvalWith<M extends Metrics>(
       namespaces: mapValues(shape.arms, installNamespace),
       stubs,
       env,
+      envWritten: written,
       execution,
       probeAgent: probeOf(runner),
       host,
@@ -2813,8 +2834,8 @@ async function runResolvedEval(
     },
   );
   // A replayed report carries `env` as the lock recorded it. The inputs hash
-  // matched, so the spec's env is the same run; report it as it is spelled now.
-  return { ...report, env: runEnvReportView(spec.env) };
+  // matched, so the spec's env is the same run; report it as the spec spells it now.
+  return { ...report, env: runEnvReportView(spec.env, spec.envWritten) };
 }
 
 /** The qualified cases of a case spec; none for any other spec. */
@@ -2881,7 +2902,7 @@ function evalReport(spec: ParsedEvalSpec, run: FinishedRun): EvalReport {
     chargedUsd: Math.max(run.charged, totalCostUsd),
     unknownCostRuns: done.filter((r) => r.costObserved === false).length,
     aborted: run.aborted,
-    env: runEnvReportView(spec.env),
+    env: runEnvReportView(spec.env, spec.envWritten),
     containment: containmentOf(run.execution),
     ...(spec.checks === undefined ? {} : { checks: spec.checks }),
     ...casesReport(run.cases, armNames, scoredOf(done)),

@@ -125,7 +125,9 @@ export interface EvalReport {
   /**
    * The run environment the trials used, without seeded file contents — so an
    * `inherit: "all"` run's reason travels with the report and is printed with
-   * it. Absent on a report built before `env` existed.
+   * it. Absent on a report built before `env` existed. A spec that still
+   * writes a deprecated spelling gets that spelling back, so a reader of an
+   * existing report sees no change until the deprecated kinds are removed.
    */
   readonly env?:
     | { readonly kind: "local"; readonly inherit: "none" }
@@ -134,7 +136,14 @@ export interface EvalReport {
         readonly inherit: "all";
         readonly reason: string;
       }
-    | { readonly kind: "docker" };
+    | { readonly kind: "docker" }
+    | /** @deprecated reported for a spec that writes `env: { kind: "ephemeral" }` */ {
+        readonly kind: "ephemeral";
+      }
+    | /** @deprecated reported for a spec that writes `env: { kind: "inherit" }` */ {
+        readonly kind: "inherit";
+        readonly reason: string;
+      };
   /**
    * What ended the processes each attempt started before it was scored: a
    * container (`env: { kind: "docker" }`, stopped before scoring), or

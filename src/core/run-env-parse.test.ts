@@ -38,16 +38,19 @@ test("local: inherit none, with or without a seeded HOME; inherit all with a rea
   // Guards: a current spelling parses as given and prints nothing.
   assert.deepEqual(parse({ kind: "local", inherit: "none" }), {
     env: { kind: "local", inherit: "none" },
+    written: "local",
     deprecation: undefined,
   });
   assert.deepEqual(parse({ kind: "local", inherit: "none", home: seed }), {
     env: { kind: "local", inherit: "none", home: seed },
+    written: "local",
     deprecation: undefined,
   });
   assert.deepEqual(
     parse({ kind: "local", inherit: "all", reason: "needs my gh auth" }),
     {
       env: { kind: "local", inherit: "all", reason: "needs my gh auth" },
+      written: "local",
       deprecation: undefined,
     },
   );
@@ -75,6 +78,7 @@ test("a bare docker env parses to the docker kind, with no warning", () => {
   // Guards: a container needs no options (vigiles builds the image).
   assert.deepEqual(parse({ kind: "docker" }), {
     env: { kind: "docker" },
+    written: "docker",
     deprecation: undefined,
   });
 });

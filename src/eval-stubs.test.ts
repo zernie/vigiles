@@ -537,3 +537,23 @@ test("env inherit: the reason travels with the report and is printed", async () 
     /env: inherited your HOME and environment — needs my real gh auth/,
   );
 });
+
+test("a deprecated env spelling comes back in the report as the spec wrote it", async () => {
+  const old = [
+    { kind: "inherit", reason: "needs my real gh auth" },
+    { kind: "ephemeral" },
+  ] as const;
+  for (const env of old) {
+    const report = await runEvalWith(
+      base({ stubs: undefined, env }),
+      ghRunner().run,
+    );
+    // Guards: an unchanged spec's report keeps its shape across the minor bump.
+    assert.deepEqual(report.env, env);
+    // Guards: the old inherit spelling still prints its reason; ephemeral prints none.
+    assert.equal(
+      formatEvalReport(report).includes("gh auth"),
+      env.kind === "inherit",
+    );
+  }
+});
