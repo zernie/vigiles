@@ -473,7 +473,7 @@ jobs:
         uses: ./
         with:
           command: eval-check
-          paths: examples/harness/skill-trigger-rate.eval.mjs
+          paths: examples/harness/skill-trigger-rate.eval.mjs examples/harness/orphan-process.eval.mjs
           version: local
           comment: "false"
 
