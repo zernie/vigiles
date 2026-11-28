@@ -7,6 +7,8 @@ argument-hint: <path to CLAUDE.md, defaults to CLAUDE.md>
 
 Start a typed `CLAUDE.md.spec.ts` from an existing hand-written CLAUDE.md (or AGENTS.md). This is the non-destructive adoption path — you keep your existing instruction file as the starting point and get type safety going forward.
 
+**Say that this skill is running.** Start your first reply with one line: `Running the adopt-spec skill on <file>.` The user should see that adoption started, and on which file, without opening the tool output.
+
 ## Adoption rules
 
 Adoption is the **safe, faithful on-ramp — never an upgrade in disguise.** These are non-negotiable:
