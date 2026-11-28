@@ -512,6 +512,11 @@ test("scanPlugin lists every hand-written hook (a compiled one, by identity, exc
   );
   assert.match(out, /Stop hook `npm test`: vigiles did not write this line/);
   assert.match(out, /docs\/compiled-hooks\.md/);
+  // Guards: the finding names the mark that keeps a rule's script checked (#640).
+  const finding = out
+    .split("\n")
+    .find((l) => l.includes("Stop hook `npm test`"));
+  assert.ok(finding?.includes("<!-- vigiles:file <path> -->"), finding);
   cleanupTmpDir(dir);
 });
 test("scanPlugin lists no hand-written hooks when there are none", () => {

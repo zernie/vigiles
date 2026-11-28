@@ -51,6 +51,19 @@ does not read what they run, so it never calls them untested
 A hand-written hook whose script is missing is **no longer detected
 statically**. Compile it, or test it by running it.
 
+If a rule in your instruction file relies on the script, a
+[`vigiles:file`](../verifying-instruction-files.md#vigilesfile) mark beside the
+rule keeps that path checked: `lint` fails when the script is renamed or
+deleted. The mark checks the file exists, not what the hook does.
+
+```markdown
+- Never add a Co-Authored-By trailer; a hook blocks it.
+<!-- vigiles:file hooks/git/pr-comment-block.sh -->
+```
+
+In a spec, the same is `file("hooks/git/pr-comment-block.sh")` in the rule's
+prose. Both end the finding's line, so the fix is named where the gap is.
+
 In a plugin repo, the hand-written hooks of `.claude/settings.json` are counted
 in the `Hooks` block but not listed by this rule: the loader reads the
 manifest's hooks and shadows the settings file.
@@ -61,7 +74,7 @@ lines of each, whatever order the harnesses are declared in.
 
 ## Configuration
 
-**Off by default, and not in `vigiles:recommended`.** The only cure this rule
+**Off by default, and not in `vigiles:recommended`.** The full cure this rule
 offers is a compiled hook, written with the `experimental_define*` API from
 `vigiles/hook`, and lint must not push anyone onto an
 [experimental](../experimental.md) API. Opt in if you want the list:

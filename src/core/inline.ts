@@ -8,9 +8,10 @@
  * in a .spec.ts — typos get closest-match suggestions, disabled rules are
  * flagged, etc.
  *
- * Only `enforce` is supported inline. `guidance` would be a tautology: if
- * you're editing the markdown, the prose around the comment already is
- * the guidance — there's nothing extra for a tool to render.
+ * Three reference marks are comments read here — `enforce`, `file`, `cmd`.
+ * The full set, including the span marks and opt-outs other modules read, is
+ * `VIGILES_MARKS` below. There is no inline `guidance`: if you're editing the
+ * markdown, the prose around the comment already is the guidance.
  *
  * A file is in "inline mode" iff it contains at least one vigiles:enforce
  * comment. Spec mode (`.md.spec.ts` sibling) takes precedence if both
@@ -85,6 +86,101 @@ function unquote(token: string): string {
  */
 const CMD_RE = /<!--\s*vigiles:cmd\s+"([^"\n]*)"\s*-->/;
 
+/** How a reader writes one vigiles mark, or that a compiler writes it. */
+export type MarkSpec =
+  | {
+      /** A person (or an agent) writes it into the markdown by hand. */
+      readonly writer: "author";
+      /** An HTML comment, or the text of an inline code span. */
+      readonly form: "comment" | "span";
+      /** What the mark is for: a reference `lint` verifies, or an opt-out. */
+      readonly role: "reference" | "opt-out";
+      /** The exact syntax, as the docs print it (a span without its backticks). */
+      readonly syntax: string;
+    }
+  | {
+      /** `vigiles compile` writes it into a generated file; nobody types it. */
+      readonly writer: "compiler";
+    };
+
+/**
+ * Every `vigiles:` mark a user's markdown can carry — the ONE list. The parser below derives its
+ * error messages and the marks it leaves to other subsystems from it, and the
+ * docs test (`inline.test.ts`) requires each author mark to have a docs section
+ * that prints `syntax` and an example the real parser reads back as that mark.
+ * A mark missing here is one nobody can find; a mark here without a handler is
+ * one that verifies nothing.
+ */
+export const VIGILES_MARKS = {
+  enforce: {
+    writer: "author",
+    form: "comment",
+    role: "reference",
+    syntax: '<!-- vigiles:enforce <linter>/<rule> "<why>" -->',
+  },
+  file: {
+    writer: "author",
+    form: "comment",
+    role: "reference",
+    syntax: "<!-- vigiles:file <path> -->",
+  },
+  cmd: {
+    writer: "author",
+    form: "comment",
+    role: "reference",
+    syntax: '<!-- vigiles:cmd "<command>" -->',
+  },
+  // Read from code spans by `src/core/refs.ts` and `src/core/mcp.ts`.
+  symbol: {
+    writer: "author",
+    form: "span",
+    role: "reference",
+    syntax: "vigiles:symbol <file>#<name>",
+  },
+  mcp: {
+    writer: "author",
+    form: "span",
+    role: "reference",
+    syntax: "vigiles:mcp <server>#<tool>",
+  },
+  // Read by the doc-reference check (`src/core/doc-refs.ts`).
+  ignore: {
+    writer: "author",
+    form: "comment",
+    role: "opt-out",
+    syntax: "<!-- vigiles:ignore -->",
+  },
+  "ignore-file": {
+    writer: "author",
+    form: "comment",
+    role: "opt-out",
+    syntax: "<!-- vigiles:ignore-file -->",
+  },
+  // Read by the coverage rules (`src/coverage-evidence.ts`): a skill, subagent
+  // or output style that carries it is reported as exempt, not untested.
+  "ignore-test": {
+    writer: "author",
+    form: "comment",
+    role: "opt-out",
+    syntax: "<!-- vigiles:ignore-test -->",
+  },
+  // Skill step gates (`src/adapters/claude-code/skill-runtime.ts`).
+  gate: { writer: "compiler" },
+  result: { writer: "compiler" },
+} as const satisfies Record<string, MarkSpec>;
+
+/** The name of one vigiles mark. */
+export type MarkKind = keyof typeof VIGILES_MARKS;
+
+function isMarkKind(kind: string): kind is MarkKind {
+  return Object.hasOwn(VIGILES_MARKS, kind);
+}
+
+/** The marks a person writes, in the order the docs list them. */
+export const AUTHOR_MARKS: readonly MarkKind[] = Object.keys(VIGILES_MARKS)
+  .filter(isMarkKind)
+  .filter((kind) => VIGILES_MARKS[kind].writer === "author");
+
 /**
  * Detects any `<!-- vigiles:<kind> -->` comment (valid or not) so we can
  * surface errors for typos and reserved-but-unrecognized kinds. Uses a
@@ -93,16 +189,23 @@ const CMD_RE = /<!--\s*vigiles:cmd\s+"([^"\n]*)"\s*-->/;
  */
 const MARKER_RE = /<!--\s*vigiles:([A-Za-z_-]+)[^]*?-->/;
 
-// vigiles markers handled by other subsystems (skill runtime gates, opt-outs).
-// The inline *rule* parser skips them rather than flagging them as unknown.
-const KNOWN_NON_RULE_MARKERS = new Set([
-  "disable",
-  "ignore",
-  "ignore-file",
-  "gate", // skill step gate (src/adapters/claude-code/skill-runtime.ts)
-  "result", // skill result gate
-  "symbol", // symbol reference mark (src/refs.ts)
-]);
+/**
+ * The error for a `<!-- vigiles:<kind> ... -->` comment that none of the three
+ * reference patterns matched, or `null` when the comment belongs to another
+ * subsystem (an opt-out, a compiler-written gate).
+ */
+function markerError(kind: string): string | null {
+  if (!isMarkKind(kind)) {
+    const supported = AUTHOR_MARKS.map((k) => `\`vigiles:${k}\``).join(", ");
+    return `Unknown vigiles marker "${kind}". The marks are: ${supported}.`;
+  }
+  const spec: MarkSpec = VIGILES_MARKS[kind];
+  if (spec.writer === "compiler" || spec.role === "opt-out") return null;
+  if (spec.form === "span") {
+    return `vigiles:${kind} goes in a code span, not a comment — expected \`${spec.syntax}\` between backticks`;
+  }
+  return `Malformed vigiles:${kind} — expected \`${spec.syntax}\``;
+}
 
 /**
  * Parse inline vigiles rules out of a markdown file's contents.
@@ -193,34 +296,9 @@ export function parseInlineRules(content: string): InlineParseResult {
     if (markerMatch) {
       // Looks like a vigiles marker but didn't parse — surface it so users
       // catch typos like "vigile:enforce" or an unquoted why/command.
-      const kind = markerMatch[1];
-      if (kind === "enforce") {
-        errors.push({
-          line: i + 1,
-          message:
-            'Malformed vigiles:enforce — expected `<!-- vigiles:enforce <linter>/<rule> "<why>" -->`',
-          raw: line.trim(),
-        });
-      } else if (kind === "file") {
-        errors.push({
-          line: i + 1,
-          message:
-            "Malformed vigiles:file — expected `<!-- vigiles:file <path> -->`",
-          raw: line.trim(),
-        });
-      } else if (kind === "cmd") {
-        errors.push({
-          line: i + 1,
-          message:
-            'Malformed vigiles:cmd — expected `<!-- vigiles:cmd "<command>" -->`',
-          raw: line.trim(),
-        });
-      } else if (!KNOWN_NON_RULE_MARKERS.has(kind)) {
-        errors.push({
-          line: i + 1,
-          message: `Unknown vigiles marker "${kind}". Only \`vigiles:enforce\`, \`vigiles:file\`, and \`vigiles:cmd\` are supported.`,
-          raw: line.trim(),
-        });
+      const message = markerError(markerMatch[1]);
+      if (message !== null) {
+        errors.push({ line: i + 1, message, raw: line.trim() });
       }
     }
   }

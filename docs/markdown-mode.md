@@ -39,7 +39,7 @@ your existing markdown. It's the vigiles equivalent of
 
 Three pieces, all required:
 
-1. **`vigiles:enforce`** — only `enforce` is supported inline. The prose around the comment _is_ the guidance, so a `guidance` comment would be a tautology.
+1. **`vigiles:enforce`** — the mark name. There is no inline `guidance`: the prose around the comment _is_ the guidance, so a `guidance` comment would be a tautology.
 2. **`<linter>/<rule>`** — the same reference format as `enforce()` in spec mode. All eleven linters (ESLint, Stylelint, Ruff, Clippy, Pylint, RuboCop, Cedar, detekt, ktlint, Checkstyle, golangci-lint), scoped plugin names (`eslint/@typescript-eslint/...`), and the vigiles-internal namespace (`vigiles/orphan-docs`) work here.
 3. **`"<why>"`** — a double-quoted string shown to the agent as context. No newlines or embedded quotes; if you need either, move to a spec.
 
@@ -56,6 +56,18 @@ A fuller example:
 
 All application output must go through the shared logger module.
 ```
+
+### The other marks
+
+`enforce` is one of a small family of marks, each with its own section, syntax and example in [Verifying instruction files](verifying-instruction-files.md#inline-marks):
+
+- [`vigiles:file`](verifying-instruction-files.md#vigilesfile) — a file the rule names exists (for example the hook script that enforces it).
+- [`vigiles:cmd`](verifying-instruction-files.md#vigilescmd) — an npm script the rule names exists.
+- [`vigiles:symbol`](verifying-instruction-files.md#vigilessymbol) — a code span naming a function or class that the file still defines.
+- [`vigiles:mcp`](verifying-instruction-files.md#vigilesmcp) — a code span naming an MCP tool its server still has.
+- [`vigiles:ignore`](verifying-instruction-files.md#vigilesignore), [`vigiles:ignore-file`](verifying-instruction-files.md#vigilesignore-file), [`vigiles:ignore-test`](verifying-instruction-files.md#vigilesignore-test) — opt-outs.
+
+A mark `lint` cannot read is an error that prints the expected syntax, never a silent pass.
 
 ### What `vigiles lint` catches
 

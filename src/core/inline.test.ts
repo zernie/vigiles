@@ -5,7 +5,18 @@
 import { describe, it } from "vitest";
 import assert from "node:assert/strict";
 
-import { parseInlineRules, hasInlineRules } from "./inline.js";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import MarkdownIt from "markdown-it";
+import {
+  AUTHOR_MARKS,
+  type MarkKind,
+  VIGILES_MARKS,
+  hasInlineRules,
+  parseInlineRules,
+} from "./inline.js";
+import { parseMcpRefs } from "./mcp.js";
+import { symbolRefs } from "./refs.js";
 
 describe("parseInlineRules", () => {
   it("extracts a single enforce comment", () => {
@@ -263,4 +274,168 @@ describe("parseInlineRules: file/cmd references", () => {
       bogus.errors.some((e) => /Unknown vigiles marker/.test(e.message)),
     );
   });
+});
+
+describe("parseInlineRules: marks read elsewhere", () => {
+  it("names the span syntax when a span mark is written as a comment", () => {
+    const { errors } = parseInlineRules("<!-- vigiles:symbol src/a.ts#f -->");
+    // Guards: a comment-form symbol mark verifies nothing, so it must not pass silently.
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].message, /code span/);
+    assert.ok(errors[0].message.includes(VIGILES_MARKS.symbol.syntax));
+  });
+
+  it("reports a mark no subsystem reads as unknown", () => {
+    const { errors } = parseInlineRules("<!-- vigiles:disable -->");
+    // Guards: a mark nothing reads is an error, not a silent skip.
+    assert.equal(errors.length, 1);
+    assert.match(errors[0].message, /Unknown vigiles marker "disable"/);
+  });
+});
+
+// --- #641: every mark a person writes is documented, and its example parses --
+
+const REPO = join(import.meta.dirname, "..", "..");
+const MARKS_DOC = join(REPO, "docs", "verifying-instruction-files.md");
+
+type ReferenceKind = {
+  [K in MarkKind]: (typeof VIGILES_MARKS)[K] extends { role: "reference" }
+    ? K
+    : never;
+}[MarkKind];
+
+/** How many marks of its own kind the module that reads `kind` finds in `md`. */
+const READ_BACK = {
+  enforce: (md: string) => parseInlineRules(md).rules.length,
+  file: (md: string) => parseInlineRules(md).files.length,
+  cmd: (md: string) => parseInlineRules(md).commands.length,
+  symbol: (md: string) => symbolRefs(md).length,
+  mcp: (md: string) => parseMcpRefs(md).length,
+} satisfies Record<ReferenceKind, (md: string) => number>;
+
+function isReferenceKind(kind: MarkKind): kind is ReferenceKind {
+  return Object.hasOwn(READ_BACK, kind);
+}
+
+const parser = new MarkdownIt({ html: true });
+type Token = ReturnType<MarkdownIt["parse"]>[number];
+
+/** The `vigiles:<kind>` a heading names, when its whole text is that code span. */
+function headingMark(inline: Token | undefined): string | null {
+  const kids = inline?.children ?? [];
+  const only = kids.length === 1 ? kids[0] : undefined;
+  return only?.type === "code_inline" ? only.content : null;
+}
+
+interface MarkSection {
+  readonly source: string;
+  readonly markdownExamples: readonly string[];
+}
+
+/** Each `#### \`vigiles:<kind>\`` section of the marks doc, by mark text. */
+function markSections(src: string): ReadonlyMap<string, MarkSection> {
+  const tokens = parser.parse(src, {});
+  const lines = src.split("\n");
+  const heads = tokens.flatMap((t, i) =>
+    t.type === "heading_open" && t.map !== null
+      ? [{ i, level: Number(t.tag.slice(1)), line: t.map[0] }]
+      : [],
+  );
+  const out = new Map<string, MarkSection>();
+  heads.forEach((h, n) => {
+    const name = headingMark(tokens[h.i + 1]);
+    if (name === null) return;
+    const next = heads.slice(n + 1).find((o) => o.level <= h.level);
+    const endLine = next?.line ?? lines.length;
+    const endTok = next?.i ?? tokens.length;
+    const markdownExamples = tokens
+      .slice(h.i, endTok)
+      .filter((t) => t.type === "fence" && t.info.trim() === "markdown")
+      .map((t) => t.content);
+    out.set(name, {
+      source: lines.slice(h.line, endLine).join("\n"),
+      markdownExamples,
+    });
+  });
+  return out;
+}
+
+/** The text of every code span, code block and raw HTML in `src`. */
+function codeTexts(src: string): string[] {
+  return parser.parse(src, {}).flatMap((t) => {
+    if (t.type === "inline") {
+      return (t.children ?? [])
+        .filter((c) => c.type === "code_inline" || c.type === "html_inline")
+        .map((c) => c.content);
+    }
+    return ["fence", "code_block", "html_block"].includes(t.type)
+      ? [t.content]
+      : [];
+  });
+}
+
+function markdownFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true, recursive: true })
+    .filter((e) => e.isFile() && e.name.endsWith(".md"))
+    .map((e) => join(e.parentPath, e.name));
+}
+
+/** The public pages a reader can find a mark on: README, docs, shipped skills. */
+const PAGES = [
+  join(REPO, "README.md"),
+  ...markdownFiles(join(REPO, "docs")),
+  ...markdownFiles(join(REPO, "skills")),
+].map((path) => ({ path, texts: codeTexts(readFileSync(path, "utf8")) }));
+
+function namesMark(texts: readonly string[], kind: MarkKind): boolean {
+  const mark = new RegExp(`vigiles:${kind}(?![\\w-])`);
+  return texts.some((t) => mark.test(t));
+}
+
+describe("every mark a person writes is documented (#641)", () => {
+  const sections = markSections(readFileSync(MARKS_DOC, "utf8"));
+
+  for (const kind of AUTHOR_MARKS) {
+    const spec = VIGILES_MARKS[kind];
+    if (spec.writer !== "author") continue;
+
+    it(`vigiles:${kind} has a section that prints its syntax`, () => {
+      const section = sections.get(`vigiles:${kind}`);
+      // Guards: a mark with no section of its own is one a user cannot find (#639).
+      assert.ok(
+        section,
+        `docs/verifying-instruction-files.md has no \`vigiles:${kind}\` heading`,
+      );
+      assert.ok(
+        section.source.includes(spec.syntax),
+        `the vigiles:${kind} section does not print ${spec.syntax}`,
+      );
+    });
+
+    it(`vigiles:${kind} is named on at least two public pages`, () => {
+      const pages = PAGES.filter((p) => namesMark(p.texts, kind));
+      // Guards: one mention is a page nobody lands on; two give a way in.
+      assert.ok(
+        pages.length >= 2,
+        `vigiles:${kind} is named on ${String(pages.length)} page(s)`,
+      );
+    });
+
+    if (!isReferenceKind(kind)) continue;
+    it(`vigiles:${kind}: the documented example reads back as that mark`, () => {
+      const examples = sections.get(`vigiles:${kind}`)?.markdownExamples ?? [];
+      // Guards: a docs example the parser ignores teaches a mark that verifies nothing.
+      assert.ok(
+        examples.length > 0,
+        `the vigiles:${kind} section has no markdown example`,
+      );
+      for (const example of examples) {
+        assert.ok(
+          READ_BACK[kind](example) > 0,
+          `example not read as vigiles:${kind}:\n${example}`,
+        );
+        assert.deepEqual(parseInlineRules(example).errors, []);
+      }
+    });
+  }
 });
