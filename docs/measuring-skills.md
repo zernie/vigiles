@@ -18,6 +18,7 @@ It does that by running the thing under test on both sides of an A/B and reading
 - [The metric triple — bill, target, blast radius](#the-metric-triple--bill-target-blast-radius)
 - [Worked example](#worked-example)
 - [Where a trial runs — `env`](#where-a-trial-runs--env)
+- [Ending every process an attempt started — `execution`](#ending-every-process-an-attempt-started--execution)
 - [Stubbing a CLI the agent calls — `experimental_stub`](#stubbing-a-cli-the-agent-calls--experimental_stub)
 - [The ecosystem benchmark — what works vs hype](#the-ecosystem-benchmark--what-works-vs-hype)
 - [Why you can afford to run it](#why-you-can-afford-to-run-it)
@@ -98,6 +99,90 @@ env: {
 ```
 
 Seed paths are relative to HOME, stay inside it, and may not overwrite the harness's own auth file; two paths that cannot both exist (`a` as a file and `a/b` beneath it, or `.claude` as a file beside the harness's `.claude/.credentials.json`) are refused too. A bad seed is refused before any trial runs, naming the paths. The HOME is a directory beside the trial's working dir, not inside it: a `cache: "readwrite"` snapshot holds the working dir only, so it never carries your credentials or the seed. `home` does not exist on `inherit`, so a seed can never be written into your real HOME. Changing the env kind or a seed's contents makes a committed lock stale; rewording an `inherit` reason does not.
+
+## Ending every process an attempt started — `execution`
+
+An agent can start a process that outlives its trial: a dev server, a watcher, a `sleep 300 &` in a Bash call. On your machine that process keeps running after the agent exits, and can still write into the trial's folder while vigiles scores it. The score then depends on timing.
+
+`execution: { kind: "container" }` runs each attempt in a fresh Docker container. vigiles stops the container, and checks that it is gone, **before** the attempt is scored. Everything the agent started ends with it.
+
+```typescript
+import { defineEval } from "vigiles";
+
+export default defineEval({
+  runEval: {
+    env: { kind: "ephemeral" }, // required with a container
+    execution: { kind: "container" },
+    arms: { baseline: {}, skill: { pluginDir: "./my-plugin" } },
+    // …
+  },
+});
+```
+
+Leave `execution` out and nothing changes: attempts run on your machine as before. The report then carries `containment: { kind: "none", why: "host-runner" }` and prints one line saying that processes may outlive a trial.
+
+### What it needs
+
+| Needs                                                                              | Why                                                                                       | If it is missing                                                            |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| **Docker** — Docker Desktop on macOS, the docker service on Linux                  | each attempt is a container                                                               | the run stops before trial 1: `needs Docker, and no Docker daemon answered` |
+| **[testcontainers](https://node.testcontainers.org/)** — `npm i -D testcontainers` | the library vigiles drives Docker with; loaded only when `execution` asks for a container | the run stops before trial 1, naming the install command                    |
+| **Ryuk**, the testcontainers reaper (on by default)                                | removes the container if vigiles itself is killed mid-attempt                             | the run stops if `TESTCONTAINERS_RYUK_DISABLED` is set                      |
+| macOS only: a token in the environment (`claude setup-token`, then export it)      | your Claude Code login sits in the macOS Keychain, which a Linux container cannot read    | the run stops before trial 1, naming `claude setup-token`                   |
+
+Before trial 1, vigiles starts one container to check all of this: Docker answers, every directory the attempt uses can be mounted, written and read back from inside, and the image has the harness and vigiles in it. Each failure stops the run with one line naming the cure. Nothing is spent first.
+
+### What happens per attempt
+
+```
+ beforeAttempt ─► start a container ─► run the harness in it ─► stop it, check it is gone ─► score
+                  (fresh, per attempt)  (your trial dirs are      (every process the agent
+                                         mounted at their own      started ends here)
+                                         paths)
+```
+
+- **One container per attempt**, retries included. A cache hit starts none, so replaying a cached run needs no Docker.
+- **If the stop cannot be confirmed**, the attempt is an error. It is never scored, cached or locked.
+- **Your trial directories are mounted at the same paths** (the working dir, the throwaway HOME, the arm's plugin read-only), so paths in the agent's output mean the same thing inside and out. The container runs as your own uid:gid, so files it writes stay yours.
+- **Only the run's own environment goes in**, the same as `ephemeral`: your shell's variables do not. The run's variables are set on the one command vigiles executes, never on the container, so `docker inspect` of the container does not show a key.
+
+### The image
+
+The first container run builds an image: `node:24-slim`, plus `git`, plus Claude Code **at the version installed on your machine**, plus this copy of vigiles (its hooks run inside). The first build took **about 49 s** in our measurement, and the image is about 1.7 GB. It is named by a hash of what went into it and reused while that hash holds. A new Claude Code or vigiles version builds a new one.
+
+To use an image of your own instead, give `image`. It must contain `claude` on its PATH and vigiles installed under `/opt/vigiles`. A preflight check refuses it otherwise.
+
+### Options
+
+These fields sit beside `kind`. Each one is passed to the testcontainers builder method named in the table, so the testcontainers docs describe it in full.
+
+| Field                 | testcontainers                | What it sets                                    |
+| --------------------- | ----------------------------- | ----------------------------------------------- |
+| `image`               | `new GenericContainer(image)` | your own image instead of the built one         |
+| `platform`            | `withPlatform`                | e.g. `"linux/amd64"` on an Apple-silicon Mac    |
+| `pullPolicy`          | `withPullPolicy`              | `"default"` or `"always"`                       |
+| `networkMode`         | `withNetworkMode`             | the Docker network (see below)                  |
+| `resourcesQuota`      | `withResourcesQuota`          | `{ memory, cpu }`: memory in GB, cpu in cores   |
+| `sharedMemorySize`    | `withSharedMemorySize`        | `/dev/shm` size in bytes                        |
+| `ulimits`             | `withUlimits`                 | e.g. `{ nofile: { soft: 1024, hard: 4096 } }`   |
+| `extraHosts`          | `withExtraHosts`              | `[{ host, ipAddress }]` entries in `/etc/hosts` |
+| `tmpFs`               | `withTmpFs`                   | `{ "/path": "rw,size=64m" }`                    |
+| `droppedCapabilities` | `withDroppedCapabilities`     | Linux capabilities to drop                      |
+
+Any other field is refused before the run, by name: `reuse`, `environment`, `bindMounts`, `user`, `command`, `privilegedMode` and the rest would each let a process outlive the attempt or reach your machine, which is what the container is there to stop. A container also requires `env: { kind: "ephemeral" }`: an inherited environment is your machine's, which the container keeps out.
+
+### The network is open — this is not a sandbox
+
+A container on Docker's default bridge network **can reach the internet**, and it has to: the harness calls the model API from inside it. `execution` ends processes; it does not wall off the network or stop what an agent does with it. For that, see [Sandboxing](sandboxing.md).
+
+- `networkMode: "none"` cuts all network access, **including the model API**, so a real-model run cannot work with it. The preflight check says so.
+- **Behind a proxy that decrypts HTTPS** (common on company networks), set `NODE_EXTRA_CA_CERTS` to the proxy's CA file, the same one your own `node` uses. vigiles builds that CA into the image. Without it the preflight check stops the run, naming the certificate error.
+
+### Limits
+
+- **Claude Code only for now.** A Codex eval with `execution: { kind: "container" }` is refused at plan time.
+- **A container run has its own cache and lock keys.** Turning `execution` on makes a committed lock stale, as changing `env` does. Host runs keep the keys they had.
+- **A hook that cannot run inside the image** (exit 126 or 127, a command missing from the image) makes the attempt an error, not a score.
 
 ## Stubbing a CLI the agent calls — `experimental_stub`
 

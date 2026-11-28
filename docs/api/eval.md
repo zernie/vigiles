@@ -229,14 +229,17 @@ declare — a typo, or another runner's option — before it spends a token, rat
 than dropping it and measuring a setup you did not ask for. Its default `model`
 is `"haiku"`; set the model your users run.
 
-`runEval` also takes two fields `measureTriggerRate` does not. **`env`** is required: `{ kind:
+`runEval` also takes three fields `measureTriggerRate` does not. **`env`** is required: `{ kind:
 "ephemeral", home? }` (a throwaway HOME, optionally seeded with files) or `{
 kind: "inherit", reason }` (your real HOME; the reason is printed with the
 report) — [what each passes into the run](../measuring-skills.md#where-a-trial-runs--env).
 **`stubs`** takes per-invocation rules for CLIs the agent calls, built with
 `experimental_stub`; a call no rule answers is printed to stderr when `runEval`
 returns, makes `vigiles eval` exit `2` (the file itself exits `78`) and refuses to write a lock — see
-[Stubbing a CLI](../measuring-skills.md#stubbing-a-cli-the-agent-calls--experimental_stub).
+[Stubbing a CLI](../measuring-skills.md#stubbing-a-cli-the-agent-calls--experimental_stub). **`execution`** is optional: `{ kind: "container", …options }` runs each
+attempt in a fresh Docker container that is stopped, and confirmed gone, before
+the attempt is scored. It needs Docker and the `testcontainers` package, and `env: { kind: "ephemeral" }` —
+[what it needs and the options it takes](../measuring-skills.md#ending-every-process-an-attempt-started--execution).
 
 **Every trial checks that its instruction files reached the model.** A file
 sitting in the trial's directory is not proof it loaded: a settings flag, an
