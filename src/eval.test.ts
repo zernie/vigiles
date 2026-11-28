@@ -3156,6 +3156,9 @@ test("startFailure stops a run whose result is an error made before any model ca
       null,
     );
   }
+  // Guards: a refused run with no message text still stops the eval.
+  const silent = resultLine({ ...LOGGED_OUT, result: undefined });
+  assert.notEqual(startFailure({ code: 0, stdout: silent }), null);
 });
 
 test("startFailure lets a result through when the run reached the model or did not err", () => {
@@ -3176,6 +3179,8 @@ test("startFailure lets a result through when the run reached the model or did n
     // Guards: only an error with no API time and no tokens is refused.
     assert.equal(startFailure({ code: 0, stdout: resultLine(fields) }), null);
   }
+  // Guards: a clean exit with no result event is not a start failure (as on main).
+  assert.equal(startFailure({ code: 0, stdout: "" }), null);
 });
 
 test("formatEvalReport never shows a run that reported no cost as $0", () => {
