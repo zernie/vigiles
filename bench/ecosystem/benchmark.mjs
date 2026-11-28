@@ -139,7 +139,7 @@ for (const skill of SKILLS) {
         defineEval({
           runEval: {
             name: `ecosystem: ${skill.id}/${t.name}`,
-            env: { kind: "ephemeral" },
+            env: { kind: "local", inherit: "none" },
             fixture: { ...t.files }, // both arms get the task seed
             arms: {
               baseline: {}, // task only

@@ -18,6 +18,7 @@ It does that by running the thing under test on both sides of an A/B and reading
 - [The metric triple — bill, target, blast radius](#the-metric-triple--bill-target-blast-radius)
 - [Worked example](#worked-example)
 - [Where a trial runs — `env`](#where-a-trial-runs--env)
+- [Ending every process an attempt started — `docker`](#ending-every-process-an-attempt-started--docker)
 - [Stubbing a CLI the agent calls — `experimental_stub`](#stubbing-a-cli-the-agent-calls--experimental_stub)
 - [The ecosystem benchmark — what works vs hype](#the-ecosystem-benchmark--what-works-vs-hype)
 - [Why you can afford to run it](#why-you-can-afford-to-run-it)
@@ -53,7 +54,7 @@ import { defineEval } from "vigiles";
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" }, // required — see "Where a trial runs" below
+    env: { kind: "local", inherit: "none" }, // required — see "Where a trial runs" below
     fixture: { "in.txt": "Implement a slug helper." },
     task: "Read in.txt, write slugify() to slug.js, then explain. Stop.",
     arms: {
@@ -81,23 +82,113 @@ Two ways to specify an arm:
 
 ## Where a trial runs — `env`
 
-`runEval` needs `env`. There is no default, because each choice is wrong in one case without telling you:
+`runEval` needs `env`. There is no default, because each choice is wrong in one case without telling you. The three kinds are a ladder: each step keeps more of your machine out.
 
-| `env`                              | HOME and environment                                                                                               | Wrong when                                                                                              |
-| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| `{ kind: "ephemeral" }`            | a throwaway HOME; only the harness's own auth passes ([exactly what](safety.md#what-a-child-run-inherits-exactly)) | your credential is not where the harness expects it — the run fails on trial 1, so you find out at once |
-| `{ kind: "inherit", reason: "…" }` | your real HOME and environment, minus the parent session's identity; the `reason` is printed with the report       | always a little: the result is a measurement of your machine (your config, your tokens)                 |
+| `env`                                            | HOME and environment                                                                                               | Where the agent runs                                                                                | Wrong when                                                                                              |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| `{ kind: "local", inherit: "all", reason: "…" }` | your real HOME and environment, minus the parent session's identity; the `reason` is printed with the report       | on your machine                                                                                     | always a little: the result is a measurement of your machine (your config, your tokens)                 |
+| `{ kind: "local", inherit: "none" }`             | a throwaway HOME; only the harness's own auth passes ([exactly what](safety.md#what-a-child-run-inherits-exactly)) | on your machine                                                                                     | your credential is not where the harness expects it — the run fails on trial 1, so you find out at once |
+| `{ kind: "docker" }`                             | the same throwaway HOME and environment as `inherit: "none"`                                                       | in a fresh Docker container per attempt ([below](#ending-every-process-an-attempt-started--docker)) | as `inherit: "none"`; it also needs Docker, `testcontainers` and Node 22.22 or newer                    |
 
-Try `ephemeral` first. To start a run with files already in HOME — a config the skill reads, a task list the agent should find — seed them:
+The older spellings `{ kind: "inherit", reason }` and `{ kind: "ephemeral" }` still run, as the first two rows, and print one warning naming the new spelling. A lock recorded with either stays valid.
+
+Try `inherit: "none"` first. To start a run with files already in HOME — a config the skill reads, a task list the agent should find — seed them (`docker` takes the same `home`):
 
 ```typescript
 env: {
-  kind: "ephemeral",
+  kind: "local",
+  inherit: "none",
   home: { kind: "files", files: { ".config/tool/config.json": "{}" } },
 },
 ```
 
-Seed paths are relative to HOME, stay inside it, and may not overwrite the harness's own auth file; two paths that cannot both exist (`a` as a file and `a/b` beneath it, or `.claude` as a file beside the harness's `.claude/.credentials.json`) are refused too. A bad seed is refused before any trial runs, naming the paths. The HOME is a directory beside the trial's working dir, not inside it: a `cache: "readwrite"` snapshot holds the working dir only, so it never carries your credentials or the seed. `home` does not exist on `inherit`, so a seed can never be written into your real HOME. Changing the env kind or a seed's contents makes a committed lock stale; rewording an `inherit` reason does not.
+Seed paths are relative to HOME, stay inside it, and may not overwrite the harness's own auth file; two paths that cannot both exist (`a` as a file and `a/b` beneath it, or `.claude` as a file beside the harness's `.claude/.credentials.json`) are refused too. A bad seed is refused before any trial runs, naming the paths. The HOME is a directory beside the trial's working dir, not inside it: a `cache: "readwrite"` snapshot holds the working dir only, so it never carries your credentials or the seed. `home` and the container options do not exist on `inherit: "all"`, so a seed can never be written into your real HOME, and your real HOME never goes into a container. Changing the env kind or a seed's contents makes a committed lock stale; rewording an `inherit: "all"` reason does not.
+
+## Ending every process an attempt started — `docker`
+
+An agent can start a process that outlives its trial: a dev server, a watcher, a `sleep 300 &` in a Bash call. On your machine that process keeps running after the agent exits, and can still write into the trial's folder while vigiles scores it. The score then depends on timing.
+
+`env: { kind: "docker" }` runs each attempt in a fresh Docker container. vigiles stops the container, and checks that it is gone, **before** the attempt is scored. Everything the agent started ends with it.
+
+```typescript
+import { defineEval } from "vigiles";
+
+export default defineEval({
+  runEval: {
+    env: { kind: "docker" },
+    arms: { baseline: {}, skill: { pluginDir: "./my-plugin" } },
+    // …
+  },
+});
+```
+
+With `kind: "local"`, attempts run on your machine. The report then carries `containment: { kind: "none", why: "host-runner" }` and prints one line saying that processes may outlive a trial.
+
+### What it needs
+
+| Needs                                                                              | Why                                                                                    | If it is missing                                                            |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| **Docker** — Docker Desktop on macOS, the docker service on Linux                  | each attempt is a container                                                            | the run stops before trial 1: `needs Docker, and no Docker daemon answered` |
+| **[testcontainers](https://node.testcontainers.org/)** — `npm i -D testcontainers` | the library vigiles drives Docker with; loaded only for `env: { kind: "docker" }`      | the run stops before trial 1, naming the install command                    |
+| **Node 22.22 or newer**                                                            | testcontainers 12 needs it (vigiles itself runs on Node 20)                            | the run stops before trial 1: `needs Node 22.22 or newer`                   |
+| **Ryuk**, the testcontainers reaper (on by default)                                | removes the container if vigiles itself is killed mid-attempt                          | the run stops if `TESTCONTAINERS_RYUK_DISABLED` is set                      |
+| macOS only: a token in the environment (`claude setup-token`, then export it)      | your Claude Code login sits in the macOS Keychain, which a Linux container cannot read | the run stops before trial 1, naming `claude setup-token`                   |
+
+Before trial 1, vigiles starts one container to check all of this: Docker answers, every directory the attempt uses can be mounted, written and read back from inside, and the image has the harness and vigiles in it. Each failure stops the run with one line naming the cure. Nothing is spent first.
+
+### What happens per attempt
+
+```
+ beforeAttempt ─► start a container ─► run the harness in it ─► stop it, check it is gone ─► score
+                  (fresh, per attempt)  (your trial dirs are      (every process the agent
+                                         mounted at their own      started ends here)
+                                         paths)
+```
+
+- **One container per attempt**, retries included. A cache hit starts no attempt container, but the run still checks Docker and builds the image before its first trial. `vigiles eval --check`, which replays a committed lock, needs no Docker at all.
+- **If the stop cannot be confirmed**, the attempt is an error. It is never scored, cached or locked.
+- **Your trial directories are mounted at the same paths** (the working dir, the throwaway HOME, the arm's plugin read-only), so paths in the agent's output mean the same thing inside and out. The container runs as your own uid:gid, so files it writes stay yours.
+- **Only the run's own environment goes in**, the same as `inherit: "none"`: your shell's variables do not. The run's variables are set on the one command vigiles executes, never on the container, so `docker inspect` of the container does not show a key.
+
+### The image
+
+The first container run builds an image: `node:24-slim`, plus `git`, plus Claude Code **at the version installed on your machine**, plus this copy of vigiles (its hooks run inside). The first build took **about 49 s** in our measurement, and the image is about 1.7 GB. It is named by a hash of what went into it and reused while that hash holds. A new Claude Code or vigiles version builds a new one.
+
+To use an image of your own instead, give `image`. It must contain `claude` on its PATH and vigiles installed under `/opt/vigiles`. A preflight check refuses it otherwise.
+
+### Options
+
+These fields sit beside `kind` (and `home`). Each one is passed to the testcontainers builder method named in the table, so the testcontainers docs describe it in full.
+
+| Field                 | testcontainers                | What it sets                                    |
+| --------------------- | ----------------------------- | ----------------------------------------------- |
+| `image`               | `new GenericContainer(image)` | your own image instead of the built one         |
+| `platform`            | `withPlatform`                | e.g. `"linux/amd64"` on an Apple-silicon Mac    |
+| `pullPolicy`          | `withPullPolicy`              | `"default"` or `"always"`                       |
+| `networkMode`         | `withNetworkMode`             | the Docker network (see below)                  |
+| `resourcesQuota`      | `withResourcesQuota`          | `{ memory, cpu }`: memory in GB, cpu in cores   |
+| `sharedMemorySize`    | `withSharedMemorySize`        | `/dev/shm` size in bytes                        |
+| `ulimits`             | `withUlimits`                 | e.g. `{ nofile: { soft: 1024, hard: 4096 } }`   |
+| `extraHosts`          | `withExtraHosts`              | `[{ host, ipAddress }]` entries in `/etc/hosts` |
+| `tmpFs`               | `withTmpFs`                   | `{ "/path": "rw,size=64m" }`                    |
+| `droppedCapabilities` | `withDroppedCapabilities`     | Linux capabilities to drop                      |
+
+Any other field is refused before the run, by name: `reuse`, `environment`, `bindMounts`, `user`, `command`, `privilegedMode` and the rest would each let a process outlive the attempt or reach your machine, which is what the container is there to stop. A container on your real HOME cannot be written: `kind: "local"` takes none of these fields, and `docker` takes no `inherit`.
+
+### The network is open — this is not a sandbox
+
+A container on Docker's default bridge network **can reach the internet**, and it has to: the harness calls the model API from inside it. A container ends processes; it does not wall off the network or stop what an agent does with it. For that, see [Sandboxing](sandboxing.md).
+
+Before trial 1, the preflight check asks from inside a container whether it can reach where Claude Code will send model requests: `ANTHROPIC_BASE_URL` when you set one, else `https://api.anthropic.com`. Any HTTP answer counts as reachable. Under Bedrock, Vertex or Foundry (`CLAUDE_CODE_USE_BEDROCK` and its siblings) the environment names no host, so nothing is asked and nothing is refused.
+
+- `networkMode: "none"` cuts all network access, **including the model API**, so a real-model run cannot work with it. The preflight check stops the run and says so.
+- **Behind a proxy that decrypts HTTPS** (common on company networks), set `NODE_EXTRA_CA_CERTS` to the proxy's CA file, the same one your own `node` uses. vigiles copies that file into the image and trusts it there. It reads no other variable. Without it the preflight check stops the run, naming the certificate error; a file it names that cannot be read stops the run too, naming the file.
+
+### Limits
+
+- **Claude Code only for now.** A Codex eval with `env: { kind: "docker" }` is refused at plan time.
+- **A container run has its own cache and lock keys.** Moving to `docker`, or changing one of its options, makes a committed lock stale, as any change of `env` kind does. Host runs keep the keys they had.
+- **A hook that cannot run inside the image** (exit 126 or 127, a command missing from the image) makes the attempt an error, not a score.
 
 ## Stubbing a CLI the agent calls — `experimental_stub`
 
@@ -125,7 +216,7 @@ const gh = experimental_stub("gh", [
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" },
+    env: { kind: "local", inherit: "none" },
     stubs: [gh],
     arms: { baseline: {}, skill: { pluginDir: "./my-plugin" } },
     task: "File this as an issue: init breaks in a Yarn PnP repo.",
@@ -214,11 +305,11 @@ That's this tier. vigiles **composes with a throwaway container** rather than re
 
 R3 runs your skill **for real**, and a skill is model-driven — the model picks the actions, so it can do anything the run environment allows. vigiles gives you a **throwaway container and deletes it afterwards. That is the only isolation it provides.** It does **not** stop a skill from touching other systems your environment leaves reachable. **Treat an R3 run like running an untrusted script — the safety is on the environment you run it in, not on vigiles.**
 
-| Do                                                                                                                                                                                  | Don't                                                                                                                                                           |
-| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Run it in a **disposable environment** — a CI job, a throwaway container/VM, or a dev box with no production access.                                                                | **Run it against production**, or in a shell where `DATABASE_URL` / `AWS_*` / `~/.ssh` point at real systems — a model that finds a real credential may use it. |
-| Point the task at the **disposable service's connection string only**.                                                                                                              | Assume vigiles sandboxes the filesystem or network here — it provisions and disposes the **container**, nothing more.                                           |
-| **Scrub real credentials** from the run — pair it with the eval tier's `env: { kind: "ephemeral" }` (throwaway HOME + cleared env) so there are no prod keys for the model to find. | Rely on the `endpoints` as a network wall — that's a **future** hardening, not applied yet.                                                                     |
+| Do                                                                                                                                                                                               | Don't                                                                                                                                                           |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Run it in a **disposable environment** — a CI job, a throwaway container/VM, or a dev box with no production access.                                                                             | **Run it against production**, or in a shell where `DATABASE_URL` / `AWS_*` / `~/.ssh` point at real systems — a model that finds a real credential may use it. |
+| Point the task at the **disposable service's connection string only**.                                                                                                                           | Assume vigiles sandboxes the filesystem or network here — it provisions and disposes the **container**, nothing more.                                           |
+| **Scrub real credentials** from the run — pair it with the eval tier's `env: { kind: "local", inherit: "none" }` (throwaway HOME + cleared env) so there are no prod keys for the model to find. | Rely on the `endpoints` as a network wall — that's a **future** hardening, not applied yet.                                                                     |
 
 - ✅ **Guaranteed:** the service is created fresh and force-removed on teardown, even on failure.
 - ❌ **Not guaranteed (yet):** filesystem/network confinement of the skill. Until the egress wall lands (skill reaches only the model + the service), **an isolated run environment is doing that job, and you must provide it.** If you can't isolate the environment, don't run R3 yet.
@@ -265,7 +356,7 @@ try {
         arms: { skill: { pluginDir: "./skills/migrator" } },
         // full connection string incl. password — an ephemeral env leaves no PGPASSWORD
         task: `Apply migration.sql to postgresql://postgres:test@${svc.endpoints[0]}/app . Stop.`,
-        env: { kind: "ephemeral" }, // ⬅ recommended — scrub real creds from the run
+        env: { kind: "local", inherit: "none" }, // ⬅ recommended — scrub real creds from the run
         measure: () => ({
           // verify the REAL resulting DB state — R3's whole point
           migrated: /(^|\n)age(\n|$)/.test(

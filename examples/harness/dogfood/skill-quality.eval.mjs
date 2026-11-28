@@ -21,7 +21,7 @@ const pluginDir = fileURLToPath(new URL("../../../", import.meta.url));
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" }, // a throwaway HOME and a scrubbed environment
+    env: { kind: "local", inherit: "none" }, // a throwaway HOME and a scrubbed environment
     pluginDir,
     // A repo whose CLAUDE.md spec has a guidance() rule that a linter could enforce.
     fixture: {

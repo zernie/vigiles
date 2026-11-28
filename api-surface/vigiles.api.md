@@ -135,6 +135,34 @@ export interface CheckResult {
 export function cleanupTmpDir(dir: string): void;
 
 // @public
+export interface ContainerOptions {
+    // (undocumented)
+    readonly droppedCapabilities?: readonly string[];
+    // (undocumented)
+    readonly extraHosts?: readonly {
+        readonly host: string;
+        readonly ipAddress: string;
+    }[];
+    readonly image?: string;
+    readonly networkMode?: string;
+    // (undocumented)
+    readonly platform?: string;
+    // (undocumented)
+    readonly pullPolicy?: "default" | "always";
+    readonly resourcesQuota?: {
+        readonly memory?: number;
+        readonly cpu?: number;
+    };
+    readonly sharedMemorySize?: number;
+    readonly tmpFs?: Readonly<Record<string, string>>;
+    // (undocumented)
+    readonly ulimits?: Readonly<Record<string, {
+        readonly hard?: number;
+        readonly soft?: number;
+    }>>;
+}
+
+// @public
 export type ContextEvidence =
 /** Every expected file is in the model's first request. */
     {
@@ -177,6 +205,14 @@ export type DeliveryChannel =
 | "exit-code-feedback"
 /** JSON `decision: "block"` + `reason`, on an event honouring `feedback`. */
 | "decision-reason";
+
+// @public
+export interface DockerRunEnv extends ContainerOptions {
+    // (undocumented)
+    readonly home?: HomeSeed;
+    // (undocumented)
+    readonly kind: "docker";
+}
 
 // @public
 export type EmitFieldSchema = {
@@ -272,9 +308,25 @@ export interface EvalReport {
     readonly arms: Record<string, ArmReport>;
     readonly chargedUsd?: number;
     readonly checks?: Readonly<Record<string, CheckJSON>>;
-    readonly env?: {
-        readonly kind: "ephemeral";
+    readonly containment?: {
+        readonly kind: "container";
+        readonly image: string;
     } | {
+        readonly kind: "none";
+        readonly why: "host-runner";
+    };
+    readonly env?: {
+        readonly kind: "local";
+        readonly inherit: "none";
+    } | {
+        readonly kind: "local";
+        readonly inherit: "all";
+        readonly reason: string;
+    } | {
+        readonly kind: "docker";
+    } | /** @deprecated reported for a spec that writes `env: { kind: "ephemeral" }` */ {
+        readonly kind: "ephemeral";
+    } | /** @deprecated reported for a spec that writes `env: { kind: "inherit" }` */ {
         readonly kind: "inherit";
         readonly reason: string;
     };
@@ -674,11 +726,19 @@ export interface RunContext extends Trace {
 
 // @public
 export type RunEnv = {
-    readonly kind: "ephemeral";
-    readonly home?: HomeSeed;
+    readonly kind: "local";
+    readonly inherit: "all";
+    readonly reason: string;
 } | {
+    readonly kind: "local";
+    readonly inherit: "none";
+    readonly home?: HomeSeed;
+} | DockerRunEnv | /** @deprecated Use `{ kind: "local", inherit: "all", reason }`. */ {
     readonly kind: "inherit";
     readonly reason: string;
+} | /** @deprecated Use `{ kind: "local", inherit: "none", home? }`. */ {
+    readonly kind: "ephemeral";
+    readonly home?: HomeSeed;
 };
 
 // @public

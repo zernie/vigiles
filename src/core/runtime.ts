@@ -1,3 +1,4 @@
+import type { HarnessImageRecipe } from "./container.js";
 import type { PluginLayout } from "./layout.js";
 
 /**
@@ -70,6 +71,45 @@ export interface HarnessRuntime {
    * no such channel, and the check says "not checked" rather than passing.
    */
   readonly requestCapture?: RequestCapture;
+  /**
+   * How an eval attempt of this harness runs in a container
+   * (`env: { kind: "docker" }`): the image that carries the binary,
+   * and how a run there authenticates. Absent: the harness cannot run in a
+   * container yet, and such an eval is refused before any trial.
+   */
+  readonly containerImage?: ContainerImageDeclaration;
+}
+
+/**
+ * The harness half of a container run: which image carries the binary at the
+ * host's version, and which login a container can use. vigiles adds itself to
+ * the image; the container adapter builds it.
+ *
+ * @public
+ */
+export interface ContainerImageDeclaration {
+  /**
+   * The recipe for an image whose binary matches the host's, from the raw
+   * output of `agentBinary --version`; undefined when that output names no
+   * version, so the image cannot be pinned to it.
+   */
+  recipe(rawVersion: string): HarnessImageRecipe | undefined;
+  /**
+   * The URL a run under `env` must reach to work, which the preflight
+   * requests from inside a container; undefined when the env sends requests
+   * somewhere it does not name, so the preflight asks nothing rather than
+   * refuse a run that could work.
+   */
+  egressProbe(
+    env: Readonly<Record<string, string | undefined>>,
+  ): string | undefined;
+  /**
+   * Env names, any ONE of which authenticates a run without the host's
+   * keychain (a macOS login is held there, and a Linux container cannot read it).
+   */
+  readonly authEnv: readonly string[];
+  /** The command that mints such a credential, named in the refusal. */
+  readonly authCure: string;
 }
 
 /**
@@ -93,6 +133,12 @@ export interface RequestCapture {
 export interface RequestChannel {
   /** Env that makes the run write its request bodies here, and export nothing. */
   readonly env: Readonly<Record<string, string>>;
+  /**
+   * The host directory the run writes its request bodies into, so a run in a
+   * container can mount it at the same path. Absent: the channel is not one
+   * directory, and a container run cannot carry it.
+   */
+  readonly dir?: string;
   /** Drop what an earlier attempt wrote, so a retried run reads its own request. */
   reset(): void;
   /** The text of the first agent-loop request written so far, or undefined. */

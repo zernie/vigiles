@@ -124,12 +124,36 @@ export interface EvalReport {
   readonly aborted: boolean;
   /**
    * The run environment the trials used, without seeded file contents — so an
-   * `inherit` run's reason travels with the report and is printed with it.
-   * Absent on a report built before `env` existed.
+   * `inherit: "all"` run's reason travels with the report and is printed with
+   * it. Absent on a report built before `env` existed. A spec that still
+   * writes a deprecated spelling gets that spelling back, so a reader of an
+   * existing report sees no change until the deprecated kinds are removed.
    */
   readonly env?:
-    | { readonly kind: "ephemeral" }
-    | { readonly kind: "inherit"; readonly reason: string };
+    | { readonly kind: "local"; readonly inherit: "none" }
+    | {
+        readonly kind: "local";
+        readonly inherit: "all";
+        readonly reason: string;
+      }
+    | { readonly kind: "docker" }
+    | /** @deprecated reported for a spec that writes `env: { kind: "ephemeral" }` */ {
+        readonly kind: "ephemeral";
+      }
+    | /** @deprecated reported for a spec that writes `env: { kind: "inherit" }` */ {
+        readonly kind: "inherit";
+        readonly reason: string;
+      };
+  /**
+   * What ended the processes each attempt started before it was scored: a
+   * container (`env: { kind: "docker" }`, stopped before scoring), or
+   * nothing — on the host runner a process the agent started in the
+   * background can outlive its trial and write while it is scored. Absent on
+   * a report built before this field existed.
+   */
+  readonly containment?:
+    | { readonly kind: "container"; readonly image: string }
+    | { readonly kind: "none"; readonly why: "host-runner" };
   /**
    * Present when the run was scored with `checks`: each metric key (the
    * check's label, e.g. `tool(Bash)`, with ` #2` appended to a repeated one)

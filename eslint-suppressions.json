@@ -2417,9 +2417,6 @@
   "src/core/eval-spec-parse.ts": {
     "max-statements": {
       "count": 1
-    },
-    "sonarjs/cognitive-complexity": {
-      "count": 1
     }
   },
   "src/core/event-capability.test.ts": {
@@ -5275,7 +5272,7 @@
       "count": 1
     },
     "max-lines-per-function": {
-      "count": 20
+      "count": 19
     },
     "max-params": {
       "count": 6
@@ -5299,7 +5296,7 @@
       "count": 1
     },
     "sonarjs/no-nested-conditional": {
-      "count": 2
+      "count": 1
     },
     "sonarjs/no-unused-vars": {
       "count": 2

@@ -76,6 +76,11 @@ export const CI_JOBS_NOT_COVERED = [
     why: "the deterministic harness tier — needs the claude binary",
   },
   {
+    job: "container",
+    cmd: "npx vitest run src/host/container.io.test.ts",
+    why: "the Docker-backed container runner tests — need Docker and Node 22.22+ (testcontainers 12)",
+  },
+  {
     job: "site",
     cmd: "npm --prefix site run test:browser && npm --prefix site run test:e2e",
     why: "the site's browser + Playwright tests — needs a Chromium download",

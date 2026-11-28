@@ -87,6 +87,12 @@ export interface CacheKeyInput {
    */
   readonly runEnv?: unknown;
   /**
+   * Where the agent process ran, for a container run: the kind, its options and
+   * the image's identity (`executionCacheView`). `undefined` for a host run, so
+   * it drops out of the hash and every host key keeps its bytes.
+   */
+  readonly execution?: unknown;
+  /**
    * The harness BINARY version (e.g. `claude --version`). The harness evolves
    * fast — a CLI upgrade changes the system prompt + tool definitions, which steer
    * behaviour as much as the model does — so a cached result must invalidate when

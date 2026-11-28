@@ -8,7 +8,7 @@
  * ⚠️ SAFETY — R3 runs a model-driven skill FOR REAL. The disposable container is
  * the ONLY isolation. Run this in a DISPOSABLE environment (CI job / throwaway VM /
  * a dev box with no production access), point the task at the disposable DB ONLY,
- * and keep real credentials out of the run — `env: { kind: "ephemeral" }` below scrubs them.
+ * and keep real credentials out of the run — `env: { kind: "local", inherit: "none" }` below scrubs them.
  * Do NOT run it where DATABASE_URL / AWS_* / ~/.ssh reach real systems.
  *
  *   node examples/harness/measure-with-service.mjs   # needs Docker + claude + model auth
@@ -64,7 +64,7 @@ try {
         // skill arm for free. A clean baseline/skill A/B needs per-arm DB reset
         // (a later increment); until then, measure the skill directly.
         arms: { skill: { pluginDir: "./skills/migrator" } },
-        env: { kind: "ephemeral" }, // scrub real credentials from the run (recommended)
+        env: { kind: "local", inherit: "none" }, // scrub real credentials from the run (recommended)
         measure: () => {
           // verify the REAL resulting DB state — the whole point of R3
           const cols = svc.handles.db

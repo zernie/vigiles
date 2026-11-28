@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import type { EvalHost } from "../core/eval-host.js";
 import type { WorkspaceHost } from "../core/workspace.js";
 import { caseWorldHost } from "./case-world.io.js";
+import { containerHost } from "./container.io.js";
 import { engineHost } from "./eval-engine.io.js";
 import {
   copyInstalls,
@@ -58,4 +59,5 @@ export const evalHost: EvalHost = {
   ...regressionCaseHost,
   ...caseWorldHost,
   ...engineHost,
+  container: containerHost,
 };

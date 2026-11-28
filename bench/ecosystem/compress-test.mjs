@@ -90,7 +90,7 @@ const outcome = await paid_runEval(
   defineEval({
     runEval: {
       name: "caveman-compress: verbose vs compressed memory",
-      env: { kind: "ephemeral" },
+      env: { kind: "local", inherit: "none" },
       fixture: {},
       arms: {
         verbose: { files: { "CLAUDE.md": verbose } },

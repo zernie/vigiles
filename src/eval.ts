@@ -8,7 +8,7 @@
  * benchmark harness under `bench/` — the empirical half of testing your harness.
  *
  *   const report = await runEval({
- *     env: { kind: "ephemeral" },
+ *     env: { kind: "local", inherit: "none" },
  *     fixture: { "src/billing.ts": "export function chargeCard(){}" },
  *     arms: {
  *       vanilla: {},
@@ -48,6 +48,9 @@ import {
   scrubbedRunEnv,
   withoutSessionIdentity,
   type HomeFiles,
+  type HomeSeed,
+  type LocalRunEnv,
+  type NormalizedRunEnv,
   type RunEnv,
 } from "./core/run-env.js";
 import {
@@ -152,11 +155,28 @@ import {
   type StubCall,
   type ToolStub,
 } from "./core/stub-rules.js";
+import { parseRepoWorkspace, parseToolStubs } from "./core/eval-spec-parse.js";
+import { parseRunEnv } from "./core/run-env-parse.js";
 import {
-  parseRepoWorkspace,
-  parseRunEnv,
-  parseToolStubs,
-} from "./core/eval-spec-parse.js";
+  planExecution,
+  readyExecution,
+  type ReadyMachine,
+  type ExecutionPlan,
+  type TrialExecution,
+} from "./eval-container.js";
+import {
+  attemptMounts,
+  containerRunner,
+  containmentOf,
+  executionCacheView,
+  executionLockView,
+  HOST_CONTAINMENT_LINE,
+  interceptCommand,
+  launcherFor,
+  type AttemptDirs,
+} from "./eval-container-attempt.js";
+import type { Mount } from "./core/container.js";
+import { uniqueBy } from "remeda";
 import type { RepoWorkspace, TrialWorkspaceView } from "./core/workspace.js";
 import {
   disposeWorkspace,
@@ -405,22 +425,38 @@ export type EvalSpec<M extends Metrics = Metrics> = {
   /** Base backoff ms (doubled each retry). Default 1000. */
   readonly retryBackoffMs?: number;
   /**
-   * **Where each trial runs — required, no default.**
+   * **Where each trial runs — required, no default.** Three kinds, a ladder:
    *
-   * - `{ kind: "ephemeral" }` — a throwaway HOME (under the trial's temp dir) and
+   * - `{ kind: "local", inherit: "all", reason }` — your real HOME and
+   *   environment, minus the parent session's identity, on your machine.
+   *   `reason` is printed with the report.
+   * - `{ kind: "local", inherit: "none" }` — a throwaway HOME (under the trial's temp dir) and
    *   a scrubbed environment: the OS essentials, the harness's own auth
    *   (`runEnv.keep`, plus its auth file copied in), the eval's own `VIGILES_*`
    *   variables, and nothing else. `home: { kind: "files", files }` seeds that
    *   HOME first (HOME-relative paths; the harness's auth file cannot be
    *   overwritten). Running a model-driven skill is itself a side effect, so a
-   *   `git push` or a write to `~` lands in a disposable HOME.
-   * - `{ kind: "inherit", reason }` — your real HOME and environment, minus the
-   *   parent session's identity. `reason` is printed with the report.
+   *   `git push` or a write to `~` lands in a disposable HOME. A process the
+   *   agent started in the background can still outlive its trial and write
+   *   into the trial's folder while it is scored.
+   * - `{ kind: "docker", home?, …options }` — the same throwaway HOME and
+   *   environment, with every ATTEMPT in a fresh container, stopped before the
+   *   attempt is scored, so nothing the agent started survives into scoring.
+   *   Needs Docker and the `testcontainers` package; the trial's folders are
+   *   mounted at their own paths. The options are the settings that cannot
+   *   break that containment (`image`, `platform`, `pullPolicy`, `networkMode`,
+   *   `resourcesQuota`, `sharedMemorySize`, `ulimits`, `extraHosts`, `tmpFs`,
+   *   `droppedCapabilities`); any other field is refused. Hashed into the
+   *   cache and the lock.
    *
-   * There is no default because both are wrong silently in one case: inheriting
-   * measures the author's machine (their config, their tokens), and an
-   * ephemeral run fails if a user's credential is not where the harness says it
-   * is — loudly, on trial 1, which is why it is the one to try first. See
+   * `{ kind: "inherit", reason }` and `{ kind: "ephemeral", home? }` still
+   * parse, as the first two kinds, and print one deprecation warning naming the
+   * new spelling; a lock recorded under either stays valid.
+   *
+   * There is no default because each is wrong silently in one case: inheriting
+   * measures the author's machine (their config, their tokens), and a
+   * throwaway HOME fails if a user's credential is not where the harness says
+   * it is — loudly, on trial 1, which is why it is the one to try first. See
    * `docs/safety.md` (what a child run inherits).
    */
   readonly env: RunEnv;
@@ -539,7 +575,7 @@ function writeFiles(cwd: string, files: Record<string, string>): void {
 
 /**
  * Resolve the environment a trial's subprocess actually runs with — the
- * SECURITY-CRITICAL decision behind `env: { kind: "ephemeral" }`. When `replaceEnv` is set, the
+ * SECURITY-CRITICAL decision behind `env: { kind: "local", inherit: "none" }`. When `replaceEnv` is set, the
  * scrubbed `env` is the COMPLETE environment, so the real `$HOME` and inherited
  * secrets are DROPPED; otherwise `env` is an overlay on `base`. In BOTH, the
  * harness's declared session identity (`runEnv.sessionIdentity`) is removed: a
@@ -1103,6 +1139,8 @@ async function runWithCache(
     stubs: readonly string[];
     /** Where the run executes (kind + seed), never the per-trial HOME path. */
     runEnv: unknown;
+    /** The container an attempt runs in; undefined on the host runner. */
+    execution: unknown;
   },
   runner: AgentRunner,
   cfg: RunConfig,
@@ -1122,6 +1160,7 @@ async function runWithCache(
     env: keyParts.env,
     stubs: keyParts.stubs.length > 0 ? keyParts.stubs : undefined,
     runEnv: keyParts.runEnv,
+    execution: keyParts.execution,
     // A native --plugin-dir install isn't in `files`, so hash its CONTENTS into
     // the key — otherwise editing a skill in it would false-replay.
     pluginDirHash: runArgs.pluginDir ? hashDir(runArgs.pluginDir) : undefined,
@@ -1198,11 +1237,11 @@ const INTERCEPT_TOOL_HOOK_CLI =
   ].find((p) => existsSync(p)) ?? join(import.meta.dirname, "cli.js");
 /** This node binary — what every command the eval writes for a child calls back into. */
 const NODE_BIN = process.execPath;
-const INTERCEPT_TOOL_HOOK_CMD = `"${NODE_BIN}" "${INTERCEPT_TOOL_HOOK_CLI}" hook-runtime intercept-tool`;
 /**
- * How a stub shim reaches the stub runtime: the same node and `cli.js` as the
- * intercept hook, for the same reason (`npx vigiles` does not resolve from a
- * throwaway dir). The shim runs `cli.js hook-runtime stub`.
+ * How the intercept hook and a stub shim reach vigiles on the host: this node
+ * and `cli.js`, since `npx vigiles` does not resolve from a throwaway dir. The
+ * hook runs `cli.js hook-runtime intercept-tool` (`interceptCommand`), a shim
+ * `cli.js hook-runtime stub`. A container attempt uses the image's own pair.
  */
 const STUB_LAUNCHER = { node: NODE_BIN, cli: INTERCEPT_TOOL_HOOK_CLI };
 
@@ -1248,31 +1287,37 @@ export function belowModelFloor(model: string, floor: string): boolean {
 
 // Moves with #552: the harness version is a Claude Code fact, like the spawn above.
 /* v8 ignore start -- spawns the real harness binary; memoized, cache-path only */
-let cachedHarnessVersion: string | undefined;
+let cachedRawVersion: string | undefined;
 /**
- * The harness binary version (`claude --version`), reduced to its
- * behaviorally-significant token by the runtime port's
- * {@link HarnessRuntime.versionKey} — so a Claude Code **minor/major** upgrade
- * (new system prompt / tool defs) invalidates a stale replay while patches don't
- * churn it. The reduction is per-harness (CC → `major.minor`, Codex → `""`) and
- * lives on the adapter, not here. Memoized (one spawn per process), resolved only
+ * `claude --version` as printed, memoized (one spawn per process); "unknown"
+ * when the binary is absent. A container image installs this exact version.
+ */
+function rawHarnessVersion(): string {
+  if (cachedRawVersion === undefined) {
+    try {
+      cachedRawVersion = execSync(`${EVAL_RUNTIME.agentBinary} --version`, {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch {
+      cachedRawVersion = "unknown";
+    }
+  }
+  return cachedRawVersion;
+}
+
+/**
+ * The harness binary version, reduced to its behaviorally-significant token by
+ * the runtime port's {@link HarnessRuntime.versionKey} — so a Claude Code
+ * **minor/major** upgrade (new system prompt / tool defs) invalidates a stale
+ * replay while patches don't churn it. The reduction is per-harness (CC →
+ * `major.minor`, Codex → `""`) and lives on the adapter, not here. Resolved only
  * on the cache path, "unknown" if the binary isn't found (then it doesn't
  * partition the key).
  */
 function harnessVersion(): string {
-  if (cachedHarnessVersion === undefined) {
-    try {
-      cachedHarnessVersion = EVAL_RUNTIME.versionKey(
-        execSync(`${EVAL_RUNTIME.agentBinary} --version`, {
-          encoding: "utf-8",
-          stdio: ["ignore", "pipe", "ignore"],
-        }),
-      );
-    } catch {
-      cachedHarnessVersion = "unknown";
-    }
-  }
-  return cachedHarnessVersion;
+  const raw = rawHarnessVersion();
+  return raw === "unknown" ? "unknown" : EVAL_RUNTIME.versionKey(raw);
 }
 /* v8 ignore stop */
 
@@ -1282,6 +1327,25 @@ registerAgentProbe(spawnAgent, () =>
     ? { kind: "missing", binary: EVAL_RUNTIME.agentBinary }
     : { kind: "found" },
 );
+/* v8 ignore stop */
+
+/**
+ * The raw `--version` output of each real runner's binary — what a container
+ * image installs the same version of. An injected runner (a test's fake) has
+ * none unless it registers one, and a container run then refuses to start.
+ */
+const AGENT_VERSIONS = new WeakMap<AgentRunner, () => string>();
+
+/** Give `runner` the raw version of the binary it drives. */
+export function registerAgentVersion(
+  runner: AgentRunner,
+  version: () => string,
+): void {
+  AGENT_VERSIONS.set(runner, version);
+}
+
+/* v8 ignore start -- the real binary's version; a test registers its own */
+registerAgentVersion(spawnAgent, rawHarnessVersion);
 /* v8 ignore stop */
 
 /** Warn (once per run) that replaying/recording a cache on a floating alias hides drift. */
@@ -1303,11 +1367,10 @@ function warnFloatingModel(model: string): void {
 function withInterceptToolHook(
   settings: unknown,
   intercepts: readonly ToolIntercept[],
+  command: string,
 ): unknown {
   if (intercepts.length === 0) return settings;
-  const intercept = buildInterceptSettings(intercepts, {
-    command: INTERCEPT_TOOL_HOOK_CMD,
-  });
+  const intercept = buildInterceptSettings(intercepts, { command });
   const base = isRecord(settings) ? settings : {};
   const baseHooks = isRecord(base.hooks) ? base.hooks : {};
   const basePre: unknown[] = Array.isArray(baseHooks.PreToolUse)
@@ -1395,21 +1458,66 @@ export function seedEphemeralHome(
 }
 
 /**
- * The parts of a {@link RunEnv} that move behaviour — the kind and the seed —
- * for the cache key and the lock. Never the per-trial HOME path, and never an
- * `inherit` reason (prose, not an input).
+ * The parts of a run environment that move behaviour — where it runs and the
+ * seed — for the cache key and the lock. Never the per-trial HOME path, and
+ * never an `inherit: "all"` reason (prose, not an input). The key's kind
+ * tokens are fixed (`inherit`, `ephemeral`, `docker`) and independent of how a
+ * spec spells its env, so both spellings of one env hash the same and a
+ * committed lock stays valid.
  */
-function runEnvKeyView(env: RunEnv): unknown {
-  return env.kind === "ephemeral"
-    ? { kind: env.kind, home: env.home }
-    : { kind: env.kind };
+function runEnvKeyView(env: NormalizedRunEnv): unknown {
+  switch (env.kind) {
+    case "docker":
+      return { kind: "docker", home: env.home };
+    case "local":
+      return localKeyView(env);
+  }
 }
 
-/** The run environment as a report carries it: the kind, and an inherit's reason. */
-function runEnvReportView(env: RunEnv): EvalReport["env"] {
-  return env.kind === "ephemeral"
-    ? { kind: "ephemeral" }
-    : { kind: "inherit", reason: env.reason };
+function localKeyView(env: LocalRunEnv): unknown {
+  switch (env.inherit) {
+    case "none":
+      return { kind: "ephemeral", home: env.home };
+    case "all":
+      return { kind: "inherit" };
+  }
+}
+
+/**
+ * The run environment as a report carries it: where it ran, and an
+ * `inherit: "all"` reason, in the spelling the spec wrote (a deprecated
+ * `inherit`/`ephemeral` comes back as written).
+ */
+function runEnvReportView(
+  env: NormalizedRunEnv,
+  written: RunEnv["kind"],
+): EvalReport["env"] {
+  switch (env.kind) {
+    case "docker":
+      return { kind: "docker" };
+    case "local":
+      return written === "inherit" || written === "ephemeral"
+        ? deprecatedReportView(env)
+        : localReportView(env);
+  }
+}
+
+function deprecatedReportView(env: LocalRunEnv): EvalReport["env"] {
+  switch (env.inherit) {
+    case "none":
+      return { kind: "ephemeral" };
+    case "all":
+      return { kind: "inherit", reason: env.reason };
+  }
+}
+
+function localReportView(env: LocalRunEnv): EvalReport["env"] {
+  switch (env.inherit) {
+    case "none":
+      return { kind: "local", inherit: "none" };
+    case "all":
+      return { kind: "local", inherit: "all", reason: env.reason };
+  }
 }
 
 /** Write a seed's files under a throwaway HOME, parents created. Effects only. */
@@ -1429,62 +1537,131 @@ interface TrialEnv {
 }
 
 /**
- * Build a trial's environment from the spec's {@link RunEnv}. `ephemeral`: a
- * throwaway HOME (`home`, a directory BESIDE the trial cwd — never in it, or a
- * cache snapshot of the cwd would carry the credentials and the seed), seeded
- * (the seed first, then the harness's own auth file), and a scrubbed allowlist env — the eval's injected
- * keys (`VIGILES_INTERCEPT_TOOLS`) allowlisted through so interception works.
- * `inherit`: an overlay on the caller's env. Either way the stub bin dir, when
- * there is one, goes first on PATH.
+ * Build a trial's environment from the spec's run environment.
+ * `inherit: "none"` and `docker`: a throwaway HOME (`home`, a directory BESIDE
+ * the trial cwd — never in it, or a cache snapshot of the cwd would carry the
+ * credentials and the seed), seeded (the seed first, then the harness's own
+ * auth file), and a scrubbed allowlist env — the eval's injected keys
+ * (`VIGILES_INTERCEPT_TOOLS`) allowlisted through so interception works.
+ * `inherit: "all"`: an overlay on the caller's env. The stub bin dir, when
+ * there is one, goes first on PATH; in a container the host's PATH is dropped
+ * (`containerPath`).
  */
 function trialEnv(
-  runEnv: RunEnv,
+  runEnv: NormalizedRunEnv,
   home: string,
   overlay: Record<string, string> | undefined,
   stubBin: string | undefined,
 ): TrialEnv {
-  const withStubs = (path: string | undefined): string =>
-    stubBin === undefined
-      ? (path ?? "")
-      : path === undefined || path === ""
-        ? stubBin
-        : `${stubBin}${delimiter}${path}`;
   switch (runEnv.kind) {
-    case "ephemeral": {
-      // The seed was validated at the spec boundary (`parseRunEnv`): every
-      // path HOME-relative, inside HOME, and not the harness's auth file.
-      materializeHome(home, runEnv.home?.files ?? {});
-      // Carry the harness's own auth FILE (local OAuth) into the fresh HOME —
-      // env-var/host-brokered auth is covered by ephemeralRunEnv's allowlist.
-      seedEphemeralHome(home, process.env.HOME ?? homedir());
-      const base = {
-        ...ephemeralRunEnv(process.env, {
-          home,
-          allow: overlay ? Object.keys(overlay) : [],
-        }),
-        ...overlay,
-      };
+    case "docker": {
+      const base = throwawayEnv(runEnv.home, home, overlay);
       return {
-        env:
-          stubBin === undefined
-            ? base
-            : { ...base, PATH: withStubs(base.PATH) },
+        env: containerPath(base, stubBin),
         replaceEnv: true,
         keyEnv: base,
       };
     }
-    case "inherit":
+    case "local":
+      return localTrialEnv(runEnv, { home, overlay, stubBin });
+  }
+}
+
+/** Where a trial's env is laid: its throwaway HOME, the eval's overlay, the stub bin dir. */
+interface TrialEnvAt {
+  readonly home: string;
+  readonly overlay: Readonly<Record<string, string>> | undefined;
+  readonly stubBin: string | undefined;
+}
+
+function localTrialEnv(
+  runEnv: LocalRunEnv,
+  { home, overlay, stubBin }: TrialEnvAt,
+): TrialEnv {
+  switch (runEnv.inherit) {
+    case "none": {
+      const base = throwawayEnv(runEnv.home, home, overlay);
+      const env =
+        stubBin === undefined
+          ? base
+          : { ...base, PATH: withStubs(stubBin, base.PATH) };
+      return { env, replaceEnv: true, keyEnv: base };
+    }
+    case "all":
       // `spawnAgent` spreads `{ ...process.env, ...env }`, so a stub PATH is
       // set in the overlay as the stub dir prepended over process.env.PATH.
       return {
         env:
           stubBin === undefined
             ? overlay
-            : { ...overlay, PATH: withStubs(process.env.PATH) },
+            : { ...overlay, PATH: withStubs(stubBin, process.env.PATH) },
         replaceEnv: false,
         keyEnv: overlay,
       };
   }
+}
+
+/** `path` with the stub bin dir first. */
+function withStubs(stubBin: string, path: string | undefined): string {
+  return path === undefined || path === ""
+    ? stubBin
+    : `${stubBin}${delimiter}${path}`;
+}
+
+/**
+ * Lay a throwaway HOME (the seed, then the harness's own auth file) and return
+ * the scrubbed env that points at it, the overlay allowlisted through.
+ */
+function throwawayEnv(
+  seed: HomeSeed | undefined,
+  home: string,
+  overlay: Readonly<Record<string, string>> | undefined,
+): Readonly<Record<string, string>> {
+  // The seed was validated at the spec boundary (`parseRunEnv`): every
+  // path HOME-relative, inside HOME, and not the harness's auth file.
+  materializeHome(home, seed?.files ?? {});
+  // Carry the harness's own auth FILE (local OAuth) into the fresh HOME —
+  // env-var/host-brokered auth is covered by ephemeralRunEnv's allowlist.
+  seedEphemeralHome(home, process.env.HOME ?? homedir());
+  return {
+    ...ephemeralRunEnv(process.env, {
+      home,
+      allow: overlay ? Object.keys(overlay) : [],
+    }),
+    ...overlay,
+  };
+}
+
+/**
+ * A container attempt's env: the host's PATH names host directories the image
+ * does not have, so it is dropped. What stays is only the stub bin dir, which
+ * the container host puts before the image's own PATH.
+ */
+function containerPath(
+  base: Readonly<Record<string, string>>,
+  stubBin: string | undefined,
+): Readonly<Record<string, string>> {
+  const rest = Object.fromEntries(
+    Object.entries(base).filter(([k]) => k !== "PATH"),
+  );
+  return stubBin === undefined ? rest : { ...rest, PATH: stubBin };
+}
+
+/**
+ * The directories one attempt touches: the trial's own, plus the arm's plugin
+ * install and checkout, which the agent reads by their absolute paths.
+ */
+function trialDirs(
+  arm: EvalArm,
+  own: Omit<AttemptDirs, "pluginDir" | "pluginRoot">,
+): AttemptDirs {
+  return {
+    ...own,
+    ...(arm.pluginDir === undefined
+      ? {}
+      : { pluginDir: resolve(arm.pluginDir) }),
+    ...(arm.plugin === undefined ? {} : { pluginRoot: resolve(arm.plugin) }),
+  };
 }
 
 /** A finished trial: its score, usage, and the stub calls nobody answered. */
@@ -1509,10 +1686,17 @@ async function executeTrial(
     readonly maxBudgetUsd?: number;
     readonly signal?: AbortSignal;
   },
-  retrying: RetryingRunner,
+  how: {
+    readonly retrying: RetryingRunner;
+    readonly execution: TrialExecution;
+  },
   cfg: RunConfig,
 ): Promise<TrialOutcome> {
   const { index: trialIndex, maxBudgetUsd, signal, plan } = trial;
+  const { retrying, execution } = how;
+  // What every command written for the agent calls back into: this node and
+  // CLI on the host, the image's own in a container.
+  const launcher = launcherFor(execution, STUB_LAUNCHER);
   // Resolved before any temp dir exists, so a bad plugin leaves nothing behind.
   const resolved = resolveHarness({
     plugin: arm.plugin,
@@ -1527,27 +1711,41 @@ async function executeTrial(
     enabled: spec.experimental_contextCheck !== false,
   });
   const cwd = makeTmpDir("eval");
-  // The ephemeral env's HOME: beside the work dir, so `snapshotDir(cwd)` (the
+  // The throwaway HOME: beside the work dir, so `snapshotDir(cwd)` (the
   // cache record) never sees the credentials file or the seed, and the agent's
-  // `ls -a` of its project does not show it. An `inherit` run leaves it empty.
+  // `ls -a` of its project does not show it. An `inherit: "all"` run leaves it empty.
   const home = makeTmpDir("home");
   // Tool stubs (rung R2): a shim per stub in a temp dir BESIDE the work dir —
   // not in it, so the agent does not find vigiles plumbing in its project.
   const stubs = spec.stubs;
-  const stubDir =
-    stubs.length > 0 ? writeStubDir(stubs, STUB_LAUNCHER) : undefined;
+  const stubDir = stubs.length > 0 ? writeStubDir(stubs, launcher) : undefined;
   // The trial's base record: a git dir beside the work dir (never in it, so
   // the agent's own git cannot reach it), removed with it.
   const baseDir = plan.workspace === undefined ? undefined : makeTmpDir("base");
   try {
     const intercepts = arm.interceptTools ?? [];
-    const settings = withInterceptToolHook(resolved.settings, intercepts);
+    const settings = withInterceptToolHook(
+      resolved.settings,
+      intercepts,
+      interceptCommand(launcher),
+    );
     // The eval-injected overlay (VIGILES_INTERCEPT_TOOLS), if any.
     const overlay =
       intercepts.length > 0
         ? { [INTERCEPT_TOOLS_ENV]: serializeIntercepts(intercepts) }
         : undefined;
     const run = trialEnv(spec.env, home, overlay, stubDir?.binDir);
+    // Every host directory the attempt touches, mounted at its own path when
+    // the attempt runs in a container.
+    const mounts = attemptMounts(
+      trialDirs(arm, {
+        cwd,
+        home,
+        baseDir,
+        stubRoot: stubDir?.root,
+        captureDirs: observed.dirs,
+      }),
+    );
     const hasSettings = settings !== undefined;
     // The trial's world and, after every per-arm write and before the spawn,
     // its own base. A workspace trial is laid again before each retried
@@ -1593,6 +1791,7 @@ async function executeTrial(
         env: run.keyEnv,
         stubs: stubs.map(encodeStub),
         runEnv: runEnvKeyView(spec.env),
+        execution: executionCacheView(execution),
       },
       // A rate-limited attempt is discarded and retried; its stub calls must
       // go with it, or the retry inherits a used-up `inOrder` answer and the
@@ -1601,7 +1800,7 @@ async function executeTrial(
         observed.reset();
         if (stubDir !== undefined) resetStubCalls(stubDir);
         world.beforeAttempt();
-      }),
+      }, mounts),
       cfg,
       () => ({
         stubCalls: stubDir === undefined ? undefined : readStubCalls(stubDir),
@@ -1753,7 +1952,10 @@ function unansweredCalls(
 }
 
 /** A runner that retries rate-limited attempts, running `beforeAttempt` before each one. */
-type RetryingRunner = (beforeAttempt?: () => void) => AgentRunner;
+type RetryingRunner = (
+  beforeAttempt?: () => void,
+  mounts?: readonly Mount[],
+) => AgentRunner;
 
 /**
  * Call `runner`, retrying with exponential backoff while it looks rate-limited.
@@ -2065,7 +2267,7 @@ function evalArmsInputs(
     // is this checkout's absolute path — normalize it out so the hash is the same
     // on the dev's machine and in CI (else every plugin-with-root-hooks eval is
     // falsely stale across machines).
-    const absRoot = arm.plugin ? resolve(process.cwd(), arm.plugin) : "";
+    const absRoot = arm.plugin ? resolve(arm.plugin) : "";
     arms[name] = {
       model: arm.model ?? cfg.model,
       // The per-ARM half of the overlap documented at `inputsHash` — the
@@ -2092,11 +2294,15 @@ function evalArmsInputs(
   // Where the trials run (ephemeral + its seed, or inherit) moves behaviour, so
   // it is an input. The seed's CONTENTS are hashed — the author's input — never
   // the per-trial HOME path, which differs every run.
+  // A container run is a different setup: its kind, options and image are
+  // inputs. Absent for a host run, so a host lock's hash is unchanged.
+  const execution = executionLockView(spec.execution);
   return {
     ...scoring.inputs,
     arms,
     stubs,
     env: runEnvKeyView(spec.env),
+    ...(execution === undefined ? {} : { execution }),
     // Each run's `--max-budget-usd` is derived from it, and a cap can end a turn
     // early, so a lock recorded under another ceiling measured another setup.
     maxCostUsd: spec.maxCostUsd,
@@ -2193,6 +2399,12 @@ const EVAL_SPEC_KEYS = {
   experimental_workspace: true,
 } satisfies Record<keyof EvalSpec, true>;
 
+/** Where the job of a field an author may reach for is done instead. */
+const EVAL_SPEC_POINTERS = {
+  execution:
+    'where an attempt runs is `env`; env: { kind: "docker" } runs each attempt in its own container.',
+};
+
 const TRIGGER_RATE_SPEC_KEYS = {
   name: true,
   lock: true,
@@ -2236,7 +2448,12 @@ type ParsedEvalSpec = Omit<
     /** Each arm's install namespace, read before the install is resolved. */
     readonly namespaces: Readonly<Record<string, string | undefined>>;
     readonly stubs: readonly ToolStub[];
-    readonly env: RunEnv;
+    /** The spec's `env` in its current spelling (`parseRunEnv`). */
+    readonly env: NormalizedRunEnv;
+    /** The `env` kind the spec wrote; a report echoes a deprecated one. */
+    readonly envWritten: RunEnv["kind"];
+    /** Where each attempt runs, its harness support and adapter already checked. */
+    readonly execution: ExecutionPlan;
     /** The checked workspace, when the spec sets one. */
     readonly workspace?: PreparedWorkspace;
     /** The machine ports, when a root wired them; a case spec needs them. */
@@ -2268,6 +2485,9 @@ export async function runEvalReporting<M extends Metrics>(
   if (unanswered !== undefined) console.error(`⚠ runEval: ${unanswered}`);
   const context = contextInReport(report);
   if (context !== undefined) console.error(`⚠ runEval: ${context}`);
+  // Once per run, never per trial: what the host runner cannot end.
+  if (report.containment?.kind === "none")
+    console.error(`ℹ runEval: ${HOST_CONTAINMENT_LINE}`);
   // Surface what the run spent — tokens + API-equivalent $, and a LOUD warning if
   // it was billed to a metered API key instead of the subscription. See eval-cost.ts.
   emitCostSummary(costFromEvalReport(report));
@@ -2284,8 +2504,8 @@ export async function runEvalWith<M extends Metrics>(
   if (Object.hasOwn(input, "ephemeralEnv"))
     throw new Error(
       "runEval: `ephemeralEnv` was replaced by `env`, which is required:\n" +
-        '    ephemeralEnv: true            → env: { kind: "ephemeral" }\n' +
-        '    ephemeralEnv: false / absent  → env: { kind: "inherit", reason: "…" }  (your real HOME; the reason is printed with the report)',
+        '    ephemeralEnv: true            → env: { kind: "local", inherit: "none" }\n' +
+        '    ephemeralEnv: false / absent  → env: { kind: "local", inherit: "all", reason: "…" }  (your real HOME; the reason is printed with the report)',
     );
   // Refuse a stray field BEFORE spending a token: an eval file is plain JS, so a
   // typo'd or misplaced key would otherwise vanish and the run would report a
@@ -2293,6 +2513,7 @@ export async function runEvalWith<M extends Metrics>(
   assertKnownKeys(input, EVAL_SPEC_KEYS, {
     caller: "runEval",
     type: "EvalSpec",
+    pointers: EVAL_SPEC_POINTERS,
   });
   // The two exactly-one choices — `arms` or none, `checks` or `measure` — are
   // read HERE, before a token is spent: the type forbids "both" and "neither",
@@ -2315,11 +2536,16 @@ export async function runEvalWith<M extends Metrics>(
   // stateful RegExp, a missing `env`, a seed path outside HOME — each refused
   // with its rewrite before a token is spent. The runner trusts the result.
   const stubs = parseToolStubs(input.stubs, "runEval");
-  const env = parseRunEnv(
+  const { env, written, deprecation } = parseRunEnv(
     input.env,
     "runEval",
     EVAL_RUNTIME.runEnv?.keepHomeFiles ?? [],
   );
+  if (deprecation !== undefined) emitLockMessage(deprecation, true);
+  // Where each attempt runs (`env: { kind: "docker" }` in a container),
+  // refused here when the harness declares no image or no container adapter
+  // was wired. Docker itself is asked before trial 1.
+  const execution = planExecution(env, EVAL_RUNTIME, host);
   const { arms: resolvedArms, packaged } = resolveArmInstalls(
     shape.arms,
     input.stubSkillBodies ?? false,
@@ -2337,6 +2563,8 @@ export async function runEvalWith<M extends Metrics>(
       namespaces: mapValues(shape.arms, installNamespace),
       stubs,
       env,
+      envWritten: written,
+      execution,
       probeAgent: probeOf(runner),
       host,
       ...(workspace === undefined ? {} : { workspace }),
@@ -2349,6 +2577,82 @@ export async function runEvalWith<M extends Metrics>(
   } finally {
     for (const dir of packaged) rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * One attempt's runner: the injected one on the host; on a container run, one
+ * `ContainerHost.run` per call, under the same guards the real spawn has.
+ */
+function attemptRunner(
+  ex: TrialExecution,
+  runner: AgentRunner,
+  mounts: readonly Mount[] | undefined,
+): AgentRunner {
+  if (ex.kind === "host") return runner;
+  return withEffortGuard(
+    withStartGuard(
+      containerRunner(ex, mounts ?? [], {
+        argv: buildAgentArgs,
+        env: (a) => definedEnv(resolveSpawnEnv(a)),
+        hooks: (out) => parseHooks(out.stdout),
+      }),
+    ),
+  );
+}
+
+/** An env with its unset entries dropped: what a container is started with. */
+function definedEnv(
+  env: Readonly<NodeJS.ProcessEnv>,
+): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      (e): e is [string, string] => e[1] !== undefined,
+    ),
+  );
+}
+
+/**
+ * What the container preflight asks of this machine: the binary's version (the
+ * runner's own), the platform and env, and directories of the kinds trial 1
+ * mounts, so a mount the engine refuses fails before any trial.
+ */
+function readyMachine(spec: ParsedEvalSpec, runner: AgentRunner): ReadyMachine {
+  const { platform, env } = process;
+  return {
+    rawVersion: AGENT_VERSIONS.get(runner),
+    platform,
+    env,
+    probeMounts: () => probeMounts(spec),
+  };
+}
+
+/** Throwaway directories of the kinds trial 1 mounts, and their removal. */
+function probeMounts(spec: ParsedEvalSpec): {
+  readonly mounts: readonly Mount[];
+  readonly dispose: () => void;
+} {
+  // The trial dirs (work, home, stubs, base) all come from one temp root, so
+  // two stand for them; the request channel lives under the OS temp dir.
+  const cwd = makeTmpDir("eval");
+  const home = makeTmpDir("home");
+  const channel =
+    spec.experimental_contextCheck === false
+      ? undefined
+      : EVAL_RUNTIME.requestCapture?.open();
+  const captureDirs = channel?.dir === undefined ? [] : [channel.dir];
+  const mounts = uniqueBy(
+    Object.values(spec.arms).flatMap((arm) =>
+      attemptMounts(trialDirs(arm, { cwd, home, captureDirs })),
+    ),
+    (m) => m.path,
+  );
+  return {
+    mounts,
+    dispose: () => {
+      channel?.close();
+      removeTrees([cwd, home]);
+    },
+  };
 }
 
 /** How a run learns whether its agent binary exists; an injected runner is not probed. */
@@ -2414,8 +2718,19 @@ async function runResolvedEval(
   if (cfg.cache !== "off" && !isDatedModel(cfg.model)) {
     warnFloatingModel(cfg.model);
   }
-  const retrying: RetryingRunner = (beforeAttempt) => (a) =>
-    runWithRetry(a, runner, retries, backoffMs, beforeAttempt);
+  // One attempt's runner: the injected one on the host, a fresh container per
+  // attempt otherwise — either way called after `beforeAttempt`.
+  const retryingOn =
+    (ex: TrialExecution): RetryingRunner =>
+    (beforeAttempt, mounts) =>
+    (a) =>
+      runWithRetry(
+        a,
+        attemptRunner(ex, runner, mounts),
+        retries,
+        backoffMs,
+        beforeAttempt,
+      );
 
   // What counts against `maxCostUsd`: a reported cost, or — for a run that
   // reported none, killed by the timeout — the cap it was given (vigiles#416).
@@ -2431,6 +2746,7 @@ async function runResolvedEval(
   const worker = async (
     unit: Unit,
     signal: Readonly<AbortSignal>,
+    ex: TrialExecution,
   ): Promise<UnitResult> => {
     if (stopped !== undefined) return { armName: unit.armName, skipped: true };
     // The run's own cap: the budget not yet charged. Past it the CLI ends the
@@ -2448,7 +2764,7 @@ async function runResolvedEval(
           signal,
           ...(cap === undefined ? {} : { maxBudgetUsd: cap }),
         },
-        retrying,
+        { retrying: retryingOn(ex), execution: ex },
         cfg,
       );
     charged += costObserved ? usage.costUsd : (cap ?? 0);
@@ -2478,7 +2794,7 @@ async function runResolvedEval(
   // case is qualified: its key is read from git.
   const inputs =
     lock.mode === "off" ? undefined : evalArmsInputs(spec, cfg, scoring);
-  return withEvalLock(
+  const report = await withEvalLock(
     {
       name: spec.name,
       inputs,
@@ -2492,22 +2808,34 @@ async function runResolvedEval(
         scoring.why,
     },
     async (): Promise<EvalReport> => {
+      // Before anything is qualified or spent: a container run's machine
+      // (version, auth, Docker, mounts, image), refused with its cure.
+      const ex = await readyExecution(
+        spec.execution,
+        readyMachine(spec, runner),
+      );
       const cases = await casesOf(spec, concurrency);
       try {
         const units = buildUnits(plansOf(spec, cases), spec.arms, trials);
-        const results = await runPool(units, concurrency, worker);
+        const results = await runPool(units, concurrency, (unit, signal) =>
+          worker(unit, signal, ex),
+        );
         return evalReport(spec, {
           trials,
           charged,
           aborted: stopped === "budget",
           cases,
           results,
+          execution: ex,
         });
       } finally {
         disposeCases(cases);
       }
     },
   );
+  // A replayed report carries `env` as the lock recorded it. The inputs hash
+  // matched, so the spec's env is the same run; report it as the spec spells it now.
+  return { ...report, env: runEnvReportView(spec.env, spec.envWritten) };
 }
 
 /** The qualified cases of a case spec; none for any other spec. */
@@ -2557,6 +2885,8 @@ interface FinishedRun {
   readonly aborted: boolean;
   readonly cases: readonly RunCase[];
   readonly results: readonly UnitResult[];
+  /** Where the attempts ran: the report's `containment`. */
+  readonly execution: TrialExecution;
 }
 
 /** The finished run's report. */
@@ -2572,7 +2902,8 @@ function evalReport(spec: ParsedEvalSpec, run: FinishedRun): EvalReport {
     chargedUsd: Math.max(run.charged, totalCostUsd),
     unknownCostRuns: done.filter((r) => r.costObserved === false).length,
     aborted: run.aborted,
-    env: runEnvReportView(spec.env),
+    env: runEnvReportView(spec.env, spec.envWritten),
+    containment: containmentOf(run.execution),
     ...(spec.checks === undefined ? {} : { checks: spec.checks }),
     ...casesReport(run.cases, armNames, scoredOf(done)),
   };

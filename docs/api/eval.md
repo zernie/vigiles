@@ -52,7 +52,7 @@ import { assertImproves } from "vigiles/eval";
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" },
+    env: { kind: "local", inherit: "none" },
     arms: { off: {}, on: { pluginDir: "./" } },
     task: "...a task the change should affect...",
     measure: (ctx) => ({ ok: ctx.output.length > 0 }),
@@ -92,7 +92,7 @@ import { paid_judged, assertRates } from "vigiles/eval";
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" },
+    env: { kind: "local", inherit: "none" },
     task: "Summarize in.txt in one sentence.",
     fixture: { "in.txt": "..." },
     model: "sonnet",
@@ -229,10 +229,14 @@ declare — a typo, or another runner's option — before it spends a token, rat
 than dropping it and measuring a setup you did not ask for. Its default `model`
 is `"haiku"`; set the model your users run.
 
-`runEval` also takes two fields `measureTriggerRate` does not. **`env`** is required: `{ kind:
-"ephemeral", home? }` (a throwaway HOME, optionally seeded with files) or `{
-kind: "inherit", reason }` (your real HOME; the reason is printed with the
-report) — [what each passes into the run](../measuring-skills.md#where-a-trial-runs--env).
+`runEval` also takes two fields `measureTriggerRate` does not. **`env`** is required, one of three kinds:
+`{ kind: "local", inherit: "all", reason }` (your real HOME; the reason is printed with the
+report), `{ kind: "local", inherit: "none", home? }` (a throwaway HOME, optionally seeded
+with files), or `{ kind: "docker", home?, …options }` (the same throwaway
+HOME, with each attempt in a fresh Docker container that is stopped, and
+confirmed gone, before the attempt is scored; it needs Docker and the
+`testcontainers` package) — [what each passes into the run](../measuring-skills.md#where-a-trial-runs--env),
+and [what a container needs and the options it takes](../measuring-skills.md#ending-every-process-an-attempt-started--docker).
 **`stubs`** takes per-invocation rules for CLIs the agent calls, built with
 `experimental_stub`; a call no rule answers is printed to stderr when `runEval`
 returns, makes `vigiles eval` exit `2` (the file itself exits `78`) and refuses to write a lock — see
@@ -272,7 +276,7 @@ import { defineEval } from "vigiles";
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" },
+    env: { kind: "local", inherit: "none" },
     experimental_workspace: {
       kind: "repo",
       dir: ".",
@@ -329,7 +333,7 @@ import { defineEval } from "vigiles";
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" },
+    env: { kind: "local", inherit: "none" },
     experimental_regressionCases: [
       {
         id: "parse-empty-line",

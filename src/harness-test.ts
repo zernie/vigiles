@@ -650,7 +650,7 @@ export function parseClaudeRun(stdout: string): ParsedRun {
  *   else from the caller: no harness auth (the scripted mock needs none, and a
  *   config-dir variable would point the run back at the real config), no
  *   identity, no secrets. The same scrubbed shape as the eval tier's
- *   `env: { kind: "ephemeral" }` (`scrubbedRunEnv`), without the auth.
+ *   `env: { kind: "local", inherit: "none" }` (`scrubbedRunEnv`), without the auth.
  */
 export type HarnessRunHome =
   | { readonly home: "inherit" }

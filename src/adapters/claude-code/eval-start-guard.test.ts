@@ -115,7 +115,11 @@ describe("a cached run is held to the same guard", () => {
   it("a crash cached before the guard existed is run again, not replayed", async () => {
     const dir = mkdtempSync(join(tmpdir(), "start-guard-cache-"));
     const spec = (measure: (ctx: RunContext) => { ok: boolean }) => ({
-      env: { kind: "inherit", reason: "unit test: a fake runner" } as const,
+      env: {
+        kind: "local",
+        inherit: "all",
+        reason: "unit test: a fake runner",
+      } as const,
       arms: { a: {} },
       task: "t",
       trials: 1,

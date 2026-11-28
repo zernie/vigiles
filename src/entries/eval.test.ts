@@ -122,7 +122,7 @@ test("a real-model runner called OUTSIDE any vigiles runner refuses before spawn
   const r = runScript(
     `import { runEval } from "${DIST}/eval.js";\n` +
       `import { check } from "${DIST}/entries/index.js";\n` +
-      `try { await runEval({ task: "t", env: { kind: "ephemeral" }, checks: [check.tool("Bash")], trials: 1 }); console.log("SPAWNED"); }\n` +
+      `try { await runEval({ task: "t", env: { kind: "local", inherit: "none" }, checks: [check.tool("Bash")], trials: 1 }); console.log("SPAWNED"); }\n` +
       `catch (e) { console.log(String(e.message).split("\\n")[0]); }\n`,
   );
   assert.equal(r.status, 0, r.stdout + r.stderr);

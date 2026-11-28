@@ -99,12 +99,15 @@ type MeasureSpec = Extract<
   { readonly arms: object; readonly measure: object }
 >;
 
+/** A throwaway HOME on the host. */
+const THROWAWAY = { kind: "local", inherit: "none" } as const;
+
 const base = (extra: Partial<MeasureSpec> = {}): MeasureSpec => ({
   arms: { a: {} },
   task: "file it",
   trials: 1,
   spacingSec: 0,
-  env: { kind: "inherit", reason: "unit test: a fake runner" },
+  env: { kind: "local", inherit: "all", reason: "unit test: a fake runner" },
   stubs: [GH],
   measure: (ctx) => ({
     created: experimental_stub
@@ -390,14 +393,14 @@ test("the old argv-blind stub and a missing env are refused before the runner is
   );
   await assert.rejects(
     () => runEvalWith(looseSpec({ ...base(), ephemeralEnv: true }), r.run),
-    /`ephemeralEnv` was replaced by `env`[\s\S]*ephemeralEnv: true\s+→ env: \{ kind: "ephemeral" \}/,
+    /`ephemeralEnv` was replaced by `env`[\s\S]*ephemeralEnv: true\s+→ env: \{ kind: "local", inherit: "none" \}/,
   );
   await assert.rejects(
     () =>
       runEvalWith(
         base({
           env: {
-            kind: "ephemeral",
+            ...THROWAWAY,
             home: { kind: "files", files: { "../escape": "x" } },
           },
         }),
@@ -410,7 +413,7 @@ test("the old argv-blind stub and a missing env are refused before the runner is
       runEvalWith(
         base({
           env: {
-            kind: "ephemeral",
+            ...THROWAWAY,
             home: {
               kind: "files",
               files: { [AUTH_DIR]: "x", [`${AUTH_DIR}/x`]: "y" },
@@ -430,7 +433,8 @@ test("env ephemeral with a seed: the trial's HOME holds the seeded files", async
     base({
       stubs: undefined,
       env: {
-        kind: "ephemeral",
+        kind: "local",
+        inherit: "none",
         home: { kind: "files", files: { ".config/x/y.txt": "z" } },
       },
     }),
@@ -441,7 +445,7 @@ test("env ephemeral with a seed: the trial's HOME holds the seeded files", async
     },
   );
   assert.deepEqual(seen, ["z"]);
-  assert.deepEqual(report.env, { kind: "ephemeral" });
+  assert.deepEqual(report.env, { kind: "local", inherit: "none" });
 });
 
 /** Every file under `dir` as `relative path → text`. */
@@ -466,7 +470,8 @@ test("a cache snapshot never holds the throwaway HOME: no credentials, no seed",
     const spec = base({
       stubs: undefined,
       env: {
-        kind: "ephemeral",
+        kind: "local",
+        inherit: "none",
         home: { kind: "files", files: { ".config/x/seed.txt": "SEED-BODY" } },
       },
       model: "claude-sonnet-4-6-20260101",
@@ -502,7 +507,7 @@ test("a cache snapshot never holds the throwaway HOME: no credentials, no seed",
 test("the throwaway HOME lives beside the work dir and is removed with the trial", async () => {
   const seen: { home: string; cwd: string }[] = [];
   await runEvalWith(
-    base({ stubs: undefined, env: { kind: "ephemeral" } }),
+    base({ stubs: undefined, env: { kind: "local", inherit: "none" } }),
     (a) => {
       seen.push({ home: a.env?.HOME ?? "", cwd: a.cwd });
       return Promise.resolve({ code: 0, stdout: RESULT });
@@ -518,16 +523,37 @@ test("env inherit: the reason travels with the report and is printed", async () 
   const report = await runEvalWith(
     base({
       stubs: undefined,
-      env: { kind: "inherit", reason: "needs my real gh auth" },
+      env: { kind: "local", inherit: "all", reason: "needs my real gh auth" },
     }),
     ghRunner().run,
   );
   assert.deepEqual(report.env, {
-    kind: "inherit",
+    kind: "local",
+    inherit: "all",
     reason: "needs my real gh auth",
   });
   assert.match(
     formatEvalReport(report),
     /env: inherited your HOME and environment — needs my real gh auth/,
   );
+});
+
+test("a deprecated env spelling comes back in the report as the spec wrote it", async () => {
+  const old = [
+    { kind: "inherit", reason: "needs my real gh auth" },
+    { kind: "ephemeral" },
+  ] as const;
+  for (const env of old) {
+    const report = await runEvalWith(
+      base({ stubs: undefined, env }),
+      ghRunner().run,
+    );
+    // Guards: an unchanged spec's report keeps its shape across the minor bump.
+    assert.deepEqual(report.env, env);
+    // Guards: the old inherit spelling still prints its reason; ephemeral prints none.
+    assert.equal(
+      formatEvalReport(report).includes("gh auth"),
+      env.kind === "inherit",
+    );
+  }
 });

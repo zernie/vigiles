@@ -243,7 +243,8 @@ function recordingRunner(): {
 
 /** These specs drive a fake runner, so nothing is inherited by a real child. */
 const INHERIT = {
-  kind: "inherit",
+  kind: "local",
+  inherit: "all",
   reason: "unit test: a fake runner",
 } as const;
 function evalSpec(dir: string, extra: Record<string, unknown> = {}) {

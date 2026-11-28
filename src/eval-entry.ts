@@ -21,6 +21,7 @@ import {
   WorkspaceRefusalError,
 } from "./core/workspace.js";
 import { regressionCasesOf } from "./eval-spec-shape.js";
+import { ContainerRefusalError } from "./eval-container.js";
 import type { SelectionReport } from "./scan-behavioral.js";
 
 /** Every report this entry can produce. */
@@ -144,6 +145,7 @@ export function refusalText(err: unknown): string | undefined {
   if (err instanceof WorkspaceRefusalError)
     return `workspace refused — ${describeWorkspaceRefusal(err.refusal)}`;
   if (err instanceof RegressionCaseRefusalError) return err.message;
+  if (err instanceof ContainerRefusalError) return err.message;
   return undefined;
 }
 
@@ -222,9 +224,9 @@ function removedKindProblem(kind: RemovedEvalKind): string {
     kind === "measureArms" ? "keep `arms`" : "drop `arms` (one arm, `default`)";
   return (
     `\`defineEval({ ${kind}: … })\` was folded into \`runEval\` in v55 — rename the key:\n` +
-    `      defineEval({ runEval: { env: { kind: "inherit", reason: "…" }, …the same spec… } })\n` +
-    `  \`runEval\` takes \`checks\` as before (${arms}), and needs \`env\`: \`{ kind: "ephemeral" }\`, or\n` +
-    `  \`{ kind: "inherit", reason }\` for the HOME and environment ${kind} used. Its default model is\n` +
+    `      defineEval({ runEval: { env: { kind: "local", inherit: "all", reason: "…" }, …the same spec… } })\n` +
+    `  \`runEval\` takes \`checks\` as before (${arms}), and needs \`env\`: \`{ kind: "local", inherit: "none" }\`, or\n` +
+    `  \`{ kind: "local", inherit: "all", reason }\` for the HOME and environment ${kind} used. Its default model is\n` +
     `  \`haiku\` where ${kind}'s was \`sonnet\` — set \`model\` to keep measuring the same thing.`
   );
 }

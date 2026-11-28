@@ -1,0 +1,72 @@
+{
+  "version": 1,
+  "name": "orphan-process-container",
+  "inputsHash": "3f45ba69e9a3ec09",
+  "model": "haiku",
+  "harnessVersionKey": "2.1",
+  "evalApiVersion": 1,
+  "builtAt": "2026-11-28T11:04:09.231Z",
+  "report": {
+    "name": "orphan-process-container",
+    "trials": 3,
+    "arms": {
+      "default": {
+        "runs": 3,
+        "metrics": {
+          "started": 1,
+          "orphanAlive": 0
+        },
+        "stats": {
+          "started": {
+            "mean": 1,
+            "std": 0,
+            "se": 0,
+            "n": 3,
+            "passK": 1,
+            "successes": 3
+          },
+          "orphanAlive": {
+            "mean": 0,
+            "std": 0,
+            "se": 0,
+            "n": 3,
+            "passK": 0,
+            "successes": 0
+          }
+        },
+        "usage": {
+          "totalCostUsd": 0.0034942950000000006,
+          "meanCostUsd": 0.0011647650000000001,
+          "meanDurationMs": 2299.3333333333335,
+          "totalInputTokens": 12,
+          "totalOutputTokens": 462,
+          "totalCacheCreationTokens": 18889,
+          "totalCacheReadTokens": 90097
+        },
+        "unansweredStubCalls": [],
+        "context": [
+          {
+            "kind": "nothing-expected"
+          },
+          {
+            "kind": "nothing-expected"
+          },
+          {
+            "kind": "nothing-expected"
+          }
+        ]
+      }
+    },
+    "totalCostUsd": 0.0034942950000000006,
+    "chargedUsd": 0.0034942950000000006,
+    "unknownCostRuns": 0,
+    "aborted": false,
+    "env": {
+      "kind": "docker"
+    },
+    "containment": {
+      "kind": "container",
+      "image": "node:24-slim + @anthropic-ai/claude-code@2.1.332"
+    }
+  }
+}

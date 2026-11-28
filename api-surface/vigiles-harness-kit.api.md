@@ -52,6 +52,14 @@ export interface ConformanceResult {
 }
 
 // @public
+export interface ContainerImageDeclaration {
+    readonly authCure: string;
+    readonly authEnv: readonly string[];
+    egressProbe(env: Readonly<Record<string, string | undefined>>): string | undefined;
+    recipe(rawVersion: string): HarnessImageRecipe | undefined;
+}
+
+// @public
 export interface EvalDriver {
     readonly experimental?: string;
     readonly harness?: string;
@@ -94,8 +102,18 @@ export interface HarnessDialect {
 }
 
 // @public
+export interface HarnessImageRecipe {
+    // (undocumented)
+    readonly base: string;
+    readonly binary: string;
+    // (undocumented)
+    readonly npmPackages: readonly string[];
+}
+
+// @public
 export interface HarnessRuntime {
     readonly agentBinary: string;
+    readonly containerImage?: ContainerImageDeclaration;
     readonly mockApiKey: string;
     readonly modelApiKeyEnv: string;
     readonly modelBaseUrlEnv: string;
@@ -364,6 +382,7 @@ export interface RequestCapture {
 // @public
 export interface RequestChannel {
     close(): void;
+    readonly dir?: string;
     readonly env: Readonly<Record<string, string>>;
     firstRequest(): string | undefined;
     reset(): void;

@@ -36,7 +36,7 @@ function tmp(): string {
 
 /** A `runEval` spec scored by one check — data; nothing here runs it. */
 const SPEC = {
-  env: { kind: "inherit", reason: "unit test: never run" },
+  env: { kind: "local", inherit: "all", reason: "unit test: never run" },
   task: "t",
   checks: [check.tool("Bash")],
 } as const;

@@ -1,16 +1,13 @@
 /**
- * The eval spec boundary for `stubs` and `env` — parsed ONCE, before anything is
- * packaged or spent, into the plain data the runner then trusts.
+ * The eval spec boundary for `stubs` and `experimental_workspace` — parsed
+ * ONCE, before anything is packaged or spent, into the plain data the runner
+ * then trusts. `env` has its own boundary, `./run-env-parse.ts`.
  *
  * An eval file is often plain JavaScript, so no type checks its literal. A shape
  * the runner would silently mis-read must fail here, naming the field and the
- * rewrite. Two such shapes are the reason this module exists:
- *
- * - the old argv-blind stub `{ name, stdout }`, which printed one answer for
- *   every invocation (a fabricated observation for every command nobody
- *   anticipated);
- * - a spec with no `env`, which used to inherit your HOME and environment by
- *   default — so a comparison measured the author's machine.
+ * rewrite. The old argv-blind stub `{ name, stdout }`, which printed one answer
+ * for every invocation (a fabricated observation for every command nobody
+ * anticipated), is the reason this module exists.
  *
  * zod lives HERE and not in `stub-rules.ts`: the stub process reads its rules
  * once per `gh` call and must not pay for a schema library; the rules file it
@@ -24,7 +21,6 @@ import {
   type ArgvRest,
   type ToolStub,
 } from "./stub-rules.js";
-import { planHome, type RunEnv } from "./run-env.js";
 import type { RepoWorkspace } from "./workspace.js";
 
 /** `stubs[0].rules[1].argv` from a zod issue path. */
@@ -36,7 +32,7 @@ function pathText(root: string, path: readonly PropertyKey[]): string {
   );
 }
 
-function refuse(
+export function refuse(
   caller: string,
   root: string,
   error: Readonly<z.ZodError>,
@@ -160,59 +156,6 @@ export function parseToolStubs(
     );
   // The zod output has the shape; `toToolStub` gives it the type, without a cast.
   return parsed.data.map(toToolStub);
-}
-
-// --- env -----------------------------------------------------------------------
-
-const homeSeed = z.strictObject({
-  kind: z.literal("files"),
-  files: z.record(z.string(), z.string()),
-});
-const runEnv = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("ephemeral"), home: homeSeed.optional() }),
-  z.strictObject({
-    kind: z.literal("inherit"),
-    reason: z.string().refine((r) => r.trim() !== "", {
-      message: "say why this run must see your real HOME and environment",
-    }),
-  }),
-]);
-
-function envRequiredMessage(caller: string): string {
-  return (
-    `${caller}: \`env\` is required — say where each trial runs:\n` +
-    `    env: { kind: "ephemeral" }               a throwaway HOME and a scrubbed environment; only the harness's own auth passes\n` +
-    `    env: { kind: "inherit", reason: "…" }    your real HOME and environment; the reason is printed with the report\n` +
-    `  There is no default. Inheriting measures your machine (your config, your tokens), and an ephemeral run\n` +
-    `  fails on its first trial if your auth is not where the harness expects it — so the choice is yours to make.`
-  );
-}
-
-/**
- * Parse an eval spec's `env`, including its seeded HOME: every seed path is
- * HOME-relative, stays inside HOME, and does not overwrite one of the harness's
- * own auth files (`keepHomeFiles`). Throws before any trial on a bad value.
- */
-export function parseRunEnv(
-  raw: unknown,
-  caller: string,
-  keepHomeFiles: readonly string[],
-): RunEnv {
-  if (raw === undefined) throw new Error(envRequiredMessage(caller));
-  if (isObj(raw) && raw.kind === "inherit" && "home" in raw)
-    throw new Error(
-      `${caller}: env.home: \`home\` exists only on an ephemeral env: seeding would write into your real HOME. ` +
-        `Use env: { kind: "ephemeral", home: … }.`,
-    );
-  const parsed = runEnv.safeParse(raw);
-  if (!parsed.success) refuse(caller, "env", parsed.error);
-  const env = parsed.data;
-  if (env.kind === "ephemeral" && env.home !== undefined) {
-    const plan = planHome(env.home, keepHomeFiles);
-    if (plan.kind === "refused")
-      throw new Error(`${caller}: env.home.files: ${plan.reason}`);
-  }
-  return env;
 }
 
 // --- workspace -----------------------------------------------------------------

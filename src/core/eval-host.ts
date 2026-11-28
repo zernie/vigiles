@@ -6,6 +6,7 @@
  */
 import type { RegressionCaseHost } from "./case-scoring.js";
 import type { CaseWorldHost } from "./case-world.js";
+import type { ContainerHost } from "./container.js";
 import type { WorkspaceHost } from "./workspace.js";
 
 /** The eval engine's fingerprint, or where it should have been. */
@@ -24,4 +25,7 @@ export interface EngineHost {
 export type EvalHost = WorkspaceHost &
   RegressionCaseHost &
   CaseWorldHost &
-  EngineHost;
+  EngineHost & {
+    /** Runs an attempt in a container (`env: { kind: "docker" }`); absent on a host without that adapter. */
+    readonly container?: ContainerHost;
+  };

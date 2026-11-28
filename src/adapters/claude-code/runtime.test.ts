@@ -25,6 +25,40 @@ test("claudeCodeRuntime.versionKey reduces to major.minor (patches don't churn)"
   assert.equal(claudeCodeRuntime.versionKey("nonsense"), "nonsense"); // fallback
 });
 
+test("the container image installs the host binary's exact version, or nothing", () => {
+  const image = claudeCodeRuntime.containerImage;
+  // Guards: the adapter declares an image, so a container run can plan one.
+  assert.ok(image !== undefined);
+  const recipe = image.recipe("2.1.180 (Claude Code)\n");
+  // Guards: the FULL version is pinned (not major.minor), so the container
+  // runs the same binary the host has.
+  assert.deepEqual(recipe?.npmPackages, ["@anthropic-ai/claude-code@2.1.180"]);
+  // Guards: the run starts the binary the host runner spawns.
+  assert.equal(recipe?.binary, claudeCodeRuntime.agentBinary);
+  // Guards: no version printed means no image, never a floating `latest`.
+  assert.equal(image.recipe("unknown"), undefined);
+  // Guards: with no backend variable, the preflight probes the model API's own origin, over HTTPS.
+  assert.equal(
+    new URL(image.egressProbe({}) ?? "").origin,
+    "https://api.anthropic.com",
+  );
+  // Guards: a base URL moves the probe with it, so a gateway user is asked about the gateway.
+  assert.equal(
+    image.egressProbe({ ANTHROPIC_BASE_URL: "https://gw.example.test/v1" }),
+    "https://gw.example.test/v1",
+  );
+  // Guards: a cloud backend names no host here, so nothing is probed and nothing is refused.
+  for (const name of [
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+  ])
+    assert.equal(image.egressProbe({ [name]: "1" }), undefined, name);
+  // Guards: the macOS cure is the command that mints a token the env carries.
+  assert.ok(image.authEnv.includes("CLAUDE_CODE_OAUTH_TOKEN"));
+  assert.equal(image.authCure, "claude setup-token");
+});
+
 test("mockModelEnv layers the mock URL + dummy key over the base env", () => {
   const env = mockModelEnv(claudeCodeRuntime, "http://127.0.0.1:9999", {
     PATH: "/usr/bin",

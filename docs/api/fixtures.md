@@ -32,7 +32,7 @@ const gh = experimental_stub("gh", [
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" },
+    env: { kind: "local", inherit: "none" },
     stubs: [gh],
     arms: { baseline: {}, skill: { pluginDir: "./my-plugin" } },
     task: "File this as an issue: init breaks in a Yarn PnP repo.",

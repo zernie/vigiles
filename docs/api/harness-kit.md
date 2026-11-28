@@ -110,6 +110,8 @@ executableSourceDirs(claudeCodeAdapter.layout); // the same plus "hooks"
 - `RunEnvPolicy`: which environment variables and home files a child run keeps.
 - `HookProtocol`: how a hook signals block, deny and injection, and how hooks are registered.
 - `ModelMock`: the mock model's wire format and endpoints.
+- `ContainerImageDeclaration`: the `HarnessRuntime.containerImage` field: the image a container run is built from, the URL a container must reach, and the auth it needs.
+- `HarnessImageRecipe`: what that declaration resolves to for one run: the base image, the npm packages that put the harness binary in it, and the binary.
 
 ### Output styles and skill listing
 

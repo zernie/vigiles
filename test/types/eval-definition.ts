@@ -22,7 +22,11 @@ import type {
 } from "../../dist/entries/index.js";
 import type { SelectionReport } from "../../dist/entries/harness/claude-code.js";
 
-const env = { kind: "inherit", reason: "a type test: never run" } as const;
+const env = {
+  kind: "local",
+  inherit: "all",
+  reason: "a type test: never run",
+} as const;
 
 // Each key picks the report type of its own runner — no cast at the call site.
 defineEval({
@@ -31,7 +35,7 @@ defineEval({
 });
 defineEval({
   runEval: {
-    env: { kind: "ephemeral" },
+    env: { kind: "local", inherit: "none" },
     arms: {},
     task: "t",
     measure: () => ({ ok: 1 }),
@@ -85,11 +89,16 @@ defineEval({
   // @ts-expect-error a former `measure` spec needs an `env` too
   runEval: { task: "t", checks: [check.tool("Bash")] },
 });
-// `home` exists only on an ephemeral env — "seed my real HOME" cannot be written.
-// @ts-expect-error no `home` on an inherited env
+// `home` exists only on a throwaway HOME — "seed my real HOME" cannot be written.
+// @ts-expect-error no `home` on `inherit: "all"`
 defineEval({
   runEval: {
-    env: { kind: "inherit", reason: "r", home: { kind: "files", files: {} } },
+    env: {
+      kind: "local",
+      inherit: "all",
+      reason: "r",
+      home: { kind: "files", files: {} },
+    },
     arms: {},
     task: "t",
     measure: () => ({ ok: 1 }),

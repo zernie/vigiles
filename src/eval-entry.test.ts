@@ -25,6 +25,7 @@ import {
   UNANSWERED_STUB_EXIT_CODE,
 } from "./eval-entry.js";
 import type { EvalReport } from "./eval.js";
+import { ContainerRefusalError } from "./eval-container.js";
 import { aggregateUsage } from "./core/eval-aggregate.js";
 import { ARGV_REST, type StubCall } from "./core/stub-rules.js";
 import { EvalSpecRefusalError } from "./core/regression-case-entries.js";
@@ -340,7 +341,7 @@ const STUBBED_EVAL =
   `    task: "file it",\n` +
   `    trials: 1,\n` +
   `    spacingSec: 0,\n` +
-  `    env: { kind: "inherit", reason: "test: a fake claude on PATH" },\n` +
+  `    env: { kind: "local", inherit: "all", reason: "test: a fake claude on PATH" },\n` +
   `    stubs: [experimental_stub("gh", [{ argv: ["issue", "create", rest], reply: { kind: "always", stdout: "https://github.com/o/r/issues/1\\n" } }])],\n` +
   `    measure: () => ({ ok: true }),\n` +
   `  },\n` +
@@ -430,6 +431,12 @@ test("refusalText: a refusal before any trial is its own line; any other throw i
   });
   assert.equal(refusalText(caseRefusal), caseRefusal.message);
   assert.equal(refusalText(new Error("boom")), undefined);
+});
+
+test("refusalText: a container run that cannot start is refused with its own line", () => {
+  const refusal = new ContainerRefusalError("needs Docker. Start it.");
+  // Guards: `vigiles eval` prints the cure as a refusal (exit 1), not a stack.
+  assert.equal(refusalText(refusal), refusal.message);
 });
 
 test("checkCaseList refuses a malformed case list of runEval, and reads no other measurement", () => {

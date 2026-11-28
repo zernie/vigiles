@@ -453,7 +453,7 @@ import { defineEval } from "vigiles";
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" },
+    env: { kind: "local", inherit: "none" },
     fixture: { "src/billing.ts": "export function chargeCard() {}" },
     arms: {
       vanilla: {},
@@ -592,7 +592,7 @@ import { assertRates } from "vigiles/eval";
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" },
+    env: { kind: "local", inherit: "none" },
     pluginDir: ".",
     task: "…",
     checks: [check.skill("me:greet")],
@@ -730,6 +730,7 @@ paying for a real model only at the eval tier.
 - [`effect-boundary.harness.mjs`](../examples/harness/effect-boundary.harness.mjs) — assert a unit stayed inside its declared write surface (`check.writes` / `check.tool(…, { max: 0 })`), deterministic, no key.
 - [`skill-trigger-rate.eval.mjs`](../examples/harness/skill-trigger-rate.eval.mjs) — does a skill's description _fire_? (`measureTriggerRate`)
 - [`skill-outcome.eval.mjs`](../examples/harness/skill-outcome.eval.mjs) — does a skill change the agent's output?
+- [`orphan-process.eval.mjs`](../examples/harness/orphan-process.eval.mjs) — is a background process the agent started gone before the attempt is scored? (`env: { kind: "docker" }`, needs Docker; [why](measuring-skills.md#ending-every-process-an-attempt-started--docker)). Its twin [`orphan-process-host.eval.mjs`](../examples/harness/orphan-process-host.eval.mjs) runs the same task on the host and scores the orphan as alive.
 
 ## Per-harness guides
 

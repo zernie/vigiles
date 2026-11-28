@@ -41,7 +41,11 @@ describe("replies in the eval tier", () => {
   it("reach the checks of a measured run", async () => {
     const report = await runEvalWith(
       {
-        env: { kind: "inherit", reason: "unit test: a scripted runner" },
+        env: {
+          kind: "local",
+          inherit: "all",
+          reason: "unit test: a scripted runner",
+        },
         task: "hi",
         checks: [
           check.output(/\*\*Status\*\*/, { eachReply: true }),

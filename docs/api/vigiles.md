@@ -111,7 +111,7 @@ import { defineEval, check } from "vigiles";
 
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" },
+    env: { kind: "local", inherit: "none" },
     task: "Write hello.txt containing 'hi'",
     trials: 3,
     checks: [check.writes({ include: ["hello.txt"] })],
@@ -209,7 +209,7 @@ import { defineEval } from "vigiles";
 import { assertRates } from "vigiles/eval";
 export default defineEval({
   runEval: {
-    env: { kind: "ephemeral" },
+    env: { kind: "local", inherit: "none" },
     pluginDir: "./my-plugin", // or skillsDir: ".claude/skills" (loose, auto-packaged)
     task: "…",
     checks: [check.skill("vigiles:test-harness")],
@@ -349,8 +349,9 @@ The types below describe these: `EmitFieldSchema`, `EmitObjectSchema`, `EmitProp
 | `HookInput`             | The event object piped to a hook.                                                  |
 | `HookOutput`            | The JSON a hook may print.                                                         |
 | `SandboxMode`           | `"auto"`, `"strict"` or `false`.                                                   |
-| `RunEnv`                | Where an eval trial runs: an ephemeral directory, or a stated inherit.             |
-| `HomeSeed`              | Files seeded into an ephemeral HOME.                                               |
+| `RunEnv`                | Where an eval trial runs: on your machine (inheriting all or none), or in Docker.  |
+| `DockerRunEnv`          | The container kind of `RunEnv`: a throwaway HOME plus container options.           |
+| `HomeSeed`              | Files seeded into a throwaway HOME.                                                |
 | `HomeFiles`             | Path-to-contents map used by `HomeSeed`.                                           |
 | `SkillContract`         | What `readSkillContract` returns: ready checks built from the skill's frontmatter. |
 | `SkillContractOptions`  | Options of `readSkillContract`.                                                    |
@@ -411,6 +412,7 @@ The types below describe these: `EmitFieldSchema`, `EmitObjectSchema`, `EmitProp
 | `SelectionMatrixSpec` | Input of the selection-matrix measurement.                                |
 | `EvalSpec`            | One task over trials: `arms` or one, `checks` or `measure`.               |
 | `EvalArm`             | One arm of an A/B.                                                        |
+| `ContainerOptions`    | The container settings an eval may pass: image, limits, network, tmpfs.   |
 | `TriggerRateSpec`     | Whether a skill's description fires, over a prompt set.                   |
 | `Metrics`             | The metric record an eval callback returns.                               |
 | `EvalReport`          | The report of `paid_runEval` (eval key `runEval`), however it was scored. |

@@ -190,8 +190,14 @@ export type {
   StubRule,
   ToolStub,
 } from "../core/stub-rules.js";
-// Where an eval trial runs (`EvalSpec.env`).
-export type { HomeFiles, HomeSeed, RunEnv } from "../core/run-env.js";
+// Where an eval trial runs (`EvalSpec.env`), a container being one kind.
+export type {
+  DockerRunEnv,
+  HomeFiles,
+  HomeSeed,
+  RunEnv,
+} from "../core/run-env.js";
+export type { ContainerOptions } from "../core/container.js";
 
 // The assembled machine — AGNOSTIC SURFACE ONLY. The Claude-Code transport
 // (`scriptModel`, `claudeCodeDriver`, `buildClaudeArgs`, `claudeAvailable`,

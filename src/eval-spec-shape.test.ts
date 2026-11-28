@@ -12,7 +12,11 @@ import { check, judged } from "./check.js";
 import { runEvalWith, type AgentRunner, type EvalSpec } from "./eval.js";
 import { DEFAULT_ARM, shapeEvalSpec } from "./eval-spec-shape.js";
 
-const INHERIT = { kind: "inherit", reason: "unit test: never run" } as const;
+const INHERIT = {
+  kind: "local",
+  inherit: "all",
+  reason: "unit test: never run",
+} as const;
 
 const neverRuns: AgentRunner = () => {
   throw new Error("the runner must not be reached");

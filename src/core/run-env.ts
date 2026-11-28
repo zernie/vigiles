@@ -6,7 +6,7 @@
  *
  * - SCRUBBED (`scrubbedRunEnv`): a throwaway HOME/TMPDIR, the OS essentials, the
  *   harness's declared auth, and the caller's own named extras. Everything else
- *   is dropped. The eval tier's `env: { kind: "ephemeral" }` and the harness-tier preflight of
+ *   is dropped. The eval tier's `env: { kind: "local", inherit: "none" }` and the harness-tier preflight of
  *   `experimental_outputStyleArms` use it.
  * - INHERITED (`withoutSessionIdentity`): the caller's env as-is, minus the
  *   harness's declared session identity. The default spawn of both tiers.
@@ -17,6 +17,7 @@
  *
  * Pure — no fs, no spawn.
  */
+import type { ContainerOptions } from "./container.js";
 import type { RunEnvPolicy } from "./runtime.js";
 
 type EnvLike = Readonly<Record<string, string | undefined>>;
@@ -110,19 +111,110 @@ export interface HomeSeed {
 }
 
 /**
- * Where a run executes. Two cases, and `home` exists only on `ephemeral`: there
- * is no way to write "seed my real HOME".
+ * A run in its own container per attempt: the same throwaway HOME and scrubbed
+ * environment as `{ kind: "local", inherit: "none" }` (seeded from `home`, then
+ * given the harness's own auth files), plus the {@link ContainerOptions} that
+ * cannot break the containment. It has no `inherit`: a container never sees
+ * your real HOME or environment.
  *
- * - `ephemeral` — a throwaway HOME (seeded from `home`, then given the
- *   harness's own auth files) and a scrubbed environment.
- * - `inherit` — your real HOME and environment, minus the parent session's
- *   identity. `reason` says why, and is printed with the report.
+ * @public
+ */
+export interface DockerRunEnv extends ContainerOptions {
+  readonly kind: "docker";
+  readonly home?: HomeSeed;
+}
+
+/**
+ * Where a run executes. `home` exists only where the HOME is a throwaway one:
+ * there is no way to write "seed my real HOME", and no way to put a container
+ * around your real one.
+ *
+ * - `{ kind: "local", inherit: "all", reason }` — your real HOME and
+ *   environment, minus the parent session's identity, on your machine. `reason`
+ *   says why, and is printed with the report.
+ * - `{ kind: "local", inherit: "none", home? }` — a throwaway HOME (seeded from
+ *   `home`, then given the harness's own auth files) and a scrubbed
+ *   environment, on your machine.
+ * - `{ kind: "docker", home?, …options }` — the same throwaway HOME and
+ *   environment, in a fresh container per attempt, stopped before the attempt
+ *   is scored.
+ *
+ * `{ kind: "inherit" }` and `{ kind: "ephemeral" }` still parse, as the first
+ * two, and print one deprecation warning naming the new spelling.
  *
  * @public
  */
 export type RunEnv =
-  | { readonly kind: "ephemeral"; readonly home?: HomeSeed }
-  | { readonly kind: "inherit"; readonly reason: string };
+  | {
+      readonly kind: "local";
+      readonly inherit: "all";
+      readonly reason: string;
+    }
+  | {
+      readonly kind: "local";
+      readonly inherit: "none";
+      readonly home?: HomeSeed;
+    }
+  | DockerRunEnv
+  | /** @deprecated Use `{ kind: "local", inherit: "all", reason }`. */ {
+      readonly kind: "inherit";
+      readonly reason: string;
+    }
+  | /** @deprecated Use `{ kind: "local", inherit: "none", home? }`. */ {
+      readonly kind: "ephemeral";
+      readonly home?: HomeSeed;
+    };
+
+/**
+ * A {@link RunEnv} after the parse: only the current spellings. Everything past
+ * the parse boundary takes this, so no code can branch on a deprecated kind.
+ */
+export type NormalizedRunEnv = Exclude<
+  RunEnv,
+  { readonly kind: "inherit" | "ephemeral" }
+>;
+
+/** A run on your machine: one of the two `local` cases. */
+export type LocalRunEnv = Extract<NormalizedRunEnv, { readonly kind: "local" }>;
+
+/** The current spelling of `env`, the deprecated `inherit`/`ephemeral` included. */
+export function normalizeRunEnv(env: RunEnv): NormalizedRunEnv {
+  switch (env.kind) {
+    case "inherit":
+      return { kind: "local", inherit: "all", reason: env.reason };
+    case "ephemeral":
+      return env.home === undefined
+        ? { kind: "local", inherit: "none" }
+        : { kind: "local", inherit: "none", home: env.home };
+    case "local":
+    case "docker":
+      return env;
+  }
+}
+
+/** The HOME a run gets: a throwaway one, seeded from `seed`, or your real one. */
+export type RunHome =
+  | { readonly kind: "throwaway"; readonly seed: HomeSeed | undefined }
+  | { readonly kind: "real" };
+
+/** Which HOME `env` runs with. The one place that decides it. */
+export function runHome(env: NormalizedRunEnv): RunHome {
+  switch (env.kind) {
+    case "docker":
+      return { kind: "throwaway", seed: env.home };
+    case "local":
+      return localHome(env);
+  }
+}
+
+function localHome(env: LocalRunEnv): RunHome {
+  switch (env.inherit) {
+    case "none":
+      return { kind: "throwaway", seed: env.home };
+    case "all":
+      return { kind: "real" };
+  }
+}
 
 /** One file a seed writes, HOME-relative. */
 export interface HomeFile {

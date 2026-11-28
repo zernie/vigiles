@@ -383,6 +383,29 @@ jobs:
       # loses nothing from the blob — it only suppresses a partial table that
       # reads like a coverage figure.
 
+  container:
+    # The Docker-backed tests of the eval container runner (vigiles#599). They
+    # need testcontainers 12, which needs Node >= 22.22, so the Node 20 `test`
+    # job skips them loudly and this job runs them on Node 22. Only this file:
+    # everything else already runs in `test`.
+    needs: changes
+    if: needs.changes.outputs.root == 'true'
+    runs-on: ubuntu-latest
+    # Measured: 50 s on the first run (2026-11-28); ~3x that.
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - run: npm ci
+
+      - name: Container runner tests against the runner's Docker
+        run: npx vitest run src/host/container.io.test.ts
+
   check:
     runs-on: ubuntu-latest
     # 🔴 A DRAFT PULL REQUEST PAYS NOTHING. Until 2026-09-21 this workflow had no
@@ -473,7 +496,7 @@ jobs:
         uses: ./
         with:
           command: eval-check
-          paths: examples/harness/skill-trigger-rate.eval.mjs
+          paths: examples/harness/skill-trigger-rate.eval.mjs examples/harness/orphan-process.eval.mjs examples/harness/orphan-process-host.eval.mjs
           version: local
           comment: "false"
 
