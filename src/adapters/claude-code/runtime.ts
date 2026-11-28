@@ -88,13 +88,17 @@ const isFullVersion = (token: string): boolean => {
   return parts.length === 3 && parts.every((p) => /^\d+$/.test(p));
 };
 
+/** Where `claude` sends model requests unless a backend variable points it elsewhere. */
+const CLAUDE_MODEL_API_ORIGIN = "https://api.anthropic.com";
+
 /**
  * The image a container eval attempt of `claude` runs in: Node 24 slim, with
  * the npm package of the SAME version as the host's binary (the full
  * `x.y.z`, not the `major.minor` cache key: the image must be the binary the
  * host measured). A subscription login on macOS is in the Keychain, which a
  * Linux container cannot read, so a container run needs a token in the env;
- * `claude setup-token` mints one.
+ * `claude setup-token` mints one. The preflight asks whether a container can
+ * reach the model API by requesting its origin (`egressProbe`).
  */
 const claudeCodeContainerImage: ContainerImageDeclaration = {
   recipe(rawVersion: string): HarnessImageRecipe | undefined {
@@ -105,6 +109,7 @@ const claudeCodeContainerImage: ContainerImageDeclaration = {
           base: "node:24-slim",
           npmPackages: [`@anthropic-ai/claude-code@${version}`],
           binary: "claude",
+          egressProbe: CLAUDE_MODEL_API_ORIGIN,
         };
   },
   authEnv: ["CLAUDE_CODE_OAUTH_TOKEN", "ANTHROPIC_API_KEY"],

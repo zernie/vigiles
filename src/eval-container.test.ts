@@ -195,8 +195,8 @@ test("every preflight answer but ready stops the run with its own cure", () => {
     [{ kind: "ryuk-disabled" }, "TESTCONTAINERS_RYUK_DISABLED"],
     [{ kind: "mount-failed", path: "/p", detail: "x" }, "File sharing"],
     [
-      { kind: "localhost-proxy", variable: "HTTPS_PROXY" },
-      "host.docker.internal",
+      { kind: "no-egress", url: "https://x.example", detail: "E" },
+      "NODE_EXTRA_CA_CERTS",
     ],
     [{ kind: "image-failed", detail: "x" }, "Check the image name"],
   ];
@@ -209,4 +209,23 @@ test("every preflight answer but ready stops the run with its own cure", () => {
   }
   // Guards: ready lets the run go on.
   assert.equal(preflightRefusal({ kind: "ready" }), undefined);
+});
+
+test("no-egress names the URL, the error and both cures on one line", () => {
+  const line =
+    preflightRefusal({
+      kind: "no-egress",
+      url: "https://api.example.test",
+      detail: "SELF_SIGNED_CERT_IN_CHAIN\n",
+    }) ?? "";
+  // Guards: the user sees which URL a container could not reach.
+  assert.ok(line.includes("https://api.example.test"), line);
+  // Guards: and the error code the request failed with, so a TLS failure reads as one.
+  assert.ok(line.includes("SELF_SIGNED_CERT_IN_CHAIN"), line);
+  // Guards: the cure for a proxy that decrypts HTTPS is its CA in NODE_EXTRA_CA_CERTS.
+  assert.ok(line.includes("NODE_EXTRA_CA_CERTS"), line);
+  // Guards: an offline network mode is named as a cause too.
+  assert.ok(line.includes('networkMode: "none"'), line);
+  // Guards: one line even when the detail carried a newline.
+  assert.ok(!line.includes("\n"), line);
 });

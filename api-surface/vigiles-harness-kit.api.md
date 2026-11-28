@@ -105,6 +105,7 @@ export interface HarnessImageRecipe {
     // (undocumented)
     readonly base: string;
     readonly binary: string;
+    readonly egressProbe?: string;
     // (undocumented)
     readonly npmPackages: readonly string[];
 }

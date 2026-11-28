@@ -33,6 +33,7 @@ import {
   type Tc,
 } from "./container-attempt.io.js";
 import {
+  hostCaOf,
   imageResolver,
   packRunningVigiles,
   type ImageFor,
@@ -49,12 +50,14 @@ export { RUNNER_LABEL } from "./container-attempt.io.js";
 
 /** What the adapter reads from the machine; replaced in tests. */
 export interface ContainerHostDeps {
-  /** The environment the preflight reads (Ryuk and proxy settings). */
+  /** The environment the preflight reads (the Ryuk setting). */
   readonly env: Readonly<Record<string, string | undefined>>;
   /** Loads `testcontainers`; a rejection is `no-testcontainers`. */
   readonly importTestcontainers: () => Promise<Tc>;
   /** The bytes of `npm pack` of the running vigiles package. */
   readonly packVigiles: () => Promise<Buffer>;
+  /** The host CA a built image trusts, from `NODE_EXTRA_CA_CERTS`; undefined for none. */
+  readonly hostCa: () => Readonly<Buffer> | undefined;
 }
 
 /** Every env value worth redacting: one under 4 characters is no secret. */
@@ -139,16 +142,20 @@ async function preflightWith(
 
 /** The adapter, over injectable machine reads. */
 export function makeContainerHost(deps: ContainerHostDeps): ContainerHost {
-  const w: Wired = { deps, imageFor: imageResolver(deps.packVigiles) };
+  const w: Wired = {
+    deps,
+    imageFor: imageResolver({ pack: deps.packVigiles, hostCa: deps.hostCa }),
+  };
   return {
     preflight: (args) => preflightWith(w, args),
     run: (args) => scrubbed(secretsOf(args.run.env), () => runAttempt(w, args)),
   };
 }
 
-/** The adapter on this machine: `process.env`, the real `testcontainers`, this package's tarball. */
+/** The adapter on this machine: `process.env`, the real `testcontainers`, this package's tarball, the host CA. */
 export const containerHost: ContainerHost = makeContainerHost({
   env: process.env,
   importTestcontainers: () => import("testcontainers"),
   packVigiles: packRunningVigiles,
+  hostCa: () => hostCaOf(process.env),
 });

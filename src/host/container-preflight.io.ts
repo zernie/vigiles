@@ -1,9 +1,11 @@
 /**
  * The checks `./container.io.ts` runs once before trial 1 (vigiles#599), each
  * ending in the `ContainerPreflight` kind whose cure the user can act on:
- * the environment first (Ryuk turned off, a proxy on this machine that a
- * container cannot reach), then Docker itself, the image, and a round trip
- * through every mount from inside a container started the way a run's is.
+ * the environment first (Ryuk turned off), then Docker itself, then, from
+ * inside a container started the way a run's is, the image, the network the
+ * harness needs (a request to the recipe's `egressProbe` URL with the image's
+ * own `node`, so a proxy, its CA and the network mode are all asked rather
+ * than guessed from a variable's text), and a round trip through every mount.
  */
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, rmSync } from "node:fs";
@@ -28,44 +30,17 @@ export type PreflightArgs = Parameters<ContainerHost["preflight"]>[0];
 type Env = Readonly<Record<string, string | undefined>>;
 type Finding = ContainerPreflight | undefined;
 
-/** The variables a proxy is read from, in the order they are checked. */
-const PROXY_VARIABLES = [
-  "HTTPS_PROXY",
-  "https_proxy",
-  "HTTP_PROXY",
-  "http_proxy",
-  "ALL_PROXY",
-  "all_proxy",
-] as const;
-
-const isLoopback = (hostname: string): boolean =>
-  ["localhost", "[::1]", "0.0.0.0"].includes(hostname) ||
-  hostname.startsWith("127.");
-
-const proxyHost = (value: string): string | undefined => {
-  const withScheme = value.includes("://") ? value : `http://${value}`;
-  return URL.canParse(withScheme) ? new URL(withScheme).hostname : undefined;
-};
-
-/** The first proxy variable that points at this machine, which a container cannot reach. */
-export function localhostProxyVariable(env: Env): string | undefined {
-  return PROXY_VARIABLES.find((name) => {
-    const host = proxyHost(env[name] ?? "");
-    return host !== undefined && isLoopback(host);
-  });
-}
+/** How long the egress probe waits for an answer before it calls the URL unreachable. */
+const EGRESS_TIMEOUT_MS = 15_000;
 
 const truthy = (value: string | undefined): boolean =>
   ["true", "1", "yes"].includes((value ?? "").trim().toLowerCase());
 
 /** The checks that need no Docker: the environment the container would run under. */
 export function envPreflight(env: Env): Finding {
-  if (truthy(env.TESTCONTAINERS_RYUK_DISABLED))
-    return { kind: "ryuk-disabled" };
-  const variable = localhostProxyVariable(env);
-  return variable === undefined
-    ? undefined
-    : { kind: "localhost-proxy", variable };
+  return truthy(env.TESTCONTAINERS_RYUK_DISABLED)
+    ? { kind: "ryuk-disabled" }
+    : undefined;
 }
 
 /**
@@ -146,12 +121,43 @@ async function probeImage(
     : { kind: "image-failed", detail: r.stderr.trim() };
 }
 
+/**
+ * Requests `process.argv[1]` and exits 0 on ANY HTTP status (the server
+ * answered); on a network or TLS failure prints the error's code (the
+ * `cause` of fetch's "fetch failed"), else its message, and exits 1.
+ */
+const EGRESS_SCRIPT =
+  "fetch(process.argv[1], { method: 'HEAD', redirect: 'manual', signal: AbortSignal.timeout(Number(process.argv[2])) })" +
+  ".then(() => process.exit(0), (e) => { const c = e.cause ?? e; " +
+  "console.error(typeof c.code === 'string' ? c.code : String(c.message || c.name || c)); process.exit(1); });";
+
+/** The harness's network, asked: the recipe's URL requested with the image's `node`, under the image's env. */
+async function probeEgress(
+  c: Readonly<Started>,
+  recipe: HarnessImageRecipe,
+): Promise<Finding> {
+  const url = recipe.egressProbe;
+  if (url === undefined) return undefined;
+  const r = await c.exec([
+    "node",
+    "-e",
+    EGRESS_SCRIPT,
+    url,
+    String(EGRESS_TIMEOUT_MS),
+  ]);
+  if (r.exitCode === 0) return undefined;
+  const detail = r.stderr.trim() || `exit ${String(r.exitCode)}`;
+  return { kind: "no-egress", url, detail };
+}
+
 async function probeAll(
   c: Readonly<Started>,
   args: PreflightArgs,
 ): Promise<ContainerPreflight> {
   const image = await probeImage(c, args.recipe);
   if (image !== undefined) return image;
+  const egress = await probeEgress(c, args.recipe);
+  if (egress !== undefined) return egress;
   const found = await Promise.all(args.mounts.map((m) => probeMount(c, m)));
   return found.find((f) => f !== undefined) ?? { kind: "ready" };
 }

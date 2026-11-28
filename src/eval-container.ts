@@ -120,8 +120,8 @@ export function preflightRefusal(p: ContainerPreflight): string | undefined {
       return `${CONTAINER} needs Ryuk, the testcontainers reaper that removes a container vigiles could not, and TESTCONTAINERS_RYUK_DISABLED turns it off. Unset it, ${RERUN}`;
     case "mount-failed":
       return `${CONTAINER} could not mount ${p.path} into a container (${oneLine(p.detail)}). Share that directory with Docker (Docker Desktop: Settings → Resources → File sharing), ${RERUN}`;
-    case "localhost-proxy":
-      return `${CONTAINER}: ${p.variable} points at localhost, which inside a container is the container itself, so the model API cannot be reached. Point it at host.docker.internal or the proxy's own address, ${RERUN}`;
+    case "no-egress":
+      return `${CONTAINER}: a container could not reach ${p.url} (${oneLine(p.detail)}). Behind a proxy that decrypts HTTPS, point NODE_EXTRA_CA_CERTS at its CA file (the image is built to trust it); networkMode: "none" blocks the model API too, ${RERUN}`;
     case "image-failed":
       return `${CONTAINER} could not build or pull its image (${oneLine(p.detail)}). Check the image name and the network, ${RERUN}`;
   }
