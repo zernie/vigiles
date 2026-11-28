@@ -101,7 +101,18 @@ export type ContainerAttempt =
 export type ContainerPreflight =
   | { readonly kind: "ready" }
   | { readonly kind: "no-docker"; readonly detail: string }
+  | {
+      /** This Node is older than the one testcontainers declares it needs. */
+      readonly kind: "node-too-old";
+      readonly have: string;
+      readonly need: string;
+    }
   | { readonly kind: "no-testcontainers" }
+  | {
+      /** Installed, yet its import threw (not a missing package). */
+      readonly kind: "testcontainers-failed";
+      readonly detail: string;
+    }
   | { readonly kind: "ryuk-disabled" }
   | {
       readonly kind: "mount-failed";

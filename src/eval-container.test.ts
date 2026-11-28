@@ -207,6 +207,11 @@ test("every preflight answer but ready stops the run with its own cure", () => {
       "Start Docker Desktop (macOS) or the docker service (Linux)",
     ],
     [{ kind: "no-testcontainers" }, "npm i -D testcontainers"],
+    [{ kind: "testcontainers-failed", detail: "x" }, "Reinstall it"],
+    [
+      { kind: "node-too-old", have: "20.19.5", need: "22.22" },
+      "Node 22.22 or newer",
+    ],
     [{ kind: "ryuk-disabled" }, "TESTCONTAINERS_RYUK_DISABLED"],
     [{ kind: "mount-failed", path: "/p", detail: "x" }, "File sharing"],
     [

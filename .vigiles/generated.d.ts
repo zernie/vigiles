@@ -397,7 +397,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 759 project files. */
+  /** 761 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -994,6 +994,7 @@ declare module "vigiles/generated" {
     | "src/host/container-env.io.ts"
     | "src/host/container-image.io.test.ts"
     | "src/host/container-image.io.ts"
+    | "src/host/container-preflight.io.test.ts"
     | "src/host/container-preflight.io.ts"
     | "src/host/container.io.test.ts"
     | "src/host/container.io.ts"
@@ -1011,6 +1012,7 @@ declare module "vigiles/generated" {
     | "src/host/repo-copy.io.ts"
     | "src/host/rule-proof.io.test.ts"
     | "src/host/rule-proof.io.ts"
+    | "src/host/workspace-host.io.test.ts"
     | "src/host/workspace-host.io.ts"
     | "src/instruction-sources.test.ts"
     | "src/instruction-sources.ts"
@@ -2121,6 +2123,7 @@ declare module "vigiles/spec" {
       | "src/host/container-env.io.ts"
       | "src/host/container-image.io.test.ts"
       | "src/host/container-image.io.ts"
+      | "src/host/container-preflight.io.test.ts"
       | "src/host/container-preflight.io.ts"
       | "src/host/container.io.test.ts"
       | "src/host/container.io.ts"
@@ -2138,6 +2141,7 @@ declare module "vigiles/spec" {
       | "src/host/repo-copy.io.ts"
       | "src/host/rule-proof.io.test.ts"
       | "src/host/rule-proof.io.ts"
+      | "src/host/workspace-host.io.test.ts"
       | "src/host/workspace-host.io.ts"
       | "src/instruction-sources.test.ts"
       | "src/instruction-sources.ts"

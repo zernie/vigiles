@@ -7,8 +7,9 @@
  *
  * The fake harness binary is `sh` in the public `node:24-slim` image, given
  * as `options.image`, so no test builds the real harness image. Skipped,
- * loudly, only when no Docker daemon answers; under CI a missing daemon is a
- * failure, not a skip.
+ * loudly, when no Docker daemon answers (under CI a missing daemon is a
+ * failure, not a skip) or when this Node is older than testcontainers needs
+ * (CI's Node 20 test job; the `container` job runs them on Node 22).
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
@@ -21,7 +22,15 @@ import {
   writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   CONTAINER_VIGILES_CLI,
   type ContainerOptions,
@@ -37,6 +46,10 @@ import {
   type ContainerHostDeps,
 } from "./container.io.js";
 import { HOST_CA_IN_IMAGE, hostCaOf } from "./container-image.io.js";
+import {
+  nodePreflight,
+  TESTCONTAINERS_NODE,
+} from "./container-preflight.io.js";
 
 const IMAGE = "node:24-slim";
 const FAKE_HARNESS_IMAGE = "vigiles-test-fake-harness:1";
@@ -48,16 +61,19 @@ const dockerAnswers =
   spawnSync("docker", ["info"], { stdio: "ignore", timeout: 20_000 }).status ===
   0;
 const inCi = (process.env.CI ?? "") !== "";
-const SKIP_REASON =
-  "SKIPPED — no Docker daemon answers `docker info`, so the container tests did not run";
-if (!dockerAnswers && !inCi) {
+const nodeOk = nodePreflight(process.versions.node) === undefined;
+const SKIP_REASON = nodeOk
+  ? "SKIPPED — no Docker daemon answers `docker info`, so the container tests did not run"
+  : `SKIPPED — Node ${process.versions.node} is older than testcontainers needs, so the container tests did not run`;
+const runDocker = nodeOk && (dockerAnswers || inCi);
+if (!runDocker) {
   process.stderr.write(`⚠ src/host/container.io.test.ts: ${SKIP_REASON}\n`);
   // Loud skip, never a silent pass: the reporter names why nothing ran.
   it.skip(SKIP_REASON, () => {
-    expect(dockerAnswers).toBe(true);
+    expect(runDocker).toBe(true);
   });
 }
-const withDocker = dockerAnswers || inCi ? describe : describe.skip;
+const withDocker = runDocker ? describe : describe.skip;
 
 const docker = (...args: string[]): string =>
   execFileSync("docker", args, { encoding: "utf8" }).trim();
@@ -66,6 +82,8 @@ const leftContainers = (): string =>
 
 const deps = (over: Partial<ContainerHostDeps> = {}): ContainerHostDeps => ({
   env: {},
+  // A supported Node, so each test reaches the cause it plants; the Node check has its own test.
+  nodeVersion: `${String(TESTCONTAINERS_NODE.major)}.${String(TESTCONTAINERS_NODE.minor)}.0`,
   importTestcontainers: () => import("testcontainers"),
   packVigiles: () => Promise.reject(new Error("no vigiles tarball in tests")),
   hostCa: () => undefined,
@@ -347,37 +365,12 @@ const preflightArgs = (
   egressProbe: probe.egressProbe,
 });
 
-/** How many `testcontainers` modules are loaded after importing `specifier` in a fresh node. */
-const testcontainersLoadedBy = (specifier: string): number =>
-  Number(
-    execFileSync(
-      process.execPath,
-      [
-        "--import",
-        "tsx",
-        "--input-type=module",
-        "-e",
-        `import { createRequire } from "node:module";
-await import(${JSON.stringify(specifier)});
-const keys = Object.keys(createRequire(import.meta.url).cache);
-console.log(keys.filter((k) => k.includes("/testcontainers/")).length);`,
-      ],
-      { encoding: "utf8", cwd: import.meta.dirname },
-    ).trim(),
-  );
-
-describe("container host: the default path stays light", () => {
-  it("loading the eval host does not load testcontainers", () => {
-    const host = new URL("./workspace-host.io.ts", import.meta.url).href;
-    // Guards: the optional peer dependency loads only when a container run asks for it.
-    expect(testcontainersLoadedBy(host)).toBe(0);
-    // Guards: the control: the probe does see testcontainers when it is loaded.
-    expect(testcontainersLoadedBy("testcontainers")).toBeGreaterThan(0);
-  });
-});
-
 const noTc = () =>
-  Promise.reject(new Error("Cannot find package 'testcontainers'"));
+  Promise.reject(
+    Object.assign(new Error("Cannot find package 'testcontainers'"), {
+      code: "ERR_MODULE_NOT_FOUND",
+    }),
+  );
 
 describe("container preflight: causes found without Docker", () => {
   it("returns ryuk-disabled when Ryuk is turned off", async () => {
@@ -407,6 +400,19 @@ describe("container preflight: causes found without Docker", () => {
       kind: "mount-failed",
       path: missing,
     });
+  });
+});
+
+describe("container preflight: this Node", () => {
+  it("returns node-too-old before loading testcontainers on an older Node", async () => {
+    const load = vi.fn(noTc);
+    const old = deps({ nodeVersion: "20.19.5", importTestcontainers: load });
+    // Guards: Node 20 gets the Node cure, not the misleading import error.
+    expect(await makeContainerHost(old).preflight(preflightArgs([]))).toEqual(
+      nodePreflight("20.19.5"),
+    );
+    // Guards: the version is asked first, so the throwing import is never reached.
+    expect(load).not.toHaveBeenCalled();
   });
 });
 
@@ -452,8 +458,8 @@ withDocker("container preflight: the network the harness needs", () => {
 
 const reachSkip =
   "SKIPPED — the host has no NODE_EXTRA_CA_CERTS file, so the reachable-URL preflight did not run";
-const reachRuns = (dockerAnswers || inCi) && (HOST_CA !== undefined || inCi);
-if (!reachRuns && dockerAnswers) {
+const reachRuns = runDocker && (HOST_CA !== undefined || inCi);
+if (!reachRuns && runDocker) {
   process.stderr.write(`⚠ src/host/container.io.test.ts: ${reachSkip}\n`);
   // Loud skip, never a silent pass: the reporter names why nothing ran.
   it.skip(reachSkip, () => {

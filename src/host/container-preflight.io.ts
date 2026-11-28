@@ -36,6 +36,36 @@ const EGRESS_TIMEOUT_MS = 15_000;
 const truthy = (value: string | undefined): boolean =>
   ["true", "1", "yes"].includes((value ?? "").trim().toLowerCase());
 
+/**
+ * The Node testcontainers 12 declares (`engines.node: ">= 22.22"`). On an older
+ * Node its import throws an error that names nothing (`reading 'bind'` on
+ * Node 20), so the version is asked first. `container.io.test.ts` holds this
+ * against the installed package's own `engines`.
+ */
+export const TESTCONTAINERS_NODE = { major: 22, minor: 22 } as const;
+
+/** `node-too-old` when `version` (`process.versions.node`) is below `TESTCONTAINERS_NODE`. */
+export function nodePreflight(version: string): Finding {
+  const [major = 0, minor = 0] = version.split(".").map(Number);
+  const { major: needMajor, minor: needMinor } = TESTCONTAINERS_NODE;
+  const old = major < needMajor || (major === needMajor && minor < needMinor);
+  return old
+    ? {
+        kind: "node-too-old",
+        have: version,
+        need: `${String(needMajor)}.${String(needMinor)}`,
+      }
+    : undefined;
+}
+
+/** What a failed `import("testcontainers")` means: missing, or present and broken. */
+export function importFinding(e: unknown): ContainerPreflight {
+  const code = e instanceof Error && "code" in e ? e.code : undefined;
+  return code === "ERR_MODULE_NOT_FOUND"
+    ? { kind: "no-testcontainers" }
+    : { kind: "testcontainers-failed", detail: messageOf(e) };
+}
+
 /** The checks that need no Docker: the environment the container would run under. */
 export function envPreflight(env: Env): Finding {
   return truthy(env.TESTCONTAINERS_RYUK_DISABLED)

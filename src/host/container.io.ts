@@ -42,7 +42,9 @@ import {
   dockerPreflight,
   envPreflight,
   hostMountFinding,
+  importFinding,
   mountProblem,
+  nodePreflight,
   type PreflightArgs,
 } from "./container-preflight.io.js";
 
@@ -52,7 +54,9 @@ export { RUNNER_LABEL } from "./container-attempt.io.js";
 export interface ContainerHostDeps {
   /** The environment the preflight reads (the Ryuk setting). */
   readonly env: Readonly<Record<string, string | undefined>>;
-  /** Loads `testcontainers`; a rejection is `no-testcontainers`. */
+  /** This process's Node (`process.versions.node`), asked before testcontainers is loaded. */
+  readonly nodeVersion: string;
+  /** Loads `testcontainers`; a rejection is `no-testcontainers` or `testcontainers-failed`. */
   readonly importTestcontainers: () => Promise<Tc>;
   /** The bytes of `npm pack` of the running vigiles package. */
   readonly packVigiles: () => Promise<Buffer>;
@@ -132,12 +136,16 @@ async function preflightWith(
   w: Wired,
   args: PreflightArgs,
 ): Promise<ContainerPreflight> {
-  const fromEnv = envPreflight(w.deps.env) ?? hostMountFinding(args.mounts);
+  const fromEnv =
+    nodePreflight(w.deps.nodeVersion) ??
+    envPreflight(w.deps.env) ??
+    hostMountFinding(args.mounts);
   if (fromEnv !== undefined) return fromEnv;
-  const tc = await w.deps.importTestcontainers().catch(() => undefined);
-  return tc === undefined
-    ? { kind: "no-testcontainers" }
-    : withDocker(w, tc, args);
+  const tc = await w.deps.importTestcontainers().then(
+    (loaded) => ({ kind: "loaded", loaded }) as const,
+    (e: unknown) => ({ kind: "failed", finding: importFinding(e) }) as const,
+  );
+  return tc.kind === "failed" ? tc.finding : withDocker(w, tc.loaded, args);
 }
 
 /** The adapter, over injectable machine reads. */
@@ -155,6 +163,7 @@ export function makeContainerHost(deps: ContainerHostDeps): ContainerHost {
 /** The adapter on this machine: `process.env`, the real `testcontainers`, this package's tarball, the host CA. */
 export const containerHost: ContainerHost = makeContainerHost({
   env: process.env,
+  nodeVersion: process.versions.node,
   importTestcontainers: () => import("testcontainers"),
   packVigiles: packRunningVigiles,
   hostCa: () => hostCaOf(process.env),

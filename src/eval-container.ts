@@ -116,6 +116,10 @@ export function preflightRefusal(p: ContainerPreflight): string | undefined {
       return `${CONTAINER} needs Docker, and no Docker daemon answered. Start Docker Desktop (macOS) or the docker service (Linux), ${RERUN} (${oneLine(p.detail)})`;
     case "no-testcontainers":
       return `${CONTAINER} needs the testcontainers package, which is not installed. Run \`npm i -D testcontainers\`, ${RERUN}`;
+    case "testcontainers-failed":
+      return `${CONTAINER} could not load the testcontainers package (${oneLine(p.detail)}). Reinstall it with \`npm i -D testcontainers\`, ${RERUN}`;
+    case "node-too-old":
+      return `${CONTAINER} needs Node ${p.need} or newer (testcontainers requires it), and this is Node ${p.have}. Upgrade Node, or use execution: { kind: "host" }, ${RERUN}`;
     case "ryuk-disabled":
       return `${CONTAINER} needs Ryuk, the testcontainers reaper that removes a container vigiles could not, and TESTCONTAINERS_RYUK_DISABLED turns it off. Unset it, ${RERUN}`;
     case "mount-failed":
