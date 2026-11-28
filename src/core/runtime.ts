@@ -95,6 +95,15 @@ export interface ContainerImageDeclaration {
    */
   recipe(rawVersion: string): HarnessImageRecipe | undefined;
   /**
+   * The URL a run under `env` must reach to work, which the preflight
+   * requests from inside a container; undefined when the env sends requests
+   * somewhere it does not name, so the preflight asks nothing rather than
+   * refuse a run that could work.
+   */
+  egressProbe(
+    env: Readonly<Record<string, string | undefined>>,
+  ): string | undefined;
+  /**
    * Env names, any ONE of which authenticates a run without the host's
    * keychain (a macOS login is held there, and a Linux container cannot read it).
    */

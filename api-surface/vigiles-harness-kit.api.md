@@ -55,6 +55,7 @@ export interface ConformanceResult {
 export interface ContainerImageDeclaration {
     readonly authCure: string;
     readonly authEnv: readonly string[];
+    egressProbe(env: Readonly<Record<string, string | undefined>>): string | undefined;
     recipe(rawVersion: string): HarnessImageRecipe | undefined;
 }
 
@@ -105,7 +106,6 @@ export interface HarnessImageRecipe {
     // (undocumented)
     readonly base: string;
     readonly binary: string;
-    readonly egressProbe?: string;
     // (undocumented)
     readonly npmPackages: readonly string[];
 }

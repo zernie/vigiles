@@ -186,6 +186,7 @@ export async function readyExecution(
       mounts: probe.mounts,
       recipe,
       options: plan.options,
+      egressProbe: plan.image.egressProbe(machine.env),
     });
     refuseIf(preflightRefusal(answer));
   } finally {

@@ -27,13 +27,17 @@ const VERSION = "2.1.300";
 function fakePort(preflight: ContainerPreflight = { kind: "ready" }): {
   readonly port: ContainerHost;
   readonly log: readonly string[];
+  readonly asked: readonly Parameters<ContainerHost["preflight"]>[0][];
 } {
   const log: string[] = [];
+  const asked: Parameters<ContainerHost["preflight"]>[0][] = [];
   return {
     log,
+    asked,
     port: {
-      preflight: () => {
+      preflight: (args) => {
         log.push("preflight");
+        asked.push(args);
         return Promise.resolve(preflight);
       },
       run: () => {
@@ -59,6 +63,7 @@ const IMAGE: ContainerImageDeclaration = {
           binary: "acme",
         }
       : undefined,
+  egressProbe: (env) => env.ACME_BASE_URL ?? "https://api.acme.test",
   authEnv: ["ACME_TOKEN", "ACME_KEY"],
   authCure: "acme login --token",
 };
@@ -164,6 +169,16 @@ test("readiness: on macOS without a token variable the run names the adapter's c
     machine({ platform: "darwin", env: { ACME_KEY: "k" } }),
   );
   assert.equal(ready.kind, "container");
+});
+
+test("readiness: the preflight probes the URL the harness names for this env", async () => {
+  const fake = fakePort();
+  await readyExecution(
+    planned(fake.port),
+    machine({ env: { ACME_BASE_URL: "https://gw.example.test" } }),
+  );
+  // Guards: the URL follows the env the run gets, so a gateway user is asked about the gateway, not a fixed host.
+  assert.equal(fake.asked[0]?.egressProbe, "https://gw.example.test");
 });
 
 test("readiness: the probe dirs are removed whatever the preflight answers", async () => {

@@ -37,11 +37,23 @@ test("the container image installs the host binary's exact version, or nothing",
   assert.equal(recipe?.binary, claudeCodeRuntime.agentBinary);
   // Guards: no version printed means no image, never a floating `latest`.
   assert.equal(image.recipe("unknown"), undefined);
-  // Guards: the preflight probes the model API's own origin, over HTTPS.
+  // Guards: with no backend variable, the preflight probes the model API's own origin, over HTTPS.
   assert.equal(
-    new URL(recipe?.egressProbe ?? "").origin,
+    new URL(image.egressProbe({}) ?? "").origin,
     "https://api.anthropic.com",
   );
+  // Guards: a base URL moves the probe with it, so a gateway user is asked about the gateway.
+  assert.equal(
+    image.egressProbe({ ANTHROPIC_BASE_URL: "https://gw.example.test/v1" }),
+    "https://gw.example.test/v1",
+  );
+  // Guards: a cloud backend names no host here, so nothing is probed and nothing is refused.
+  for (const name of [
+    "CLAUDE_CODE_USE_BEDROCK",
+    "CLAUDE_CODE_USE_VERTEX",
+    "CLAUDE_CODE_USE_FOUNDRY",
+  ])
+    assert.equal(image.egressProbe({ [name]: "1" }), undefined, name);
   // Guards: the macOS cure is the command that mints a token the env carries.
   assert.ok(image.authEnv.includes("CLAUDE_CODE_OAUTH_TOKEN"));
   assert.equal(image.authCure, "claude setup-token");

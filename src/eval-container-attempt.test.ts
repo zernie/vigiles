@@ -20,7 +20,12 @@ import type { ContainerPlan } from "./eval-container.js";
 const plan: ContainerPlan = {
   kind: "container",
   options: {},
-  image: { recipe: () => undefined, authEnv: [], authCure: "login" },
+  image: {
+    recipe: () => undefined,
+    egressProbe: () => undefined,
+    authEnv: [],
+    authCure: "login",
+  },
   binary: "acme",
   port: {
     preflight: () => Promise.reject(new Error("not asked")),

@@ -123,8 +123,9 @@ export function imageTagFor(
 
 /**
  * The bytes of the CA file the host's `NODE_EXTRA_CA_CERTS` names; undefined
- * when the variable is unset or empty or the file cannot be read (the image
- * then trusts only its own store, and the egress probe reports what fails).
+ * when the variable is unset or empty. A file it names that cannot be read
+ * throws, naming the file: an image built without the CA the user set would
+ * fail later on a certificate error that points nowhere.
  */
 export function hostCaOf(
   env: Readonly<Record<string, string | undefined>>,
@@ -133,8 +134,11 @@ export function hostCaOf(
   if (path === "") return undefined;
   try {
     return readFileSync(path);
-  } catch {
-    return undefined;
+  } catch (e) {
+    throw new Error(
+      `NODE_EXTRA_CA_CERTS names ${path}, which cannot be read (${messageOf(e)})`,
+      { cause: e },
+    );
   }
 }
 

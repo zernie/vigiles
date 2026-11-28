@@ -67,13 +67,6 @@ export interface HarnessImageRecipe {
   readonly npmPackages: readonly string[];
   /** The binary the run starts (`claude`). */
   readonly binary: string;
-  /**
-   * A URL the binary must reach to work (Claude Code: the model API). The
-   * preflight requests it from inside a container started like a run's, with
-   * the image's `node`; any HTTP status is reachable. Absent: not probed.
-   * Not an image input, so it does not change the image tag.
-   */
-  readonly egressProbe?: string;
 }
 
 /** Where vigiles's own CLI sits inside an image vigiles built. */
@@ -133,6 +126,12 @@ export interface ContainerHost {
     readonly mounts: readonly Mount[];
     readonly recipe: HarnessImageRecipe;
     readonly options: ContainerOptions;
+    /**
+     * A URL the binary must reach to work (Claude Code: where it sends model
+     * requests), requested from inside a container started like a run's with
+     * the image's `node`; any HTTP status is reachable. Absent: not probed.
+     */
+    readonly egressProbe?: string;
   }): Promise<ContainerPreflight>;
   /** Start a fresh container, run `recipe.binary argv…`, stop it, then resolve. */
   run(args: ContainerRunArgs): Promise<ContainerAttempt>;

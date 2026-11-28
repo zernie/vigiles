@@ -45,12 +45,6 @@ describe("dockerfileFor / imageTagFor without a host CA", () => {
     // Guards: nor the tag, so an image a user already built is reused, not rebuilt.
     expect(imageTagFor(RECIPE, TARBALL)).toBe(BEFORE_CA_TAG);
   });
-
-  it("leave the egress probe URL out of the tag", () => {
-    const probed = { ...RECIPE, egressProbe: "https://api.example.test" };
-    // Guards: the probe is not an image input, so declaring one does not rebuild the image.
-    expect(imageTagFor(probed, TARBALL)).toBe(BEFORE_CA_TAG);
-  });
 });
 
 describe("dockerfileFor / imageTagFor with a host CA", () => {
@@ -109,13 +103,16 @@ describe("hostCaOf", () => {
     expect(hostCaOf({ NODE_EXTRA_CA_CERTS: file })).toEqual(CA);
   });
 
-  it("is undefined without the variable or a readable file", () => {
+  it("is undefined without the variable", () => {
     // Guards: no variable, no CA step (the byte-identical path).
     expect(hostCaOf({})).toBeUndefined();
     expect(hostCaOf({ NODE_EXTRA_CA_CERTS: "" })).toBeUndefined();
-    // Guards: a path that names nothing is no CA, not a crash.
+  });
+
+  it("throws, naming the file, when the variable names one it cannot read", () => {
     const missing = join(tmp(), "missing.crt");
-    expect(hostCaOf({ NODE_EXTRA_CA_CERTS: missing })).toBeUndefined();
+    // Guards: a CA the user set is never dropped in silence; the refusal names the file.
+    expect(() => hostCaOf({ NODE_EXTRA_CA_CERTS: missing })).toThrow(missing);
   });
 
   it("reads no other variable", () => {

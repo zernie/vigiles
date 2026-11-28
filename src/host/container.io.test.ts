@@ -336,8 +336,16 @@ withDocker("container run: a teardown that cannot be confirmed", () => {
 const preflightArgs = (
   mounts: readonly Mount[],
   options: ContainerOptions = { image: FAKE_HARNESS_IMAGE },
-  recipe: HarnessImageRecipe = SH,
-) => ({ mounts, recipe, options });
+  probe: {
+    readonly recipe?: HarnessImageRecipe;
+    readonly egressProbe?: string;
+  } = {},
+) => ({
+  mounts,
+  recipe: probe.recipe ?? SH,
+  options,
+  egressProbe: probe.egressProbe,
+});
 
 /** How many `testcontainers` modules are loaded after importing `specifier` in a fresh node. */
 const testcontainersLoadedBy = (specifier: string): number =>
@@ -412,11 +420,7 @@ withDocker("container preflight: the network the harness needs", () => {
     // Guards: a request that fails in the container stops the run, naming the URL and why.
     expect(
       await host.preflight(
-        preflightArgs(
-          [],
-          { image: FAKE_HARNESS_IMAGE },
-          { ...SH, egressProbe: url },
-        ),
+        preflightArgs([], { image: FAKE_HARNESS_IMAGE }, { egressProbe: url }),
       ),
     ).toEqual({ kind: "no-egress", url, detail: "ECONNREFUSED" });
   });
@@ -427,7 +431,7 @@ withDocker("container preflight: the network the harness needs", () => {
       preflightArgs(
         [],
         { image: FAKE_HARNESS_IMAGE, networkMode: "none" },
-        { ...SH, egressProbe: url },
+        { egressProbe: url },
       ),
     );
     // Guards: an offline container is asked, not assumed online: the model API is unreachable.
@@ -436,7 +440,7 @@ withDocker("container preflight: the network the harness needs", () => {
     expect(r.kind === "no-egress" ? r.detail : "").toMatch(/^E[A-Z_]+$/);
   });
 
-  it("is not asked when the recipe declares no URL", async () => {
+  it("is not asked when the harness names no URL", async () => {
     // Guards: the control: the same offline container is ready when nothing needs the network.
     expect(
       await host.preflight(
@@ -471,7 +475,7 @@ if (!reachRuns && dockerAnswers) {
           preflightArgs(
             [],
             { image: FAKE_HARNESS_IMAGE },
-            { ...SH, egressProbe: url },
+            { egressProbe: url },
           ),
         ),
       ).toEqual({ kind: "ready" });
@@ -513,7 +517,7 @@ withDocker("container preflight: the daemon and the image", () => {
       binary: "sh",
     };
     // Guards: a build that fails is reported before trial 1, not as trial 1's crash.
-    expect(await h.preflight(preflightArgs([], {}, recipe))).toMatchObject({
+    expect(await h.preflight(preflightArgs([], {}, { recipe }))).toMatchObject({
       kind: "image-failed",
     });
   });
@@ -523,7 +527,7 @@ withDocker("container preflight: the daemon and the image", () => {
     // Guards: a ready image that cannot run the harness is caught by name.
     expect(
       await host.preflight(
-        preflightArgs([], { image: FAKE_HARNESS_IMAGE }, lacking),
+        preflightArgs([], { image: FAKE_HARNESS_IMAGE }, { recipe: lacking }),
       ),
     ).toEqual({
       kind: "image-failed",

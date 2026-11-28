@@ -131,12 +131,11 @@ const EGRESS_SCRIPT =
   ".then(() => process.exit(0), (e) => { const c = e.cause ?? e; " +
   "console.error(typeof c.code === 'string' ? c.code : String(c.message || c.name || c)); process.exit(1); });";
 
-/** The harness's network, asked: the recipe's URL requested with the image's `node`, under the image's env. */
+/** The harness's network, asked: its URL requested with the image's `node`, under the image's env. */
 async function probeEgress(
   c: Readonly<Started>,
-  recipe: HarnessImageRecipe,
+  url: string | undefined,
 ): Promise<Finding> {
-  const url = recipe.egressProbe;
   if (url === undefined) return undefined;
   const r = await c.exec([
     "node",
@@ -156,7 +155,7 @@ async function probeAll(
 ): Promise<ContainerPreflight> {
   const image = await probeImage(c, args.recipe);
   if (image !== undefined) return image;
-  const egress = await probeEgress(c, args.recipe);
+  const egress = await probeEgress(c, args.egressProbe);
   if (egress !== undefined) return egress;
   const found = await Promise.all(args.mounts.map((m) => probeMount(c, m)));
   return found.find((f) => f !== undefined) ?? { kind: "ready" };

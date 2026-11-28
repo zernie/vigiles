@@ -175,8 +175,10 @@ Any other field is refused before the run, by name: `reuse`, `environment`, `bin
 
 A container on Docker's default bridge network **can reach the internet**, and it has to: the harness calls the model API from inside it. `execution` ends processes; it does not wall off the network or stop what an agent does with it. For that, see [Sandboxing](sandboxing.md).
 
-- `networkMode: "none"` cuts all network access, **including the model API**, so a real-model run cannot work with it. The preflight check says so.
-- **Behind a proxy that decrypts HTTPS** (common on company networks), set `NODE_EXTRA_CA_CERTS` to the proxy's CA file, the same one your own `node` uses. vigiles builds that CA into the image. Without it the preflight check stops the run, naming the certificate error.
+Before trial 1, the preflight check asks from inside a container whether it can reach where Claude Code will send model requests: `ANTHROPIC_BASE_URL` when you set one, else `https://api.anthropic.com`. Any HTTP answer counts as reachable. Under Bedrock, Vertex or Foundry (`CLAUDE_CODE_USE_BEDROCK` and its siblings) the environment names no host, so nothing is asked and nothing is refused.
+
+- `networkMode: "none"` cuts all network access, **including the model API**, so a real-model run cannot work with it. The preflight check stops the run and says so.
+- **Behind a proxy that decrypts HTTPS** (common on company networks), set `NODE_EXTRA_CA_CERTS` to the proxy's CA file, the same one your own `node` uses. vigiles copies that file into the image and trusts it there. It reads no other variable. Without it the preflight check stops the run, naming the certificate error; a file it names that cannot be read stops the run too, naming the file.
 
 ### Limits
 
