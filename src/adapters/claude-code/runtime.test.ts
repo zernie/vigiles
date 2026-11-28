@@ -37,6 +37,11 @@ test("the container image installs the host binary's exact version, or nothing",
   assert.equal(recipe?.binary, claudeCodeRuntime.agentBinary);
   // Guards: no version printed means no image, never a floating `latest`.
   assert.equal(image.recipe("unknown"), undefined);
+  // Guards: the preflight probes the model API's own origin, over HTTPS.
+  assert.equal(
+    new URL(recipe?.egressProbe ?? "").origin,
+    "https://api.anthropic.com",
+  );
   // Guards: the macOS cure is the command that mints a token the env carries.
   assert.ok(image.authEnv.includes("CLAUDE_CODE_OAUTH_TOKEN"));
   assert.equal(image.authCure, "claude setup-token");

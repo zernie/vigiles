@@ -36,10 +36,13 @@ import {
   RUNNER_LABEL,
   type ContainerHostDeps,
 } from "./container.io.js";
+import { HOST_CA_IN_IMAGE, hostCaOf } from "./container-image.io.js";
 
 const IMAGE = "node:24-slim";
 const FAKE_HARNESS_IMAGE = "vigiles-test-fake-harness:1";
 const SH: HarnessImageRecipe = { base: IMAGE, npmPackages: [], binary: "sh" };
+/** The CA this machine's `NODE_EXTRA_CA_CERTS` names: the fake image trusts it as a built one does. */
+const HOST_CA = hostCaOf(process.env);
 
 const dockerAnswers =
   spawnSync("docker", ["info"], { stdio: "ignore", timeout: 20_000 }).status ===
@@ -65,6 +68,7 @@ const deps = (over: Partial<ContainerHostDeps> = {}): ContainerHostDeps => ({
   env: {},
   importTestcontainers: () => import("testcontainers"),
   packVigiles: () => Promise.reject(new Error("no vigiles tarball in tests")),
+  hostCa: () => undefined,
   ...over,
 });
 const host = makeContainerHost(deps());
@@ -398,35 +402,82 @@ describe("container preflight: causes found without Docker", () => {
   });
 });
 
-describe("container preflight: a proxy a container cannot reach", () => {
-  it("returns localhost-proxy for a proxy on this machine, by variable", async () => {
-    const h = (env: Record<string, string>) =>
-      makeContainerHost(deps({ env, importTestcontainers: noTc }));
-    // Guards: a loopback proxy, with or without a scheme, is unreachable from a container.
+withDocker("container preflight: the network the harness needs", () => {
+  beforeAll(() => {
+    buildFakeHarnessImage();
+  });
+
+  it("returns no-egress with the error code for a URL nothing answers", async () => {
+    const url = "https://127.0.0.1:8/";
+    // Guards: a request that fails in the container stops the run, naming the URL and why.
     expect(
-      await h({ HTTPS_PROXY: "http://127.0.0.1:3128" }).preflight(
-        preflightArgs([]),
+      await host.preflight(
+        preflightArgs(
+          [],
+          { image: FAKE_HARNESS_IMAGE },
+          { ...SH, egressProbe: url },
+        ),
       ),
-    ).toEqual({
-      kind: "localhost-proxy",
-      variable: "HTTPS_PROXY",
-    });
-    expect(
-      await h({ http_proxy: "localhost:8080" }).preflight(preflightArgs([])),
-    ).toEqual({
-      kind: "localhost-proxy",
-      variable: "http_proxy",
-    });
-    // Guards: a proxy on another host passes this check (the next one, the import, answers).
-    expect(
-      await h({ HTTPS_PROXY: "http://proxy.example:3128" }).preflight(
-        preflightArgs([]),
+    ).toEqual({ kind: "no-egress", url, detail: "ECONNREFUSED" });
+  });
+
+  it("returns no-egress under networkMode none", async () => {
+    const url = "https://api.anthropic.com";
+    const r = await host.preflight(
+      preflightArgs(
+        [],
+        { image: FAKE_HARNESS_IMAGE, networkMode: "none" },
+        { ...SH, egressProbe: url },
       ),
-    ).toEqual({
-      kind: "no-testcontainers",
-    });
+    );
+    // Guards: an offline container is asked, not assumed online: the model API is unreachable.
+    expect(r).toMatchObject({ kind: "no-egress", url });
+    // Guards: the detail is the request's own error code, not an empty string.
+    expect(r.kind === "no-egress" ? r.detail : "").toMatch(/^E[A-Z_]+$/);
+  });
+
+  it("is not asked when the recipe declares no URL", async () => {
+    // Guards: the control: the same offline container is ready when nothing needs the network.
+    expect(
+      await host.preflight(
+        preflightArgs([], { image: FAKE_HARNESS_IMAGE, networkMode: "none" }),
+      ),
+    ).toEqual({ kind: "ready" });
   });
 });
+
+const reachSkip =
+  "SKIPPED — the host has no NODE_EXTRA_CA_CERTS file, so the reachable-URL preflight did not run";
+const reachRuns = (dockerAnswers || inCi) && (HOST_CA !== undefined || inCi);
+if (!reachRuns && dockerAnswers) {
+  process.stderr.write(`⚠ src/host/container.io.test.ts: ${reachSkip}\n`);
+  // Loud skip, never a silent pass: the reporter names why nothing ran.
+  it.skip(reachSkip, () => {
+    expect(HOST_CA).toBeDefined();
+  });
+}
+(reachRuns ? describe : describe.skip)(
+  "container preflight: a reachable model API",
+  () => {
+    beforeAll(() => {
+      buildFakeHarnessImage();
+    });
+
+    it("returns ready when the container reaches the URL, trusting the host CA", async () => {
+      const url = "https://api.anthropic.com";
+      // Guards: any HTTP status is reachable, behind a proxy that decrypts HTTPS once its CA is in the image.
+      expect(
+        await host.preflight(
+          preflightArgs(
+            [],
+            { image: FAKE_HARNESS_IMAGE },
+            { ...SH, egressProbe: url },
+          ),
+        ),
+      ).toEqual({ kind: "ready" });
+    });
+  },
+);
 
 withDocker("container preflight: the daemon and the image", () => {
   beforeAll(() => {
@@ -519,13 +570,21 @@ withDocker("container preflight: the mounts", () => {
   });
 });
 
-/** `node:24-slim` plus a placeholder at vigiles's CLI path; builds offline. */
+/**
+ * `node:24-slim` plus a placeholder at vigiles's CLI path, and the host CA
+ * trusted by `node` the way a built image trusts it; builds offline.
+ */
 function buildFakeHarnessImage(): void {
   const context = freshDir();
   mkdirSync(context, { recursive: true });
+  if (HOST_CA !== undefined) writeFileSync(join(context, "ca.crt"), HOST_CA);
+  const trust =
+    HOST_CA === undefined
+      ? ""
+      : `COPY ca.crt ${HOST_CA_IN_IMAGE}\nENV NODE_EXTRA_CA_CERTS=${HOST_CA_IN_IMAGE}\n`;
   writeFileSync(
     join(context, "Dockerfile"),
-    `FROM ${IMAGE}\nRUN mkdir -p ${dirname(CONTAINER_VIGILES_CLI)} && touch ${CONTAINER_VIGILES_CLI}\n`,
+    `FROM ${IMAGE}\n${trust}RUN mkdir -p ${dirname(CONTAINER_VIGILES_CLI)} && touch ${CONTAINER_VIGILES_CLI}\n`,
   );
   docker("build", "-q", "-t", FAKE_HARNESS_IMAGE, context);
 }
