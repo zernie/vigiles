@@ -1,11 +1,11 @@
 {
   "version": 1,
   "name": "orphan-process-container",
-  "inputsHash": "faa028711398e14e",
+  "inputsHash": "0414b38e2c7fd7db",
   "model": "haiku",
   "harnessVersionKey": "2.1",
   "evalApiVersion": 1,
-  "builtAt": "2026-11-28T03:50:02.372Z",
+  "builtAt": "2026-11-28T04:25:52.896Z",
   "report": {
     "name": "orphan-process-container",
     "trials": 3,
@@ -35,13 +35,13 @@
           }
         },
         "usage": {
-          "totalCostUsd": 0.003532075,
-          "meanCostUsd": 0.0011773583333333333,
-          "meanDurationMs": 1883.3333333333333,
+          "totalCostUsd": 0.0034991600000000003,
+          "meanCostUsd": 0.0011663866666666667,
+          "meanDurationMs": 2042.3333333333333,
           "totalInputTokens": 12,
-          "totalOutputTokens": 538,
-          "totalCacheCreationTokens": 18893,
-          "totalCacheReadTokens": 90025
+          "totalOutputTokens": 470,
+          "totalCacheCreationTokens": 18896,
+          "totalCacheReadTokens": 90096
         },
         "unansweredStubCalls": [],
         "context": [
@@ -57,8 +57,8 @@
         ]
       }
     },
-    "totalCostUsd": 0.003532075,
-    "chargedUsd": 0.003532075,
+    "totalCostUsd": 0.0034991600000000003,
+    "chargedUsd": 0.0034991600000000003,
     "unknownCostRuns": 0,
     "aborted": false,
     "env": {
