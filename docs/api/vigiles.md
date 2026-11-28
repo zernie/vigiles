@@ -411,6 +411,8 @@ The types below describe these: `EmitFieldSchema`, `EmitObjectSchema`, `EmitProp
 | `SelectionMatrixSpec` | Input of the selection-matrix measurement.                                |
 | `EvalSpec`            | One task over trials: `arms` or one, `checks` or `measure`.               |
 | `EvalArm`             | One arm of an A/B.                                                        |
+| `ExecutionSpec`       | Where an eval's attempts run: the host, or a container per attempt.       |
+| `ContainerOptions`    | The container settings an eval may pass: image, limits, network, tmpfs.   |
 | `TriggerRateSpec`     | Whether a skill's description fires, over a prompt set.                   |
 | `Metrics`             | The metric record an eval callback returns.                               |
 | `EvalReport`          | The report of `paid_runEval` (eval key `runEval`), however it was scored. |
