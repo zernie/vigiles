@@ -754,12 +754,21 @@ function exitedBeforeModel(out: Readonly<RunOut>): string | null {
 }
 
 /**
- * The `result` fields that tell an error made before any model call. A field a
- * harness leaves out reads as absent, so its run is scored, never refused.
+ * The `result` fields that tell an error made before any model call, and one
+ * that repeats on every trial. Measured on Claude Code 2.1.332, every request
+ * that failed before an answer reads `is_error`, 0 API ms and 0 tokens; the
+ * cause is in `api_error_status`: absent when logged out, null when the
+ * connection was refused after the harness's own retries, 401/403/404 for a
+ * bad key or model. A 5xx is transient and stays one scored trial, so a blip in
+ * trial 37 does not stop the other 39. Any other field a harness leaves out
+ * reads as absent, so its run is scored, never refused.
  */
 const PreModelResult = z.object({
   is_error: z.literal(true),
   duration_api_ms: z.literal(0),
+  api_error_status: z
+    .union([z.literal(401), z.literal(403), z.literal(404)])
+    .nullish(),
   usage: z.object({ input_tokens: z.literal(0), output_tokens: z.literal(0) }),
   result: z.string().catch(""),
 });

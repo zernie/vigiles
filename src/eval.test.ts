@@ -3139,6 +3139,23 @@ test("startFailure stops a run whose result is an error made before any model ca
   const failure = startFailure({ code: 0, stdout: resultLine(LOGGED_OUT) });
   // Guards: a logged-out run is never scored, and the harness's own words say why.
   assert.ok(failure?.includes(LOGGED_OUT.result));
+  // Measured on 2.1.332 against a local server: a rejected key, and a refused
+  // connection after the harness's own retries. Both repeat on every trial.
+  const deterministic = [
+    {
+      ...LOGGED_OUT,
+      api_error_status: 401,
+      api_error_type: "authentication_error",
+    },
+    { ...LOGGED_OUT, api_error_status: null },
+  ];
+  for (const fields of deterministic) {
+    // Guards: a cause that repeats on every trial stops the eval, whatever the exit code.
+    assert.notEqual(
+      startFailure({ code: 1, stdout: resultLine(fields) }),
+      null,
+    );
+  }
 });
 
 test("startFailure lets a result through when the run reached the model or did not err", () => {
@@ -3152,6 +3169,8 @@ test("startFailure lets a result through when the run reached the model or did n
     { is_error: true, result: "boom", usage: {} },
     // a rate limit is the retry loop's to handle, not a run that never started
     { ...LOGGED_OUT, api_error_status: 429 },
+    // a 5xx (measured on 2.1.332, same 0 ms / 0 tokens) is transient: one trial, not the eval
+    { ...LOGGED_OUT, api_error_status: 500, api_error_type: "api_error" },
   ];
   for (const fields of scored) {
     // Guards: only an error with no API time and no tokens is refused.
