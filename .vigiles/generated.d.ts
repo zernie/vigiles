@@ -397,7 +397,7 @@ declare module "vigiles/generated" {
     | "internal:check"
     | "docs:api";
 
-  /** 761 project files. */
+  /** 762 project files. */
   export type ProjectFile = 
     | "src/CLAUDE.md"
     | "src/CLAUDE.md.spec.ts"
@@ -627,6 +627,7 @@ declare module "vigiles/generated" {
     | "src/core/config-migrations.ts"
     | "src/core/config-schema.test.ts"
     | "src/core/config-schema.ts"
+    | "src/core/container-schema.ts"
     | "src/core/container.ts"
     | "src/core/content-budget.test.ts"
     | "src/core/context-evidence.test.ts"
@@ -651,8 +652,6 @@ declare module "vigiles/generated" {
     | "src/core/eval-driver.ts"
     | "src/core/eval-engine.test.ts"
     | "src/core/eval-engine.ts"
-    | "src/core/eval-execution-parse.test.ts"
-    | "src/core/eval-execution-parse.ts"
     | "src/core/eval-host.ts"
     | "src/core/eval-load-phase.test.ts"
     | "src/core/eval-load-phase.ts"
@@ -800,6 +799,8 @@ declare module "vigiles/generated" {
     | "src/core/rule-proof/types.ts"
     | "src/core/rule-render.test.ts"
     | "src/core/rule.ts"
+    | "src/core/run-env-parse.test.ts"
+    | "src/core/run-env-parse.ts"
     | "src/core/run-env.test.ts"
     | "src/core/run-env.ts"
     | "src/core/runtime.ts"
@@ -1756,6 +1757,7 @@ declare module "vigiles/spec" {
       | "src/core/config-migrations.ts"
       | "src/core/config-schema.test.ts"
       | "src/core/config-schema.ts"
+      | "src/core/container-schema.ts"
       | "src/core/container.ts"
       | "src/core/content-budget.test.ts"
       | "src/core/context-evidence.test.ts"
@@ -1780,8 +1782,6 @@ declare module "vigiles/spec" {
       | "src/core/eval-driver.ts"
       | "src/core/eval-engine.test.ts"
       | "src/core/eval-engine.ts"
-      | "src/core/eval-execution-parse.test.ts"
-      | "src/core/eval-execution-parse.ts"
       | "src/core/eval-host.ts"
       | "src/core/eval-load-phase.test.ts"
       | "src/core/eval-load-phase.ts"
@@ -1929,6 +1929,8 @@ declare module "vigiles/spec" {
       | "src/core/rule-proof/types.ts"
       | "src/core/rule-render.test.ts"
       | "src/core/rule.ts"
+      | "src/core/run-env-parse.test.ts"
+      | "src/core/run-env-parse.ts"
       | "src/core/run-env.test.ts"
       | "src/core/run-env.ts"
       | "src/core/runtime.ts"
