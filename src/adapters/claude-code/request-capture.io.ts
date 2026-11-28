@@ -126,6 +126,7 @@ function openChannel(): RequestChannel {
   const dir = mkdtempSync(join(tmpdir(), "vigiles-requests-"));
   return {
     env: captureEnv(dir),
+    dir,
     reset: () => {
       rmSync(dir, { recursive: true, force: true });
       mkdirSync(dir, { recursive: true });

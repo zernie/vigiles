@@ -25,6 +25,23 @@ test("claudeCodeRuntime.versionKey reduces to major.minor (patches don't churn)"
   assert.equal(claudeCodeRuntime.versionKey("nonsense"), "nonsense"); // fallback
 });
 
+test("the container image installs the host binary's exact version, or nothing", () => {
+  const image = claudeCodeRuntime.containerImage;
+  // Guards: the adapter declares an image, so a container run can plan one.
+  assert.ok(image !== undefined);
+  const recipe = image.recipe("2.1.180 (Claude Code)\n");
+  // Guards: the FULL version is pinned (not major.minor), so the container
+  // runs the same binary the host has.
+  assert.deepEqual(recipe?.npmPackages, ["@anthropic-ai/claude-code@2.1.180"]);
+  // Guards: the run starts the binary the host runner spawns.
+  assert.equal(recipe?.binary, claudeCodeRuntime.agentBinary);
+  // Guards: no version printed means no image, never a floating `latest`.
+  assert.equal(image.recipe("unknown"), undefined);
+  // Guards: the macOS cure is the command that mints a token the env carries.
+  assert.ok(image.authEnv.includes("CLAUDE_CODE_OAUTH_TOKEN"));
+  assert.equal(image.authCure, "claude setup-token");
+});
+
 test("mockModelEnv layers the mock URL + dummy key over the base env", () => {
   const env = mockModelEnv(claudeCodeRuntime, "http://127.0.0.1:9999", {
     PATH: "/usr/bin",

@@ -17,6 +17,8 @@ import type { AgentRunArgs, RunOut } from "./eval-driver.js";
  * (`withPlatform`, `withNetworkMode`, …). Settings that would break it — reuse
  * across trials, turning off removal, extra env, extra mounts, another user or
  * command, privileged mode — have no field here, so they cannot be passed.
+ *
+ * @public
  */
 export interface ContainerOptions {
   /** A ready image to run instead of the one vigiles builds. It must contain the harness binary at the host's version and vigiles. */
@@ -57,6 +59,8 @@ export interface Mount {
  * packages that put the harness binary in it, at the host's version. Declared
  * by the harness adapter (Claude Code: `@anthropic-ai/claude-code@<version>`);
  * the container adapter adds vigiles itself.
+ *
+ * @public
  */
 export interface HarnessImageRecipe {
   readonly base: string;

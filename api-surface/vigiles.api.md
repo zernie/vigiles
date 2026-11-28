@@ -135,6 +135,34 @@ export interface CheckResult {
 export function cleanupTmpDir(dir: string): void;
 
 // @public
+export interface ContainerOptions {
+    // (undocumented)
+    readonly droppedCapabilities?: readonly string[];
+    // (undocumented)
+    readonly extraHosts?: readonly {
+        readonly host: string;
+        readonly ipAddress: string;
+    }[];
+    readonly image?: string;
+    readonly networkMode?: string;
+    // (undocumented)
+    readonly platform?: string;
+    // (undocumented)
+    readonly pullPolicy?: "default" | "always";
+    readonly resourcesQuota?: {
+        readonly memory?: number;
+        readonly cpu?: number;
+    };
+    readonly sharedMemorySize?: number;
+    readonly tmpFs?: Readonly<Record<string, string>>;
+    // (undocumented)
+    readonly ulimits?: Readonly<Record<string, {
+        readonly hard?: number;
+        readonly soft?: number;
+    }>>;
+}
+
+// @public
 export type ContextEvidence =
 /** Every expected file is in the model's first request. */
     {
@@ -272,6 +300,13 @@ export interface EvalReport {
     readonly arms: Record<string, ArmReport>;
     readonly chargedUsd?: number;
     readonly checks?: Readonly<Record<string, CheckJSON>>;
+    readonly containment?: {
+        readonly kind: "container";
+        readonly image: string;
+    } | {
+        readonly kind: "none";
+        readonly why: "host-runner";
+    };
     readonly env?: {
         readonly kind: "ephemeral";
     } | {
@@ -316,6 +351,7 @@ export type EvalSpec<M extends Metrics = Metrics> = {
     readonly rateLimitRetries?: number;
     readonly retryBackoffMs?: number;
     readonly env: RunEnv;
+    readonly execution?: ExecutionSpec;
     readonly stubs?: readonly ToolStub[];
     readonly lock?: EvalLockOptions;
     readonly experimental_contextCheck?: false;
@@ -363,6 +399,13 @@ export interface EvalUsage {
     // (undocumented)
     readonly outputTokens: number;
 }
+
+// @public
+export type ExecutionSpec = {
+    readonly kind: "host";
+} | ({
+    readonly kind: "container";
+} & ContainerOptions);
 
 // @beta
 export function experimental_assertEmittedOk(toolCalls: readonly ToolCall[], contract: OutputContract, options?: {

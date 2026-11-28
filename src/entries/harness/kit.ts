@@ -92,11 +92,13 @@ export {
   tomlSettingsCodec,
 } from "../../core/settings-codec.js";
 export type {
+  ContainerImageDeclaration,
   HarnessRuntime,
   RequestCapture,
   RequestChannel,
   RunEnvPolicy,
 } from "../../core/runtime.js";
+export type { HarnessImageRecipe } from "../../core/container.js";
 export type { HookProtocol } from "../../core/hook-protocol.js";
 export type { ModelMock } from "../../core/model-mock.js";
 

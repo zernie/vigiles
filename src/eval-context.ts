@@ -20,6 +20,11 @@ import type { HarnessRuntime } from "./core/runtime.js";
 export interface TrialContextCapture {
   /** Env the run needs for the channel; empty when nothing is read. */
   readonly env: Readonly<Record<string, string>>;
+  /**
+   * The host directories the run writes its requests into — mounted into a
+   * container attempt. Empty when nothing is read, or the channel names none.
+   */
+  readonly dirs: readonly string[];
   /** Empty the channel before an attempt, so a retried run reads its own request. */
   reset(): void;
   /** The evidence for the run that just finished. */
@@ -30,6 +35,7 @@ export interface TrialContextCapture {
 
 const fixed = (evidence: ContextEvidence): TrialContextCapture => ({
   env: {},
+  dirs: [],
   reset: () => undefined,
   finish: () => evidence,
   dispose: () => undefined,
@@ -57,6 +63,7 @@ export function startContextCapture(opts: {
   const channel = capture.open();
   return {
     env: channel.env,
+    dirs: channel.dir === undefined ? [] : [channel.dir],
     reset: () => {
       channel.reset();
     },
