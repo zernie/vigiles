@@ -11,7 +11,6 @@
 import {
   CONTAINER_VIGILES_CLI,
   type ContainerAttempt,
-  type HarnessImageRecipe,
   type Mount,
 } from "./core/container.js";
 import type { AgentRunArgs, AgentRunner, RunOut } from "./core/eval-driver.js";
@@ -20,7 +19,6 @@ import type { HookFire } from "./core/harness-driver.js";
 import {
   CONTAINER,
   oneLine,
-  type ContainerPlan,
   type ExecutionPlan,
   type TrialExecution,
 } from "./eval-container.js";
@@ -148,41 +146,35 @@ function scoredOut(
 }
 
 /**
- * The image as a key: the one the spec named, or what vigiles builds it from.
- * With a recipe it pins the host binary's version (the cache); the lock leaves
- * it out, like a host run's lock leaves out the harness version, so `--check`
- * needs no harness binary.
+ * What a container run adds to its LOCK inputs; undefined for a host run (its
+ * bytes unchanged). Only what the author declared: the kind, the options, and
+ * the image they named or the binary vigiles builds one for. Like a host lock,
+ * it leaves out the harness version (so `--check` needs no harness binary) and
+ * which vigiles the built image carries (so upgrading vigiles, or any change to
+ * it, does not make every container lock stale).
  */
-function imageIdentity(
-  plan: ContainerPlan,
-  recipe: HarnessImageRecipe | undefined,
-): unknown {
-  if (plan.options.image !== undefined) return { named: plan.options.image };
-  return recipe === undefined
-    ? { built: { binary: plan.binary, engine: plan.engine } }
-    : { built: { recipe, engine: plan.engine } };
-}
-
-/** What a container run adds to its LOCK inputs; undefined for a host run (its bytes unchanged). */
 export function executionLockView(plan: ExecutionPlan): unknown {
-  return plan.kind === "host"
-    ? undefined
-    : {
-        kind: plan.kind,
-        options: plan.options,
-        image: imageIdentity(plan, undefined),
-      };
+  if (plan.kind === "host") return undefined;
+  const image =
+    plan.options.image === undefined
+      ? { built: plan.binary }
+      : { named: plan.options.image };
+  return { kind: plan.kind, options: plan.options, image };
 }
 
-/** What a container attempt adds to its CACHE key; undefined for a host run. */
+/**
+ * What a container attempt adds to its CACHE key; undefined for a host run.
+ * The cache is local, so it pins more than the lock: the host binary's version
+ * (the recipe) and the vigiles the image carries (the engine), and a cached
+ * attempt never replays under another build.
+ */
 export function executionCacheView(ex: TrialExecution): unknown {
-  return ex.kind === "host"
-    ? undefined
-    : {
-        kind: ex.kind,
-        options: ex.plan.options,
-        image: imageIdentity(ex.plan, ex.recipe),
-      };
+  if (ex.kind === "host") return undefined;
+  const image =
+    ex.plan.options.image === undefined
+      ? { built: { recipe: ex.recipe, engine: ex.plan.engine } }
+      : { named: ex.plan.options.image };
+  return { kind: ex.kind, options: ex.plan.options, image };
 }
 
 /** The report's `containment`: which image ran the attempts, or why none did. */

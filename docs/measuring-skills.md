@@ -141,7 +141,7 @@ Before trial 1, vigiles starts one container to check all of this: Docker answer
                                          paths)
 ```
 
-- **One container per attempt**, retries included. A cache hit starts none, so replaying a cached run needs no Docker.
+- **One container per attempt**, retries included. A cache hit starts no attempt container, but the run still checks Docker and builds the image before its first trial. `vigiles eval --check`, which replays a committed lock, needs no Docker at all.
 - **If the stop cannot be confirmed**, the attempt is an error. It is never scored, cached or locked.
 - **Your trial directories are mounted at the same paths** (the working dir, the throwaway HOME, the arm's plugin read-only), so paths in the agent's output mean the same thing inside and out. The container runs as your own uid:gid, so files it writes stay yours.
 - **Only the run's own environment goes in**, the same as `ephemeral`: your shell's variables do not. The run's variables are set on the one command vigiles executes, never on the container, so `docker inspect` of the container does not show a key.

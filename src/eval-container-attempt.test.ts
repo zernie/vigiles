@@ -10,6 +10,8 @@ import assert from "node:assert/strict";
 import {
   attemptMounts,
   containmentOf,
+  executionCacheView,
+  executionLockView,
   hookCouldNotRun,
   interceptCommand,
   launcherFor,
@@ -90,4 +92,26 @@ test("containmentOf: a named image is reported as named", () => {
   });
   // Guards: the report says the image that ran, not the recipe it bypassed.
   assert.deepEqual(named, { kind: "container", image: "acme/agent:1" });
+});
+
+test("a lock ignores which vigiles the built image carries; the cache does not", () => {
+  const rebuilt: ContainerPlan = {
+    ...plan,
+    engine: { kind: "found", hash: "e2" },
+  };
+  const recipe = { base: "b", npmPackages: [], binary: "acme" };
+  // Guards: a vigiles upgrade (a new engine hash) leaves a committed container
+  // lock fresh, so CI's lock check does not go red on every engine change.
+  assert.deepEqual(executionLockView(rebuilt), executionLockView(plan));
+  // Guards: the local cache never replays an attempt recorded under another build.
+  assert.notDeepEqual(
+    executionCacheView({ kind: "container", plan: rebuilt, recipe }),
+    executionCacheView({ kind: "container", plan, recipe }),
+  );
+});
+
+test("a lock tells a named image from a built one", () => {
+  const named: ContainerPlan = { ...plan, options: { image: "acme/agent:1" } };
+  // Guards: swapping the built image for a named one makes the lock stale.
+  assert.notDeepEqual(executionLockView(named), executionLockView(plan));
 });

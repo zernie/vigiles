@@ -121,7 +121,7 @@ export function preflightRefusal(p: ContainerPreflight): string | undefined {
     case "mount-failed":
       return `${CONTAINER} could not mount ${p.path} into a container (${oneLine(p.detail)}). Share that directory with Docker (Docker Desktop: Settings → Resources → File sharing), ${RERUN}`;
     case "no-egress":
-      return `${CONTAINER}: a container could not reach ${p.url} (${oneLine(p.detail)}). Behind a proxy that decrypts HTTPS, point NODE_EXTRA_CA_CERTS at its CA file (the image is built to trust it); networkMode: "none" blocks the model API too, ${RERUN}`;
+      return `${CONTAINER}: a container could not reach ${p.url} (${oneLine(p.detail)}). Behind a proxy that decrypts HTTPS, point NODE_EXTRA_CA_CERTS at its CA file (the image vigiles builds trusts it; a named image must already); networkMode: "none" blocks the model API too, ${RERUN}`;
     case "image-failed":
       return `${CONTAINER} could not build or pull its image (${oneLine(p.detail)}). Check the image name and the network, ${RERUN}`;
   }
