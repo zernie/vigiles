@@ -291,6 +291,19 @@ describe("parseInlineRules: marks read elsewhere", () => {
     assert.equal(errors.length, 1);
     assert.match(errors[0].message, /Unknown vigiles marker "disable"/);
   });
+
+  it("leaves the marks compile writes to their readers", () => {
+    const { errors } = parseInlineRules(
+      [
+        "<!-- vigiles:purity:pure -->",
+        "<!-- vigiles:effect -->",
+        "<!-- /vigiles:effect -->",
+      ].join("\n"),
+    );
+    // Guards: a compiled purity floor or effect region copied into a
+    // hand-written file is not reported as an unknown mark.
+    assert.deepEqual(errors, []);
+  });
 });
 
 // --- #641: every mark a person writes is documented, and its example parses --

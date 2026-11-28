@@ -109,7 +109,7 @@ export default instructionFile({
 
 ### Inline marks
 
-Without a spec, you verify a reference by writing a **mark** next to it in the markdown. `vigiles lint` finds every mark and checks it; a mark it cannot read is an error, never a silent pass. Five marks verify a reference, three opt a block or a file out of a check.
+Without a spec, you verify a reference by writing a **mark** next to it in the markdown. `vigiles lint` finds the marks and checks each one. A `<!-- vigiles:… -->` comment it cannot parse is an error, so a typo in a comment mark fails `lint`. Three limits: `lint` reads one comment mark per line and only comments on one line, and a span mark that does not match its syntax is read as plain text, not reported. Five marks verify a reference, three opt a block or a file out of a check.
 
 | Mark                                         | Written as   | Verifies                                                    |
 | -------------------------------------------- | ------------ | ----------------------------------------------------------- |
@@ -225,13 +225,13 @@ Written as `<!-- vigiles:ignore -->`. Opts one place out of a check. On its own 
 
 #### `vigiles:ignore-file`
 
-Written as `<!-- vigiles:ignore-file -->`, on a line of its own. Opts the whole file out of the reference checks, for a page that is entirely illustrative. This page shows it in a code span on purpose: on a line of its own, even inside a code block, it would switch the check off for this page.
+Written as `<!-- vigiles:ignore-file -->`. Opts the whole file out of the reference checks, for a page that is entirely illustrative. The doc-reference check honours it only on a line of its own, and there even inside a code block. [`unmarked-refs`](rules/unmarked-refs.md) honours it anywhere in the file, a code span included.
 
 #### `vigiles:ignore-test`
 
 Written as `<!-- vigiles:ignore-test -->`. Marks a skill, subagent or output style as deliberately untested. The coverage rules ([`untested-skill`](rules/untested-skill.md) and its siblings) report it as `exempt`, so the skip stays visible instead of silent.
 
-Two more marks, `vigiles:gate` and `vigiles:result`, are written by `vigiles compile` into a skill's `SKILL.md`, never by hand; see [skills](skills.md).
+Four more marks are written by `vigiles compile`, never by hand: `vigiles:gate` and `vigiles:result` in a skill's `SKILL.md` (see [skills](skills.md)), `vigiles:effect` around an `effect()` block, and `vigiles:purity:<level>` on a compiled agent or skill.
 
 **Nothing to install for any language.** JS/TS and CSS use the grammars built into `@ast-grep/napi`; Python, Ruby and Rust use WebAssembly builds of their tree-sitter grammars that ship with vigiles (`@vscode/tree-sitter-wasm`). No install scripts run, so a default `npm install`, `pnpm add` or `yarn add` needs no approval, and those three languages need no platform-specific binary.
 

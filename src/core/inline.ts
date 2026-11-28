@@ -167,6 +167,10 @@ export const VIGILES_MARKS = {
   // Skill step gates (`src/adapters/claude-code/skill-runtime.ts`).
   gate: { writer: "compiler" },
   result: { writer: "compiler" },
+  // `src/core/compile.ts`: an `effect()` region, and a declared purity floor
+  // (`<!-- vigiles:purity:<level> -->`, read by the runtime purity gate).
+  effect: { writer: "compiler" },
+  purity: { writer: "compiler" },
 } as const satisfies Record<string, MarkSpec>;
 
 /** The name of one vigiles mark. */
