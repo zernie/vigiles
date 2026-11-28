@@ -28,6 +28,36 @@ const baseKey: CacheKeyInput = {
   trialIndex: 0,
 };
 
+test("a host run's cache key keeps its bytes: `execution` absent and undefined hash alike", () => {
+  const host: CacheKeyInput = {
+    task: "t",
+    model: "m",
+    tools: ["Read"],
+    files: { a: "1" },
+    settings: undefined,
+    env: { X: "1" },
+    runEnv: { kind: "ephemeral" },
+    harnessVersion: "2.1",
+    trialIndex: 0,
+  };
+  // Guards: adding `execution` did not move a host key, so every entry
+  // recorded before container runs existed still replays (pinned at the
+  // commit before the field).
+  assert.equal(cacheKey(host), "2b7880637c743241");
+  // Guards: the host runner passes `execution: undefined`, which must hash
+  // exactly as the field's absence.
+  assert.equal(cacheKey({ ...host, execution: undefined }), cacheKey(host));
+});
+
+test("a container run's cache key differs from the host's, and between two option sets", () => {
+  const inBox = (options: object): string =>
+    cacheKey({ ...baseKey, execution: { kind: "container", options } });
+  // Guards: a container attempt never replays a host attempt's record.
+  assert.notEqual(inBox({}), cacheKey(baseKey));
+  // Guards: an option that changes what the agent can reach is a new input.
+  assert.notEqual(inBox({}), inBox({ networkMode: "none" }));
+});
+
 test("cacheKey is stable and order-independent for object inputs", () => {
   const k1 = cacheKey(baseKey);
   // same logical input, object keys in a different order → same key

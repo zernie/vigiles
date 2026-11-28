@@ -877,3 +877,38 @@ test("COMPLETENESS: every model-facing trigger-rate input changes the lock hash"
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test("a host run's lock inputsHash keeps its bytes once `execution` exists", async () => {
+  const dir = tmp();
+  try {
+    const hashFor = async (
+      env: { kind: "ephemeral" } | { kind: "inherit"; reason: string },
+    ): Promise<string | undefined> => {
+      await runEvalWith(
+        {
+          name: "pin",
+          env,
+          arms: { a: { files: { "x.txt": "1" } } },
+          task: "do it",
+          trials: 1,
+          model: MODEL,
+          spacingSec: 0,
+          measure: () => ({ ok: true }),
+          experimental_contextCheck: false,
+          lock: { mode: "update", dir, evalApiVersion: 1 },
+        },
+        countingRunner().run,
+      );
+      return readLock(dir, "pin")?.inputsHash;
+    };
+    // Guards: a lock committed before container runs existed is not made stale
+    // by them (both pinned at the commit before `execution`).
+    assert.equal(
+      await hashFor({ kind: "inherit", reason: "pin" }),
+      "b0099dd8f5618070",
+    );
+    assert.equal(await hashFor({ kind: "ephemeral" }), "2b3b4efcf78e330c");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

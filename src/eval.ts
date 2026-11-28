@@ -157,6 +157,30 @@ import {
   parseRunEnv,
   parseToolStubs,
 } from "./core/eval-spec-parse.js";
+import {
+  parseExecution,
+  type ExecutionSpec,
+} from "./core/eval-execution-parse.js";
+import {
+  planExecution,
+  readyExecution,
+  type ReadyMachine,
+  type ExecutionPlan,
+  type TrialExecution,
+} from "./eval-container.js";
+import {
+  attemptMounts,
+  containerRunner,
+  containmentOf,
+  executionCacheView,
+  executionLockView,
+  HOST_CONTAINMENT_LINE,
+  interceptCommand,
+  launcherFor,
+  type AttemptDirs,
+} from "./eval-container-attempt.js";
+import type { Mount } from "./core/container.js";
+import { uniqueBy } from "remeda";
 import type { RepoWorkspace, TrialWorkspaceView } from "./core/workspace.js";
 import {
   disposeWorkspace,
@@ -424,6 +448,22 @@ export type EvalSpec<M extends Metrics = Metrics> = {
    * `docs/safety.md` (what a child run inherits).
    */
   readonly env: RunEnv;
+  /**
+   * **Where the agent PROCESS runs.** Default `{ kind: "host" }`: on your
+   * machine, as always — a process the agent started in the background can
+   * outlive its trial and write into the trial's folder while it is scored.
+   *
+   * `{ kind: "container", …options }` runs every ATTEMPT in a fresh container,
+   * stopped before the attempt is scored, so nothing the agent started
+   * survives into scoring. Needs `env: { kind: "ephemeral" }`, Docker and the
+   * `testcontainers` package; the trial's folders are mounted at their own
+   * paths. The options are the settings that cannot break that containment
+   * (`image`, `platform`, `pullPolicy`, `networkMode`, `resourcesQuota`,
+   * `sharedMemorySize`, `ulimits`, `extraHosts`, `tmpFs`,
+   * `droppedCapabilities`); any other field is refused. Hashed into the cache
+   * and the lock.
+   */
+  readonly execution?: ExecutionSpec;
   /**
    * **Tool stubs on PATH (rung R2)** — fake binaries that answer PER INVOCATION.
    * Build each with {@link experimental_stub}: a list of rules over the argv
@@ -1103,6 +1143,8 @@ async function runWithCache(
     stubs: readonly string[];
     /** Where the run executes (kind + seed), never the per-trial HOME path. */
     runEnv: unknown;
+    /** The container an attempt runs in; undefined on the host runner. */
+    execution: unknown;
   },
   runner: AgentRunner,
   cfg: RunConfig,
@@ -1122,6 +1164,7 @@ async function runWithCache(
     env: keyParts.env,
     stubs: keyParts.stubs.length > 0 ? keyParts.stubs : undefined,
     runEnv: keyParts.runEnv,
+    execution: keyParts.execution,
     // A native --plugin-dir install isn't in `files`, so hash its CONTENTS into
     // the key — otherwise editing a skill in it would false-replay.
     pluginDirHash: runArgs.pluginDir ? hashDir(runArgs.pluginDir) : undefined,
@@ -1198,11 +1241,11 @@ const INTERCEPT_TOOL_HOOK_CLI =
   ].find((p) => existsSync(p)) ?? join(import.meta.dirname, "cli.js");
 /** This node binary — what every command the eval writes for a child calls back into. */
 const NODE_BIN = process.execPath;
-const INTERCEPT_TOOL_HOOK_CMD = `"${NODE_BIN}" "${INTERCEPT_TOOL_HOOK_CLI}" hook-runtime intercept-tool`;
 /**
- * How a stub shim reaches the stub runtime: the same node and `cli.js` as the
- * intercept hook, for the same reason (`npx vigiles` does not resolve from a
- * throwaway dir). The shim runs `cli.js hook-runtime stub`.
+ * How the intercept hook and a stub shim reach vigiles on the host: this node
+ * and `cli.js`, since `npx vigiles` does not resolve from a throwaway dir. The
+ * hook runs `cli.js hook-runtime intercept-tool` (`interceptCommand`), a shim
+ * `cli.js hook-runtime stub`. A container attempt uses the image's own pair.
  */
 const STUB_LAUNCHER = { node: NODE_BIN, cli: INTERCEPT_TOOL_HOOK_CLI };
 
@@ -1248,31 +1291,37 @@ export function belowModelFloor(model: string, floor: string): boolean {
 
 // Moves with #552: the harness version is a Claude Code fact, like the spawn above.
 /* v8 ignore start -- spawns the real harness binary; memoized, cache-path only */
-let cachedHarnessVersion: string | undefined;
+let cachedRawVersion: string | undefined;
 /**
- * The harness binary version (`claude --version`), reduced to its
- * behaviorally-significant token by the runtime port's
- * {@link HarnessRuntime.versionKey} — so a Claude Code **minor/major** upgrade
- * (new system prompt / tool defs) invalidates a stale replay while patches don't
- * churn it. The reduction is per-harness (CC → `major.minor`, Codex → `""`) and
- * lives on the adapter, not here. Memoized (one spawn per process), resolved only
+ * `claude --version` as printed, memoized (one spawn per process); "unknown"
+ * when the binary is absent. A container image installs this exact version.
+ */
+function rawHarnessVersion(): string {
+  if (cachedRawVersion === undefined) {
+    try {
+      cachedRawVersion = execSync(`${EVAL_RUNTIME.agentBinary} --version`, {
+        encoding: "utf-8",
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch {
+      cachedRawVersion = "unknown";
+    }
+  }
+  return cachedRawVersion;
+}
+
+/**
+ * The harness binary version, reduced to its behaviorally-significant token by
+ * the runtime port's {@link HarnessRuntime.versionKey} — so a Claude Code
+ * **minor/major** upgrade (new system prompt / tool defs) invalidates a stale
+ * replay while patches don't churn it. The reduction is per-harness (CC →
+ * `major.minor`, Codex → `""`) and lives on the adapter, not here. Resolved only
  * on the cache path, "unknown" if the binary isn't found (then it doesn't
  * partition the key).
  */
 function harnessVersion(): string {
-  if (cachedHarnessVersion === undefined) {
-    try {
-      cachedHarnessVersion = EVAL_RUNTIME.versionKey(
-        execSync(`${EVAL_RUNTIME.agentBinary} --version`, {
-          encoding: "utf-8",
-          stdio: ["ignore", "pipe", "ignore"],
-        }),
-      );
-    } catch {
-      cachedHarnessVersion = "unknown";
-    }
-  }
-  return cachedHarnessVersion;
+  const raw = rawHarnessVersion();
+  return raw === "unknown" ? "unknown" : EVAL_RUNTIME.versionKey(raw);
 }
 /* v8 ignore stop */
 
@@ -1282,6 +1331,25 @@ registerAgentProbe(spawnAgent, () =>
     ? { kind: "missing", binary: EVAL_RUNTIME.agentBinary }
     : { kind: "found" },
 );
+/* v8 ignore stop */
+
+/**
+ * The raw `--version` output of each real runner's binary — what a container
+ * image installs the same version of. An injected runner (a test's fake) has
+ * none unless it registers one, and a container run then refuses to start.
+ */
+const AGENT_VERSIONS = new WeakMap<AgentRunner, () => string>();
+
+/** Give `runner` the raw version of the binary it drives. */
+export function registerAgentVersion(
+  runner: AgentRunner,
+  version: () => string,
+): void {
+  AGENT_VERSIONS.set(runner, version);
+}
+
+/* v8 ignore start -- the real binary's version; a test registers its own */
+registerAgentVersion(spawnAgent, rawHarnessVersion);
 /* v8 ignore stop */
 
 /** Warn (once per run) that replaying/recording a cache on a floating alias hides drift. */
@@ -1303,11 +1371,10 @@ function warnFloatingModel(model: string): void {
 function withInterceptToolHook(
   settings: unknown,
   intercepts: readonly ToolIntercept[],
+  command: string,
 ): unknown {
   if (intercepts.length === 0) return settings;
-  const intercept = buildInterceptSettings(intercepts, {
-    command: INTERCEPT_TOOL_HOOK_CMD,
-  });
+  const intercept = buildInterceptSettings(intercepts, { command });
   const base = isRecord(settings) ? settings : {};
   const baseHooks = isRecord(base.hooks) ? base.hooks : {};
   const basePre: unknown[] = Array.isArray(baseHooks.PreToolUse)
@@ -1442,6 +1509,7 @@ function trialEnv(
   home: string,
   overlay: Record<string, string> | undefined,
   stubBin: string | undefined,
+  where: TrialExecution["kind"],
 ): TrialEnv {
   const withStubs = (path: string | undefined): string =>
     stubBin === undefined
@@ -1464,11 +1532,10 @@ function trialEnv(
         }),
         ...overlay,
       };
+      const hostEnv =
+        stubBin === undefined ? base : { ...base, PATH: withStubs(base.PATH) };
       return {
-        env:
-          stubBin === undefined
-            ? base
-            : { ...base, PATH: withStubs(base.PATH) },
+        env: where === "container" ? containerPath(base, stubBin) : hostEnv,
         replaceEnv: true,
         keyEnv: base,
       };
@@ -1485,6 +1552,38 @@ function trialEnv(
         keyEnv: overlay,
       };
   }
+}
+
+/**
+ * A container attempt's env: the host's PATH names host directories the image
+ * does not have, so it is dropped. What stays is only the stub bin dir, which
+ * the container host puts before the image's own PATH.
+ */
+function containerPath(
+  base: Readonly<Record<string, string>>,
+  stubBin: string | undefined,
+): Readonly<Record<string, string>> {
+  const rest = Object.fromEntries(
+    Object.entries(base).filter(([k]) => k !== "PATH"),
+  );
+  return stubBin === undefined ? rest : { ...rest, PATH: stubBin };
+}
+
+/**
+ * The directories one attempt touches: the trial's own, plus the arm's plugin
+ * install and checkout, which the agent reads by their absolute paths.
+ */
+function trialDirs(
+  arm: EvalArm,
+  own: Omit<AttemptDirs, "pluginDir" | "pluginRoot">,
+): AttemptDirs {
+  return {
+    ...own,
+    ...(arm.pluginDir === undefined
+      ? {}
+      : { pluginDir: resolve(arm.pluginDir) }),
+    ...(arm.plugin === undefined ? {} : { pluginRoot: resolve(arm.plugin) }),
+  };
 }
 
 /** A finished trial: its score, usage, and the stub calls nobody answered. */
@@ -1509,10 +1608,17 @@ async function executeTrial(
     readonly maxBudgetUsd?: number;
     readonly signal?: AbortSignal;
   },
-  retrying: RetryingRunner,
+  how: {
+    readonly retrying: RetryingRunner;
+    readonly execution: TrialExecution;
+  },
   cfg: RunConfig,
 ): Promise<TrialOutcome> {
   const { index: trialIndex, maxBudgetUsd, signal, plan } = trial;
+  const { retrying, execution } = how;
+  // What every command written for the agent calls back into: this node and
+  // CLI on the host, the image's own in a container.
+  const launcher = launcherFor(execution, STUB_LAUNCHER);
   // Resolved before any temp dir exists, so a bad plugin leaves nothing behind.
   const resolved = resolveHarness({
     plugin: arm.plugin,
@@ -1534,20 +1640,40 @@ async function executeTrial(
   // Tool stubs (rung R2): a shim per stub in a temp dir BESIDE the work dir —
   // not in it, so the agent does not find vigiles plumbing in its project.
   const stubs = spec.stubs;
-  const stubDir =
-    stubs.length > 0 ? writeStubDir(stubs, STUB_LAUNCHER) : undefined;
+  const stubDir = stubs.length > 0 ? writeStubDir(stubs, launcher) : undefined;
   // The trial's base record: a git dir beside the work dir (never in it, so
   // the agent's own git cannot reach it), removed with it.
   const baseDir = plan.workspace === undefined ? undefined : makeTmpDir("base");
   try {
     const intercepts = arm.interceptTools ?? [];
-    const settings = withInterceptToolHook(resolved.settings, intercepts);
+    const settings = withInterceptToolHook(
+      resolved.settings,
+      intercepts,
+      interceptCommand(launcher),
+    );
     // The eval-injected overlay (VIGILES_INTERCEPT_TOOLS), if any.
     const overlay =
       intercepts.length > 0
         ? { [INTERCEPT_TOOLS_ENV]: serializeIntercepts(intercepts) }
         : undefined;
-    const run = trialEnv(spec.env, home, overlay, stubDir?.binDir);
+    const run = trialEnv(
+      spec.env,
+      home,
+      overlay,
+      stubDir?.binDir,
+      execution.kind,
+    );
+    // Every host directory the attempt touches, mounted at its own path when
+    // the attempt runs in a container.
+    const mounts = attemptMounts(
+      trialDirs(arm, {
+        cwd,
+        home,
+        baseDir,
+        stubRoot: stubDir?.root,
+        captureDirs: observed.dirs,
+      }),
+    );
     const hasSettings = settings !== undefined;
     // The trial's world and, after every per-arm write and before the spawn,
     // its own base. A workspace trial is laid again before each retried
@@ -1593,6 +1719,7 @@ async function executeTrial(
         env: run.keyEnv,
         stubs: stubs.map(encodeStub),
         runEnv: runEnvKeyView(spec.env),
+        execution: executionCacheView(execution),
       },
       // A rate-limited attempt is discarded and retried; its stub calls must
       // go with it, or the retry inherits a used-up `inOrder` answer and the
@@ -1601,7 +1728,7 @@ async function executeTrial(
         observed.reset();
         if (stubDir !== undefined) resetStubCalls(stubDir);
         world.beforeAttempt();
-      }),
+      }, mounts),
       cfg,
       () => ({
         stubCalls: stubDir === undefined ? undefined : readStubCalls(stubDir),
@@ -1753,7 +1880,10 @@ function unansweredCalls(
 }
 
 /** A runner that retries rate-limited attempts, running `beforeAttempt` before each one. */
-type RetryingRunner = (beforeAttempt?: () => void) => AgentRunner;
+type RetryingRunner = (
+  beforeAttempt?: () => void,
+  mounts?: readonly Mount[],
+) => AgentRunner;
 
 /**
  * Call `runner`, retrying with exponential backoff while it looks rate-limited.
@@ -2065,7 +2195,7 @@ function evalArmsInputs(
     // is this checkout's absolute path — normalize it out so the hash is the same
     // on the dev's machine and in CI (else every plugin-with-root-hooks eval is
     // falsely stale across machines).
-    const absRoot = arm.plugin ? resolve(process.cwd(), arm.plugin) : "";
+    const absRoot = arm.plugin ? resolve(arm.plugin) : "";
     arms[name] = {
       model: arm.model ?? cfg.model,
       // The per-ARM half of the overlap documented at `inputsHash` — the
@@ -2092,11 +2222,15 @@ function evalArmsInputs(
   // Where the trials run (ephemeral + its seed, or inherit) moves behaviour, so
   // it is an input. The seed's CONTENTS are hashed — the author's input — never
   // the per-trial HOME path, which differs every run.
+  // A container run is a different setup: its kind, options and image are
+  // inputs. Absent for a host run, so a host lock's hash is unchanged.
+  const execution = executionLockView(spec.execution);
   return {
     ...scoring.inputs,
     arms,
     stubs,
     env: runEnvKeyView(spec.env),
+    ...(execution === undefined ? {} : { execution }),
     // Each run's `--max-budget-usd` is derived from it, and a cap can end a turn
     // early, so a lock recorded under another ceiling measured another setup.
     maxCostUsd: spec.maxCostUsd,
@@ -2187,6 +2321,7 @@ const EVAL_SPEC_KEYS = {
   rateLimitRetries: true,
   retryBackoffMs: true,
   env: true,
+  execution: true,
   stubs: true,
   lock: true,
   experimental_contextCheck: true,
@@ -2230,6 +2365,7 @@ type ParsedEvalSpec = Omit<
   | "experimental_regressionCases"
   | "stubs"
   | "env"
+  | "execution"
   | (typeof SINGLE_ARM_KEYS)[number]
 > &
   EvalShape & {
@@ -2237,6 +2373,8 @@ type ParsedEvalSpec = Omit<
     readonly namespaces: Readonly<Record<string, string | undefined>>;
     readonly stubs: readonly ToolStub[];
     readonly env: RunEnv;
+    /** Where each attempt runs, its harness support and adapter already checked. */
+    readonly execution: ExecutionPlan;
     /** The checked workspace, when the spec sets one. */
     readonly workspace?: PreparedWorkspace;
     /** The machine ports, when a root wired them; a case spec needs them. */
@@ -2268,6 +2406,9 @@ export async function runEvalReporting<M extends Metrics>(
   if (unanswered !== undefined) console.error(`⚠ runEval: ${unanswered}`);
   const context = contextInReport(report);
   if (context !== undefined) console.error(`⚠ runEval: ${context}`);
+  // Once per run, never per trial: what the host runner cannot end.
+  if (report.containment?.kind === "none")
+    console.error(`ℹ runEval: ${HOST_CONTAINMENT_LINE}`);
   // Surface what the run spent — tokens + API-equivalent $, and a LOUD warning if
   // it was billed to a metered API key instead of the subscription. See eval-cost.ts.
   emitCostSummary(costFromEvalReport(report));
@@ -2320,6 +2461,13 @@ export async function runEvalWith<M extends Metrics>(
     "runEval",
     EVAL_RUNTIME.runEnv?.keepHomeFiles ?? [],
   );
+  // Where each attempt runs, refused here when the harness declares no image
+  // or no container adapter was wired. Docker itself is asked before trial 1.
+  const execution = planExecution(
+    parseExecution(input.execution, "runEval", env),
+    EVAL_RUNTIME,
+    host,
+  );
   const { arms: resolvedArms, packaged } = resolveArmInstalls(
     shape.arms,
     input.stubSkillBodies ?? false,
@@ -2337,6 +2485,7 @@ export async function runEvalWith<M extends Metrics>(
       namespaces: mapValues(shape.arms, installNamespace),
       stubs,
       env,
+      execution,
       probeAgent: probeOf(runner),
       host,
       ...(workspace === undefined ? {} : { workspace }),
@@ -2349,6 +2498,82 @@ export async function runEvalWith<M extends Metrics>(
   } finally {
     for (const dir of packaged) rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * One attempt's runner: the injected one on the host; on a container run, one
+ * `ContainerHost.run` per call, under the same guards the real spawn has.
+ */
+function attemptRunner(
+  ex: TrialExecution,
+  runner: AgentRunner,
+  mounts: readonly Mount[] | undefined,
+): AgentRunner {
+  if (ex.kind === "host") return runner;
+  return withEffortGuard(
+    withStartGuard(
+      containerRunner(ex, mounts ?? [], {
+        argv: buildAgentArgs,
+        env: (a) => definedEnv(resolveSpawnEnv(a)),
+        hooks: (out) => parseHooks(out.stdout),
+      }),
+    ),
+  );
+}
+
+/** An env with its unset entries dropped: what a container is started with. */
+function definedEnv(
+  env: Readonly<NodeJS.ProcessEnv>,
+): Readonly<Record<string, string>> {
+  return Object.fromEntries(
+    Object.entries(env).filter(
+      (e): e is [string, string] => e[1] !== undefined,
+    ),
+  );
+}
+
+/**
+ * What the container preflight asks of this machine: the binary's version (the
+ * runner's own), the platform and env, and directories of the kinds trial 1
+ * mounts, so a mount the engine refuses fails before any trial.
+ */
+function readyMachine(spec: ParsedEvalSpec, runner: AgentRunner): ReadyMachine {
+  const { platform, env } = process;
+  return {
+    rawVersion: AGENT_VERSIONS.get(runner) ?? (() => "unknown"),
+    platform,
+    env,
+    probeMounts: () => probeMounts(spec),
+  };
+}
+
+/** Throwaway directories of the kinds trial 1 mounts, and their removal. */
+function probeMounts(spec: ParsedEvalSpec): {
+  readonly mounts: readonly Mount[];
+  readonly dispose: () => void;
+} {
+  // The trial dirs (work, home, stubs, base) all come from one temp root, so
+  // two stand for them; the request channel lives under the OS temp dir.
+  const cwd = makeTmpDir("eval");
+  const home = makeTmpDir("home");
+  const channel =
+    spec.experimental_contextCheck === false
+      ? undefined
+      : EVAL_RUNTIME.requestCapture?.open();
+  const captureDirs = channel?.dir === undefined ? [] : [channel.dir];
+  const mounts = uniqueBy(
+    Object.values(spec.arms).flatMap((arm) =>
+      attemptMounts(trialDirs(arm, { cwd, home, captureDirs })),
+    ),
+    (m) => m.path,
+  );
+  return {
+    mounts,
+    dispose: () => {
+      channel?.close();
+      removeTrees([cwd, home]);
+    },
+  };
 }
 
 /** How a run learns whether its agent binary exists; an injected runner is not probed. */
@@ -2414,8 +2639,19 @@ async function runResolvedEval(
   if (cfg.cache !== "off" && !isDatedModel(cfg.model)) {
     warnFloatingModel(cfg.model);
   }
-  const retrying: RetryingRunner = (beforeAttempt) => (a) =>
-    runWithRetry(a, runner, retries, backoffMs, beforeAttempt);
+  // One attempt's runner: the injected one on the host, a fresh container per
+  // attempt otherwise — either way called after `beforeAttempt`.
+  const retryingOn =
+    (ex: TrialExecution): RetryingRunner =>
+    (beforeAttempt, mounts) =>
+    (a) =>
+      runWithRetry(
+        a,
+        attemptRunner(ex, runner, mounts),
+        retries,
+        backoffMs,
+        beforeAttempt,
+      );
 
   // What counts against `maxCostUsd`: a reported cost, or — for a run that
   // reported none, killed by the timeout — the cap it was given (vigiles#416).
@@ -2431,6 +2667,7 @@ async function runResolvedEval(
   const worker = async (
     unit: Unit,
     signal: Readonly<AbortSignal>,
+    ex: TrialExecution,
   ): Promise<UnitResult> => {
     if (stopped !== undefined) return { armName: unit.armName, skipped: true };
     // The run's own cap: the budget not yet charged. Past it the CLI ends the
@@ -2448,7 +2685,7 @@ async function runResolvedEval(
           signal,
           ...(cap === undefined ? {} : { maxBudgetUsd: cap }),
         },
-        retrying,
+        { retrying: retryingOn(ex), execution: ex },
         cfg,
       );
     charged += costObserved ? usage.costUsd : (cap ?? 0);
@@ -2492,16 +2729,25 @@ async function runResolvedEval(
         scoring.why,
     },
     async (): Promise<EvalReport> => {
+      // Before anything is qualified or spent: a container run's machine
+      // (version, auth, Docker, mounts, image), refused with its cure.
+      const ex = await readyExecution(
+        spec.execution,
+        readyMachine(spec, runner),
+      );
       const cases = await casesOf(spec, concurrency);
       try {
         const units = buildUnits(plansOf(spec, cases), spec.arms, trials);
-        const results = await runPool(units, concurrency, worker);
+        const results = await runPool(units, concurrency, (unit, signal) =>
+          worker(unit, signal, ex),
+        );
         return evalReport(spec, {
           trials,
           charged,
           aborted: stopped === "budget",
           cases,
           results,
+          execution: ex,
         });
       } finally {
         disposeCases(cases);
@@ -2557,6 +2803,8 @@ interface FinishedRun {
   readonly aborted: boolean;
   readonly cases: readonly RunCase[];
   readonly results: readonly UnitResult[];
+  /** Where the attempts ran: the report's `containment`. */
+  readonly execution: TrialExecution;
 }
 
 /** The finished run's report. */
@@ -2573,6 +2821,7 @@ function evalReport(spec: ParsedEvalSpec, run: FinishedRun): EvalReport {
     unknownCostRuns: done.filter((r) => r.costObserved === false).length,
     aborted: run.aborted,
     env: runEnvReportView(spec.env),
+    containment: containmentOf(run.execution),
     ...(spec.checks === undefined ? {} : { checks: spec.checks }),
     ...casesReport(run.cases, armNames, scoredOf(done)),
   };

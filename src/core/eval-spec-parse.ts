@@ -36,7 +36,7 @@ function pathText(root: string, path: readonly PropertyKey[]): string {
   );
 }
 
-function refuse(
+export function refuse(
   caller: string,
   root: string,
   error: Readonly<z.ZodError>,
@@ -58,7 +58,7 @@ const restToken = z
   .strictObject({ kind: z.literal("rest") })
   .transform((): ArgvRest => ARGV_REST);
 /** A plain object (not an array, not a RegExp), readable by key. */
-const isObj = (v: unknown): v is Readonly<Record<string, unknown>> =>
+export const isObj = (v: unknown): v is Readonly<Record<string, unknown>> =>
   typeof v === "object" &&
   v !== null &&
   !Array.isArray(v) &&

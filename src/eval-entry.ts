@@ -21,6 +21,7 @@ import {
   WorkspaceRefusalError,
 } from "./core/workspace.js";
 import { regressionCasesOf } from "./eval-spec-shape.js";
+import { ContainerRefusalError } from "./eval-container.js";
 import type { SelectionReport } from "./scan-behavioral.js";
 
 /** Every report this entry can produce. */
@@ -144,6 +145,7 @@ export function refusalText(err: unknown): string | undefined {
   if (err instanceof WorkspaceRefusalError)
     return `workspace refused — ${describeWorkspaceRefusal(err.refusal)}`;
   if (err instanceof RegressionCaseRefusalError) return err.message;
+  if (err instanceof ContainerRefusalError) return err.message;
   return undefined;
 }
 

@@ -131,6 +131,16 @@ export interface EvalReport {
     | { readonly kind: "ephemeral" }
     | { readonly kind: "inherit"; readonly reason: string };
   /**
+   * What ended the processes each attempt started before it was scored: a
+   * container (`execution: { kind: "container" }`, stopped before scoring), or
+   * nothing — on the host runner a process the agent started in the
+   * background can outlive its trial and write while it is scored. Absent on
+   * a report built before this field existed.
+   */
+  readonly containment?:
+    | { readonly kind: "container"; readonly image: string }
+    | { readonly kind: "none"; readonly why: "host-runner" };
+  /**
    * Present when the run was scored with `checks`: each metric key (the
    * check's label, e.g. `tool(Bash)`, with ` #2` appended to a repeated one)
    * mapped to the check it scores. Every such metric is 0/1. `assertRates`

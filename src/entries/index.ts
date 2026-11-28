@@ -192,6 +192,9 @@ export type {
 } from "../core/stub-rules.js";
 // Where an eval trial runs (`EvalSpec.env`).
 export type { HomeFiles, HomeSeed, RunEnv } from "../core/run-env.js";
+// Where an eval trial's agent process runs (`EvalSpec.execution`).
+export type { ExecutionSpec } from "../core/eval-execution-parse.js";
+export type { ContainerOptions } from "../core/container.js";
 
 // The assembled machine — AGNOSTIC SURFACE ONLY. The Claude-Code transport
 // (`scriptModel`, `claudeCodeDriver`, `buildClaudeArgs`, `claudeAvailable`,
